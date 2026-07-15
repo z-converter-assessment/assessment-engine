@@ -13,7 +13,9 @@
      정밀 미할당·확장 여력(VG·미파티션 갭)은 아래 레이아웃 트리가 디스크·VG별로 노출 — 요약의 추정 미할당(배정−
      파일시스템)과 라벨 충돌 회피로 트리 단일화. #}
   <div class="sat-line"><span class="sat-name">배정 디스크</span><span class="sat-val">{% if storage.disk_total_gb is not none %}{{ storage.disk_total_gb | storagesize }} <span class="text-meta text-xs">물리 디스크 합</span>{% else %}-{% endif %}</span></div>
-  <div class="sat-line"><span class="sat-name">파일시스템 총 용량</span><span class="sat-val">{% if storage.fs_total_gb is not none %}{{ storage.fs_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 파일시스템 합</span>{% else %}-{% endif %}</span></div>
+  {# fs_total_gb = df 기반 마운트 실용량 합(used+free) — 이 탭 per-mount df 행과 정합. 서버상세 시스템정보의
+     "볼륨 배정 크기"(lsblk 블록크기)와는 다른 축(fs 포맷 오버헤드만큼 작음) — 라벨을 df 계열로 구분. #}
+  <div class="sat-line"><span class="sat-name">파일시스템 총 용량</span><span class="sat-val">{% if storage.fs_total_gb is not none %}{{ storage.fs_total_gb | storagesize }} <span class="text-meta text-xs">마운트된 파일시스템 실용량 합(df)</span>{% else %}-{% endif %}</span></div>
 
   <div class="section-title" style="margin-top:16px;">레이아웃</div>
   <div class="text-meta text-xs" style="margin-bottom:8px;">물리 디스크 - 파티션 - 논리 볼륨 - 파일시스템 계층</div>

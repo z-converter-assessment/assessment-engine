@@ -268,3 +268,32 @@ def test_action_targets_roundtrip_drops_removed_metrics_fields():
     assert not hasattr(restored.action, "metric_labels")
     assert not hasattr(restored.action.hosts[0], "metrics")
     assert restored.action.hosts[0].hostname == "legacy-host"
+
+
+def test_nested_overview_and_storage_drop_removed_fields_via_build():
+    """환경scope nested(overview.saturation_donuts·storage_tree)도 _build 일률 적용으로 필드제거 내성.
+
+    _drop_unknown_fields 가 5개 dataclass 만 커버하던 것을 _build 로 전 재구성 진입점 일률화한 회귀 —
+    nested 타입에 옛 필드가 남은 과거 스냅샷도 TypeError 없이 복원돼야 한다(#C1 정적 스냅샷).
+    """
+    data = env_report_to_dict(_make_env_report())
+    # overview nested(SaturationDonut)에 폐기 가정 키 주입
+    data["overview"]["saturation_donuts"] = [
+        {
+            "label": "CPU 포화", "count": 0, "total": 1,
+            "dash_length": 0.0, "dash_offset": 0.0, "color": "#dc2626", "pct": 0.0,
+            "_legacy_removed_axis": "load",  # 현재 스키마에 없는 옛 필드
+        }
+    ]
+    # storage_tree 재귀 노드에도 폐기 가정 키
+    data["storage_tree"] = [
+        {"name": "vda", "kind": "disk", "kind_label": "디스크", "size_gb": 100.0,
+         "children": [], "_legacy_major_minor": "252:0"}
+    ]
+
+    restored = env_report_from_dict(data)
+
+    sd = restored.overview.saturation_donuts[0]
+    assert not hasattr(sd, "_legacy_removed_axis") and sd.label == "CPU 포화"
+    node = restored.storage_tree[0]
+    assert not hasattr(node, "_legacy_major_minor") and node.name == "vda"

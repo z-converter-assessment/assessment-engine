@@ -61,16 +61,23 @@ def build_catalog() -> dict:
     # windows-server: latest build 에서 build 번호 추출 — agent kernel build 와 매칭.
     # latest 형식 X.Y.NNNNN: "10.0.26100"(2016+) / "6.3.9600"(2012R2) / "6.1.7601"(2008R2).
     # split(".")[-1] = build (26100/9600/7601). NT 6.x(2012 이하)도 포함해 전 버전 커버.
+    # support(메인스트림 지원 종료)도 싣는다 — eol(연장지원 종료)과 2단계. Windows Server LTSC 는
+    # support < eol(예: 2019 support=2024·eol=2029), SAC 는 support==eol(단일 컷오프). 이 2 날짜로
+    # 엔진이 지원중/연장지원/종료 3상태를 판정. support 가 ISO 날짜 아니면(미정 등) 생략(엔진은 eol 만 사용).
     ws = _fetch("https://endoflife.date/api/windows-server.json")
-    catalog["windows-server"] = [
-        {
+    windows: list[dict] = []
+    for d in ws:
+        if not (isinstance(d.get("eol"), str) and str(d.get("latest", "")).count(".") >= 2):
+            continue
+        entry = {
             "cycle": str(d["cycle"]),
             "build": str(d["latest"]).split(".")[-1],
             "eol": d["eol"],
         }
-        for d in ws
-        if isinstance(d.get("eol"), str) and str(d.get("latest", "")).count(".") >= 2
-    ]
+        if isinstance(d.get("support"), str):
+            entry["support"] = d["support"]
+        windows.append(entry)
+    catalog["windows-server"] = windows
 
     return catalog
 

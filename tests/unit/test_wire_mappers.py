@@ -107,7 +107,8 @@ def test_inventory_reproduction_mapped() -> None:
     payload.update(
         {
             "arch": "x86_64", "bits": 64, "boot_firmware": "uefi", "secure_boot": True,
-            "edition": None, "timezone": "Asia/Seoul", "rtc_utc": True,
+            "edition": None, "product_name": "Windows Server 2019 Standard",
+            "timezone": "Asia/Seoul", "rtc_utc": True,
             "boot": {"kernel_cmdline": "BOOT_IMAGE=/vmlinuz root=LABEL=root ro", "root_ref_type": "label"},
             "nonblock_mounts": [
                 {"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
@@ -117,6 +118,7 @@ def test_inventory_reproduction_mapped() -> None:
     )
     inv = to_inventory_create(InventoryInput.model_validate(payload))
     assert inv.arch == "x86_64" and inv.bits == 64 and inv.rtc_utc is True
+    assert inv.product_name == "Windows Server 2019 Standard"  # 무가공 passthrough (엔진이 os_display 파싱)
     assert inv.boot == {
         "kernel_cmdline": "BOOT_IMAGE=/vmlinuz root=LABEL=root ro",
         "root_ref_type": "label",

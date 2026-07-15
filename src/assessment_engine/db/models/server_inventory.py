@@ -54,6 +54,8 @@ class ServerInventory(Base):
     boot_firmware: Mapped[str | None] = mapped_column(String(8))  # uefi|bios
     secure_boot: Mapped[bool | None] = mapped_column(Boolean)
     edition: Mapped[str | None] = mapped_column(String(64))  # Windows EditionID (Linux null)
+    # CurrentVersion ProductName 원문(Windows only, Linux null) — os_display 짧은 라벨 파싱 소스.
+    product_name: Mapped[str | None] = mapped_column(String(128))
     timezone: Mapped[str | None] = mapped_column(String(64))  # IANA
     rtc_utc: Mapped[bool | None] = mapped_column(Boolean)
 

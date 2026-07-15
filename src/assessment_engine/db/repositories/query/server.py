@@ -54,6 +54,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             ServerInventory.os_id,
             ServerInventory.os_version,
             ServerInventory.kernel_version,
+            ServerInventory.product_name,
             ServerInventory.cpu_cores,
             ServerInventory.mem_total_bytes,
             ServerInventory.ip_external,
@@ -75,6 +76,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
                 os_id=r.os_id,
                 os_version=r.os_version,
                 kernel_version=r.kernel_version,
+                product_name=r.product_name,
                 cpu_cores=r.cpu_cores,
                 mem_total_bytes=r.mem_total_bytes,
                 ip_external=r.ip_external,
@@ -115,6 +117,8 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             listen_ports=r.listen_ports or [],
             last_seen_at=r.last_seen_at,
             service_categories=r.service_categories or [],
+            product_name=r.product_name,
+            edition=r.edition,
         )
 
     async def get_server(self, server_id: int) -> ServerDetail | None:

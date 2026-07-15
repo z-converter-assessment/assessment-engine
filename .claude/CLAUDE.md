@@ -226,7 +226,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 - SVG `stroke-dasharray`·`stroke-dashoffset` 비례 산술은 mapper precompute — 템플릿은 raw 값만 삽입.
 - 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·프로비저닝 분포·capacity trigger 일관).
 - 모든 카테고리 항상 노출(count 0 포함). 비활성은 동일 슬롯 옅은 회색. (도넛 카테고리는 #E9 일반 원칙의 한 사례 — 발화 없는 카테고리도 범례에 노출.)
-- 도넛 중앙 강조 라벨은 가장 시급한 카테고리 카운트 1개만. 합계·ratio 노출 금지.
+- 도넛 중앙 라벨은 도넛 유형별 의미로 통일: 구성 분포(워크로드·OS 등)=합계 / 포화=발화 호스트 수(count, 표본은 하단) / 이용률=대표 % 값. 분류(risk) 분포는 중앙 라벨 없는 막대(provisioning_dist_bar)로 렌더 — 옛 "가장 시급한 카테고리 카운트 1개" 규약은 폐기(risk 도넛 자체가 막대로 대체됨). 각 유형은 자기 맥락의 단일 중앙 표기만.
 
 ## E9. 발화 가능 정보 노출 (discoverability, P3 적용)
 
@@ -376,7 +376,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/reference/c
 | 환경변수 추가 | (1) `Settings` 필드 (2) `docs/reference/contracts/env.md` 카탈로그 (3) 루트 `docker-compose.yml` `environment:` (필요 시) (4) prod secret 분류면 `SecretStr` 타입 + `_validate_prod_*` 에 weak default 거부 추가 + `docs/reference/contracts/env.md` 2절·7절 |
 | ViewModel 파생 필드 추가 | (1) mapper 계산 (2) `cache_serializer._DETAIL_DISPLAY_FIELDS` (3) 템플릿 표시 (4) 동일 데이터 JSON API 응답이면 dataclass(P2) (5) JSON API 응답 ViewModel이면 `pnpm run codegen` 으로 `static/js/generated/api.ts` 재생성·커밋 + 소비 JS annotate (타입 계약 drift 게이트, #E6) |
 | 신규 JSON API 엔드포인트 | (1) 라우터 return 타입/`response_model` 선언 (생성 타입 원천) (2) `pnpm run codegen` -> `api.ts` 재생성·커밋 (3) 소비 JS `// @ts-check` + fetch 경계 응답 annotate (4) E2 pagination 패턴(정적 row=page / 시간흐름=cursor) 택1 |
-| 보고서 스냅샷 ViewModel nested 필드 추가 (`EnvironmentReportSummary` 등 정적 스냅샷, #C1) | (1) ViewModel dataclass (2) mapper precompute (3) `report_serializer.*_from_dict` nested 복원 (dict -> dataclass, datetime/IpAddr 재구성 — 누락 시 dict 잔류로 template `.attr` 런타임 깨짐) (4) 템플릿 `.attr` 접근 (5) 라운드트립 단위 테스트(`test_report_serializer`) |
+| 보고서 스냅샷 ViewModel nested 필드 추가/제거 (`EnvironmentReportSummary` 등 정적 스냅샷, #C1) | (1) ViewModel dataclass (2) mapper precompute (3) `report_serializer.*_from_dict` nested 복원 — spread 재구성은 `_build(cls, data)` 경유 의무(`_drop_unknown_fields` 항상 적용 -> 필드 제거 시 과거 스냅샷 잔존 키를 흡수, TypeError 500 방지. 명시 kwargs 재구성은 이미 제거 내성). datetime/IpAddr 재구성 누락 시 dict 잔류로 template `.attr` 런타임 깨짐 (4) 템플릿 `.attr` 접근 (5) 라운드트립 단위 테스트(`test_report_serializer`, 필드 제거 케이스 포함) |
 | 신규 조건부(발화) UI 섹션 추가 | (1) 제목·카테고리 항상 노출 (2) 빈 상태 `empty_state` placeholder (3) 화면 컨텍스트 가드와 데이터 발화 가드 분리 (#E9) |
 | 신규 외부 의존(HTTP·외부 큐) | (1) fail-open/close 결정(#F6) (2) timeout·재시도 정책 (3) Settings 필드 (4) #F6 매트릭스 갱신 |
 | 신규 의존성(`pyproject.toml`) | (1) `uv.lock` 갱신 (2) PR 설명에 도입 사유 (3) 대형 의존성은 ADR 검토. 워크플로 단일 진실: `docs/guides/dependencies.md` |

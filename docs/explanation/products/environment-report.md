@@ -65,7 +65,7 @@
 목적: 운영자·엔지니어가 환경 단위 정량 패턴 분석 + 자원 적정성 근거 검증. customer 와 동일 어휘(LABEL_KO) + 정량 상세.
 
 - 요약: customer 와 동일 (view 무관 단일 `_env_summary_bullets`) — 등록 서버(+vCPU/메모리/디스크) / 온라인·오프라인 / 분류 분포 / 자원 부족(원인별) / OS 지원 종료.
-- 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 / OS 구성 소제목. 메트릭 = metric-card 5축(CPU·메모리·디스크·네트워크·디스크 I/O) — 실시간 '현재 자원 현황' 축과 동기, 값은 전부 보고서 윈도우 통계(CPU/메모리/디스크 = capacity-weighted avg+p95, 네트워크/디스크 I/O = per-server 윈도우 baseline 합, 단위 표기 `format_net_rate` 실시간 공용 단일 진실). 디스크 p95 는 시점별 capacity 합이 Windows 디바이스(major/minor) 인식 불완전으로 신뢰 불가라 의도 제외(repo `environment_utilization` SQL 주석 단일 진실). 인벤토리/메트릭/OS 카드 `.env-stat-card` 높이 통일. 에이전트 버전은 보고서 헤더 메타.
+- 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 / OS 구성 소제목. 메트릭 = metric-card 5축(CPU·메모리·디스크·네트워크·디스크 I/O) — 실시간 '현재 자원 현황' 축과 동기, 값은 전부 보고서 윈도우 통계(CPU/메모리/디스크 = capacity-weighted avg+p95, 네트워크/디스크 I/O = per-server 윈도우 baseline 합, 단위 표기 "kB/s"/"MB/s" 관습 — 차트는 `ChartUtils.fmtThroughput` 단일 진실). 디스크 p95 는 시점별 capacity 합이 Windows 디바이스(major/minor) 인식 불완전으로 신뢰 불가라 의도 제외(repo `environment_utilization` SQL 주석 단일 진실). 인벤토리/메트릭/OS 카드 `.env-stat-card` 높이 통일. 에이전트 버전은 보고서 헤더 메타.
 - 환경 부하 추이(시계열 CPU/메모리/디스크) + 네트워크 토폴로지(정적 서브넷 요약 표) — 한 카드 2열.
 - 자원 적정성 평가: 분류 분포(소제목 "자원 적정성 분포") + 서버별 자원 적정성(전 서버 통합 표, `action_targets_table` — 환경 자원 평가 페이지와 칼럼 동일: 호스트·사양(CPU·메모리·디스크)·분류(근본원인 병합)·권고(`recommendation_action`, 자원별 독립 처방)·네트워크 상태·디스크 I/O 상태·신뢰도). 조치 호스트 노출은 이 한 표가 단일 진실(별도 효율화 표 없음 — customer view 만 "효율화 검토 대상"/"조치 필요 호스트" 2표로 분리).
 - 세부 서버 목록: 환경 보고서는 미표시 (전수 인쇄 폭주 회피 — 조치 대상은 효율화/자원 부족 표가 담음). 선택 N대 보고서(selection)만 표시.

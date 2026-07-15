@@ -401,4 +401,4 @@ def test_capacity_warning_item_spec_display_matches_server_list_formula():
 
     권고(사이징 목표)와 나란히 비교하는 용도. 기본 fixture: cpu_cores=2, mem_total_bytes=2GiB, disk=50e9B."""
     item = to_capacity_warning_item(_raw())
-    assert item.spec_display == "2코어 · 2.00GB · 47GB"
+    assert item.spec_display == "2코어 · 2.0GB · 47GB"

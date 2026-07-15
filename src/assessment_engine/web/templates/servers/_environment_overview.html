@@ -13,18 +13,26 @@
     <div class="kpi"><span>총 vCPU</span><strong>{{ overview.total_vcpus }}</strong></div>
     <div class="kpi"><span>메모리</span><strong>{{ overview.total_memory_gb | disksize_styled }}</strong></div>
     <div class="kpi"><span>디스크</span><strong>{{ overview.total_disk_gb | storagesize_styled }}</strong></div>
-    {# OS 지원(EOL) — 1행 값(지원중·미상·종료), 2행 라벨. 값은 큰 숫자(상태색: 중립/amber/빨강), 라벨 작게, 중앙점 구분.
+    {# OS 지원(EOL) 4상태 — 1행 값(지원중·연장지원·미상·종료), 2행 라벨. 값은 큰 숫자(상태색: 중립/amber/보라/빨강 —
+       미상은 text-unknown 으로 연장지원의 text-warn 과 구분), 라벨 작게, 중앙점 구분.
        div 기반(.kpi span{display:block} 회피). align-items:flex-start 로 · 를 숫자 행에 정렬. #}
     <div class="kpi">
       <span>OS 지원</span>
       <div style="display:flex; align-items:flex-start; gap:9px; margin-top:6px;">
         <div style="text-align:center;">
-          <div class="text-strong" style="font-size:22px; font-weight:700;">{{ overview.os_eol_supported }}</div>
+          {# 지원중 = 조치 불필요라 중립 회색(text-meta)으로 de-emphasize — 목록/보고서 행 "지원 중"과 동일 톤(I6 통일).
+             문제 상태(연장지원 amber/미상 보라/종료 빨강)만 색으로 눈에 띈다. #}
+          <div class="text-meta" style="font-size:22px; font-weight:700;">{{ overview.os_eol_supported }}</div>
           <div class="text-meta" style="font-size:11px;">지원중</div>
         </div>
         <div style="font-size:22px; color:#cbd5e1;">·</div>
+        <div style="text-align:center;" title="메인스트림 지원 종료 · 연장지원 단계(보안 패치 유지)">
+          <div class="text-warn" style="font-size:22px; font-weight:700;">{{ overview.os_eol_extended }}</div>
+          <div class="text-meta" style="font-size:11px;">연장지원</div>
+        </div>
+        <div style="font-size:22px; color:#cbd5e1;">·</div>
         <div style="text-align:center;">
-          <div class="text-warn" style="font-size:22px; font-weight:700;">{{ overview.os_eol_unknown }}</div>
+          <div class="text-unknown" style="font-size:22px; font-weight:700;">{{ overview.os_eol_unknown }}</div>
           <div class="text-meta" style="font-size:11px;">미상</div>
         </div>
         <div style="font-size:22px; color:#cbd5e1;">·</div>

@@ -29,7 +29,11 @@ from assessment_engine.web.services.mappers.server import (
     to_storage_detail,
     workload_category_counter,
 )
-from assessment_engine.web.services.mappers.shared import spec_display_line, windows_legacy_version_from_build
+from assessment_engine.web.services.mappers.shared import (
+    spec_display_line,
+    windows_legacy_version_from_build,
+    windows_short_label_from_product_name,
+)
 
 # ─── 임계값·severity ──────────────────────────────────────────────────────
 
@@ -124,6 +128,7 @@ def _summary(**overrides) -> ServerSummary:
         os_id="ubuntu",
         os_version="22.04",
         kernel_version=None,
+        product_name=None,
         cpu_cores=4,
         mem_total_bytes=8 * 1024**3,  # v2 By (v1 mem_total_kb 폐기)
         ip_external=None,
@@ -202,6 +207,48 @@ def test_list_item_os_display_windows_legacy_from_build():
     # 비레거시(2016+) 빈 os_version 은 미보강 — "windows" 만 (보강 범위는 레거시 한정)
     item_2016 = to_server_list_item(_summary(os_id="windows", os_version="", kernel_version="14393"))
     assert item_2016.os_display == "windows"
+
+
+@pytest.mark.parametrize(
+    "product_name,expected",
+    [
+        ("Windows Server 2019 Standard", "2019"),
+        ("Windows Server 2012 R2 Datacenter", "2012 R2"),
+        ("Windows Server 2016 Standard Evaluation", "2016"),
+        ("Windows Server 2022 Datacenter", "2022"),
+        ("Windows Server Datacenter", None),  # SAC — MS 가 연도 미기재
+        ("Windows 10 Pro", "10"),
+        ("Windows 11 Enterprise", "11"),
+        (None, None),
+        ("", None),
+    ],
+)
+def test_windows_short_label_from_product_name(product_name, expected):
+    assert windows_short_label_from_product_name(product_name) == expected
+
+
+def test_list_item_os_display_windows_product_name_overrides_display_version():
+    # 티어1: product_name 연도가 os_version(DisplayVersion "1809") 을 대체 — LTSC 2019 정확 표시
+    item = to_server_list_item(
+        _summary(
+            os_id="windows", os_version="1809", kernel_version="17763.4644",
+            product_name="Windows Server 2019 Standard",
+        )
+    )
+    assert item.os_display == "windows 2019"
+    # SAC(연도 없는 product_name) -> 티어2 폴백, os_version("1809") 그대로 (SAC 는 그게 정확)
+    item_sac = to_server_list_item(
+        _summary(
+            os_id="windows", os_version="1809", kernel_version="17763.4644",
+            product_name="Windows Server Datacenter",
+        )
+    )
+    assert item_sac.os_display == "windows 1809"
+    # product_name 부재(구 agent) -> 티어2/3 폴백 유지 (하위호환)
+    item_legacy = to_server_list_item(
+        _summary(os_id="windows", os_version="", kernel_version="9200", product_name=None)
+    )
+    assert item_legacy.os_display == "windows 2012"
 
 
 # ─── to_server_detail + enrich (idempotent) ───────────────────────────────

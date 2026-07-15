@@ -383,10 +383,11 @@ host_status(자원 적정성 분류)를 구동하는 saturation 2축(CPU 포화�
       <tr><td>4</td><td>mem_p95 >= 90%</td><td>메모리 압박</td></tr>
       <tr><td>5</td><td>cpu_p95 >= 70%</td><td>CPU 압박</td></tr>
       <tr><td>6</td><td>디스크 용량 임박 (소진 30일 이내 or 정적 85% or inode)</td><td>디스크 용량 임박</td></tr>
-      <tr><td>7</td><td>cpu/mem 변동성 >= 1.5 AND 해당 peak 가 헤드룸선 초과</td><td>부하 변동 큼</td></tr>
-      <tr><td>8</td><td>host_status 유휴 (활동 3축 quiescent — cpu <= 3% · net <= 2 Mbps · 디스크 IOPS <= 5)</td><td>거의 미사용</td></tr>
-      <tr><td>9</td><td>CPU·메모리 둘 다 다운사이즈선 이하 (이용률 70% 목표 필요 사양 < 현재)</td><td>여유 있음</td></tr>
-      <tr><td>10</td><td>위 모두 미해당</td><td>정상</td></tr>
+      <tr><td>7</td><td>네트워크 혼잡 (재전송·드롭·conntrack 중 하나라도 임계 초과 — 사이징 아닌 품질 orthogonal)</td><td>네트워크 혼잡</td></tr>
+      <tr><td>8</td><td>cpu/mem 변동성 >= 1.5 AND 해당 peak 가 헤드룸선 초과</td><td>부하 변동 큼</td></tr>
+      <tr><td>9</td><td>host_status 유휴 (활동 3축 quiescent — cpu <= 3% · net <= 2 Mbps · 디스크 IOPS <= 5)</td><td>거의 미사용</td></tr>
+      <tr><td>10</td><td>CPU·메모리 둘 다 다운사이즈선 이하 (이용률 70% 목표 필요 사양 < 현재)</td><td>여유 있음</td></tr>
+      <tr><td>11</td><td>위 모두 미해당</td><td>정상</td></tr>
     </tbody>
   </table>
   </div>
@@ -413,10 +414,31 @@ host_status(자원 적정성 분류)를 구동하는 saturation 2축(CPU 포화�
     </thead>
     <tbody>
       <tr><td>데이터 수집 끊김 (gap)</td><td>last_metric_at 부터 경과 분</td><td>5분 이상 + 24h 안 발생</td><td>Agent · MQ · DB write 정지 1차 신호 — 메트릭 신뢰도 zero</td></tr>
-      <tr><td>OS EOL</td><td>OS distro · version 의 vendor EOL date 매핑 (정적)</td><td>임박 또는 지남</td><td>OS vendor 발표 - 보안 패치 중단, 마이그레이션 선행 필요</td></tr>
+      <tr><td>OS EOL</td><td>OS distro · version 의 vendor 지원일 매핑 (정적, endoflife.date 스냅샷)</td><td>연장지원 종료(eol) 경과</td><td>OS vendor 발표 - 보안 패치 중단, 마이그레이션 선행 필요. 운영 신호 발화는 완전 종료(eol)만 — 연장지원 단계는 별도 상태로만 표시(발화 X)</td></tr>
       <tr><td>에이전트 불안정</td><td>최근 1시간 안 에이전트 재시작 횟수 (agent_started_at 변경)</td><td>3회 이상</td><td>재시작 누적 - 수집 연속성·적정성 평가 신뢰도 저하</td></tr>
     </tbody>
   </table>
+
+  <h3 style="margin-top:18px;">OS 지원 상태 판정 (4상태)</h3>
+  <p class="text-meta text-sm" style="margin:0 0 8px;">
+    카탈로그 2 날짜(support=메인스트림 종료 / eol=연장지원 종료)로 서버별 상태를 판정. Windows Server LTSC 는
+    두 날짜가 분리(예: 2019 support 2024-01 / eol 2029-01), Linux 는 카탈로그에 support 미수록이라 eol 단일 판정.
+  </p>
+  <table>
+    <thead><tr><th>상태</th><th>조건</th><th>의미 · 표시</th></tr></thead>
+    <tbody>
+      <tr><td>지원 중</td><td>support 미도래(또는 Linux 로 support 없음 + eol 미도래)</td><td>메인스트림 지원 중 — 중립 표시</td></tr>
+      <tr><td>연장지원</td><td>support 경과 + eol 미도래 (Windows Server LTSC 전용)</td><td>메인스트림 종료·보안 패치는 유지 — amber, 마이그레이션 계획 신호. 운영 신호 발화 X</td></tr>
+      <tr><td>지원 종료</td><td>eol 경과</td><td>보안 패치 중단 — 빨강, 운영 신호 발화</td></tr>
+      <tr><td>미상</td><td>카탈로그 미수록·미매칭</td><td>판정 불가 — 보라(text-unknown, 연장지원의 amber와 구분), '지원 중' 단정 회피 (#E9 침묵)</td></tr>
+    </tbody>
+  </table>
+  <p class="text-meta text-sm" style="margin:8px 0 0;">
+    Windows 는 kernel build 로 카탈로그 역조회(운영=Server 가정). 한 빌드가 복수 채널에 겹치면
+    (예: build 17763 = SAC 1809-sac + LTSC 2019) 후보 전체로 정직 판정 — 후보 전부 eol 경과면 종료,
+    전부 support 경과면 연장지원, 아니면 지원 중. 대표 라벨·날짜는 eol 최장(LTSC) 후보. 불확실 시
+    과소지원 오판정보다 안전 쪽(연장지원)으로 — 정상 지원 중 호스트에 false-positive 종료 발화 회피.
+  </p>
   </div>
 </section>
 

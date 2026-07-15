@@ -24,7 +24,7 @@
 
 ### 영역 1: 환경 요약
 
-- 총 N대 / 자원 합계 (vCPU·메모리·디스크) KPI + OS 분포 + OS 지원(EOL) 3상태 카운트(지원중·미상·종료 — `lookup_os_eol` 단일 진실, 서버 목록 `os_eol_status` 와 동일 판정)
+- 총 N대 / 자원 합계 (vCPU·메모리·디스크) KPI + OS 분포 + OS 지원(EOL) 4상태 카운트(지원중·연장지원·미상·종료 — `lookup_os_eol` 단일 진실, 서버 목록 `os_eol_status` 와 동일 판정)
 
 답: "지금 환경에 몇 대 있고 자원 총량은? OS 지원 종료 위험이 있나?"
 
@@ -54,7 +54,7 @@
 
 ### 영역 5: 시스템 에러
 
-- fleet 에러 발생 호스트 수 표시자 — 하드웨어(MCE·EDAC)·OOM·디스크·NIC 에러 5종만. 전체 기간 조회(에러는 드문 이벤트라 창 제한 부적합), 발생 대수만 badge (정상=0 발화, E9). OS 지원 종료(EOL)는 이 카드에 없음 — "환경 요약" 카드의 "OS 지원" KPI(지원중/미상/종료 3상태 카운트)로만 노출(영역 1)
+- fleet 에러 발생 호스트 수 표시자 — 하드웨어(MCE·EDAC)·OOM·디스크·NIC 에러 5종만. 전체 기간 조회(에러는 드문 이벤트라 창 제한 부적합), 발생 대수만 badge (정상=0 발화, E9). OS 지원 종료(EOL)는 이 카드에 없음 — "환경 요약" 카드의 "OS 지원" KPI(지원중/연장지원/미상/종료 4상태 카운트)로만 노출(영역 1)
 
 답: "지금 손대야 할 하드웨어 이벤트가 있나?"
 
@@ -66,11 +66,11 @@
 
 ### 서버 테이블 (행별)
 
-- 컬럼: 선택 / 상태 (online dot) / 워크로드 (분류 칩) / Hostname / CPU · 메모리 · 디스크 (spec_display) / OS / OS 지원 종료 (3상태) / 자원 적정성 (분류 라벨) / 운영 이벤트 (전체 기간 에러 발생 유무) / ZDM Install / 상세
+- 컬럼: 선택 / 상태 (online dot) / 워크로드 (분류 칩) / Hostname / CPU · 메모리 · 디스크 (spec_display) / OS / OS 지원 종료 (4상태) / 자원 적정성 (분류 라벨) / 운영 이벤트 (전체 기간 에러 발생 유무) / ZDM Install / 상세
 - 외부 IP 컬럼 없음 — 식별·분류에 미사용
 - 워크로드 컬럼 — 시그니처 워크로드 카테고리(`SIGNATURE_CATEGORIES`) 칩(known_services, 카테고리명). 환경 개요 주요 워크로드와 동일 필터(baseline·관리 제외, 목록 노이즈 회피). 미분류는 "—"
 - CPU · 메모리 · 디스크 컬럼 — 정적 배정 사양(`spec_display`, 실측 이용률 아님)
-- OS 지원 종료 컬럼 — 지원 중(무채) / 미상(amber, EOL 카탈로그 미수록·미매칭) / 지원 종료(빨강) 3상태
+- OS 지원 종료 컬럼 — 지원 중(무채) / 연장지원(amber, 메인스트림 종료·보안 패치 유지, Windows Server LTSC) / 미상(amber, EOL 카탈로그 미수록·미매칭) / 지원 종료(빨강) 4상태
 - 자원 적정성 컬럼 — `recommendation.classify` 결과(`under_provisioned`/`over_provisioned`/`idle`/`shutdown`/`optimal`/`insufficient_data`), under_provisioned 만 빨강 강조
 - 운영 이벤트 컬럼 — 수집 전체 기간 에러 이벤트(OOM kill·MCE·메모리 손상·네트워크/디스크 에러) 발생 유무만(문제 있음/이상 없음), 발생 시점·건수는 서버 상세에서 확인
 - ZDM Install 컬럼 — 최근 install task badge(success/failure/pending) + 클릭 시 modal 로 stdout/stderr/failure_reason 디버깅. modal 본문은 server fragment endpoint (`GET /api/tasks/{id}/detail`) HTML 반환 (P3 정공)

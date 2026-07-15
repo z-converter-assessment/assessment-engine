@@ -33,7 +33,7 @@ from assessment_engine.web.services.mappers.report import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_FROM_REC,
-    format_net_rate,
+    lookup_os_eol,
     resolve_os_eol,
 )
 
@@ -868,6 +868,44 @@ def test_os_eol_matching(os_id, os_version, should_match):
     assert (item is not None) == should_match
 
 
+def test_windows_ambiguous_build_prefers_longer_supported_cycle():
+    """빌드 17763 은 SAC(1809, support=eol=2020-11-10)·LTSC(2019, support=2024·eol=2029) 양쪽에 매핑.
+    후보 전부 support 경과·일부만 eol 경과 -> extended(연장지원) 판정, 대표 라벨·날짜는 LTSC(eol 최장)."""
+    info = lookup_os_eol("windows", None, "17763.4644", _NOW.date())
+    assert info is not None
+    assert info.label == "Windows Server 2019"
+    assert info.eol_iso == "2029-01-09"
+    assert info.support_iso == "2024-01-09"
+    assert info.status == "extended"
+
+
+def test_windows_2019_not_falsely_flagged_eol_passed():
+    """회귀: 빌드 우선순위 버그로 정상 지원 중(연장지원)인 Server 2019 가 완전 EOL 로 발화되던 문제.
+    extended 는 보안 패치 유지라 resolve_os_eol(발화용)이 None 이어야 한다."""
+    assert resolve_os_eol("windows", None, "17763.4644", _NOW.date()) is None
+
+
+def test_windows_2012_r2_fully_eol_fires():
+    """빌드 9600(2012 R2, support 2018·eol 2023) — 둘 다 경과. status=eol, 발화."""
+    info = lookup_os_eol("windows", None, "9600.1", _NOW.date())
+    assert info is not None and info.status == "eol"
+    assert resolve_os_eol("windows", None, "9600.1", _NOW.date()) is not None
+
+
+def test_windows_2022_supported():
+    """빌드 20348(2022, support 2026-10·eol 2031) — 2026-05 기준 둘 다 미도래. status=supported."""
+    info = lookup_os_eol("windows", None, "20348.2340", _NOW.date())
+    assert info is not None and info.status == "supported"
+
+
+def test_linux_has_no_extended_state():
+    """Linux 카탈로그는 support 미수록 -> extended 없이 eol/supported 2상태(기존 동작 유지)."""
+    supported = lookup_os_eol("ubuntu", "22.04", "5.15", _NOW.date())
+    assert supported is not None and supported.status == "supported" and supported.support_iso is None
+    eol = lookup_os_eol("centos", "7.9", "3.10", _NOW.date())
+    assert eol is not None and eol.status == "eol"
+
+
 def test_agent_unstable_item_fields():
     """운영 신호 배지 단일 색 — `attn-active` (사용자 의도, 운영 신호 통일)."""
     item = to_agent_unstable_item("pid", "h", 5)
@@ -1080,18 +1118,3 @@ def test_build_resource_stats_util_trend_rising_from_slopes():
     assert build_resource_stats(_raw(history_hours=40.0)).util_trend_rising is None
 
 
-# ─── format_net_rate — 실시간·보고서 네트워크 rate 표시 단일 진실 ───
-
-
-@pytest.mark.parametrize(
-    "kbps, expected",
-    [
-        (None, None),
-        (0.0, "0.0 kB/s"),
-        (512.0, "512.0 kB/s"),
-        (1024.0, "1.0 MB/s"),
-        (2560.0, "2.5 MB/s"),
-    ],
-)
-def test_format_net_rate(kbps, expected):
-    assert format_net_rate(kbps) == expected

@@ -293,7 +293,8 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             err = await self.repo.latest_errors(server_id, end_dt - timedelta(days=period_days))
             errors = build_error_signals(err, window_label=f"최근 {win_days}일", os_family=raw0.os_family)
             summary.period_assessment = build_period_assessment(
-                build_resource_stats(raw0), errors, disk_worst_mount=raw0.disk_capacity_worst_mount
+                build_resource_stats(raw0), errors, disk_worst_mount=raw0.disk_capacity_worst_mount,
+                window_days=win_days,
             )
 
             # 스토리지 레이아웃 트리 — storage.html 과 동일 단일 진실(build_storage_tree). 현재 스냅샷 기준
