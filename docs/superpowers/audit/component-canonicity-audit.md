@@ -1,6 +1,6 @@
 # 컴포넌트 정석성 감사 — 리포트
 
-상태: 진행 중 (Domain 1-2 완료)
+상태: 감사 종료 (Domain 1-4 완료)
 날짜: 2026-07-21
 설계 spec: ../specs/2026-07-21-component-canonicity-audit-design.md
 성격: 내부 방법론 작업 자료 (외부 공유용 아님 — repo 내부 코드·규약 인용을 포함).
@@ -82,6 +82,70 @@
 
 ---
 
+## Domain 3: 표현 계층
+
+### U8 web 라우팅·SSR+JSON·composition root — canonical
+
+- 현재: FastAPI lifespan으로 broker/http_client/redis 생성·graceful close. Depends DI, deps.py = composition root(라우터는 추상만, 구체 조립은 여기). resolve_internal_id = public_id UUID -> 내부 int(422 형식/404 미존재). 미들웨어 Cache-Control no-store(SSR BFCache 회귀 차단), StaticFiles mount, /health.
+- 근거: lifespan 자원관리·Depends DI·composition root 격리(F4)·UUID 식별자(E4) 다 정석 FastAPI. 이탈 없음.
+
+### U9 P1~P4 표시 계층·mapper·viewmodel — canonical (+ 저순위 관찰 2)
+
+- 현재: repo raw(P1) -> mapper 파생(P2, shared.py에 임계·os-aware saturation_axis_displays·EOL·confidence 전부) -> 템플릿 순수 렌더(P3) -> 클라 JS 예외(P4). cache_serializer가 ViewModel<->JSON + 역직렬화 후 enrich_* idempotent 재호출로 SSR/JSON/캐시 경로 일관. saturation 축 표시가 recommendation helper 경유(임계 재계산 0).
+- 근거: P1~P4 분리 정확 구현, mapper 단일 파생 소스, 캐시 역직렬화 후 idempotent enrich = ViewModel 일관성 정석. canonical.
+- 저순위 관찰(정당화 있어 active improvable 아님):
+  - O1: mapper 대형 파일(report.py 906·server.py 910). 응집(단일 표시 도메인) 정당하나 컨텍스트·네비 비용. 분할은 응집 훼손이라 순비용 불명 -> 관찰만.
+  - O2: cache_serializer 수동 dict->dataclass 재구성. 신규 ViewModel 필드마다 동기화(F9가 명시한 known cost), idempotent enrich가 완화. drift 위험이나 문서화된 수용.
+
+### U10 타입 계약 (OpenAPI->TS) — canonical
+
+- 현재: FastAPI OpenAPI -> openapi-typescript로 api.ts(3081줄) 생성 -> tsconfig(strict·noImplicitAny) tsc --checkJs. checkJs:false + 파일별 // @ts-check 점진 채택(전-strict 완료). fetch 경계 응답을 생성 타입에 annotate. codegen drift CI 게이트.
+- 근거: 바닐라 JS를 서버 계약에 컴파일 강제 — 대부분 프로젝트가 안 하는 고급 정석. 이탈 없음.
+
+### U11 도메인 로직 (recommendation·service_classifier) — canonical (exemplary)
+
+- 현재: recommendation.py = USE Method(Gregg) + cloud advisor 임계, 모든 상수에 (계층, 출처) 인용, os-aware helper(cpu/mem/disk_io_saturated) 단일 진실, dual-gate 포화, ConfidenceNote 4종. service_classifier = SERVICE_CATALOG 단일 카탈로그 -> 파생 인덱스 import 1회. 둘 다 web 역의존 0 순수 도메인.
+- 근거: 도메인 모델링이 예외적으로 정밀·근거 기반, 순수 도메인 모듈 분리(F4·E7). 모범 사례 — 손댈 것 없음.
+
+### Domain 3 종합
+
+- canonical: U8, U9, U10, U11 (U11 exemplary)
+- active improvable: 없음
+- 저순위 관찰: O1(mapper 대형)·O2(cache 수동 직렬화 drift) — 유지보수 축, 순비용 불명이라 참고만
+- 핵심 학습: 표현 계층은 P1~P4 분리·타입 계약·순수 도메인 모듈까지 이미 고급 정석. 재정립 대상이 아니라 오히려 참고 수준.
+
+---
+
+## Domain 4: 플랫폼
+
+### U12 config·DI·secret·worker·disposability — canonical (exemplary)
+
+- 현재: pydantic-settings BaseSettings. SecretStr(postgres/rabbitmq password), get_secret_value()는 URL 조립 시점만. 유연 secret 채널(env > .env > secrets_dir, SECRETS_DIR override). _validate_prod_* model_validator가 APP_ENV=prod에서 weak default 거부. Settings 상속(Web->Worker/Consumer/Diagnostic), module-level 인스턴스 0(composition root). database_url/broker_url이 quote(safe="")로 secret 특수문자 URL-encoding(gotcha 처리). worker/main.py = 이중 루프 공유 stop_event + asyncio-native SIGTERM(add_signal_handler, signal.signal/os._exit 없음) + graceful_drain + DB-backed 상태(메모리 손실 0).
+- 근거: SecretStr·prod 검증·유연 채널·URL-encoding·12-factor disposability·asyncio graceful 다 정석. 모범 사례.
+
+### U13 관측·로깅·배포·CI — canonical (exemplary) + improvable 1
+
+- 현재: loguru 단일 sink text/json(serialize). deploy.sh = cosign keyless verify(OIDC) -> version-pinned compose fetch -> capture-before-swap -> pull -> up -> health gate -> rollback. release.yml = keyless cosign 서명 + SBOM(SPDX) + SLSA provenance + multi-arch + digest 서명 + SHA-pinned actions + least-privilege. ci.yml = ruff/hadolint/pytest/codegen-drift/tsc/testcontainers, event-gating. Dockerfile = multi-stage + non-root(uid 1000) + minimal runtime.
+- 근거: 공급망 보안(keyless 서명·SBOM·provenance·SHA-pin)·rollback 배포·non-root 이미지 다 SLSA급 정석 — 대부분 프로젝트 이상.
+- improvable(B4, 보안 하드닝): 루트(prod) compose가 postgres(5432)·redis(6379)·rabbitmq-mgmt(15672) 호스트 포트를 publish. 앱은 docker 네트워크로 접근하니 외부 노출 불필요. 특히 Redis는 무인증(requirepass·REDIS_PASSWORD 부재) -> 호스트 네트워크에서 무인증 Redis 도달 가능. named cost: 무인증 Redis + DB/mgmt 공격 표면(otherwise-exemplary 보안 자세와 불일치). 처방: prod base에서 redis/postgres/mgmt 호스트 publish 제거(내부 compose 네트워크만), 외부 노출은 dev override로. 선택: Redis requirepass 방어심화. 위험 낮음(외부 클라이언트는 rabbitmq 5672만 필요, 확인됨).
+
+### Domain 4 종합
+
+- canonical: U12(exemplary), U13(exemplary)
+- improvable: B4(U13 compose 포트 노출/무인증 Redis, 보안 하드닝)
+- 핵심 학습: 공급망·컨테이너·config 보안은 SLSA급 정석인데, 배포 compose의 호스트 포트 노출만 그 자세와 어긋난다 — 강한 보안 설계의 유일한 하드닝 갭.
+
+---
+
+## 감사 종합 (전 도메인)
+
+- 13 유닛 판정: canonical 대다수. exemplary 5(U7 Redis·U11 도메인·U12 config·U13 공급망·U10 타입계약). active improvable 4(B1·B2·B3·B4). acceptable 2(U2 멱등성·U3 큐). 저순위 관찰 2(O1·O2). 유예 1(quorum).
+- 결론: 원 전제("초기 설계 개념이 낡음")는 코드에서 반증됨 — 시스템은 이미 모던 정석에 부합하고 여러 축(공급망 보안·도메인 모델링·타입 계약)은 참고 수준. "재작성/재아키텍처" 대상 없음.
+- 실제 개선은 타깃 4건: B1(disk cagg 이중스캔 병합 — 즉시·저위험) / B4(compose 포트 하드닝 — 즉시·저위험) / B2(상관 서브쿼리 사전계산 — EXPLAIN 선행) / B3(cagg byte gauge 확장 — 규모 큼).
+- 원 목표(CLAUDE.md 표준 형식 재편)는 유효 — 단 "규칙 갈아엎기"가 아니라 "검증된 규칙을 표준 형식으로 재배치"로 성격 확정.
+
+---
+
 ## 개선 backlog (누적)
 
 | ID | 도메인 | 항목 | 위험 | 확신 | named cost |
@@ -90,3 +154,6 @@
 | B2 | D2/U6 | 물리 device/iface 상관 EXISTS -> 사전계산 CTE | 중 | 중(EXPLAIN 선행) | O(buckets*devices) JSONB 전개 |
 | B3 | D2/U6 | env util/mem breakdown raw -> cagg 확장 | 중 | 중 | 최대 30d raw 스캔 vs cagg (마이그 동반) |
 | (유예) | D1/U3 | HA 전환 시 task.result 큐 quorum | - | - | 단일 노드 현행 0 |
+| O1 | D3/U9 | mapper 대형 파일 분할 | 낮음 | 낮음(관찰) | 컨텍스트·네비 (응집 훼손 위험) |
+| O2 | D3/U9 | cache_serializer 수동 직렬화 drift | 낮음 | 낮음(관찰) | 필드 동기화 부담 (enrich 완화) |
+| B4 | D4/U13 | prod compose 무인증 Redis + DB/mgmt 호스트 포트 노출 | 낮음 | 높음 | 무인증 Redis 공격 표면 (내부 네트워크만 노출로 축소) |
