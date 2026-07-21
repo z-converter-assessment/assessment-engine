@@ -48,7 +48,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `GET /{id}/metrics/snapshots?cursor=&limit=` | 시계열 cursor pagination (#E2) |
 | `GET /{id}/metrics/chart?metric_type=&time_range=&bucket=&agg=` | 차트 시계열 (metric_type dispatcher, 카탈로그는 `types.py`) |
 | `GET /{id}/events/reboot?time_range=&end=` | reboot/restart vertical marker용 |
-| `GET /environment/metrics-chart?metric_type=&time_range=&bucket=&ids=` | 환경 시계열 차트 (환경 성능 추이 live + 대시보드 추이, ids 면 선택 N대) |
+| `GET /environment/metrics-chart?metric_type=&time_range=&bucket=&ids=` (전체경로 `/api/servers/environment/metrics-chart` — api_router prefix) | 환경 시계열 차트 (환경 성능 추이 live + 대시보드 추이, ids 면 선택 N대) |
 | `GET /api/fleet-status` (fleet_router) | 전역 데이터 최신성 — 온라인/전체 대수 + 마지막 수신 시각 (상단 바 폴링) |
 | `GET /api/host-search?q=` (fleet_router) | 전역 호스트 검색 — hostname 부분일치 상위 8건 (상단 바 jump-to) |
 
@@ -58,7 +58,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `POST /install` | ZConverter Install task 발행 (다중 서버 일괄). 부분 UNIQUE pending 중복 시 409 (`TaskDuplicatePending`) |
 | `GET /{task_id}` | 단일 task JSON — polling / list cell 갱신 callback 용 |
 | `GET /{task_id}/detail` | 단일 task HTML fragment — task-modal body 용 (P3 정공, 서버 렌더 HTML 반환) |
-| `GET /api/tasks` | 최근 task 목록 (`list_recent_tasks`, `TaskSummaryItem[]`) |
+| `GET /api/tasks?server_public_id=&limit=&cursor=` | 서버별 task 이력 — `server_public_id`(UUID) 필수, 시간 역순 cursor pagination(E2). `list_recent_tasks` -> `TaskSummaryItem[]` |
 
 ### `assessment.py` — 프로비저닝 어세스먼트 (재해복구/마이그레이션 소비)
 | 경로 | 용도 |
