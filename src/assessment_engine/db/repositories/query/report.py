@@ -23,7 +23,6 @@ from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 from assessment_engine.db.repositories.query.base_report import BaseReportQueryRepository
 from assessment_engine.db.repositories.query.types import (
     _DATA_VOLUME_CAGG_FILTER,
-    _DATA_VOLUME_SQL_FILTER,
     _PHYS_DISK_SQL_FILTER,
     _PHYS_IFACE_SQL_FILTER,
 )
@@ -539,16 +538,16 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                  FROM server_metrics_5m
                  WHERE bucket >= :start AND bucket <= :end{sid}
                    AND mem_limit_avg > 0 AND mem_available_avg IS NOT NULL) AS mem_avg,
-                (SELECT CASE WHEN SUM(used_bytes + free_bytes) > 0
-                             THEN SUM(used_bytes)::float / SUM(used_bytes + free_bytes) * 100 END
-                 FROM server_filesystem
-                 WHERE collected_at >= :start AND collected_at <= :end{sid}
-                   AND {_DATA_VOLUME_SQL_FILTER}
-                   AND used_bytes IS NOT NULL AND free_bytes IS NOT NULL AND (used_bytes + free_bytes) > 0) AS disk_avg,
+                (SELECT CASE WHEN SUM(total_bytes_max) > 0
+                             THEN SUM(total_bytes_max * used_pct_avg / 100) / SUM(total_bytes_max) * 100 END
+                 FROM server_filesystem_5m
+                 WHERE bucket >= :start AND bucket <= :end{sid}
+                   AND {_DATA_VOLUME_CAGG_FILTER}
+                   AND total_bytes_max > 0 AND used_pct_avg IS NOT NULL) AS disk_avg,
                 (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY v) FROM cpu_per_ts) AS cpu_p95,
                 (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY v) FROM mem_per_ts WHERE v IS NOT NULL) AS mem_p95,
-                (SELECT COUNT(DISTINCT server_id) FROM server_metrics
-                 WHERE collected_at >= :start AND collected_at <= :end{sid}) AS sample_size
+                (SELECT COUNT(DISTINCT server_id) FROM server_metrics_5m
+                 WHERE bucket >= :start AND bucket <= :end{sid}) AS sample_size
         """)
         params: dict = {"start": start, "end": end}
         if server_ids:
