@@ -157,18 +157,18 @@
       { "proto": "tcp", "addr": "0.0.0.0", "port": 80, "uid": 0, "pid": 1033, "comm": "nginx" }
     ],
     "block_devices": [
-      { "name": "vdb", "type": "disk", "size_bytes": 2147483648, "fstype": null, "mountpoint": null, "parent": null, "id": "897bb3a7-77a3-48ed-8", "id_type": "serial" },
-      { "name": "vg_stripe-lv_stripe", "type": "lvm", "size_bytes": 2147483648, "fstype": "xfs", "mountpoint": "/mnt/lv_stripe", "parent": "bea56389-625e-4631-a", "id": "LVM-F9oAuGTCdYRuF573uygTKaeV", "id_type": "dm" },
+      { "name": "vdb", "type": "disk", "size_bytes": 2147483648, "fstype": null, "mountpoint": null, "parent": null, "id": "897bb3a7-77a3-48ed-8", "id_type": "serial", "rotational": false, "sector_size": 512 },
+      { "name": "vg_stripe-lv_stripe", "type": "lvm", "size_bytes": 2147483648, "fstype": "xfs", "mountpoint": "/mnt/lv_stripe", "parent": "bea56389-625e-4631-a", "id": "LVM-F9oAuGTCdYRuF573uygTKaeV", "id_type": "dm", "lvm_vg": "vg_stripe", "lvm_lv": "lv_stripe", "lvm_segtype": "striped", "lvm_stripes": 2, "lvm_stripe_size_kib": 64, "mount_options": ["rw", "relatime"] },
       { "name": "vg_stripe-lv_stripe", "type": "lvm", "size_bytes": 2147483648, "fstype": "xfs", "mountpoint": "/mnt/lv_stripe", "parent": "0ce6b70f-edb1-4038-a", "id": "LVM-F9oAuGTCdYRuF573uygTKaeV", "id_type": "dm" },
       { "name": "vda2", "type": "swap", "size_bytes": 1073741824, "fstype": "swap", "mountpoint": "[SWAP]", "parent": "1b6f14de-59e2-4c47-b", "id": "swap-uuid-abcd", "id_type": "fsuuid" }
     ],
     "lvm_vgs": [
-      { "name": "vg_linear", "size_bytes": 2143289344, "free_bytes": 532676608 },
-      { "name": "vg_thin", "size_bytes": 2143289344, "free_bytes": 1061158912, "data_percent": 4.76, "metadata_percent": 11.82 }
+      { "name": "vg_linear", "size_bytes": 2143289344, "free_bytes": 532676608, "extent_size_bytes": 4194304, "pv_ids": ["897bb3a7-77a3-48ed-8"] },
+      { "name": "vg_thin", "size_bytes": 2143289344, "free_bytes": 1061158912, "data_percent": 4.76, "metadata_percent": 11.82, "extent_size_bytes": 4194304 }
     ],
     "net_interfaces": [
-      { "name": "ens3", "id": "fa:16:3e:4c:3b:62", "id_type": "mac", "kind": "physical", "speed_mbps": null,
-        "addresses": [ { "address": "10.50.60.126", "prefix": 24, "family": "ipv4" } ], "gateway": "10.50.60.1" }
+      { "name": "ens3", "id": "fa:16:3e:4c:3b:62", "id_type": "mac", "kind": "physical", "speed_mbps": null, "mtu": 1500,
+        "addresses": [ { "address": "10.50.60.126", "prefix": 24, "family": "ipv4", "origin": "static" } ], "gateway": "10.50.60.1" }
     ]
   },
 

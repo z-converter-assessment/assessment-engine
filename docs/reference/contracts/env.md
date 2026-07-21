@@ -194,23 +194,25 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 
 ## 9. 컴포넌트별 read 매트릭스 (multi-node 분리 시)
 
-본 repo 의 2 컴포넌트 (web · consumer) 가 각자 다른 키 집합을 read. multi-node 분리 배포 시 어느 노드에 어느 키 inject 할지 reference.
+본 repo 의 3 컴포넌트 (web · consumer · worker) 가 각자 다른 키 집합을 read. multi-node 분리 배포 시 어느 노드에 어느 키 inject 할지 reference.
 
-| 키 그룹 | web | consumer |
-|--------|:---:|:--------:|
-| `APP_ENV`·`LOG_FORMAT` | 의무 | 의무 |
-| `POSTGRES_*` | 의무 | 의무 |
-| `REDIS_*` | 의무 | 의무 |
-| `RABBITMQ_*` (broker 접속) | 의무 | 의무 (consume) |
-| `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 |
-| `WORKER_*` (worker.result·task.install) | 의무 (task.install publish) | 의무 (worker.result consume) |
-| `WEB_PORT`·`WEB_RELOAD`·`INSTALL_TIMEOUT_SEC`·`ZDM_*` | 의무 | 사용 안 함 |
-| `SQLALCHEMY_ECHO` | 의무 | 의무 |
+| 키 그룹 | web | consumer | worker |
+|--------|:---:|:--------:|:------:|
+| `APP_ENV`·`LOG_FORMAT` | 의무 | 의무 | 의무 |
+| `POSTGRES_*` | 의무 | 의무 | 의무 |
+| `REDIS_*` | 의무 | 의무 | 의무 |
+| `RABBITMQ_*` (broker 접속) | 의무 | 의무 (consume) | 사용 안 함 (DB job-claim) |
+| `RABBITMQ_ROUTING_KEY_*`·`RABBITMQ_EXCHANGE` | 의무 | 의무 | 사용 안 함 |
+| `RABBITMQ_TASK_*` (task exchange·queue·keys) | 의무 (task.install publish) | 의무 (worker.result consume) | 사용 안 함 |
+| `WEB_PORT`·`WEB_RELOAD`·`INSTALL_TIMEOUT_SEC`·`INSTALL_TASK_DEADLINE_SEC`·`ZDM_*` | 의무 | 사용 안 함 | 사용 안 함 |
+| `REPORT_WORKER_*`·`INSTALL_REAPER_*` | 사용 안 함 | 사용 안 함 | 의무 |
+| `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 |
 
 코드 단일 진실 (Composition Root, CLAUDE.md #F4):
 - `src/assessment_engine/config.py` — class 정의만 (인스턴스 0)
 - `src/assessment_engine/web/settings.py` — WebSettings + DiagnosticSettings (보고서 발행 publish 용 broker)
 - `src/assessment_engine/consumer/settings.py` — ConsumerSettings
+- `src/assessment_engine/worker/settings.py` — WorkerSettings (보고서 생성 + install reaper 전용 워커, broker 미사용·DB job-claim)
 - `src/assessment_engine/db/session.py`·`cache/redis.py` — 자체 WebSettings (공통 db layer)
 
 ---
@@ -275,7 +277,7 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 | `RABBITMQ_TASK_INSTALL_KEY_PREFIX` | `task.install` | config.py | task.install 호스트별 routing key prefix. full = `<prefix>.<agent_id>` (`task_install_routing_key()`) |
 | `RABBITMQ_ROUTING_KEY_TASK_RESULT` | `task.result` | config.py | worker.result 큐 바인딩 routing key (원격 호스트 결과 보고 수신). agent `WORKER_TASK_RESULT_KEY` 와 일치 의무 |
 | `RABBITMQ_QUEUE_WORKER_RESULT` | `worker.result` | config.py | 엔진이 task.result 를 소비하는 단일 결과 큐 이름 |
-| `TASK_INSTALL_SUCCESS_EXIT_CODES` | `{"20348": [2]}` | config.py | task.result 성공 보정 정책 (`task_policy`). OS 버전(Windows `CurrentBuildNumber`) -> 성공으로 취급할 추가 exit code 목록. JSON 객체. 기본값 = Server 2022(20348) 의 exit code 2 를 설치 성공으로 보정. `script_failed` & `os_family=windows` 결과에만 적용. 예: `{"20348":[2],"26100":[2]}` |
+| `TASK_INSTALL_SUCCESS_EXIT_CODES` | `{"windows":[2],"rocky:9":[3],"almalinux:9":[3],"ol:9":[3],"centos:9":[3]}` | config.py | task.result 성공 보정 정책 (`task_policy.effective_task_result`). 키 -> 성공으로 취급할 추가 exit code. 키 규약(os_family 분기): Windows = family-level `"windows"`(빌드번호 아님) / Linux = `"os_id:major"`(예 `"rocky:9"`). 기본값 근거: Windows installer 는 설치 성공에도 exit 2, EL9(rocky/almalinux/ol/centos major 9)는 systemd start-limit 로 exit 3 이나 설치·ZDM 등록 성공 -> 보정. `status=failure`+`failure_reason=script_failed`+키 일치+exit_code 포함일 때만. JSON override 예: `{"windows":[2],"rocky:9":[3]}` |
 | `RABBITMQ_WORKER_USER` | `assessment` | agent env (repo 밖) | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
 | `RABBITMQ_WORKER_PASSWORD` | `assessment` | agent env (repo 밖) | `RABBITMQ_WORKER_USER` 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 매핑 |
 | `WORKER_TASK_EXCHANGE` | `assessment.tasks` | agent env (repo 밖) | task.install/task.result 전용 exchange. collector exchange 와 분리. 엔진 `RABBITMQ_TASK_EXCHANGE` 와 값 일치 의무 |
@@ -288,7 +290,8 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | dev compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict |
 | `WEB_PORT` | `8000` | config.py / dev compose | Web UI 접속 포트 |
 | `WEB_RELOAD` | `false` | config.py / dev compose | uvicorn auto-reload. dev hot-reload 전용 (dev compose 가 `true` 주입, `./:/app` bind mount 와 짝). prod 미설정 → false (코드 변경 감시 프로세스 불필요·bind mount 없는 wheel/image 배포에 무의미) |
-| `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout. 원격 host worker 가 SIGTERM/SIGKILL |
+| `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout (픽업 후 스크립트 실행 예산). 원격 host worker 가 SIGTERM/SIGKILL |
+| `INSTALL_TASK_DEADLINE_SEC` | `3600` | config.py | install task 배달/마감 창(초). engine `tasks.deadline_at` + broker `agent.tasks.<agent_id>` 큐 `x-message-ttl` 동일 창(오프라인 호스트 store-and-forward 유예). `INSTALL_TIMEOUT_SEC`(600) 와 별개 개념 |
 | `ZDM_DEFAULT_IP` | `""` (빈값) | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. 운영자가 real ZDM 좌표 주입. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
 | `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. startup 거부 없음 (secret 아님) |
 | `ZDM_META_CONNECT_TIMEOUT_SEC` | `5.0` | config.py | ZDM 메타 조회 HTTP connect timeout |
@@ -302,7 +305,9 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 
 - `redis_ttl_idempotent` (24h)·`redis_ttl_online` (5min)·`redis_ttl_token` (1h)
 - `redis_ttl_last_agent_start` (24h)·`redis_ttl_agent_restarts` (1h 슬라이딩 윈도우)·`redis_ttl_time_invariant_warned` (1h)
+- `redis_ttl_cache_metrics` (1min — 대시보드 스냅샷 cache-aside)·`redis_ttl_cache_detail` (5min — 서버 상세 ViewModel cache-aside)
 - `redis_key_*` 패턴 (cache:*·idempotent·online·token·last_agent_start·agent_restarts·time_invariant_warned)
+- WorkerSettings 전용 (worker 프로세스만): `report_worker_poll_interval_sec` (2s)·`report_worker_stale_seconds` (600 — running 잔류 회수)·`report_worker_shutdown_timeout_sec` (10s)·`install_reaper_interval_sec` (60s)·`install_reaper_shutdown_timeout_sec` (5s)
 - `zdm_package_path`·`zdm_package_script`·`zdm_package_path_windows` — ZDM 제품 패키지 layout 상수 (거의 안 바뀜, ZDM 버전업 시에나). 배포 변동값 아니라 미수록 — task.install download.url 은 `http://{ZDM_IP}{zdm_package_path}` 조립
 - `agent_restart_alert_threshold` (기본 3) — 에이전트 재시작 alert 임계값(1h 윈도우). 운영 alert 튜닝 노브, 평소 default 유지 — 필요 시 env override
 

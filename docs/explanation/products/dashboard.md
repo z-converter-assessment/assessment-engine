@@ -38,7 +38,7 @@
 
 ### 영역 3: 자원 적정성 분포
 
-- 자원 적정성 6분류 카운트 가로 막대 (`overview.risk_donut`) — 환경 자원 평가 페이지와 `provisioning_dist_bar` 매크로 공유(단일 소스)
+- 자원 적정성 5분류 카운트 가로 막대 (`overview.risk_donut`) — 환경 자원 평가 페이지와 `provisioning_dist_bar` 매크로 공유(단일 소스)
 - 윈도우 = `recommendation.WINDOW_DAYS`(14일) — 서버 목록·보고서 분류와 정합(#E3). 이용률·포화 도넛도 같은 14일 창(화면 간 한 창 통일)
 - 홈에는 분포 요약만 — 서버별 자원 적정성 상세 표는 환경 자원 평가 페이지(`/environment/assessment`)
 
@@ -71,11 +71,11 @@
 - 워크로드 컬럼 — 시그니처 워크로드 카테고리(`SIGNATURE_CATEGORIES`) 칩(known_services, 카테고리명). 환경 개요 주요 워크로드와 동일 필터(baseline·관리 제외, 목록 노이즈 회피). 미분류는 "—"
 - CPU · 메모리 · 디스크 컬럼 — 정적 배정 사양(`spec_display`, 실측 이용률 아님)
 - OS 지원 종료 컬럼 — 지원 중(무채) / 연장지원(amber, 메인스트림 종료·보안 패치 유지, Windows Server LTSC) / 미상(amber, EOL 카탈로그 미수록·미매칭) / 지원 종료(빨강) 4상태
-- 자원 적정성 컬럼 — `recommendation.classify` 결과(`under_provisioned`/`over_provisioned`/`idle`/`shutdown`/`optimal`/`insufficient_data`), under_provisioned 만 빨강 강조
+- 자원 적정성 컬럼 — `classify_host` 배지(`under_provisioned`/`over_provisioned`/`idle`/`optimal`/`insufficient_data`), under_provisioned 만 빨강 강조
 - 운영 이벤트 컬럼 — 수집 전체 기간 에러 이벤트(OOM kill·MCE·메모리 손상·네트워크/디스크 에러) 발생 유무만(문제 있음/이상 없음), 발생 시점·건수는 서버 상세에서 확인
 - ZDM Install 컬럼 — 최근 install task badge(success/failure/pending) + 클릭 시 modal 로 stdout/stderr/failure_reason 디버깅. modal 본문은 server fragment endpoint (`GET /api/tasks/{id}/detail`) HTML 반환 (P3 정공)
 - 기본 표시 20대 후 "전체보기"(CLIP 초과 행 노출)/"접기" 토글 — 필터 비활성 상태에서만 적용
-- 필터(별도 행으로 분리): search(hostname) / is_online (전체·온라인·오프라인) / service (web/db/cache/mq/container/monitor/remote/file/mail/infra) / os_id (distro) / classification (자원 적정성 6 분류) — 검색 버튼 없음, dropdown/checkbox 변경 즉시 client-side filter + URL 갱신
+- 필터(별도 행으로 분리): search(hostname) / is_online (전체·온라인·오프라인) / service (web/db/cache/mq/container/monitor/remote/file/mail/infra) / os_id (distro) / classification (자원 적정성 5분류) — 검색 버튼 없음, dropdown/checkbox 변경 즉시 client-side filter + URL 갱신
 - pagination: page=1 default, limit=20 (max 100)
 
 답: "어떤 서버가 어떤 상태인가? 어떤 행동을 권장받나?"
@@ -97,7 +97,7 @@ list에서 N대 선택 → 다음 액션 활성화:
 - 자원 적정성 평가 막대: 분류 카운트 막대 (`overview.risk_donut`). 평가 대상 N대 표기.
 - 서버별 자원 적정성 표: 전 서버(자원 부족·과다 할당·유휴·정상·표본 부족) 한 표에 — 호스트·사양(CPU·메모리·디스크)·분류(근본원인 병합)·권고(자원별 독립 처방)·네트워크 상태·디스크 I/O 상태·신뢰도. 초과 행은 더보기/접기 토글.
 - 구간·앵커 선택: `?time_range=`(15분~30일) + 기준 시각 override. 변경 즉시 `assessment.js` 가 `?fragment=result` 로 본문 swap. 기본 윈도우는 `DIAGNOSTIC_DEFAULT_TIME_RANGE`(14d) — 보고서·서버 목록 분류 표준 평가(`recommendation.WINDOW_DAYS`=14일)와 동일. 본 평가 페이지만 대시보드 중 윈도우 override 허용(#F10).
-- Windows (원칙 P2): swap 축 제외(pagefile baseline)·saturation 축 OS 부재라 utilization 축만으로 분류(부분 평가). 상세 `docs/reference/web/services.md` "OS 분기" 절.
+- Windows (원칙 P2): 포화 3축 모두 perflib 실측(CPU=Processor Queue Length·메모리=Pages Input/sec·디스크 I/O=await) — perflib 미부착 축만 coverage_gap 부분 평가. 상세 `docs/reference/right-sizing.md` 5절·`docs/reference/web/services.md` "OS 분기" 절.
 
 답: "환경 안 자원 부족·자원 과다 서버는 누구이고, 무엇부터 손대야 하나?"
 
@@ -142,7 +142,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 - 실시간 현황 페이지만 창 무관 — 최신 순간 스냅샷
 
 자원 적정성 평가 분류 막대 (환경 자원 평가 페이지):
-- 6분류(under/over/idle/shutdown/optimal/insufficient_data) 카운트 막대 — `recommendation.assess` 규칙 분류, `build_risk_donut_segments`
+- 5분류(under/over/idle/optimal/insufficient_data) 카운트 막대 — `classify_host` 규칙 분류 -> `_DONUT_SEGMENT_FROM_REC`, `build_risk_donut_segments`
 - 분류명은 한국어(LABEL_KO) 단일 진실 — 영어 enum 노출 금지, 보고서·화면 통일
 - 막대 색은 게이지 테마 단색 통일 (라벨이 의미 전달) — `UTIL_GAUGE_COLOR`
 - 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·자원 적정성·capacity trigger 일관, CLAUDE.md #E8)
