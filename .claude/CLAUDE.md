@@ -24,6 +24,23 @@
 
 `docs/temp/` 디렉토리 — 임시·외부 공유 자료 모음 (협의 input 등). 디렉토리 위치 자체는 영구이나 안의 파일은 임시 (자유 작성·삭제). 양방향 의존 0 의무 — 본 repo 영구 문서·코드가 temp 인용 금지, temp 안 파일 자체도 본 repo 영구 문서·코드 의존 금지 (외부 공유 시 self-contained 필수). 인덱스 표에 추가 안 함.
 
+## 빠른 참조 (진입점)
+
+> 오리엔테이션 포인터. 커맨드 절차 상세는 `docs/guides/` 단일 진실 — 본 파일은 복제하지 않는다 (#F12).
+
+프로세스 (단일 이미지, `ENTRYPOINT ["python","-m"]` — compose command 는 모듈명):
+- `assessment_engine.web` — FastAPI SSR+JSON 표현 계층 (E)
+- `assessment_engine.consumer` — aio-pika MQ 소비·수집 (D)
+- `assessment_engine.worker` — 보고서 생성 + install reaper (F11)
+- compose `migrate` 서비스 — alembic init-container (C4)
+
+작업 절차 진입 (상세는 각 guide):
+- dev·prod 기동·서비스 카탈로그 = `docs/guides/local-dev.md`
+- 테스트 = `docs/guides/testing.md` / 마이그레이션 = `docs/guides/migrate.md`
+- 배포(VM rollout)·부트스트랩 = `docs/guides/deploy.md` / 릴리즈 = `docs/guides/release.md`
+- 표현계층 타입 계약(codegen·tsc) = `docs/reference/web/type-contract.md`
+- 커밋·PR 마무리 = `docs/guides/wrap-up.md`
+
 ---
 
 # A. 시스템
