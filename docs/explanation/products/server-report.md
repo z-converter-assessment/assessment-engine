@@ -6,7 +6,7 @@
 
 ## 산출물
 
-서버 보고서 (선택 N대) — `GET /reports/servers?ids=<public_id,...>&period_days=14&view=customer|engineer`, 발행 `POST /reports/servers/emit`. 단일 1대는 `GET /servers/{id}/report`. 선택 N대 row 단위 상세. customer(양식 A) view=KPI 8 컬럼, engineer(양식 B) view=정량 16 컬럼.
+서버 보고서 (선택 N대) — `GET /reports/servers?ids=<public_id,...>&period_days=14&view=customer|engineer`, 발행 `POST /reports/servers/emit`. 단일 1대는 `GET /servers/{id}/report`. 선택 N대 row 단위 상세. customer(양식 A)·engineer(양식 B) 세부 서버 목록은 동일 컬럼 세트(`detail_server_list` 단일 진실) — engineer 는 재부팅·에이전트 재시작 2칼럼 추가.
 
 발행 흐름 (T13): 보고서 발행(`POST /reports/servers/emit`)은 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환 — 전용 워커 프로세스가 발행 시점 ViewModel 정적 스냅샷을 생성해 `diagnostic_jobs` `result` JSONB 에 보존하고 succeeded 전이 (customer/engineer 동일). GET `?job={id}` 는 succeeded 면 저장된 스냅샷 정적 렌더(재계산 0), 생성 중이면 진행 화면 + 폴링. 보고서 이력은 `/reports/history`.
 
@@ -22,7 +22,7 @@
 
 질문 1: "이 N대, 어떤 부하 특성을 보이는가?"
 
-16 컬럼 정량 표(engineer view) 또는 8 컬럼 요약 표(customer view) 로 CPU·메모리·load·I/O wait·디스크 I/O·네트워크 I/O·swap·재부팅·분류를 한눈에 비교. row 단위로 정렬·복사·외부 분석 도구 입력 가능.
+세부 서버 목록 표로 상태·구동 서비스·OS·OS지원종료·자원(vCPU·MEM·DISK)·운영 이벤트·프로비저닝(자원 적정성 분류)을 행 단위로 한눈에 비교(engineer 는 재부팅·재시작 추가). 정량 근거(CPU/메모리 p95·포화·변동성)는 자원 적정성 평가 표·심화 카드에서. row 단위로 정렬·복사·외부 분석 도구 입력 가능.
 
 질문 2: "이 서버 한 대, 자원 배분이 적절한가?"
 
@@ -34,7 +34,7 @@
 
 질문 4: "자원 적정성 결정의 근거를 어디서 확인하나?"
 
-engineer view 의 진단·분류 칼럼이 USE Method 임계값 기반 자동 해석 노출. 운영자가 "왜 이 서버가 under_provisioned 인가" 를 같은 행의 CPU p95·메모리 p95·swap·variance 에서 즉시 검증. 별도 detail 페이지 없이 보고서 한 장에서 자원 적정성 의사결정 시그널 확인.
+engineer view 의 진단·분류 칼럼이 USE Method 임계값 기반 자동 해석 노출. 운영자가 "왜 이 서버가 under_provisioned 인가" 를 자원 적정성 평가 표의 근본원인·CPU p95·메모리 p95·포화 축에서 즉시 검증. 별도 detail 페이지 없이 보고서 한 장에서 자원 적정성 의사결정 시그널 확인.
 
 ## 산출 정보
 
@@ -93,24 +93,24 @@ CPU/메모리/스토리지/네트워크 상세 카드(engineer 전용) — 윈�
 |------|------|--------|
 | 평가 윈도우 | 서버 보고서 default 14일, URL `?time_range=`(15m~30d) override | `recommendation.WINDOW_DAYS` 또는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` |
 | Anchor 시점 | 현재 또는 발행 시점 | default now |
-| 분류 | under/over/idle/shutdown/optimal/insufficient_data | `recommendation.classify` |
-| 권장 action | upsize_cpu / upsize_memory / downsize_cpu / downsize_memory / shutdown_idle / no_action | `recommendation` |
+| 분류(배지) | under_provisioned / over_provisioned / idle / optimal / insufficient_data | `classify_host`(배지) + `rollup_host`(근본원인) |
+| 권장 action | 자원별 독립 한국어 처방 (증설 검토·축소 검토·종료·통합 검토·적정 유지·표본 부족) | `under_prescription`/`recommend_action` -> `RECOMMENDATION_ACTION_KO` |
 | 정성 요약 | "서버 {hostname}는 최근 {window} 동안 CPU p95 {%}, 메모리 p95 {%} 사용 ..." | 결정론 템플릿 합성 |
 
 산출 결과 예시:
 ```
 서버 db-01는 최근 7일 동안 CPU p95 12.3%, 메모리 p95 35.0% 사용.
 분류는 과다 할당.
-AWS Compute Optimizer 임계값(CPU p95 30%) 기준으로 CPU 다운사이즈 권장.
+AWS Balanced 사이징 목표(이용률 70% 착지) 기준 현재보다 적은 코어로 충분 — CPU 축소 검토 권장.
 ```
 
 ## 의사결정 근거
 
 ### 분류 임계값·판정
 
-6분류·트리거 조건·임계 상수·벤더 출처 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. 판정 순서 = under -> idle -> shutdown -> insufficient_data -> over -> optimal (`recommendation.assess`, 임계 상수는 `recommendation.py`).
+5분류·트리거 조건·임계 상수·벤더 출처 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. host_status 판정 순서 = under -> insufficient -> idle -> over -> optimal (`rollup_host`/`classify_host`, 상세 right-sizing.md 3절, 임계 상수는 `recommendation.py`).
 
-Windows (원칙 P2/P4): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 제외. 디스크 포화는 Avg Disk Queue Length 로 측정한다(cpu iowait 는 canonical 0이라 미사용). loadavg 만 OS 부재라 CPU run queue 축이 미관측 — Windows는 utilization·capacity·disk queue 로 분류되고 swap·CPU run queue 셀만 N/A, 분류 옆에 "포화 수치 미관측" 마커 표시. 상세 `right_sizing_thresholds.html`.
+Windows (원칙 P2/P4): 포화 3축 모두 perflib 실측 — CPU=Processor Queue Length(`cpu_saturated` os-aware run queue), 메모리=Pages Input/sec p95 >= 20(하드 read 폴트, Linux swap page-out 대응 — 정적 pagefile 점유는 신호 아님), 디스크 I/O=await(IOCTL ReadTime/WriteTime, 구세대 viostor 미부착 시 큐 깊이 폴백). perflib 미부착 축만 coverage_gap -> "포화 수치 미관측" 마커. 상세 `docs/reference/right-sizing.md` 5절.
 
 ### 지표 정의 (engineer view)
 
@@ -118,7 +118,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 
 ### 진단 칼럼 (engineer view)
 
-진단 라벨은 `report.py::_build_diagnosis` 단일 진실 — 최상위 신호 1개만 노출(엔지니어가 가장 시급한 문제 즉시 식별). 우선순위(swap -> disk I/O -> CPU 포화 -> mem -> cpu -> 디스크 용량 -> 네트워크 혼잡 -> burst -> 미사용 -> 여유 -> 정상)와 임계는 `right_sizing_thresholds.html` "진단 칼럼 해석" 단일 진실. 예외: 표본 부족 호스트는 원인 진단(오프라인 / 누락 메트릭 / 윈도우 내 표본 부족), 오프라인 호스트는 "오프라인" 접두(분류는 윈도우 측정 기반 유지).
+진단 라벨은 `report.py::_build_diagnosis` 단일 진실 — 최상위 신호 1개만 노출(엔지니어가 가장 시급한 문제 즉시 식별). 우선순위(메모리 포화(스왑/페이징) -> disk I/O -> CPU 포화 -> mem -> cpu -> 디스크 용량 -> 네트워크 혼잡 -> burst -> 미사용 -> 여유 -> 정상)와 임계는 `right_sizing_thresholds.html` "진단 칼럼 해석" 단일 진실. 예외: 표본 부족 호스트는 원인 진단(오프라인 / 누락 메트릭 / 윈도우 내 표본 부족), 오프라인 호스트는 "오프라인" 접두(분류는 윈도우 측정 기반 유지).
 
 ### 평가 윈도우
 
@@ -129,7 +129,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 | 항목 | customer (양식 A) | engineer (양식 B) |
 |------|-------------------|-------------------|
 | 목적 | 고객 의사결정 한 장 요약 | 정량 분석 + 자원 적정성 근거 |
-| 컬럼 수 | 8 (SERVER·ROLE·OS·CPU p95·MEM p95·위험도·상태·진단) | 16 (위 + LOAD·변동성·I/O wait·DISK·NET·SWAP/Mount·Uptime/재부팅·판단) |
+| 세부 목록 컬럼 | 상태·서버·구동서비스·OS·OS지원종료·자원·운영이벤트·프로비저닝·링크 | 위 + 재부팅·에이전트 재시작 |
 | 정성 요약 | 행동 시그널 (고위험·주의·디스크·I/O·재부팅·OS EOL) | 위 + 엔지니어 시그널 (역할별 평균·Saturation·CPU 변동성) |
 | 위험도 표시 | 3단계 압축 (high/attention/normal) | 5분류 그대로 + 판단 텍스트 |
 | Print 우선 | 인쇄 PDF 대응 | 화면 분석 우선 |
@@ -166,7 +166,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 ## 관련 문서·코드
 
 - 진단 규칙 기반 한정 결정 기록: `docs/decisions/adr/`
-- `docs/reference/web/routers.md` — `pages.py` 보고서 라우터·view 분기
+- `docs/reference/web/routers.md` — `routers/pages/` 패키지(`report_page.py`) 보고서 라우터·view 분기
 - `docs/reference/web/services.md` "Recommendation 분류" — USE Method 임계값 출처
 - `docs/reference/db/timescaledb.md` `_chart_*` 패턴 — counter reset 정밀 식별
 - `docs/reference/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리

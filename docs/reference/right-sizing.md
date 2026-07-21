@@ -20,8 +20,8 @@ UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 
 
 각 자원은 자기 어휘로 판정한다 (`assess_cpu`/`assess_memory`/`assess_disk_capacity`/`assess_disk_io`/`assess_network`).
 
-- CPU: under(이용률 p95 >= 70% OR 실행 큐 포화) / over(AWS Balanced 사이징 목표 < 현재 코어, 단일스레드 보호 시 보류) / optimal. 목표 = 이용률 70% + 포화 headroom 중 큰 쪽.
-- 메모리: under(이용률 p95 >= 90% OR active page-out OR OOM) / over / optimal. 사이징 목표 = near-peak(관측 피크) 80% 착지 — 비탄력·OOM 회피라 평균 아닌 피크 통계. swapless 다수는 이용률이 주신호.
+- CPU: under(이용률 p95 >= 70% OR 실행 큐 포화 OR 사이징 목표 > 현재 코어) / over(AWS Balanced 사이징 목표 < 현재 코어, 단일스레드 보호 시 보류) / optimal. 실행 큐 포화는 dual-gate(실행 큐 >= 임계 AND 이용률 >= 70% — 저활동 실행큐 노이즈 차단, 5절). 목표 = 이용률 70% + 포화 headroom 중 큰 쪽.
+- 메모리: under(이용률 p95 >= 90% OR OOM) / over / optimal. page-out 은 독립 under 트리거가 아니라 dual-gate 포화 신호 — 이용률 >= 90% AND page-out 이라야 mem_saturation(5절), util < 90 이면 page-out 있어도 under 아님(mmap 정상 폴트 오탐 차단). 단 이용률 미측정 + OOM 은 그대로 under. 사이징 목표 = near-peak(관측 피크) 80% 착지 — 비탄력·OOM 회피라 평균 아닌 피크 통계. swapless 다수는 이용률이 주신호.
 - 디스크 용량: filling(소진 runway < 30일 OR 정적 가드 used% >= 85%, 바이트·inode 각 축) / capacity_ok. under/over 아닌 "남은 시간" 예측(누적 자원). 확장 목표 GB 동반.
 - 디스크 I/O: io_bound(응답 지연 await p95 > 20ms) / io_ok. 증분 불가라 사이징 없음 — 티어 상향 검토 표시.
 - 네트워크: congested(품질) / quality_ok. 사이징 축 아님(vNIC 링크 속도 부재). 재전송·드롭·conntrack 은 품질 신호.
@@ -38,21 +38,23 @@ I/O -> CPU. 판별 신호 = swap page-out(메모리발) / procs_blocked D-state 
 관측된 under 자원 전부에 적용한다. "가장 나쁜 자원 승"(worst-resource-wins) 은 여전히 폐기 — 5자원 각각 독립
 판정 + 근본원인 종합이라는 구조 자체는 유지, 종합 결과가 처방을 가리지 않을 뿐.
 
-호스트 요약 상태(`host_status`, 정렬·배지용) 판정 순서:
+호스트 요약 상태(`host_status`, 정렬·배지용) 판정 순서 (`_host_status`, 위에서 먼저 매칭한 순위로 확정):
 
 | 순위 | host_status -> 배지 | 조건 |
 |------|---------------------|------|
-| 1 | under -> under_provisioned | 자원 하나라도 under/io_bound/filling (네트워크 congested 는 제외 — 아래) |
-| 2 | idle -> idle | cpu_p95 <= 3% AND net_avg <= 2 Mbps (위 under 0) |
-| 3 | over -> over_provisioned | cpu 또는 memory 가 over (위 미해당) |
-| 4 | insufficient -> insufficient_data | 전 자원 unmeasured |
+| 1 | under -> under_provisioned | under_kinds 비어있지 않음 — 자원 status 가 under 또는 filling(CPU under · 메모리 under · 디스크 용량 filling). io_bound·congested 제외(아래 orthogonal) |
+| 2 | insufficient -> insufficient_data | CPU AND 메모리 둘 다 unmeasured/insufficient — 사이징 2축 부재라 disk/network 부분 데이터 있어도 optimal 위장 금지 |
+| 3 | idle -> idle | 활동 3축 quiescent — cpu_p95 <= 3% AND net <= 2 Mbps AND 디스크 I/O baseline <= 5 IOPS(측정된 활동만, 미측정 불배제) |
+| 4 | over -> over_provisioned | cpu 또는 memory 가 over |
 | 5 | optimal -> optimal | 그 외 |
 
-핵심 원칙 — under 가 idle 보다 우선. 어떤 자원 압박(page-out·await·용량 소진·고이용)이 하나라도 있으면 CPU 가
-낮아도 "미사용"이 아니라 자원 부족이다.
+핵심 원칙 — under 가 idle 보다 우선. 사이징 압박(고이용·용량 소진·메모리 page-out+고이용)이 하나라도 있으면 CPU 가
+낮아도 "미사용"이 아니라 자원 부족이다. insufficient 는 idle/over 보다 앞 — cpu·mem 없이 idle/over 판정 불가.
 
-네트워크는 host under/over 축이 아니다 — 원칙상 사이징 축이 아니라 품질 신호라, 혼잡은 호스트를 "자원 부족"으로
-분류하지 않고 `HostAssessment.network_congested` 플래그로 orthogonal 노출(별도 "네트워크 혼잡" 경고).
+디스크 I/O(io_bound)·네트워크(congested)는 host under/over 축이 아니다 — 사이징 축이 아니라 지연/품질 신호라,
+호스트를 "자원 부족"으로 분류하지 않고 orthogonal 플래그로 노출: `HostAssessment.network_congested`(네트워크 혼잡)
++ disk_io 상태(`disk_io_status_label` "디스크 I/O 병목"). disk_io 만 병목인 호스트는 배지 optimal + 진단/상태
+컬럼에만 병목 표기(사이징 아닌 티어 상향 검토 신호).
 
 ## 4. 임계 카탈로그 (출처)
 
@@ -69,7 +71,7 @@ I/O -> CPU. 판별 신호 = swap page-out(메모리발) / procs_blocked D-state 
 | net_retrans | 재전송률 > 1% | Errors(품질) | monitoring 관행(재전송 >1% 성능 영향) |
 | net_drop | 드롭률 > 0.5% | Errors(품질) | monitoring 관행(드롭 <0.5% 비즈니스 앱) |
 | net_conntrack | conntrack count/max >= 80% | 포화(품질) | 연결테이블 고갈 임박(신규 연결 드롭) |
-| (idle) | cpu_p95 <= 3% AND net <= 2 Mbps | Utilization | Azure/AWS 저사용 |
+| (idle) | cpu_p95 <= 3% AND net <= 2 Mbps AND 디스크 I/O <= 5 IOPS | Utilization | Azure/AWS 저사용 (활동 3축) |
 | (over) | AWS Balanced 사이징 목표 < 현재 | Utilization | AWS Compute Optimizer Balanced(70% 목표) |
 
 사이징 목표는 자원 특성에 맞춘 비대칭(용도적합): CPU 는 p95 이용률 착지(탄력적이라 순간 피크 흡수), 메모리는 near-peak(관측 피크) 착지(비탄력·OOM 위험이라 평균 아닌 피크 대표 통계). 증설·다운사이즈 동일 통계. 목표%·포화 배수·per-core 보류 임계 수치·근거는 `right-sizing-thresholds.md`.
@@ -79,8 +81,8 @@ I/O -> CPU. 판별 신호 = swap page-out(메모리발) / procs_blocked D-state 
 포화 3축 모두 OS별 실측 신호로 정규화 — 동일 분류 체계·임계 도메인, 신호원만 상이. 전용 helper 단일 진실 경유
 (임계 재계산·직접 해석 금지), 값 None 이면 helper 가 None -> 해당 자원 coverage_gap.
 
-- cpu_saturation: `cpu_saturated` — Linux procs_running/cores >= 1.0, Windows System\Processor Queue Length p95/cores >= 2.
-- mem_saturation: `mem_saturated` — Linux active page-out(mem_swap_paging = pswpin/pswpout rate>0, 정적 swap 점유 아님. swappiness 로 여유 RAM 에도 유휴 페이지 스왑아웃하므로 점유는 신호 아님), Windows Memory Pages Input/sec rate p95 >= 20(하드 read 폴트, 총 Pages/sec 과 달리 mmap 미혼입). pagefile 사용량 직접 해석 금지.
+- cpu_saturation: `cpu_saturated` — dual-gate: 실행 큐 포화 AND 이용률 p95 >= 70%. 실행 큐 = Linux procs_running/cores >= 1.0, Windows System\Processor Queue Length p95/cores >= 2. 저활동 실행큐 노이즈(수집기 R-state 자기포함, 특히 1코어) 차단 — util 미측정이면 측정된 실행큐 신뢰.
+- mem_saturation: `mem_saturated` — dual-gate: 이용률 p95 >= 90% AND 페이징. 페이징 = Linux active page-out(mem_swap_paging = pswpin/pswpout rate>0, 정적 swap 점유 아님. swappiness 로 여유 RAM 에도 유휴 페이지 스왑아웃하므로 점유는 신호 아님), Windows Memory Pages Input/sec rate p95 >= 20(하드 read 폴트, 총 Pages/sec 과 달리 mmap 미혼입). util < 90 이면 page-out 있어도 비포화. pagefile 사용량 직접 해석 금지.
 - disk_io: `disk_io_saturated` — 양 OS await p95 > 20ms 통일. Windows 도 IOCTL_DISK_PERFORMANCE ReadTime/WriteTime(device 합산 counter_agg)로 await 산출(Linux time_reading/writing 등가, 같은 IOCTL 라 큐와 커버리지 동일). await 미배선/구세대 viostor(IOCTL 미부착)면 Windows 는 큐 깊이(disk_queue_p95 >= 2) 폴백.
 
 각 포화 축은 Windows 에서 해당 perflib 미부착·미발행이면 그 축만 coverage_gap -> `host_saturation_unmeasured`(cpu·mem·disk_io 한정) -> "포화 수치 미관측" confidence 단서. 분류 자체는 utilization·측정된 나머지 축으로 완결.
@@ -118,4 +120,4 @@ host.resources 상태·trigger 파생)·권고(`under_prescription(host)`, root 
 - 디스크 용량 환경 집계: 개별 호스트 판정(worst mount)은 OS 무관 신뢰 가능하나, 환경 전체 합산은 Windows 물리디스크/디바이스 인식 불완전으로 신뢰 저하 — 환경 disk 합산 지표 도입 시 주의.
 - 용량 runway 는 가용 이력 전체 span 기반(분류 14일 창과 별개 — 누적 신호라 길수록 정확). 성장 가속·월간 계절성(약 1개월 데이터)은 놓칠 수 있음.
 - net_retrans% 분모는 TCP OutSegs 대신 physical NIC tx_packets 근사(에이전트 OutSegs 미발행) — 비-TCP 프레임 혼입으로 과소평가 방향.
-- p95 표본: 윈도우(14일)보다 데이터가 짧으면 신뢰도 저하. 전 자원 unmeasured 면 insufficient_data.
+- p95 표본: 윈도우(14일)보다 데이터가 짧으면 신뢰도 저하. CPU·메모리 둘 다 unmeasured 면 insufficient_data(disk/network 부분 데이터 있어도).

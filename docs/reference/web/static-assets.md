@@ -56,7 +56,7 @@ src/assessment_engine/web/static/js/
 | (d) 404 분기 | `/metrics/latest` 등 데이터 부재는 `res.status === 404` 분기 |
 | (e) suggestedMax 명명 상수 | `PERF_IOPS_SUGGESTED_MAX = 200` 형식 + 임계값 색상도 `USAGE_DANGER_PCT` 등 명명 상수 |
 
-5개 페이지 모두 (a)~(e) 적용. `metrics.js`가 11개 차트 loader 모두 `(seq, capturedRange, capturedAnchor)` 시그니처 표준.
+5개 페이지 모두 (a)~(e) 적용. `metrics.js`(서버 상세 성능 탭)는 9개 차트 loader 를 `loadAllCharts` 가 `(range, anchor)` 시그니처로 호출 — seq(sequence counter)는 각 loader 내부에서 생성(capture-before-await).
 
 ## 차트 UI 디테일
 
@@ -195,7 +195,7 @@ base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 �
 | `.badge` | base (변형 클래스와 함께) |
 | `.badge-ok` / `.badge-warn` / `.badge-danger` | semantic 상태 |
 | `.badge-cat-{web,db,cache,mq,container,monitor,remote,file,mail,infra,unknown}` | 서비스 카테고리 |
-| `.rec-{under_provisioned,over_provisioned,optimal,idle,shutdown,right_size,swap,success,failure,pending,unknown,insufficient_data}` | 분류 결과 |
+| `.rec-{under_provisioned,over_provisioned,optimal,idle,insufficient_data,swap}` (분류·rec-swap 메모리부족 1차신호) + `.rec-{success,failure,pending,unknown}` (Task status) | 분류 결과 · Task status |
 | `.attn-active` | 운영 신호 발화 |
 | `.rec-badge` | table cell 안 컴팩트 badge (위 `.rec-*` 와 함께) |
 
@@ -338,7 +338,7 @@ self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 | `/` (환경 개요) | X (root 진입점) | — |
 | `/servers` (목록) | X (root 진입점) | — |
 | `/servers/{id}` (detail) | O | `/` |
-| `/servers/{id}/{cpu,memory,services,performance,storage,network}` (tab) | O | `/servers/{id}` |
+| `/servers/{id}/{cpu,memory,services,metrics,storage,network}` (tab) | O | `/servers/{id}` |
 | `/environment/{assessment,realtime,metrics,topology}` | O | `/` |
 | `/reports/servers` (선택 N대) | O | `/` |
 | `/servers/{id}/report` (단일) | O | `/servers/{id}` |

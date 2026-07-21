@@ -6,11 +6,11 @@
 |------|------|
 | `query_service.py` (+ `query/` 패키지) | Redis 캐시 + repository 오케스트레이션. SSR/JSON 양 경로에 일관된 ViewModel·Summary 반환. `QueryService` 는 6 도메인 mixin (`query/` 하위 server·metric·attention·environment·report·task) 을 multiple inheritance 로 결합 — repo 계층 `db/repositories/query/` 와 동형. 공유 helper(`_online_map`·`_inject_net_baseline`)는 `query/_base.py` |
 | `task_service.py` | Task 발행 (DB INSERT + Redis SET). 트랜잭션 경계 + `IntegrityError` -> `TaskDuplicatePending` 변환. 본 모듈 상단 `HttpZdmPackageResolver` (ZDM 패키지 sha256·size 동적 조회 — install 발행 의존성) |
-| `mappers/` (sub-package) | Outbound DTO + Detail -> ViewModel 변환 단일 진실 (P2). 10 sub-module — `server.py` / `metric.py` / `attention.py` / `report.py` / `export.py` / `task.py` / `shared.py` (공용 임계 상수 + ReportView Literal + `_DONUT_SEGMENT_DEFS` + `UTIL_GAUGE_COLOR` + `spec_display_line`(정적 사양 한 줄) + `_eol_info`(support/eol 2단계 4상태 판정)/`resolve_os_eol`·`lookup_os_eol`/endoflife 카탈로그) / `environment_report.py` (환경 보고서 합성) / `report_history.py` (보고서 이력 row) / `topology.py` (네트워크 토폴로지 — Cytoscape 집계 그래프 elements + 서브넷별 서버 목록 `SubnetGroup`) |
+| `mappers/` (sub-package) | Outbound DTO + Detail -> ViewModel 변환 단일 진실 (P2). 12 sub-module — `server.py`(상세·목록 ViewModel + `infer_role`) / `metric.py` / `attention.py` / `report.py` / `task.py` / `shared.py` (공용 임계 상수 + ReportView Literal + `_DONUT_SEGMENT_DEFS` + `UTIL_GAUGE_COLOR` + `spec_display_line`(정적 사양 한 줄) + `_eol_info`(support/eol 2단계 4상태 판정)/`resolve_os_eol`·`lookup_os_eol`/endoflife 카탈로그) / `environment_report.py` (환경 보고서 합성) / `report_history.py` (보고서 이력 row) / `topology.py` (네트워크 토폴로지 — Cytoscape 집계 그래프 elements + 서브넷별 서버 목록 `SubnetGroup`) / JSON API 응답 매퍼 3종 (`api_reference.py` OpenAPI 스펙 -> API 목록 · `assessment_api.py` `/api/assessment` per-server 계약 dict · `right_sizing_api.py` per-server 프로비저닝 판정 dict — E6 타입계약 원천, 분류·근거는 도메인 단일 진실(`rollup_host` 등) 재사용) |
 | `metrics_calculator.py` | CPU/Disk/Net delta + Mem/Swap 시점값 -> Snapshot. `_is_counter_reset` (boot_time 비교) |
 | `cache_serializer.py` | Redis serde — `ServerDetailResponse` / `MetricDashboard`. 역직렬화 후 `enrich_*` 재호출 (idempotent) |
 | `unit_converter.py` | KB->GB / sectors->KB/s / usage_pct 단위 변환 |
-| `device_filters.py` | 디스크/인터페이스 블랙리스트 필터 (`is_physical_disk`·`is_virtual_disk`·`is_lvm_disk`·`is_partition`·`is_virtual_interface`) + 마운트 데이터볼륨 필터 (`is_data_volume` — major 주축) + `find_parent_disk` (mount-disk 조인) + `disk_total_bytes` (디스크 총량 단일 산식 — 물리 disks 우선, Windows 등 미발행 시 data volume mounts fallback. 환경·개별·세부목록 보고서 동일) |
+| `device_filters.py` | block_device `type`·fstype·net_interface `kind` 기반 계층 술어 단일 진실 — `is_physical_disk`(type=="disk")·`is_lvm_disk`(lvm/raid/crypt/mpath/dynamic)·`is_partition`(=="part")·`is_swap`(=="swap")·`is_virtual_interface`(kind not in physical/bond_master)·`is_data_volume`(fstype·mountpoint — 가상fs·/boot 제외) + `disk_total_bytes`/`swap_total_bytes` (block_device type 합산 단일 산식 — Windows PhysicalDrive 도 type=disk 발행이라 양 OS 공통, fallback 없음). 부모-자식 조인은 노드 `parent`(부모 id) — major/minor 폐기 |
 | `service_classifier.py` (도메인 `assessment_engine/`, web·consumer 공용 — `recommendation.py` 동급) | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`/`remote`/`file`/`mail`/`infra` — 원칙·경계 규칙은 `SERVICE_CATALOG` 상단 주석 단일 진실) + 포트 매핑 + 카테고리 집합 사전계산(`compute_service_categories`, ingest 가 `service_categories` 저장). 단일 카탈로그(`SERVICE_CATALOG`) 파생. `MatchedPort` 정의(web view_model re-export) |
 
 ## 서비스 분류 — 3단계 표시 계층
@@ -47,31 +47,25 @@
 
 `infer_role(services, listen_ports=None)` = `workload_category_counter` 최빈 카테고리.
 
-주의: 본 절 `classify`는 service_classifier 의 서비스 카테고리 분류. 아래 "Recommendation 분류"의 `recommendation.classify`(USE Method right-sizing)와 다른 함수 — 혼동 금지.
+주의: 본 절 `classify`는 service_classifier 의 서비스 카테고리 분류. 아래 "Recommendation 분류"의 `classify_host`/`rollup_host`(USE Method right-sizing)와 다른 함수 — 혼동 금지.
 
-## mount - disk 매핑 (Linux 디바이스 식별 표준)
+## 디바이스 계층 — block_devices[] 평면 DAG (parent-by-id)
 
-`device_filters.find_parent_disk(mount_major, mount_minor, disks)`:
-- `mount.major == disk.major AND mount.minor == disk.minor` → 디스크 자체 마운트
-- `disk.minor + 1..15` → 그 디스크의 partition (SCSI/virtio 관례)
-- 가상 (major=0, tmpfs) → None
+스토리지 토폴로지는 agent `block_devices[]` 평면 그래프(lsblk 정석) — 노드 `{name, type, size_bytes, fstype, mountpoint, parent, id, id_type}`. 부모-자식(disk->part->lvm->crypt->fs)은 노드 `parent`(부모 id) 체인 조인 — major/minor 폐기(Windows major=0 해소). 다중 부모(RAID span·striped VG)는 디스크별 그룹으로 노출. 정적 토폴로지(무엇이 존재)와 동적 사용량(server_filesystem, 얼마나 찼나)을 분리해 모든 소비처(용량·상세·export·토폴로지)가 같은 술어를 공유한다.
 
-storage 페이지 mount → disk 매칭 + `_split_disks` (Inventory JSON Export의 `additional_disks.mount_hint`)에 활용.
+## 디바이스 필터 정책 — block_device `type` · fstype · net `kind`
 
-## 디바이스 필터 정책 — agent `kind` 태그 기반
+디스크·마운트·인터페이스의 물리/논리/데이터/가상 판정은 계층별 원본 필드로 한다 (payload 계약 #B). 엔진은 이름 정규식·major 추론 없이 필드로만 판정 — 화면·집계·용량 단일 기준. `device_filters` 단일 진실:
 
-디스크·마운트·네트워크 인터페이스의 물리/논리/data/가상 판정은 agent 가 각 항목에 발행하는 `kind` 태그로 한다 (payload 계약 #B, kind taxonomy 는 `agent.md`). 엔진은 이름 정규식·major/fstype 추론 없이 kind 로만 판정 — 화면·집계·용량 단일 기준(Windows major=0 문제 해소). `device_filters` 단일 진실:
-
-- `is_physical_disk(kind)` = `kind=="physical"` (lvm/raid/partition/virtual 제외).
-- `is_lvm_disk(kind)` = `kind in ("lvm","raid")` — 물리 부재(Windows 등) 시 disk 차트 fallback.
-- `is_partition(kind)` = `kind=="partition"`.
-- `is_data_volume(kind)` = `kind=="data"` — 데이터 볼륨 마운트(boot/image/가상 fs 제외; 가상 fs 는 agent pre-drop).
-- `is_virtual_interface(kind)` = `kind!="physical"` — 물리 NIC 만 통과(loopback/bridge/veth/bond/vlan/tunnel 제외, master/member 이중 집계 회피).
-- `major`/`minor` 는 분류 신호 아님 — mount-disk 조인(`find_parent_disk`) 전용.
-- 집계 SQL 투영은 `types._DATA_VOLUME_SQL_FILTER` (`kind = 'data'`) — agent kind 태그 기반, `device_filters.is_data_volume` 의 SQL 투영. 변경 시 동기화.
+- `is_physical_disk(type)` = `type=="disk"` (PhysicalDrive/sd/nvme/vd. partition/lvm/raid/swap 제외).
+- `is_lvm_disk(type)` = `type in ("lvm","raid","crypt","mpath","dynamic")` — 물리 부재(Windows dynamic 등) 시 disk 차트 fallback 차원.
+- `is_partition(type)` = `type=="part"`. `is_swap(type)` = `type=="swap"` (v2 는 swap 을 block_device 노드로 표현).
+- `is_data_volume(fstype, mountpoint)` = 가상 fs(`VIRTUAL_FSTYPES`) 아니고 mountpoint 가 `/boot` 아님 — fstype None(미상)은 데이터로 포함(df 관례).
+- `is_virtual_interface(kind)` = `kind not in ("physical","bond_master")` — 물리 NIC + bond_master 만 통과(bond_member 이중 집계 회피). net_interface 만 `kind` 유지(block_device 는 `type`).
+- 집계 SQL 투영은 `types._DATA_VOLUME_SQL_FILTER` (`(fstype IS NULL OR fstype NOT IN (가상fs)) AND mountpoint NOT LIKE '/boot%'`) — `device_filters.is_data_volume` 의 SQL 등가. 변경 시 동기화.
 
 적용 경계 — 저장은 모두 유지, 표시 경계에서만 필터:
-- 디스크: `compute_disk_io`(스냅샷) + `to_storage_detail`(인벤토리 물리 디스크) + `query_service._filter_disk_category`(차트 `device_category=phys`).
+- 디스크: `compute_disk_io`(스냅샷) + `to_storage_detail`(인벤토리 물리 디스크). I/O rate 차트는 물리 device 스코프 — 집계 계층(`server_disk_io_5m` cagg) 사전필터.
 - 인터페이스: `compute_net_io`(스냅샷) + `query_service.get_metric_chart`(차트 `_NET_METRIC_TYPES`).
 - 마운트: `mappers/server.py`·`metrics_calculator.py`·`query_service.py`(파이썬 경계) + `_DATA_VOLUME_SQL_FILTER`(집계 SQL — `metric.py`·`report.py`).
 
@@ -83,27 +77,24 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 
 UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
-right-sizing 분류(6분류·판정 순서·합성 규칙·OS 분기·벤더 임계 출처)의 명세 단일 진실은 `docs/reference/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`. web 계층 책임은 소비만 (P2/P4):
+right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기·벤더 임계 출처)의 명세 단일 진실은 `docs/reference/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`. web 계층 책임은 소비만 (P2/P4):
 - 분류 = `recommendation.rollup_host(stats) -> HostAssessment`(자원 5개 per-resource + 근본원인). 배지 = `classify_host`. report 진단(`_build_diagnosis`, host.resources 상태·trigger 파생)·권고(`under_prescription(host)`)·attention 자원 부족 카드(`to_capacity_warning_item`, 발화 원인 `active_causes`)가 host.resources triggers·os-aware helper 를 재사용해 한국어 표시로 변환한다(임계 재계산 금지, stats 생성은 `build_resource_stats` 공용). 네트워크 혼잡은 host under 아닌 별도 `network_congested` 플래그.
 - `unmeasured` -> `is_partial`(=bool(unmeasured)) 을 ViewModel precompute, 템플릿이 "포화 수치 미관측" confidence 마커로 노출.
 
-## 환경 개요 상단 요약 — environment_overview + attention
+## 환경 개요 상단 요약 — environment_overview (`/`)
 
-환경 개요(`/`)에서 두 영역으로 표시. environment_overview는 환경 현황·평균·분포(도넛), attention은 즉시 조치 신호. 평균 활용률·자원 적정성 평가 현황은 `recommendation.WINDOW_DAYS`(14일, #F10) 윈도우 — 분류와 한 창 통일. 홈 카드 레이아웃은 `docs/explanation/products/dashboard.md` "환경 개요 홈" 단일 진실. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 overview 조립부를 attention/trend 제외 경량 재사용, 자원 부족은 `full_under=True` 로 상위 N 절단 해제 전체 출력).
+환경 개요(`/`)는 `EnvironmentOverview` 만 노출 — 환경 현황·평균 활용률·분포/포화 도넛 + under_provisioned capacity 상세. 운영신호 3 카탈로그(`AttentionSignals` — 통신끊김/OS지원종료/에이전트재시작)는 독립 라이브 카드로 렌더되지 않고, 단일/선택 보고서의 `attention_for_host` 교차 참조(`report_page.py`)에서만 소비된다 (#E9, view-models.md "환경 개요 상단 요약" 절). 라이브 운영 현황은 별도 `/environment/realtime`(`get_environment_realtime` — 서버별 순간 스냅샷, 자동 갱신 없음). 평균 활용률·자원 적정성 현황은 `recommendation.WINDOW_DAYS`(14일, #F10) 윈도우 — 분류와 한 창 통일. 홈 카드 레이아웃은 `docs/explanation/products/dashboard.md` 단일 진실. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 조립부 `_assemble_overview` 를 attention/trend 제외 경량 재사용, 자원 부족은 `full_under=True` 로 상위 N 절단 해제 전체 출력).
 
-| 시선 | service 메서드 | repo SQL | 시간 축 | 분류 |
+| 영역 | service 메서드 | repo SQL | 시간 축 | 분류 |
 |------|----------------|----------|---------|------|
-| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS, end)` + `report_aggregate(WINDOW_DAYS)` + Redis online mget | 14일 USE Method + 14일 평균 활용률 (capacity-weighted) | 자원 합계·주요 워크로드 도넛·활용률·포화 도넛·프로비저닝 분포 도넛 + under_provisioned 호스트 (capacity — `to_capacity_warning_item`, 발화 원인 `active_causes` os-neutral + host_status 구동 5축 os-aware metrics) |
-| attention.gap_warnings | `get_attention_signals` | `metric_gap_warnings(gap_min=5, recent_h=24)` 단일 SQL | 5min~24h 갭 (단기) | "한때 살아있다 끊김" |
-| attention.os_eol_warnings | `get_attention_signals` | `report_aggregate(WINDOW_DAYS)` raws + `resolve_os_eol`(endoflife.date 스냅샷) | EOL 경과 한정 | 지원 종료 OS (Linux distro + Windows Server build) |
-| attention.agent_unstable | `get_attention_signals` | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | restart_count >= `AGENT_RESTART_ALERT_THRESHOLD` |
+| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS, end)` + `report_aggregate(WINDOW_DAYS)` + `fleet_error_summary` + Redis online mget | 14일 USE Method + 14일 평균 활용률 (capacity-weighted) | `_assemble_overview`: `build_resource_stats` -> `classify_host`(프로비저닝 도넛) + `cpu/mem/disk_io_saturated`·`assess_network`(포화 4도넛) + `to_capacity_warning_item`(under_provisioned 상세, os-aware triggers) |
+| get_attention_signals (보고서 교차참조) | `get_attention_signals` | gap `metric_gap_warnings(gap_min=5, recent_h=24)` + os_eol `report_aggregate` raws `resolve_os_eol` + agent `agent_restart_counts_recent(now-1h)` | 신호별 상이 | gap "한때 살아있다 끊김" / os_eol 지원종료 OS(Linux distro + Windows build) / agent restart_count >= `AGENT_RESTART_ALERT_THRESHOLD` |
 
-운영신호 카드(`AttentionSignals`)는 위 3개뿐 — public `get_attention_signals` 가 내부 `_assemble_attention` 으로 조립. capacity·disk·days_until_full 은 각 담당이 분리 소유(중복 회피): capacity(under_provisioned)는 environment_overview, disk capacity/IO 는 `recommendation.classify`, days_until_full 은 보고서 스토리지 컬럼.
+운영신호 카탈로그(`AttentionSignals`)는 위 3개 — public `get_attention_signals` 가 내부 `_assemble_attention` 으로 조립, 보고서 `attention_for_host` 로 소비. 중복 회피 분리 소유: capacity(under_provisioned)는 environment_overview, days_until_full 은 보고서 스토리지 컬럼.
 
 설계 결정:
-- `list_server_ids()`는 정수 PK만 fetch — `list_servers`(disks JSONB 등 11컬럼) 대비 페이로드 절감 (T8 패턴 동일 적용).
+- `list_server_ids()`는 정수 PK만 fetch — `list_servers`(disks JSONB 등) 대비 페이로드 절감 (T8 패턴 동일 적용).
 - partition pruning binding 통일: gap SQL의 `recent_hours`가 동적 binding (`(:recent_h * interval '1 hour')`) — service 인자와 SQL 결합을 SQL 본문 hardcode로 묵시화하지 않음 (#F3·#F9).
-- 검색·온라인필터 사용 시 environment_overview·attention 자동 격리 — 라우터 `pages.py` 분기 (첫 페이지·검색 없음·필터 없음일 때만 노출).
 - ViewModel·mapper 카탈로그: `docs/reference/web/view-models.md` "환경 개요 상단 요약" 절.
 
 ## 환경 성능 추이 (live) — `metric_trend` 풀세트
