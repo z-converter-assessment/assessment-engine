@@ -81,11 +81,11 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 
 ## C1. 키·제약 — 멱등성 의존 (#D2·#E4 직접 의존)
 
-ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자연키 UNIQUE 표 / 시계열 4테이블 `boot_time`·`agent_started_at` 공통 메타 / `tasks` 부분 UNIQUE: `docs/reference/db/models.md` · `docs/reference/db/timescaledb.md` 단일 진실.
+ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 8테이블 자연키 UNIQUE 표 / `boot_time`·`agent_started_at` 은 `server_metrics` 만 보유(자식 시계열 미보유) / `tasks` 부분 UNIQUE: `docs/reference/db/models.md` · `docs/reference/db/timescaledb.md` 단일 진실.
 
 본 절 결정:
 - 시계열 5개 테이블 자연키 UNIQUE 보존 의무 — 누락 시 #D2 멱등성 2단 방어 깨짐. 모델 변경 시 검증 필수.
-- 시계열 4개 테이블 `boot_time` + `agent_started_at` 컬럼 보존 의무 — counter reset 정밀 식별 (#B 동일 진실).
+- `server_metrics` 만 `boot_time` + `agent_started_at` 컬럼 보존 — 자식 시계열은 미보유(rate 차트 reset 은 `GREATEST(delta,0)`, 보고서 cagg 는 `counter_agg` 가 값-감소 기준 흡수). counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
 - `server_inventory` 식별 분리: `id bigint PK` (FK 대상) / `agent_id UUID UNIQUE` (agent 매칭·식별·라우팅 단일 키 — 첫 실행 시 생성·영구저장한 불변 UUID) / `composite_id varchar(64)` (SHA-256 composite hash, 감사·표시용 nullable — 식별·라우팅 미사용) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{agent_id}` / routing key `task.install.{agent_id}`.
 - 식별키 agent_id 불변: agent_id 는 첫 실행 시 1회 생성·영구저장하는 불변 UUID — 부팅마다 NIC MAC 이 재발급되는 환경(OpenStack Windows VM)에서도 동일 agent_id 가 자연히 같은 행을 upsert 한다. 별도 호스트 재연결 로직 없음. composite_id/machine_id 는 clone collision 진단용 감사 컬럼.
@@ -111,7 +111,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 5테이블 자�
 모든 환경(dev·staging·prod·테스트) Alembic 단일 진실 / `migrate` init-container 패턴 / 모델 변경 시 동시 갱신 워크플로 / 라운드트립 검증 / autogenerate 미지원 카탈로그 / `_include_object` filter / CI `alembic check` / testcontainers + alembic / Backward compatibility 단계: `docs/guides/migrate.md` 단일 진실.
 
 본 절 결정:
-- 시계열 신규 테이블 추가 시 마이그레이션에 `op.execute("SELECT create_hypertable(...)")` 보강 + 자연키 UNIQUE(#C1) + `boot_time`/`agent_started_at` 컬럼(#B) 동시 검토.
+- 시계열 신규 테이블 추가 시 마이그레이션에 `op.execute("SELECT create_hypertable(...)")` 보강 + 자연키 UNIQUE(#C1) 동시 검토 (`boot_time`/`agent_started_at` 은 `server_metrics` 만 보유, 자식 시계열은 미보유 — #B).
 - continuous aggregate: 정의 + policy 는 마이그레이션 트랜잭션 내, 초기 materialize(`refresh_continuous_aggregate`)는 트랜잭션 밖 1회. cagg 정의에 박힌 필터(물리 device 등) 규약 변경 시 cagg 재생성 마이그레이션 동반. 상세 = `docs/guides/migrate.md`.
 
 ## C5. 쿼리 안전성
@@ -141,8 +141,8 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 
 본 절 결정:
 - 1단 Redis fail-open: `safe_set_nx(idempotent:{message_id}, 24h)` — 동일 message_id 재전송 차단. Redis 장애 시 True 반환 → 2단이 흡수.
-- 2단 DB UNIQUE: 시계열 4개 테이블 자연키 UNIQUE(#C1) + `pg_insert(...).on_conflict_do_nothing(index_elements=...)` — 1단 깨져도 silent no-op.
-- fail-open 의존성: 시계열 4개 테이블 UNIQUE 제약(#C1) 누락 시 멱등성 보장 자체가 깨짐. 모델 변경 시 검증 필수.
+- 2단 DB UNIQUE: 시계열 metric 7테이블 자연키 UNIQUE(#C1) + `pg_insert(...).on_conflict_do_nothing(index_elements=...)` — 1단 깨져도 silent no-op.
+- fail-open 의존성: 시계열 metric 7테이블 UNIQUE 제약(#C1) 누락 시 멱등성 보장 자체가 깨짐. 모델 변경 시 검증 필수.
 - at-most-once 트레이드오프: SET NX는 DB 커밋 이전 실행 → 커밋 전 크래시 시 broker 재전송이 idempotent 충돌로 silent 드롭 가능. 한계·outbox 대안: `docs/explanation/tradeoffs.md` T1.
 
 ---
