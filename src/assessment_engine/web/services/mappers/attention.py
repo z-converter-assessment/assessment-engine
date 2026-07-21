@@ -131,7 +131,7 @@ def _util_bar(label: str, pct: float | None) -> UtilizationBar:
 def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, int]:
     """카테고리별 카운트 -> (RiskDonutSegment list, total, under_count).
 
-    risk_counts 예: {"under_provisioned": 1, "over_provisioned": 2, "optimal": 7} (키 = _DONUT_SEGMENT_DEFS 6종).
+    risk_counts 예: {"under_provisioned": 1, "over_provisioned": 2, "optimal": 7} (키 = _DONUT_SEGMENT_DEFS 5종).
     누락 키는 0으로 취급. dash_length·dash_offset은 누적 비례 계산.
     under_count(자원 부족 카테고리 수)는 EnvironmentOverview.risk_high_count 로 전달되는 요약 신호 —
     risk 분포는 막대(provisioning_dist_bar)로 렌더돼 도넛 중앙 라벨은 없다(옛 중앙 강조 규약 폐기, #E8).

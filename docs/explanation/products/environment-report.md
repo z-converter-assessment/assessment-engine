@@ -44,7 +44,7 @@
 | KPI 6개 | 대상 서버 / 온라인 / 주의 필요 / 고위험 / 평균 CPU p95 / 평균 메모리 p95 | service KPI 집계 (time_range 윈도우) |
 | 환경 구성 + 서비스 구성 (한 카드 2열) | 환경 구성(OS family Windows/Linux 분포) + 서비스 구성(카테고리별 칩 "카테고리명 + 서비스명·개수", 전 카테고리 노출 count 0 포함 #E9, "분류 미상 서버 N대" 표기). engineer 호스트 전수 나열 없음 | `overview.os_distribution` / 워크로드 카테고리 칩 |
 | 환경 총 자원 | 총 vCPU / 메모리 / 디스크 | inventory 합산 |
-| 분류 분포 | 자원 적정성 6분류 카운트 막대 (한국어 분류명 LABEL_KO, 영어 enum 미노출) | `recommendation.assess` |
+| 분류 분포 | 자원 적정성 5분류 카운트 막대 (한국어 분류명 LABEL_KO, 영어 enum 미노출) | `classify_host`(호스트별) -> `_DONUT_SEGMENT_FROM_REC` 카운트 |
 | 환경 부하 추이 (시계열) | CPU·메모리·디스크 평균 추이 차트. 보고서=발행 윈도우 정적 스냅샷 | `metric_trend` |
 | 네트워크 토폴로지 (engineer) | 정적 서브넷 요약 표 (서브넷 대역·호스트 수). 인터랙티브 Cytoscape 그래프는 화면 토폴로지 페이지(`/environment/topology`) 전용. OS(linux/windows)로만 구분 — 멀티홈 색 구분 없음 | `build_network_topology` (subnet 집계) |
 
@@ -84,7 +84,7 @@
 |------|------|--------|
 | 평가 윈도우 | 14일 default (`recommendation.WINDOW_DAYS`) | AWS Compute Optimizer 기본 lookback (14일) — 7일·30일은 라우터 override |
 | 평가 커버리지 | `evaluated_servers / total_servers` — 메트릭 데이터가 분류 가능한 정도로 누적된 서버 수 | DB 시계열 집계 |
-| 분류 분포 | over_provisioned / under_provisioned / idle / optimal 각 카운트 | `recommendation.classify` |
+| 분류 분포 | over_provisioned / under_provisioned / idle / optimal / insufficient_data 각 카운트 | `classify_host`(호스트별 배지) |
 | 우선 검토 권장 | 분포 중 가장 시급한 카테고리 1개 | 규칙 |
 
 산출 결과 예시:
@@ -98,9 +98,9 @@ over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
 
 ### 분류 임계값·판정
 
-6분류·트리거 조건·임계·벤더 출처 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. 판정 순서 = under -> idle -> shutdown -> insufficient_data -> over -> optimal (`recommendation.assess`, 임계 상수는 `recommendation.py`).
+5분류·트리거 조건·임계·벤더 출처 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. host_status 판정 순서 = under -> insufficient -> idle -> over -> optimal (`rollup_host`/`classify_host`, 상세 right-sizing.md 3절, 임계 상수는 `recommendation.py`).
 
-Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 사용은 saturation 아니라 분류에서 제외(swap_pressure 카운트·분포 도넛 모두). 디스크 포화는 Avg Disk Queue Length 로 측정하고 CPU run queue(load) 축만 OS 부재로 미관측 — utilization·capacity·disk queue 로 분류(CPU run queue 만 부분 평가, T14).
+Windows (원칙 P2): 포화 3축 모두 perflib 실측 — CPU=Processor Queue Length(`cpu_saturated`), 메모리=Pages Input/sec p95 >= 20(Linux swap page-out 대응, 정적 pagefile 점유는 신호 아님), 디스크 I/O=await(IOCTL ReadTime/WriteTime, 구세대 viostor 미부착 시 큐 깊이 폴백). perflib 미부착 축만 coverage_gap 으로 부분 평가(T14). 상세 `docs/reference/right-sizing.md` 5절.
 
 분류 표시 (customer·engineer 공통): 자원 적정성 한국어 분류명(LABEL_KO) 단일. 내부 risk_level(high/attention/normal)은 조치 필요 호스트 선정·강조용으로만 쓰고, 화면 라벨로 노출하지 않는다 (영어 enum·평행 어휘 금지).
 
@@ -142,7 +142,7 @@ Windows (원칙 P2): swap 트리거는 Linux 한정 — Windows pagefile 상시 
 
 ## 한계
 
-1. 위험도 3단계 압축 (customer view 한정) — `recommendation` 6분류를 high/attention/normal 3단계로 압축. shutdown·idle·over_provisioned 가 모두 "주의 필요" 로 묶임. 고객에게 더 세분된 행동을 제시하지 못함.
+1. 위험도 3단계 압축 (customer view 한정) — `recommendation` 5분류를 high/attention/normal 3단계로 압축. idle·over_provisioned 가 모두 "주의 필요" 로 묶임. 고객에게 더 세분된 행동을 제시하지 못함.
 2. 평균 활용률 KPI 는 산술 평균 — 환경 안 서버 부하 분포가 양극화 (절반 고부하·절반 저부하) 되면 평균은 misleading. p50·p95 분포 표시도 검토 후보.
 3. 워크로드 역할 무관 임계 — DB·캐시·앱서버 모두 같은 70%/80% 임계. DB 는 메모리 압박이 정상 운영일 수 있는데 "고위험" 으로 잡힐 가능성. 향후 역할별 임계 분기 시 정밀도 증가.
 4. 14일 윈도우 내 일회성 부하 — 단발 부하 (월 1회 배치 등) 가 그 윈도우 안에 들면 평상 부하로 오인. 외부 윈도우 (30일·90일)·요일/시간대 분리 미적용.

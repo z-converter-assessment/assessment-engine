@@ -41,7 +41,33 @@
         "mountpoint": { "type": ["string", "null"], "$comment": "swap 노드는 [SWAP] 또는 pagefile 경로" },
         "parent": { "type": ["string", "null"], "$comment": "부모의 id(불안정 name/dm-N 아님). root=null. 복수면 노드 반복" },
         "id": { "type": ["string", "null"] },
-        "id_type": { "enum": ["dm", "partuuid", "wwid", "serial", "by-id", "by-path", "fsuuid", "gptid", "mbrsig", "volguid", "mac", "ifguid", "name", null] }
+        "id_type": { "enum": ["dm", "partuuid", "wwid", "serial", "by-id", "by-path", "fsuuid", "gptid", "mbrsig", "volguid", "mac", "ifguid", "name", null] },
+        "partition_table": { "type": ["string", "null"], "$comment": "gpt|mbr. 이하 reproduction — 자연 노드타입에만 emit, 미해당 부재. Pydantic optional" },
+        "sector_size": { "type": ["integer", "null"], "minimum": 0 },
+        "serial": { "type": ["string", "null"] },
+        "wwn": { "type": ["string", "null"] },
+        "rotational": { "type": ["boolean", "null"] },
+        "part_number": { "type": ["integer", "null"], "minimum": 0 },
+        "part_start_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "part_type": { "type": ["string", "null"], "$comment": "GPT GUID / MBR 0x hex" },
+        "part_name": { "type": ["string", "null"] },
+        "part_flags": { "type": ["array", "null"], "items": { "type": "string" } },
+        "fs_uuid": { "type": ["string", "null"] },
+        "fs_label": { "type": ["string", "null"] },
+        "block_size": { "type": ["integer", "null"], "minimum": 0 },
+        "mount_options": { "type": ["array", "null"], "items": { "type": "string" } },
+        "fs_freq": { "type": ["integer", "null"] },
+        "fs_passno": { "type": ["integer", "null"] },
+        "lvm_vg": { "type": ["string", "null"] },
+        "lvm_lv": { "type": ["string", "null"] },
+        "lvm_segtype": { "type": ["string", "null"] },
+        "lvm_stripes": { "type": ["integer", "null"], "minimum": 0 },
+        "lvm_stripe_size_kib": { "type": ["integer", "null"], "minimum": 0 },
+        "raid_level": { "type": ["integer", "string", "null"], "$comment": "raw(raid5/linear/int), 엔진 read 시 int|null 정규화" },
+        "raid_chunk_kib": { "type": ["integer", "null"], "minimum": 0 },
+        "raid_metadata": { "type": ["string", "null"] },
+        "raid_uuid": { "type": ["string", "null"] },
+        "crypt_type": { "type": ["string", "null"], "$comment": "luks1|luks2" }
       },
       "additionalProperties": false
     },
@@ -51,7 +77,17 @@
       "properties": {
         "address": { "type": "string", "minLength": 1 },
         "prefix": { "type": ["integer", "null"], "minimum": 0, "maximum": 128 },
-        "family": { "enum": ["ipv4", "ipv6"] }
+        "family": { "enum": ["ipv4", "ipv6"] },
+        "origin": { "type": ["string", "null"], "$comment": "static|dhcp (reproduction)" }
+      },
+      "additionalProperties": false
+    },
+    "route": {
+      "type": "object",
+      "required": ["dest"],
+      "properties": {
+        "dest": { "type": "string", "minLength": 1, "$comment": "CIDR" },
+        "via": { "type": ["string", "null"] }
       },
       "additionalProperties": false
     },
@@ -65,7 +101,12 @@
         "kind": { "type": ["string", "null"], "$comment": "physical/loopback/bridge/veth/bond_master/bond_member/vlan/tunnel/virtual" },
         "speed_mbps": { "type": ["integer", "null"], "$comment": "링크속도(util 분모). virtio 부재 -> null" },
         "addresses": { "type": "array", "items": { "$ref": "#/$defs/net_address" }, "$comment": "인터페이스 IP 목록(토폴로지·표시·필터)" },
-        "gateway": { "type": ["string", "null"], "$comment": "default route gateway IP(없으면 null)" }
+        "gateway": { "type": ["string", "null"], "$comment": "default route gateway IP(없으면 null)" },
+        "mtu": { "type": ["integer", "null"], "minimum": 0, "$comment": "이하 reproduction (agent 확장). Pydantic optional" },
+        "dns": { "type": ["array", "null"], "items": { "type": "string" } },
+        "routes": { "type": ["array", "null"], "items": { "$ref": "#/$defs/route" } },
+        "bond_mode": { "type": ["string", "null"] },
+        "vlan_id": { "type": ["integer", "null"], "minimum": 0 }
       },
       "additionalProperties": false
     },
@@ -101,7 +142,10 @@
         "size_bytes": { "type": ["integer", "null"] },
         "free_bytes": { "type": ["integer", "null"] },
         "data_percent": { "type": ["number", "null"] },
-        "metadata_percent": { "type": ["number", "null"] }
+        "metadata_percent": { "type": ["number", "null"] },
+        "vg_uuid": { "type": ["string", "null"], "$comment": "이하 reproduction (agent 확장). Pydantic optional" },
+        "extent_size_bytes": { "type": ["integer", "null"], "minimum": 0 },
+        "pv_ids": { "type": ["array", "null"], "items": { "type": "string" }, "$comment": "구성 PV 의 block_device id" }
       },
       "additionalProperties": false
     },
@@ -203,6 +247,7 @@
           "boot_firmware": { "type": ["string", "null"], "$comment": "uefi|bios. 재현 부팅 방식" },
           "secure_boot": { "type": ["boolean", "null"], "$comment": "UEFI Secure Boot 여부. 미판별 null" },
           "edition": { "type": ["string", "null"], "$comment": "Windows EditionID(SKU). Linux null" },
+          "product_name": { "type": ["string", "null"], "$comment": "Windows CurrentVersion ProductName 원문(os_display 라벨 파싱 소스). Linux null" },
           "timezone": { "type": ["string", "null"], "$comment": "IANA tz" },
           "rtc_utc": { "type": ["boolean", "null"], "$comment": "RTC UTC(true)/localtime(false). 미판별 null" },
           "cpu_model": { "type": ["string", "null"] },

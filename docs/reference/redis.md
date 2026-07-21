@@ -172,7 +172,7 @@ async def close_pool() -> None: ...
 - list 화면 online: Redis 300s TTL 기반 → DB `last_seen_at` 기반. 정밀도 거의 동일, DB N개 행 비교 부하 추가.
 - 실시간 메트릭 polling: 캐시 MISS 로 매 30초 요청이 DB 직접 조회. 응답 정상, 부하만 증가.
 
-약화되지 않는 보장: 데이터 정확성. 멱등성 fail-open은 1단 차단을 잃지만 시계열 4개 테이블의 `(server_id, [dim,] collected_at)` UNIQUE 제약이 중복 INSERT를 silent no-op으로 흡수.
+약화되지 않는 보장: 데이터 정확성. 멱등성 fail-open은 1단 차단을 잃지만 시계열 metric 7개 테이블의 `(server_id, [dim,] collected_at)` UNIQUE 제약이 중복 INSERT를 silent no-op으로 흡수.
 
 Redis 는 강결합 방지용 — 장애 시 fail-open, 진실은 DB. 상세 의사결정과 옵션 비교는 `docs/decisions/adr/` 의 redis decoupling 기록.
 

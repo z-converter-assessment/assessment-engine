@@ -21,10 +21,11 @@ from assessment_engine.consumer.settings import consumer_settings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 
 # 일시 장애(connection·deadlock)만 retry. 영구 장애(IntegrityError·ProgrammingError·DataError 등)는
-# 즉시 raise -> nack -> DLQ (F6). DBAPIError 광역 포함 금지 — 영구 오류를 헛재시도시킨다.
-# OperationalError = connection·deadlock, InterfaceError = connection 단절. 둘 다 DBAPIError 상속.
-# IntegrityError(= UNIQUE/FK 위반)도 DBAPIError 상속이라 _db_retry 에서 별도 먼저 캐치.
+# 즉시 raise -> nack -> DLQ (F6). DBAPIError 광역 재시도 금지 — 영구 오류를 헛재시도시킨다(_is_retryable_db_exc 판별).
+# connection = OperationalError·InterfaceError(타입). deadlock 은 asyncpg 가 OperationalError 아닌 base DBAPIError
+# 로 래핑하므로 타입 아닌 SQLSTATE 40P01 로 판별. IntegrityError(= UNIQUE/FK 위반)도 DBAPIError 상속이라 먼저 별도 캐치.
 _RETRYABLE_DB_EXC = (OperationalError, InterfaceError)
+_DEADLOCK_SQLSTATE = "40P01"  # PostgreSQL deadlock_detected
 
 # exponential backoff + full jitter — thundering herd 방지 + 메시지 처리 블로킹 최소화.
 # base 2: attempt0 <=2s, attempt1 <=4s (기존 base 5 는 최악 25s 단일 블로킹이라 과공격적).
@@ -45,6 +46,17 @@ def _format_db_err(e: DBAPIError) -> str:
     return f"sa={sa_cls} orig={orig_cls}"
 
 
+def _is_retryable_db_exc(e: DBAPIError) -> bool:
+    """일시 DB 장애 판정 — connection(OperationalError/InterfaceError 타입) + deadlock(SQLSTATE 40P01).
+
+    deadlock 은 victim rollback 후 재시도하면 경합이 풀려 흡수된다(#F6 일시 장애 재시도 원칙). asyncpg 는
+    deadlock 을 OperationalError 가 아닌 base DBAPIError 로 래핑하므로 타입만으론 못 잡아 SQLSTATE 로 판별한다.
+    """
+    if isinstance(e, _RETRYABLE_DB_EXC):
+        return True
+    return getattr(getattr(e, "orig", None), "sqlstate", None) == _DEADLOCK_SQLSTATE
+
+
 async def _db_retry[T](
     session_factory: async_sessionmaker[AsyncSession],
     repo_factory: Callable[[AsyncSession], BaseCollectRepository],
@@ -60,7 +72,11 @@ async def _db_retry[T](
             # 영구 장애 — 즉시 raise -> 핸들러 nack -> DLQ. F8: 진단 메타만 로깅.
             logger.error("db integrity error (non-retryable) {}", _format_db_err(e))
             raise
-        except _RETRYABLE_DB_EXC as e:
+        except DBAPIError as e:
+            if not _is_retryable_db_exc(e):
+                # 영구 장애 (ProgrammingError·DataError 등) — 즉시 raise -> nack -> DLQ (F6).
+                logger.error("db error (non-retryable) {}", _format_db_err(e))
+                raise
             if attempt == _RETRY_MAX_ATTEMPTS - 1:
                 logger.error("db error after {} attempts {}", _RETRY_MAX_ATTEMPTS, _format_db_err(e))
                 raise

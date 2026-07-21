@@ -38,7 +38,7 @@
                 v                                  |
  +-------------------------------+                 |  SUBSCRIBE
  |  TimescaleDB                  |                 |
- |  - 5 timeseries tables        |                 |
+ |  - 7 metric timeseries tables |                 |
  |  - server_inventory + history |                 |
  |  - tasks (audit log)          |                 |
  |  - diagnostic_jobs (report    |                 |

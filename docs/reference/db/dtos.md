@@ -7,8 +7,8 @@
 | DTO | 용도 | 필드 정책 |
 |-----|------|-----------|
 | `ServerInventoryCreate` | inventory upsert | JSONB 컬럼(`disks`/`mounts`/`services`/`listen_ports`)은 `list[dict]` — JSONB 직렬화에 자연 |
-| `ServerMetricCreate` | metrics 1건 | nested `list[DiskIoEntry]` / `list[MountUsageEntry]` / `list[NetIoEntry]` — 시계열 4테이블 행 매핑이라 컴파일 타임 타입 보장. boot_time/agent_started_at 포함 |
-| `DiskIoEntry` / `MountUsageEntry` / `NetIoEntry` | 시계열 행 nested | dict 키 오타 방지 — mapper 단계에서 차단. INSERT 시 `dataclasses.asdict(entry)`로 풀어쓰기 |
+| `ServerMetricCreate` | metrics 1건 | nested `list[DiskIoEntry]`/`list[NetIoEntry]`/`list[FilesystemEntry]`/`list[CpuCoreEntry]`/`list[PressureEntry]`/`list[DiskErrorEntry]` — 시계열 metric 7테이블 행 매핑이라 컴파일 타임 타입 보장. boot_time/agent_started_at 은 server_metrics 만 |
+| `DiskIoEntry` / `NetIoEntry` / `FilesystemEntry` / `CpuCoreEntry` / `PressureEntry` / `DiskErrorEntry` | 시계열 행 nested | dict 키 오타 방지 — mapper 단계에서 차단. INSERT 시 `vars(entry)` shallow spread로 풀어쓰기 |
 | `TaskCreate` | task 발행 | target_server_id / target_agent_id / task_type / params (JSONB) |
 | `TaskResultUpdate` | task 결과 수신 | public_id / status / failure_reason / exit_code / signal_no / duration_ms / stdout_tail / stderr_tail / completed_at |
 
@@ -51,5 +51,5 @@
 | DTO | 컬렉션 필드 | 형태 | 이유 |
 |-----|----------|------|------|
 | `ServerInventoryCreate` | `disks`/`mounts`/`services`/`listen_ports` | `list[dict]` | JSONB 컬럼 직렬화 |
-| `ServerMetricCreate` | `disk_io`/`mounts`/`net_io` | `list[DiskIoEntry]` 등 nested dataclass | 시계열 4테이블 행 매핑 — 컴파일 타임 타입 보장 |
+| `ServerMetricCreate` | `disk_io`/`net_io`/`filesystems`/`cpu_per_core`/`pressure`/`disk_errors` | `list[DiskIoEntry]` 등 nested dataclass | 시계열 metric 7테이블 행 매핑 — 컴파일 타임 타입 보장 |
 | `TaskCreate.params` | `dict \| None` | JSONB | task_type별 스키마가 다름 — 동적 |

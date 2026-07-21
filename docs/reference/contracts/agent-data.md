@@ -121,7 +121,7 @@ Windows 폴백: 디스크 `gptid -> mbrsig -> serial(RAW 포함)`, 파티션 `gp
 네트워크: `id` = MAC(`id_type=mac`, OpenStack 포트 MAC). 폴백 Windows `ifguid` / Linux `by-path`. `name` 은 표시용.
 
 id_type enum:
-- block_device: `dm, partuuid, wwid, serial, by-id, by-path, fsuuid, gptid, mbrsig, volguid, name, null`.
+- block_device: `dm, partuuid, wwid, serial, by-id, by-path, fsuuid, gptid, mbrsig, volguid, mac, ifguid, name, null` (mac·ifguid 는 net_interface 축 어휘 — 정본 wire.schema.json 이 공유 enum 으로 수용, block 노드 실사용은 아님).
 - net_interface: `mac, ifguid, by-path, name, null`.
 
 id + id_type 표현 (inventory vs metrics 이원):
@@ -174,6 +174,12 @@ fs -> 물리디스크 확정 매핑(parent-by-id) + 스토리지 3계층(배정/
 | parent | string \| null | 부모 id. root=null. 복수 부모면 노드 반복 |
 | id | string \| null | 안정 id(E절 폴백). best-effort |
 | id_type | enum(E절) | |
+| partition_table / sector_size / serial / wwn / rotational | string·int·bool \| null | 디스크 HW·파티션테이블 reproduction (gpt\|mbr·섹터·시리얼·회전형). 이하 reproduction = agent 확장 optional, 자연 노드타입에만 emit(미해당 부재) |
+| part_number / part_start_bytes / part_type / part_name / part_flags | int·string·array \| null | 파티션 레이아웃 (part_type=GPT GUID/MBR hex) |
+| fs_uuid / fs_label / block_size / mount_options / fs_freq / fs_passno | string·int·array \| null | 파일시스템 reproduction (fstab 재생성) |
+| lvm_vg / lvm_lv / lvm_segtype / lvm_stripes / lvm_stripe_size_kib | string·int \| null | LVM 레이아웃 |
+| raid_level / raid_chunk_kib / raid_metadata / raid_uuid | int·string \| null | RAID 레이아웃 (raid_level raw, 엔진 int\|null 정규화) |
+| crypt_type | string \| null | LUKS 타입 (luks1\|luks2) |
 
 swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티션 / Windows pagefile). 프로비저닝 스펙.
 
@@ -186,8 +192,9 @@ swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티�
 | id_type | enum mac/ifguid/by-path/name/null | |
 | kind | string \| null | physical/loopback/bridge/veth/bond_master/... |
 | speed_mbps | integer \| null | 링크속도(util 분모). virtio·Windows NT5.2 부재 -> null. 이때 엔진은 metrics `network.link.speed`(bit/s)로 폴백 |
-| addresses | array of {address, prefix(int\|null), family(ipv4/ipv6)} | 인터페이스 IP. 서버 IP 표시·토폴로지(L3 서브넷 추론)·right-sizing IP 필터 |
+| addresses | array of {address, prefix(int\|null), family(ipv4/ipv6), origin(static\|dhcp\|null, reproduction)} | 인터페이스 IP. 서버 IP 표시·토폴로지(L3 서브넷 추론)·right-sizing IP 필터 |
 | gateway | string \| null | default route gateway |
+| mtu / dns / routes / bond_mode / vlan_id | int·array·string \| null | 인터페이스 reproduction (agent 확장 optional). routes=[{dest(CIDR), via}] |
 
 ### F4. lvm_vgs[] (opt, Linux 전용 — Windows 발행 금지)
 
@@ -197,6 +204,7 @@ swap 노드 = type=swap, size_bytes = 스왑 할당 크기(Linux 스왑 파티�
 | size_bytes | integer(By) \| null | |
 | free_bytes | integer(By) \| null | 확장 여력(3계층째) 실측 — 디스크 추가 없이 바로 붙일 여유 |
 | data_percent / metadata_percent | number \| null | 씬풀 충전율(used/total 블록, %). VG당 thin-pool 1개일 때만 발행 (0개·다수·status 파싱 불가 시 null) |
+| vg_uuid / extent_size_bytes / pv_ids | string·int·array \| null | VG reproduction (agent 확장 optional). pv_ids=구성 PV 의 block_device id |
 
 Windows 확장여력은 디스크크기 - 파티션합(미할당)으로 엔진이 파생.
 

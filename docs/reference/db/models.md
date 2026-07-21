@@ -1,15 +1,18 @@
 # DB ORM 모델 카탈로그
 
-정책: CLAUDE.md #C1. 본 문서는 ORM 모델·식별자 규약·시계열 자연키 UNIQUE·tasks 부분 UNIQUE 단일 진실. `src/assessment_engine/db/models/` — 8개 모델.
+정책: CLAUDE.md #C1. 본 문서는 ORM 모델·식별자 규약·시계열 자연키 UNIQUE·tasks 부분 UNIQUE 단일 진실. `src/assessment_engine/db/models/` — 11개 모델.
 
 | 모델 | 테이블 | PK | 종류 | 설명 |
 |------|--------|----|----|------|
 | `ServerInventory` | `server_inventory` | Integer | 단일 행 | `agent_id` 단독 UNIQUE 기준 upsert. `composite_id`/`machine_id` 감사·표시 전용 |
 | `ServerInventoryHistory` | `server_inventory_history` | BigInteger + collected_at | hypertable (append-only) | 인벤토리 변경 이력 (boot_time/agent_started_at 변경이 trigger) |
-| `ServerMetrics` | `server_metrics` | BigInteger + collected_at | hypertable | 스칼라 메트릭 시계열 (CPU/Mem/Load) |
-| `ServerDiskIo` | `server_disk_io` | BigInteger + collected_at | hypertable | per device I/O 누적 카운터 |
-| `ServerNetIo` | `server_net_io` | BigInteger + collected_at | hypertable | per interface I/O 누적 카운터 |
-| `ServerMountUsage` | `server_mount_usage` | BigInteger + collected_at | hypertable | per mount 시점 사용량 |
+| `ServerMetrics` | `server_metrics` | BigInteger + collected_at | hypertable | 호스트 스칼라 메트릭 (CPU jiffies·Mem·run_queue·blocked·paging·conntrack). envelope 메타(boot_time·agent_started_at) 보유 |
+| `ServerDiskIo` | `server_disk_io` | BigInteger + collected_at | hypertable | per device I/O 누적 카운터 (io bytes·ops·op_time·io_time) |
+| `ServerNetIo` | `server_net_io` | BigInteger + collected_at | hypertable | per interface I/O 누적 카운터 (rx/tx bytes·packets·drops·errors) |
+| `ServerFilesystem` | `server_filesystem` | BigInteger + collected_at | hypertable | per mount 시점 용량·inode (used/free/total·inode) |
+| `ServerCpuCore` | `server_cpu_core` | BigInteger + collected_at | hypertable | per core CPU jiffies 카운터 (단일스레드 병목 감지) |
+| `ServerPressure` | `server_pressure` | BigInteger + collected_at | hypertable | PSI 압박 (resource·scope별, Linux 4.20+) |
+| `ServerDiskError` | `server_disk_error` | BigInteger + collected_at | hypertable | 디스크·스토리지 오류 카운터 (error_kind·error_class·member별) |
 | `Task` | `tasks` | BigInteger | 단일 행 (audit log) | 원격 작업 명령 + 실행 이력 |
 | `DiagnosticJob` | `diagnostic_jobs` | UUID | 일반 테이블 (hypertable 아님) | 보고서 발행 스냅샷·이력. `job_type` 으로 분류 (`customer_report`/`engineer_report`). active UNIQUE = `(scope, input_hash, job_type)`. UUID PK는 URL 노출용 (E5) |
 
@@ -18,24 +21,27 @@
 - 대리키 패턴: 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약
 - `server_inventory` 호스트 식별 = `agent_id` 단독 UNIQUE (`uq_server_inventory_agent_id`) — upsert 키. `agent_id` 는 agent 가 첫 실행 시 생성·영구저장한 불변 UUID 라 MAC/machine_id 재발급과 무관. `composite_id`(SHA-256(machine_id + 정렬·dedup MAC 들), nullable)·`machine_id`(raw machine-id, nullable) 는 clone collision 진단용 감사·표시 컬럼 — 식별·라우팅 미사용.
 - `server_inventory.public_id` `UUID DEFAULT gen_random_uuid()` — URL 식별자 (정수 PK 노출 금지)
-- 시계열 5개 테이블 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB 파티션 키 포함
-- 시계열 5개 테이블 자연키 UNIQUE (D2 멱등성 2단 방어):
+- 시계열 테이블 복합 PK `(id BIGINT, collected_at TIMESTAMPTZ)` — TimescaleDB 파티션 키 포함
+- 시계열 metric 7테이블 + `server_inventory_history` 자연키 UNIQUE (D2 멱등성 2단 방어):
 
 | 테이블 | UNIQUE |
 |--------|--------|
 | `server_metrics` | `(server_id, collected_at)` |
-| `server_disk_io` | `(server_id, device, collected_at)` |
-| `server_net_io` | `(server_id, interface, collected_at)` |
-| `server_mount_usage` | `(server_id, mount, collected_at)` |
+| `server_disk_io` | `(server_id, device_id, collected_at)` |
+| `server_net_io` | `(server_id, iface_id, collected_at)` |
+| `server_filesystem` | `(server_id, mountpoint, collected_at)` |
+| `server_cpu_core` | `(server_id, core_id, collected_at)` |
+| `server_pressure` | `(server_id, resource, scope, collected_at)` |
+| `server_disk_error` | `(server_id, device_id, error_kind, error_class, member, collected_at)` — `member` NOT NULL('') 로 NULL 미포함 멱등키 |
 | `server_inventory_history` | `(server_id, collected_at)` |
 
-## 시계열 4테이블 공통 메타 (B1 counter reset 정밀 식별)
+## envelope 메타 (boot_time — counter reset 정밀 식별)
 
-`server_metrics`·`server_disk_io`·`server_net_io`·`server_mount_usage` 모두 `boot_time TIMESTAMPTZ NULL` + `agent_started_at TIMESTAMPTZ NULL` 컬럼 보유.
+`server_metrics` 만 `boot_time TIMESTAMPTZ NULL` + `agent_started_at TIMESTAMPTZ NULL` 컬럼 보유 (수집 1회당 1행 = envelope). 자식 시계열(disk_io·net_io·filesystem·cpu_core·pressure·disk_error)은 동일 `(server_id, collected_at)` 로 server_metrics 행을 참조 — 메타 N중복 회피.
 
-- metrics·disk_io·net_io: `metrics_calculator._is_counter_reset` 두 시점 boot_time 비교 → reset 시 None
-- mount_usage: 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅(단일 테이블 SELECT로 재부팅 인지)
-- 옛 데이터(NULL)는 d<0 휴리스틱 fallback
+- server_metrics 차트(`metric_trend`)는 `LAG(boot_time)` 두 시점 비교로 재부팅 식별 → reset 시 delta 건너뛰기.
+- 자식 시계열은 boot_time 미보유 → rate 차트 reset 은 `GREATEST(delta, 0)` 로 흡수.
+- 보고서 집계(`report_aggregate`·cagg)는 `counter_agg` 가 값-감소 기준 reset 을 일률 처리 → boot_time gate 불요.
 
 ## tasks 테이블 — 부분 UNIQUE (C1 + 운영자 더블클릭 방어)
 

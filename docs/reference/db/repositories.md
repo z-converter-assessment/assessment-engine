@@ -36,7 +36,7 @@
 | `metric_snapshots(server_id, cursor, limit)` | 시계열 cursor pagination |
 | `metric_chart(server_id, type, dim, range, bucket, agg, end)` | 차트 dispatcher (metric_type 카탈로그는 `types.py`) |
 | `reboot_events(server_id, start, end)` | server_inventory_history boot_time/agent_started_at 변경 시점 |
-| `report_aggregate(server_ids, period_days, end)` | USE Method 통계 (CPU p95/peak + MEM p95/peak + load_15m max + swap_used) + 용량 임박 구동 마운트(`mount_runway` CTE — MIN runway 마운트 이름·runway·used%, 분류 단일 소스) — `server_metrics_5m`·`server_mount_usage_5m` cagg |
+| `report_aggregate(server_ids, period_days, end)` | USE Method 통계 (CPU p95/peak + MEM p95/peak + run_queue·blocked p95 + iowait/steal + await·conntrack) + 용량 임박 구동 마운트(`mount_runway` CTE — MIN runway 마운트 이름·runway·used%, 분류 단일 소스) — `server_metrics_5m`·`server_filesystem_5m`·`server_disk_io_5m`·`server_net_io_5m`·`server_cpu_core_5m` cagg |
 | `report_uptime_stats(server_ids, period_days, end)` | 가동률 통계 |
 | `report_disk_io_baseline` / `report_net_io_baseline` | I/O baseline (보고서 I/O baseline 표시 입력, `DiskIoBaselineRaw`/`NetIoBaselineRaw` 반환) — `server_disk_io_5m`/`server_net_io_5m` cagg counter_agg(reset 일률 처리, 물리 device 만 집계) |
 | `report_memory_breakdown(server_id, period_days, end)` | 개별 보고서 메모리 구성 (used/available/cached/buffers 전체 대비 %, 시점값 avg) |
@@ -51,7 +51,7 @@
 
 | 그룹 | metric_type | 집계 방식 (per_ts -> 버킷 {agg}) |
 |------|-------------|-----------|
-| capacity-weighted util | `cpu.*`, `mem.*`, `swap.usage`, `disk.usage`, `fs.usage_percent` | 시점별 Σnum/Σden x 100 (per_ts) -> 버킷 {agg}. 자원 총량 가중(큰 서버 큰 비중). CPU=jiffies LAG delta(boot reset 제외, `_CPU_NUMERATOR`), mem/swap=시점값 KB(`_ENV_SCALAR_WEIGHTED`), disk/fs=mount bytes(collapse=True 가상 제외 합산 / False mount 보존) |
+| capacity-weighted util | `cpu.*`, `mem.*`, `disk.usage`, `fs.usage_percent` | 시점별 sum(num)/sum(den) x 100 (per_ts) -> 버킷 {agg}. 자원 총량 가중(큰 서버 큰 비중). CPU=jiffies LAG delta(boot reset 제외, `_CPU_NUMERATOR`), mem=시점값 KB(`_ENV_SCALAR_WEIGHTED`), disk/fs=mount bytes(collapse=True 가상 제외 합산 / False mount 보존) |
 | 합산 rate | `disk.read/write_iops`, `net.rx/tx_bytes_per_sec`, `net.rx/tx_packets_per_sec` | 시점별 Σ(전 device LAG delta/dt rate)(per_ts) -> 버킷 {agg}. disk=물리 whole-disk 만(`_PHYS_DISK_SQL_FILTER` — fail-closed EXISTS, `server_inventory.block_devices` 조인해 `type='disk'` 인 항목과 `device_id` 매치되어야 통과. 매치는 `id_type:id` 우선, 실패 시 `name:name` 폴백(Windows agent 가 inventory 는 `id_type:id`, metrics 는 disk name 만 발행하는 스킴 불일치 흡수) — 파티션·LVM 이중계산 회피), net=집계 iface 만(`_PHYS_IFACE_SQL_FILTER` — 동일 EXISTS 패턴, `net_interfaces.kind in ('physical','bond_master')` — loopback·veth·터널·bond_member·bridge·vlan 제외, bond_master 는 본딩 집계 단위라 포함). collapse=False 면 device/iface 보존. boot reset·dt<=0·음수 delta 제외 |
 | 코어 정규화 | `cpu.run_queue` | 시점별 Σ실행큐 / Σcpu_cores (per_ts, server_inventory JOIN) -> 버킷 {agg}. 1.0=코어당 포화. os-aware 단일 `cpu_run_queue`(Linux procs_running / Windows Processor Queue), 환경·상세 공용, dimension=os_family(Linux/Windows 2선) |
 | 응답 지연 (양 OS 단일선) | `disk.io_saturation` | Σ(Δ op_time)/Σ(Δ ops) 물리 device 버킷 델타 = await(ms). 양 OS 통일, os 분기·dimension 없음. Windows 구세대 viostor 큐 폴백은 스냅샷 판정 전용(차트는 await) |
@@ -97,7 +97,7 @@ interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedel
 
 ## INSERT 통일 — `pg_insert` + `on_conflict_do_nothing`
 
-시계열 4테이블 모두 동일 패턴 적용(CLAUDE.md #D2 2단 방어). 자연키 카탈로그: `docs/reference/db/models.md` "시계열 5개 테이블 자연키 UNIQUE" 표.
+시계열 metric 7테이블 모두 동일 패턴 적용(CLAUDE.md #D2 2단 방어). 자연키 카탈로그: `docs/reference/db/models.md` "시계열 자연키 UNIQUE" 표.
 
 ## `.returning()` + `scalar_one`
 

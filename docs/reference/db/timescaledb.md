@@ -4,15 +4,15 @@
 
 ## hypertable 구성
 
-시계열 5개 테이블 모두 hypertable (`collected_at` 기준 파티셔닝):
-- `server_metrics` / `server_disk_io` / `server_net_io` / `server_mount_usage` / `server_inventory_history`
+시계열 8개 테이블 모두 hypertable (`collected_at` 기준 파티셔닝):
+- `server_metrics` / `server_disk_io` / `server_net_io` / `server_filesystem` / `server_cpu_core` / `server_pressure` / `server_disk_error` / `server_inventory_history`
 
-### 4테이블 `boot_time`/`agent_started_at` 컬럼 보존
+### `boot_time`/`agent_started_at` 컬럼 (server_metrics)
 
-`server_metrics`/`server_disk_io`/`server_net_io`/`server_mount_usage` 4개 테이블은 행마다 `boot_time`/`agent_started_at` 컬럼을 함께 저장한다(CLAUDE.md #C1·#B). 근거:
-- metrics/disk_io/net_io는 `metric_trend` 차트 SQL과 `metrics_calculator._is_counter_reset`이 `LAG(boot_time)`로 시스템 재부팅 식별 -> counter reset 시 delta 건너뛰기.
-- mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 시 단일 테이블 SELECT로 boot_time까지 같이 보고 싶어서 보존.
-- 옛 데이터(컬럼 NULL)는 `d_val < 0` 휴리스틱 fallback (CASE 3순위).
+`server_metrics` 만 행마다 `boot_time`/`agent_started_at` 컬럼을 저장한다(수집 1회당 1행 = envelope, CLAUDE.md #C1·#B). 자식 시계열(disk_io·net_io·filesystem·cpu_core·pressure·disk_error)은 미보유 — 동일 `(server_id, collected_at)` 로 server_metrics 행을 참조. counter reset 처리:
+- server_metrics 차트(`metric_trend`)·`metrics_calculator._is_counter_reset`: `LAG(boot_time)` 두 시점 비교로 재부팅 식별 -> reset 시 delta 건너뛰기.
+- 자식 시계열 rate 차트: boot_time 미보유라 `GREATEST(delta, 0)` 로 reset 흡수.
+- 보고서 집계(cagg)는 `counter_agg` 가 값-감소 기준 reset 을 일률 처리 -> boot_time gate 불요.
 
 ## DEV / PROD 스키마 관리
 
@@ -24,14 +24,14 @@
 
 ## 차트 SQL 패턴 — 단일 함수 `metric_trend`
 
-모든 차트(환경 성능 추이·선택 N대·서버 상세·대시보드 부하 추이·보고서 추이)는 단일 함수 `metric_trend`가 산출한다. `metric_chart`(서버 상세)는 `metric_trend(collapse=False, server_ids=[1대])`에 위임하는 thin wrapper. metric_type별 분기(jiffies delta percent·시점값 load/mem/swap %·누적 카운터 rate disk/net·fs.usage_percent)는 `metric_trend` 내부 SQL 분기로 흡수.
+모든 차트(환경 성능 추이·선택 N대·서버 상세·대시보드 부하 추이·보고서 추이)는 단일 함수 `metric_trend`가 산출한다. `metric_chart`(서버 상세)는 `metric_trend(collapse=False, server_ids=[1대])`에 위임하는 thin wrapper. metric_type별 분기(jiffies delta percent·시점값 mem/run_queue/PSI gauge·누적 카운터 rate disk/net·fs.usage_percent)는 `metric_trend` 내부 SQL 분기로 흡수.
 
 ### 통일 산식
 
 각 `collected_at`(시점)마다 그 시점에 데이터를 보낸 서버로 환경값 1개를 산출(`per_ts` CTE):
 - 활용률 = `sum(num)/sum(den)` (capacity-weighted)
 - 처리량 = 합산 `SUM`
-- 로드 = `sum(load_15m)/sum(cpu_cores)` (코어 정규화 — 환경·서버 상세 동일)
+- 실행 큐 = `sum(cpu_run_queue)/sum(cpu_cores)` (코어 정규화 — 환경·서버 상세 동일)
 
 이후 그 시점값을 `time_bucket`의 `agg`(avg/max/p95)로 집계 — 시점별 환경값을 먼저 산출한 뒤 버킷 집계한다.
 
@@ -65,9 +65,11 @@ timescaledb_toolkit `counter_agg` 로 사전집계한다. 5분 버킷(클라우�
 
 | cagg | 그룹 | 저장 |
 |------|------|------|
-| `server_metrics_5m` | server_id, bucket | CPU `counter_agg`(total/idle/user/system/iowait) + mem% avg/max + load max + swap |
-| `server_disk_io_5m` | server_id, device, bucket | reads/writes/sectors `counter_agg` (물리 device만) |
-| `server_net_io_5m` | server_id, interface, bucket | rx/tx bytes·packets `counter_agg` (kind in {physical, bond_master}) |
+| `server_metrics_5m` | server_id, bucket | CPU/paging/oom/tcp재전송/mce `counter_agg` + mem% avg/max·commit% + run_queue·blocked·conntrack avg/max + hw_corrupted + mem byte gauge(available/limit avg, cached/buffered% — env_util·memory_breakdown cagg 조회) |
+| `server_filesystem_5m` | server_id, mountpoint, bucket | used%/inode% avg/max + total_bytes_max + free/inode first·last(runway) + fstype_any(query 시 가상 fs 필터) |
+| `server_disk_io_5m` | server_id, device_id, bucket | io bytes·ops·op_time·io_time `counter_agg` + pending avg/max (물리 device만) |
+| `server_net_io_5m` | server_id, iface_id, bucket | rx/tx bytes·packets·drops·errors `counter_agg` + link_max (kind in {physical, bond_master}) |
+| `server_cpu_core_5m` | server_id, core_id, bucket | per-core CPU `counter_agg`(total/idle) — 단일스레드 병목 감지 |
 
 counter reset(재부팅·agent재시작·wraparound)은 `counter_agg` 가 값-감소 기준 일률 처리 — boot_time gate 불요.
 가상 device/interface 는 cagg 단계 필터(물리만, types 필터 스냅샷).
@@ -82,19 +84,20 @@ WITH bkt AS (
   SELECT server_id, bucket,
     CASE WHEN delta(cpu_total_ca) > 0
          THEN GREATEST(0, (1 - delta(cpu_idle_ca)/delta(cpu_total_ca)) * 100) END AS cpu_pct,
-    mem_pct_avg, mem_pct_max, load_15m_max, swap_in_use
+    mem_pct_avg, mem_pct_max, run_queue_avg AS procs_running, blocked_avg AS procs_blocked
   FROM server_metrics_5m WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
 ),
-cpu_stats AS (  -- 버킷에 percentile_cont(정확), avg, max
+cpu_stats AS (  -- 버킷에 percentile_cont(정확)·avg·max
   SELECT server_id, percentile_cont(0.95) WITHIN GROUP (ORDER BY cpu_pct) AS cpu_p95, MAX(cpu_pct) AS cpu_peak
   FROM bkt GROUP BY server_id
 ),
-mem_stats AS (...), load_stats AS (...),
-mount_max AS (-- server_mount_usage(가상 mount 제외), 카운터 아님 raw 집계)
-SELECT s.id, ..., cs.cpu_p95, cs.cpu_peak, ms.mem_p95, ms.mem_peak, ms.swap_used, ls.load_15m_max, mm.worst_used_pct
+mem_stats AS (...), rs_stats AS (-- run_queue·blocked·steal p95 (포화·근본원인 신호)),
+mount_max AS (-- server_filesystem_5m(가상 fs 제외), used%·runway)
+SELECT s.id, ..., cs.cpu_p95, cs.cpu_peak, ms.mem_p95, ms.mem_peak,
+       rs.procs_running_p95, rs.procs_blocked_p95, mm.worst_used_pct
 FROM server_inventory s
 LEFT JOIN cpu_stats cs ON cs.server_id = s.id
-... (mem/load/mount LEFT JOIN)
+... (mem/rs/mount LEFT JOIN)
 WHERE s.id = ANY(:sids)
 ```
 

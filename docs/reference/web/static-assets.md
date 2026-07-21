@@ -35,6 +35,9 @@ src/assessment_engine/web/static/js/
 | `pageTimeControl(rangeBtnsId, anchorId, default, onChange)` | 페이지 단일 시간축 컨트롤러(#F10) — range 토글 + anchor 하나가 페이지 전 차트를 구동. `{getRange, getAnchor}` 반환. 변경 시 onChange 로 전체 reload. anchor 미입력=live now, 입력=고정(과거 조사). 서버 상세 자원 탭 공용 |
 | `initAutoRefresh(onRefresh, intervalMs)` | 30초 polling 자동 갱신 (setInterval + pagehide 정리) |
 | `safeArray(arr)` | `Array.isArray` 방어 (P4 c) |
+| `buildDimDatasets(rows, bMs, grid, metaMap, opts)` | dimension별(device/iface/mount) 멀티라인 dataset 조립 — grid join + 색·라벨 매핑 |
+| `fmtThroughput(kb)` | kB/s -> B/s·kB/s·MB/s 표시 단위 자동 결정 (P4) |
+| `naWindows(osFamily, key, formatted)` / `setValText(el, text)` / `setNaText(el, osFamily, key, formatted)` | os-aware N/A 텍스트 — Windows 미측정 축은 대체 표기, 그 외 formatted 값 (서버 상세 실시간 카드) |
 | `renderChipLegend(container, chart)` | 색점+라벨 칩(pill) 토글 범례 — dataset 1개당 1칩, 클릭 시 show/hide. comp/load 계열 (cpu·memory) |
 | `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글 — storage io·network·metrics 통일), `codeLabel`=정적 선+code 라벨(현재 미사용) |
 
@@ -56,7 +59,7 @@ src/assessment_engine/web/static/js/
 | (d) 404 분기 | `/metrics/latest` 등 데이터 부재는 `res.status === 404` 분기 |
 | (e) suggestedMax 명명 상수 | `PERF_IOPS_SUGGESTED_MAX = 200` 형식 + 임계값 색상도 `USAGE_DANGER_PCT` 등 명명 상수 |
 
-5개 페이지 모두 (a)~(e) 적용. `metrics.js`가 11개 차트 loader 모두 `(seq, capturedRange, capturedAnchor)` 시그니처 표준.
+5개 페이지 모두 (a)~(e) 적용. `metrics.js`(서버 상세 성능 탭)는 9개 차트 loader 를 `loadAllCharts` 가 `(range, anchor)` 시그니처로 호출 — seq(sequence counter)는 각 loader 내부에서 생성(capture-before-await).
 
 ## 차트 UI 디테일
 
@@ -195,7 +198,7 @@ base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 �
 | `.badge` | base (변형 클래스와 함께) |
 | `.badge-ok` / `.badge-warn` / `.badge-danger` | semantic 상태 |
 | `.badge-cat-{web,db,cache,mq,container,monitor,remote,file,mail,infra,unknown}` | 서비스 카테고리 |
-| `.rec-{under_provisioned,over_provisioned,optimal,idle,shutdown,right_size,swap,success,failure,pending,unknown,insufficient_data}` | 분류 결과 |
+| `.rec-{under_provisioned,over_provisioned,optimal,idle,insufficient_data,swap}` (분류·rec-swap 메모리부족 1차신호) + `.rec-{success,failure,pending,unknown}` (Task status) | 분류 결과 · Task status |
 | `.attn-active` | 운영 신호 발화 |
 | `.rec-badge` | table cell 안 컴팩트 badge (위 `.rec-*` 와 함께) |
 
@@ -338,7 +341,7 @@ self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 | `/` (환경 개요) | X (root 진입점) | — |
 | `/servers` (목록) | X (root 진입점) | — |
 | `/servers/{id}` (detail) | O | `/` |
-| `/servers/{id}/{cpu,memory,services,performance,storage,network}` (tab) | O | `/servers/{id}` |
+| `/servers/{id}/{cpu,memory,services,metrics,storage,network}` (tab) | O | `/servers/{id}` |
 | `/environment/{assessment,realtime,metrics,topology}` | O | `/` |
 | `/reports/servers` (선택 N대) | O | `/` |
 | `/servers/{id}/report` (단일) | O | `/servers/{id}` |
