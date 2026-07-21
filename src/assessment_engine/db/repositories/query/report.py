@@ -171,16 +171,26 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     ORDER BY server_id, disk_runway_days ASC NULLS LAST, used_pct DESC NULLS LAST
                 ) t ON t.server_id = r.server_id
             ),
+            disk_dev AS (
+                -- server_disk_io_5m 단일 스캔(B1) — await·iops baseline 공용 per-device 델타. 물리필터 1회 평가.
+                -- 2회 참조라 PG12+ 가 기본 materialize -> cagg 스캔·PHYS 필터 각 1회(옛 disk_await/disk_io_base 이중 스캔 제거).
+                SELECT server_id, bucket,
+                    delta(io_time_ca)                        AS d_io_time,
+                    time_delta(io_time_ca)                   AS td_io_time,
+                    delta(op_rtime_ca) + delta(op_wtime_ca)  AS d_optime,
+                    delta(ops_read_ca) + delta(ops_write_ca) AS d_ops,
+                    time_delta(ops_read_ca)                  AS td_ops
+                FROM server_disk_io_5m
+                WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
+            ),
             disk_await AS (
-                -- await(ms) = Σ(Δ op_time) / Σ(Δ ops). device 가 실제 바쁜(io_time 사용률 >= :diskio_util_min)
-                -- 버킷만 — 유휴 device 의 tick 기반 await 는 writeback 큐 잔류로 폭증하나 병목 아님(FIX: util AND await).
+                -- await(ms) = sum(delta op_time) / sum(delta ops). device 가 실제 바쁜(io_time 사용률 >= :diskio_util_min)
+                -- 버킷만 — 유휴 device 의 tick 기반 await 는 writeback 큐 잔류로 폭증하나 병목 아님(util AND await).
                 SELECT server_id, bucket, MAX(await_ms) AS worst_await FROM (
                     SELECT server_id, bucket,
-                        CASE WHEN delta(io_time_ca) / NULLIF(time_delta(io_time_ca), 0) >= :diskio_util_min
-                             THEN (delta(op_rtime_ca) + delta(op_wtime_ca))
-                                  / NULLIF(delta(ops_read_ca) + delta(ops_write_ca), 0) * 1000 END AS await_ms
-                    FROM server_disk_io_5m
-                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
+                        CASE WHEN d_io_time / NULLIF(td_io_time, 0) >= :diskio_util_min
+                             THEN d_optime / NULLIF(d_ops, 0) * 1000 END AS await_ms
+                    FROM disk_dev
                 ) d WHERE await_ms IS NOT NULL GROUP BY server_id, bucket
             ),
             disk_await_stats AS (
@@ -188,14 +198,10 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 FROM disk_await GROUP BY server_id
             ),
             disk_io_base AS (
-                -- 서버 iops baseline = Σ(Δ ops) / Σ(dt). 유휴 판정 활동 축(idle 게이트, _host_status) 입력 — 전 경로 동일.
+                -- 서버 iops baseline = sum(delta ops) / sum(dt). 유휴 판정 활동 축(idle 게이트, _host_status) 입력.
                 SELECT server_id, CASE WHEN SUM(dt) > 0 THEN SUM(ops) / SUM(dt) END AS iops_baseline FROM (
-                    SELECT server_id, bucket,
-                        SUM(delta(ops_read_ca) + delta(ops_write_ca)) AS ops,
-                        MAX(time_delta(ops_read_ca)) AS dt
-                    FROM server_disk_io_5m
-                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
-                    GROUP BY server_id, bucket
+                    SELECT server_id, bucket, SUM(d_ops) AS ops, MAX(td_ops) AS dt
+                    FROM disk_dev GROUP BY server_id, bucket
                 ) pb WHERE dt > 0 GROUP BY server_id
             ),
             net_quality AS (
