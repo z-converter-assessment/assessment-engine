@@ -4,15 +4,15 @@
 
 ## hypertable 구성
 
-시계열 5개 테이블 모두 hypertable (`collected_at` 기준 파티셔닝):
-- `server_metrics` / `server_disk_io` / `server_net_io` / `server_mount_usage` / `server_inventory_history`
+시계열 8개 테이블 모두 hypertable (`collected_at` 기준 파티셔닝):
+- `server_metrics` / `server_disk_io` / `server_net_io` / `server_filesystem` / `server_cpu_core` / `server_pressure` / `server_disk_error` / `server_inventory_history`
 
-### 4테이블 `boot_time`/`agent_started_at` 컬럼 보존
+### `boot_time`/`agent_started_at` 컬럼 (server_metrics)
 
-`server_metrics`/`server_disk_io`/`server_net_io`/`server_mount_usage` 4개 테이블은 행마다 `boot_time`/`agent_started_at` 컬럼을 함께 저장한다(CLAUDE.md #C1·#B). 근거:
-- metrics/disk_io/net_io는 `metric_trend` 차트 SQL과 `metrics_calculator._is_counter_reset`이 `LAG(boot_time)`로 시스템 재부팅 식별 -> counter reset 시 delta 건너뛰기.
-- mount_usage는 시점값이라 calculator 직접 활용 없으나 메타데이터 일관성 + 운영 디버깅 시 단일 테이블 SELECT로 boot_time까지 같이 보고 싶어서 보존.
-- 옛 데이터(컬럼 NULL)는 `d_val < 0` 휴리스틱 fallback (CASE 3순위).
+`server_metrics` 만 행마다 `boot_time`/`agent_started_at` 컬럼을 저장한다(수집 1회당 1행 = envelope, CLAUDE.md #C1·#B). 자식 시계열(disk_io·net_io·filesystem·cpu_core·pressure·disk_error)은 미보유 — 동일 `(server_id, collected_at)` 로 server_metrics 행을 참조. counter reset 처리:
+- server_metrics 차트(`metric_trend`)·`metrics_calculator._is_counter_reset`: `LAG(boot_time)` 두 시점 비교로 재부팅 식별 -> reset 시 delta 건너뛰기.
+- 자식 시계열 rate 차트: boot_time 미보유라 `GREATEST(delta, 0)` 로 reset 흡수.
+- 보고서 집계(cagg)는 `counter_agg` 가 값-감소 기준 reset 을 일률 처리 -> boot_time gate 불요.
 
 ## DEV / PROD 스키마 관리
 
@@ -24,14 +24,14 @@
 
 ## 차트 SQL 패턴 — 단일 함수 `metric_trend`
 
-모든 차트(환경 성능 추이·선택 N대·서버 상세·대시보드 부하 추이·보고서 추이)는 단일 함수 `metric_trend`가 산출한다. `metric_chart`(서버 상세)는 `metric_trend(collapse=False, server_ids=[1대])`에 위임하는 thin wrapper. metric_type별 분기(jiffies delta percent·시점값 load/mem/swap %·누적 카운터 rate disk/net·fs.usage_percent)는 `metric_trend` 내부 SQL 분기로 흡수.
+모든 차트(환경 성능 추이·선택 N대·서버 상세·대시보드 부하 추이·보고서 추이)는 단일 함수 `metric_trend`가 산출한다. `metric_chart`(서버 상세)는 `metric_trend(collapse=False, server_ids=[1대])`에 위임하는 thin wrapper. metric_type별 분기(jiffies delta percent·시점값 mem/run_queue/PSI gauge·누적 카운터 rate disk/net·fs.usage_percent)는 `metric_trend` 내부 SQL 분기로 흡수.
 
 ### 통일 산식
 
 각 `collected_at`(시점)마다 그 시점에 데이터를 보낸 서버로 환경값 1개를 산출(`per_ts` CTE):
 - 활용률 = `sum(num)/sum(den)` (capacity-weighted)
 - 처리량 = 합산 `SUM`
-- 로드 = `sum(load_15m)/sum(cpu_cores)` (코어 정규화 — 환경·서버 상세 동일)
+- 실행 큐 = `sum(cpu_run_queue)/sum(cpu_cores)` (코어 정규화 — 환경·서버 상세 동일)
 
 이후 그 시점값을 `time_bucket`의 `agg`(avg/max/p95)로 집계 — 시점별 환경값을 먼저 산출한 뒤 버킷 집계한다.
 

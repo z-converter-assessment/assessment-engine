@@ -67,7 +67,7 @@ metrics 핸들러는 `repo.ensure_server_id(agent_id, placeholder)`로 한 번�
 
 placeholder는 `mappers.build_placeholder_inventory`가 생성. agent_id/composite_id/machine_id/hostname/agent_version만 실값, 나머지 정적 정보(OS·CPU·메모리·디스크 등)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (`agent_id` UNIQUE 제약).
 
-metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 4개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 시계열 4개 테이블 모두에 동일 시점값으로 함께 저장 → metrics·disk_io·net_io는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 비교로 시스템 재부팅 시 delta 건너뛰기 (CLAUDE.md B1). mount_usage는 시점값(calculator 직접 활용 없음 — 보존 사유는 `db/models.md` #C1). 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
+metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 metric 7개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 `server_metrics` 만 보유(자식 시계열은 동일 `(server_id, collected_at)` 로 참조) → server_metrics 는 `web/services/metrics_calculator._is_counter_reset`이 두 시점 boot_time 비교로 재부팅 시 delta 건너뛰기, 자식은 `GREATEST(delta,0)` 로 흡수 (CLAUDE.md B1). 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
 
 → metrics drop 0. inventory one-shot 정책으로 인한 영구 미등록 시나리오 해소. 에이전트 변경 없이 엔진 단독 안전망.
 
@@ -131,7 +131,7 @@ RabbitMQ 전용 비동기 클라이언트. AMQP 0-9-1 프로토콜만 지원.
 
 ### 멱등성: 2단 방어
 
-정책: CLAUDE.md #D2. 자연키 UNIQUE 카탈로그: `docs/reference/db/models.md` "시계열 5개 테이블 자연키 UNIQUE" 표. at-most-once 한계·outbox 대안: `docs/explanation/tradeoffs.md` T1.
+정책: CLAUDE.md #D2. 자연키 UNIQUE 카탈로그: `docs/reference/db/models.md` "시계열 자연키 UNIQUE" 표. at-most-once 한계·outbox 대안: `docs/explanation/tradeoffs.md` T1.
 
 ### inventory 수신 시 online 즉시 마킹
 
@@ -139,7 +139,7 @@ upsert 성공 후 `SET online:{server_id} EX 90`. 첫 메트릭 수신 전(최�
 
 ### InventoryMountInfo 미사용 필드
 
-inventory mounts 는 정적 정보(mount/kind/fstype/total_bytes/major/minor)만 저장 — 동적 사용량(free/avail)은 metrics `mounts[]` -> `server_mount_usage` 시계열 전담(agent 가 역할 분리 발행). mount-disk 조인용 major/minor 는 inventory mount 만 보유(metrics mount 는 usage 전담). 필드 카탈로그는 `agent.md` "활용 중인 필드"/"엔진이 받지만 사용하지 않는 필드" 표 단일 진실.
+inventory mounts 는 정적 정보(mount/kind/fstype/total_bytes/major/minor)만 저장 — 동적 사용량(free/avail)은 metrics `system.filesystem` -> `server_filesystem` 시계열 전담(agent 가 역할 분리 발행). mount-disk 조인용 major/minor 는 inventory mount 만 보유(metrics mount 는 usage 전담). 필드 카탈로그는 `agent.md` "활용 중인 필드"/"엔진이 받지만 사용하지 않는 필드" 표 단일 진실.
 
 ### 부가 시그널 — 운영 가시성
 
