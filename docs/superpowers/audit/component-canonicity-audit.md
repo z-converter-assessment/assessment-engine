@@ -157,3 +157,18 @@
 | O1 | D3/U9 | mapper 대형 파일 분할 | 낮음 | 낮음(관찰) | 컨텍스트·네비 (응집 훼손 위험) |
 | O2 | D3/U9 | cache_serializer 수동 직렬화 drift | 낮음 | 낮음(관찰) | 필드 동기화 부담 (enrich 완화) |
 | B4 | D4/U13 | prod compose 무인증 Redis + DB/mgmt 호스트 포트 노출 | 낮음 | 높음 | 무인증 Redis 공격 표면 (내부 네트워크만 노출로 축소) |
+
+위 표는 감사 시점 후보. 라이브 DB 검증 결과는 다음 절.
+
+---
+
+## 검증 결과 (라이브 TimescaleDB, 2026-07-21)
+
+timescale/timescaledb-ha:pg16 실 DB 기동 + alembic 스키마 + EXPLAIN ANALYZE 실측.
+
+- B1 채택·검증 완료: report_aggregate disk_await·disk_io_base를 공용 disk_dev CTE로 병합(1회 스캔 + 물리필터 1회 평가). report 통합 테스트 21개 PASS(await·counter delta 경로 포함) — 결과 동일 실증. 커밋 2c5ba70.
+- B4 채택·검증 완료: prod compose 무인증 Redis·DB·mgmt 포트를 127.0.0.1 바인딩. compose config 렌더로 host_ip 확인. 커밋 5e4b6f9.
+- B2 반증·미채택: 상관 EXISTS 필터를 EXPLAIN ANALYZE 하니 Postgres가 이미 Hash Semi Join 으로 최적화 — jsonb_array_elements 전개가 loops=서버수(2), 시계열 행(1731)마다가 아님. 사전계산 CTE는 버퍼 I/O 동일(292 vs 293)·실행 미세 개선(2.9->1.6ms, 주로 planning). 감사 가설(per-row O(buckets*devices) 전개)이 틀림 -> invasive 변경 대비 이득 없음. 종결(구현 안 함).
+- B3 유예(warranted-at-scale): env_util raw 스캔 vs cagg 스캔 EXPLAIN. cagg가 행수 5분의1(1154 vs 5762)·실행 4배 빠름(1.0 vs 4.1ms)이나, counter_agg 컬럼이 wide row라 버퍼 I/O는 오히려 많음(cagg 131 vs raw 72). 현 규모 raw 무해. 이득은 대규모 fleet에서만 실질이고 wide-row 상쇄가 있어, 스키마 마이그레이션(cagg 재생성, 높은 blast radius) 위험 대비 지금은 부적정. 대규모에서 env_util 지연 실측 시 재검토.
+
+결론: EXPLAIN-선행 규율이 B2(불필요)·B3(시기상조)를 blind 구현 전에 걸러냈다. 실제 채택은 B1(성능)·B4(보안) 2건 — 둘 다 검증 완료. "모던 재작성" 대상 0이라는 감사 결론을, 실측이 개선 후보 4건 중 2건 기각으로 재확인.
