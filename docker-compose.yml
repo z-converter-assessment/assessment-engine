@@ -44,7 +44,8 @@ services:
       POSTGRES_USER: ${POSTGRES_USER:-assessment}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      # 127.0.0.1 바인딩 — VM-로컬 ops 접근만(psql). 고객사 네트워크 미노출. 앱 컨테이너는 docker 네트워크로 접근.
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
     volumes:
       # timescaledb-ha 실제 PGDATA 는 /home/postgres/pgdata/data. PGDATA_HOST 주입 시 host bind(Cinder),
       # 미주입 시 named volume(postgres_data). infra 는 PGDATA_HOST=/mnt/pgdata 주입.
@@ -66,9 +67,10 @@ services:
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-assessment}
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
     ports:
-      # 5672 는 외부 호스트의 agent 가 broker 로 메트릭·결과를 발행하는 통로 — 노출 필수.
+      # 5672 는 외부 호스트의 agent 가 broker 로 메트릭·결과를 발행하는 통로 — 노출 필수(0.0.0.0).
       - "${RABBITMQ_PORT:-5672}:5672"
-      - "${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      # 15672 관리 UI 는 ops 전용 — 127.0.0.1 바인딩(VM-로컬/SSH 터널만, 고객사 네트워크 미노출).
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
     volumes:
       # MQ_DATA_HOST 주입 시 host bind(Cinder /mnt/mqdata), 미주입 시 named volume(rabbitmq_data).
       - ${MQ_DATA_HOST:-rabbitmq_data}:/var/lib/rabbitmq
@@ -87,7 +89,8 @@ services:
       --maxmemory ${REDIS_MAXMEMORY:-256mb}
       --maxmemory-policy ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
     ports:
-      - "${REDIS_PORT:-6379}:6379"
+      # 127.0.0.1 바인딩 — Redis 무인증이라 네트워크 노출 금지(VM-로컬만). 앱 컨테이너는 docker 네트워크로 접근.
+      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
