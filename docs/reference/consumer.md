@@ -92,7 +92,7 @@ async def _db_retry[T](
 
 ### DB 재시도 정책
 
-3회 시도 (`attempt 0/1/2`), `2 ** (attempt + 1)` full jitter 백오프. attempt 0 실패 → [0,2s] sleep → 1, 1 실패 → [0,4s] sleep → 2, 2 실패 → 즉시 raise(sleep 없음). 재시도 대상은 일시 장애(`OperationalError`·`InterfaceError`)만 — `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6). full jitter 는 동시 재연결 쏠림(thundering herd) 방지. inventory/metrics 큐 TTL(없음·72h) 내에서 단기 DB 장애 회복 커버. error 큐 TTL 300s는 error 핸들러가 DB 접근 안 해 영향 없음.
+3회 시도 (`attempt 0/1/2`), `2 ** (attempt + 1)` full jitter 백오프. attempt 0 실패 → [0,2s] sleep → 1, 1 실패 → [0,4s] sleep → 2, 2 실패 → 즉시 raise(sleep 없음). 재시도 대상은 일시 장애 — connection(`OperationalError`·`InterfaceError` 타입) + deadlock(SQLSTATE `40P01`, asyncpg 가 `OperationalError` 아닌 base `DBAPIError` 로 래핑해 타입 아닌 sqlstate 로 판별 `_is_retryable_db_exc`; 동시 신규서버 insert 시 hypertable chunk 생성 레이스로 발생, victim rollback 후 재시도 흡수). `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6). full jitter 는 동시 재연결 쏠림(thundering herd) 방지. inventory/metrics 큐 TTL(없음·72h) 내에서 단기 DB 장애 회복 커버. error 큐 TTL 300s는 error 핸들러가 DB 접근 안 해 영향 없음.
 
 ---
 

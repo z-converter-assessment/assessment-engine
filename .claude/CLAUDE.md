@@ -338,7 +338,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/guides/con
 
 금지:
 - `except Exception` 광범위 catch — 예외 타입 명시(`OperationalError`/`IntegrityError`/`RedisError`/`asyncio.TimeoutError` 등). 불가피하면 reraise + 컨텍스트 로그.
-- 영구 오류(`IntegrityError`·4xx) 재시도. 일시 장애(`OperationalError`·5xx·timeout)만 백오프.
+- 영구 오류(`IntegrityError`·4xx) 재시도. 일시 장애(`OperationalError`·deadlock(40P01)·5xx·timeout)만 백오프.
 - timeout 없는 외부 호출 — `asyncio.wait_for` 또는 클라이언트 옵션(`aiohttp.ClientTimeout`·asyncpg `command_timeout`·redis `socket_timeout`) 의무.
 
 소비자 측 상세 매트릭스: `docs/reference/consumer.md` "DB 재시도 정책" + "메시지 자체 결함 → DLQ" 절.
