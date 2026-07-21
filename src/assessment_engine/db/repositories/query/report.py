@@ -23,7 +23,6 @@ from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 from assessment_engine.db.repositories.query.base_report import BaseReportQueryRepository
 from assessment_engine.db.repositories.query.types import (
     _DATA_VOLUME_CAGG_FILTER,
-    _DATA_VOLUME_SQL_FILTER,
     _PHYS_DISK_SQL_FILTER,
     _PHYS_IFACE_SQL_FILTER,
 )
@@ -171,16 +170,26 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                     ORDER BY server_id, disk_runway_days ASC NULLS LAST, used_pct DESC NULLS LAST
                 ) t ON t.server_id = r.server_id
             ),
+            disk_dev AS (
+                -- server_disk_io_5m 단일 스캔(B1) — await·iops baseline 공용 per-device 델타. 물리필터 1회 평가.
+                -- 2회 참조라 PG12+ 가 기본 materialize -> cagg 스캔·PHYS 필터 각 1회(옛 disk_await/disk_io_base 이중 스캔 제거).
+                SELECT server_id, bucket,
+                    delta(io_time_ca)                        AS d_io_time,
+                    time_delta(io_time_ca)                   AS td_io_time,
+                    delta(op_rtime_ca) + delta(op_wtime_ca)  AS d_optime,
+                    delta(ops_read_ca) + delta(ops_write_ca) AS d_ops,
+                    time_delta(ops_read_ca)                  AS td_ops
+                FROM server_disk_io_5m
+                WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
+            ),
             disk_await AS (
-                -- await(ms) = Σ(Δ op_time) / Σ(Δ ops). device 가 실제 바쁜(io_time 사용률 >= :diskio_util_min)
-                -- 버킷만 — 유휴 device 의 tick 기반 await 는 writeback 큐 잔류로 폭증하나 병목 아님(FIX: util AND await).
+                -- await(ms) = sum(delta op_time) / sum(delta ops). device 가 실제 바쁜(io_time 사용률 >= :diskio_util_min)
+                -- 버킷만 — 유휴 device 의 tick 기반 await 는 writeback 큐 잔류로 폭증하나 병목 아님(util AND await).
                 SELECT server_id, bucket, MAX(await_ms) AS worst_await FROM (
                     SELECT server_id, bucket,
-                        CASE WHEN delta(io_time_ca) / NULLIF(time_delta(io_time_ca), 0) >= :diskio_util_min
-                             THEN (delta(op_rtime_ca) + delta(op_wtime_ca))
-                                  / NULLIF(delta(ops_read_ca) + delta(ops_write_ca), 0) * 1000 END AS await_ms
-                    FROM server_disk_io_5m
-                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
+                        CASE WHEN d_io_time / NULLIF(td_io_time, 0) >= :diskio_util_min
+                             THEN d_optime / NULLIF(d_ops, 0) * 1000 END AS await_ms
+                    FROM disk_dev
                 ) d WHERE await_ms IS NOT NULL GROUP BY server_id, bucket
             ),
             disk_await_stats AS (
@@ -188,14 +197,10 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 FROM disk_await GROUP BY server_id
             ),
             disk_io_base AS (
-                -- 서버 iops baseline = Σ(Δ ops) / Σ(dt). 유휴 판정 활동 축(idle 게이트, _host_status) 입력 — 전 경로 동일.
+                -- 서버 iops baseline = sum(delta ops) / sum(dt). 유휴 판정 활동 축(idle 게이트, _host_status) 입력.
                 SELECT server_id, CASE WHEN SUM(dt) > 0 THEN SUM(ops) / SUM(dt) END AS iops_baseline FROM (
-                    SELECT server_id, bucket,
-                        SUM(delta(ops_read_ca) + delta(ops_write_ca)) AS ops,
-                        MAX(time_delta(ops_read_ca)) AS dt
-                    FROM server_disk_io_5m
-                    WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
-                    GROUP BY server_id, bucket
+                    SELECT server_id, bucket, SUM(d_ops) AS ops, MAX(td_ops) AS dt
+                    FROM disk_dev GROUP BY server_id, bucket
                 ) pb WHERE dt > 0 GROUP BY server_id
             ),
             net_quality AS (
@@ -518,30 +523,31 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 FROM cpu_valid GROUP BY bucket HAVING SUM(d_total) > 0
             ),
             mem_per_ts AS (
-                SELECT SUM(mem_limit_bytes - mem_available_bytes)::float / NULLIF(SUM(mem_limit_bytes), 0) * 100 AS v
-                FROM server_metrics
-                WHERE collected_at >= :start AND collected_at <= :end{sid}
-                  AND mem_limit_bytes > 0 AND mem_available_bytes IS NOT NULL
-                GROUP BY collected_at
+                -- B3: capacity-weighted mem% per bucket 를 cagg byte gauge 에서 (raw server_metrics 스캔 대체).
+                SELECT SUM(mem_limit_avg - mem_available_avg) / NULLIF(SUM(mem_limit_avg), 0) * 100 AS v
+                FROM server_metrics_5m
+                WHERE bucket >= :start AND bucket <= :end{sid}
+                  AND mem_limit_avg > 0 AND mem_available_avg IS NOT NULL
+                GROUP BY bucket
             )
             SELECT
                 (SELECT CASE WHEN SUM(d_total) > 0
                              THEN GREATEST(0, (1 - SUM(d_idle)::float / SUM(d_total)) * 100) END FROM cpu_valid) AS cpu_avg,
-                (SELECT CASE WHEN SUM(mem_limit_bytes) > 0
-                             THEN SUM(mem_limit_bytes - mem_available_bytes)::float / SUM(mem_limit_bytes) * 100 END
-                 FROM server_metrics
-                 WHERE collected_at >= :start AND collected_at <= :end{sid}
-                   AND mem_limit_bytes > 0 AND mem_available_bytes IS NOT NULL) AS mem_avg,
-                (SELECT CASE WHEN SUM(used_bytes + free_bytes) > 0
-                             THEN SUM(used_bytes)::float / SUM(used_bytes + free_bytes) * 100 END
-                 FROM server_filesystem
-                 WHERE collected_at >= :start AND collected_at <= :end{sid}
-                   AND {_DATA_VOLUME_SQL_FILTER}
-                   AND used_bytes IS NOT NULL AND free_bytes IS NOT NULL AND (used_bytes + free_bytes) > 0) AS disk_avg,
+                (SELECT CASE WHEN SUM(mem_limit_avg) > 0
+                             THEN SUM(mem_limit_avg - mem_available_avg) / SUM(mem_limit_avg) * 100 END
+                 FROM server_metrics_5m
+                 WHERE bucket >= :start AND bucket <= :end{sid}
+                   AND mem_limit_avg > 0 AND mem_available_avg IS NOT NULL) AS mem_avg,
+                (SELECT CASE WHEN SUM(total_bytes_max) > 0
+                             THEN SUM(total_bytes_max * used_pct_avg / 100) / SUM(total_bytes_max) * 100 END
+                 FROM server_filesystem_5m
+                 WHERE bucket >= :start AND bucket <= :end{sid}
+                   AND {_DATA_VOLUME_CAGG_FILTER}
+                   AND total_bytes_max > 0 AND used_pct_avg IS NOT NULL) AS disk_avg,
                 (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY v) FROM cpu_per_ts) AS cpu_p95,
                 (SELECT percentile_cont(0.95) WITHIN GROUP (ORDER BY v) FROM mem_per_ts WHERE v IS NOT NULL) AS mem_p95,
-                (SELECT COUNT(DISTINCT server_id) FROM server_metrics
-                 WHERE collected_at >= :start AND collected_at <= :end{sid}) AS sample_size
+                (SELECT COUNT(DISTINCT server_id) FROM server_metrics_5m
+                 WHERE bucket >= :start AND bucket <= :end{sid}) AS sample_size
         """)
         params: dict = {"start": start, "end": end}
         if server_ids:
@@ -644,18 +650,16 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     ) -> dict[int, MemoryBreakdownRaw]:
         """`report_memory_breakdown` 배치 — GROUP BY server_id. v2 By gauge 비율."""
         start = end - timedelta(days=period_days)
+        # B3: memory_breakdown 를 cagg 에서 (raw server_metrics 스캔 대체). used=mem_pct_avg,
+        # available=complement, cached/buffered=cagg pct gauge. mem_pct_avg 규약과 동형(버킷 avg -> 창 avg).
         sql = text("""
             SELECT server_id,
-                avg(CASE WHEN mem_limit_bytes > 0
-                         THEN (1 - mem_available_bytes::float / mem_limit_bytes) * 100 END) AS used_pct,
-                avg(CASE WHEN mem_limit_bytes > 0 AND mem_available_bytes IS NOT NULL
-                         THEN mem_available_bytes::float / mem_limit_bytes * 100 END) AS available_pct,
-                avg(CASE WHEN mem_limit_bytes > 0 AND mem_cached_bytes IS NOT NULL
-                         THEN mem_cached_bytes::float / mem_limit_bytes * 100 END) AS cached_pct,
-                avg(CASE WHEN mem_limit_bytes > 0 AND mem_buffered_bytes IS NOT NULL
-                         THEN mem_buffered_bytes::float / mem_limit_bytes * 100 END) AS buffers_pct
-            FROM server_metrics
-            WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+                avg(mem_pct_avg) AS used_pct,
+                100 - avg(mem_pct_avg) AS available_pct,
+                avg(mem_cached_pct_avg) AS cached_pct,
+                avg(mem_buffered_pct_avg) AS buffers_pct
+            FROM server_metrics_5m
+            WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
             GROUP BY server_id
         """)
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})

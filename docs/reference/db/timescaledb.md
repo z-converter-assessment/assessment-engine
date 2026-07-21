@@ -65,9 +65,11 @@ timescaledb_toolkit `counter_agg` 로 사전집계한다. 5분 버킷(클라우�
 
 | cagg | 그룹 | 저장 |
 |------|------|------|
-| `server_metrics_5m` | server_id, bucket | CPU `counter_agg`(total/idle/user/system/iowait) + mem% avg/max + load max + swap |
-| `server_disk_io_5m` | server_id, device, bucket | reads/writes/sectors `counter_agg` (물리 device만) |
-| `server_net_io_5m` | server_id, interface, bucket | rx/tx bytes·packets `counter_agg` (kind in {physical, bond_master}) |
+| `server_metrics_5m` | server_id, bucket | CPU/paging/oom/tcp재전송/mce `counter_agg` + mem% avg/max·commit% + run_queue·blocked·conntrack avg/max + hw_corrupted + mem byte gauge(available/limit avg, cached/buffered% — env_util·memory_breakdown cagg 조회) |
+| `server_filesystem_5m` | server_id, mountpoint, bucket | used%/inode% avg/max + total_bytes_max + free/inode first·last(runway) + fstype_any(query 시 가상 fs 필터) |
+| `server_disk_io_5m` | server_id, device_id, bucket | io bytes·ops·op_time·io_time `counter_agg` + pending avg/max (물리 device만) |
+| `server_net_io_5m` | server_id, iface_id, bucket | rx/tx bytes·packets·drops·errors `counter_agg` + link_max (kind in {physical, bond_master}) |
+| `server_cpu_core_5m` | server_id, core_id, bucket | per-core CPU `counter_agg`(total/idle) — 단일스레드 병목 감지 |
 
 counter reset(재부팅·agent재시작·wraparound)은 `counter_agg` 가 값-감소 기준 일률 처리 — boot_time gate 불요.
 가상 device/interface 는 cagg 단계 필터(물리만, types 필터 스냅샷).
@@ -82,19 +84,20 @@ WITH bkt AS (
   SELECT server_id, bucket,
     CASE WHEN delta(cpu_total_ca) > 0
          THEN GREATEST(0, (1 - delta(cpu_idle_ca)/delta(cpu_total_ca)) * 100) END AS cpu_pct,
-    mem_pct_avg, mem_pct_max, load_15m_max, swap_in_use
+    mem_pct_avg, mem_pct_max, run_queue_avg AS procs_running, blocked_avg AS procs_blocked
   FROM server_metrics_5m WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
 ),
-cpu_stats AS (  -- 버킷에 percentile_cont(정확), avg, max
+cpu_stats AS (  -- 버킷에 percentile_cont(정확)·avg·max
   SELECT server_id, percentile_cont(0.95) WITHIN GROUP (ORDER BY cpu_pct) AS cpu_p95, MAX(cpu_pct) AS cpu_peak
   FROM bkt GROUP BY server_id
 ),
-mem_stats AS (...), load_stats AS (...),
-mount_max AS (-- server_mount_usage(가상 mount 제외), 카운터 아님 raw 집계)
-SELECT s.id, ..., cs.cpu_p95, cs.cpu_peak, ms.mem_p95, ms.mem_peak, ms.swap_used, ls.load_15m_max, mm.worst_used_pct
+mem_stats AS (...), rs_stats AS (-- run_queue·blocked·steal p95 (포화·근본원인 신호)),
+mount_max AS (-- server_filesystem_5m(가상 fs 제외), used%·runway)
+SELECT s.id, ..., cs.cpu_p95, cs.cpu_peak, ms.mem_p95, ms.mem_peak,
+       rs.procs_running_p95, rs.procs_blocked_p95, mm.worst_used_pct
 FROM server_inventory s
 LEFT JOIN cpu_stats cs ON cs.server_id = s.id
-... (mem/load/mount LEFT JOIN)
+... (mem/rs/mount LEFT JOIN)
 WHERE s.id = ANY(:sids)
 ```
 
