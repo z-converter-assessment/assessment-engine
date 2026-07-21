@@ -524,20 +524,21 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 FROM cpu_valid GROUP BY bucket HAVING SUM(d_total) > 0
             ),
             mem_per_ts AS (
-                SELECT SUM(mem_limit_bytes - mem_available_bytes)::float / NULLIF(SUM(mem_limit_bytes), 0) * 100 AS v
-                FROM server_metrics
-                WHERE collected_at >= :start AND collected_at <= :end{sid}
-                  AND mem_limit_bytes > 0 AND mem_available_bytes IS NOT NULL
-                GROUP BY collected_at
+                -- B3: capacity-weighted mem% per bucket 를 cagg byte gauge 에서 (raw server_metrics 스캔 대체).
+                SELECT SUM(mem_limit_avg - mem_available_avg) / NULLIF(SUM(mem_limit_avg), 0) * 100 AS v
+                FROM server_metrics_5m
+                WHERE bucket >= :start AND bucket <= :end{sid}
+                  AND mem_limit_avg > 0 AND mem_available_avg IS NOT NULL
+                GROUP BY bucket
             )
             SELECT
                 (SELECT CASE WHEN SUM(d_total) > 0
                              THEN GREATEST(0, (1 - SUM(d_idle)::float / SUM(d_total)) * 100) END FROM cpu_valid) AS cpu_avg,
-                (SELECT CASE WHEN SUM(mem_limit_bytes) > 0
-                             THEN SUM(mem_limit_bytes - mem_available_bytes)::float / SUM(mem_limit_bytes) * 100 END
-                 FROM server_metrics
-                 WHERE collected_at >= :start AND collected_at <= :end{sid}
-                   AND mem_limit_bytes > 0 AND mem_available_bytes IS NOT NULL) AS mem_avg,
+                (SELECT CASE WHEN SUM(mem_limit_avg) > 0
+                             THEN SUM(mem_limit_avg - mem_available_avg) / SUM(mem_limit_avg) * 100 END
+                 FROM server_metrics_5m
+                 WHERE bucket >= :start AND bucket <= :end{sid}
+                   AND mem_limit_avg > 0 AND mem_available_avg IS NOT NULL) AS mem_avg,
                 (SELECT CASE WHEN SUM(used_bytes + free_bytes) > 0
                              THEN SUM(used_bytes)::float / SUM(used_bytes + free_bytes) * 100 END
                  FROM server_filesystem
@@ -650,18 +651,16 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     ) -> dict[int, MemoryBreakdownRaw]:
         """`report_memory_breakdown` 배치 — GROUP BY server_id. v2 By gauge 비율."""
         start = end - timedelta(days=period_days)
+        # B3: memory_breakdown 를 cagg 에서 (raw server_metrics 스캔 대체). used=mem_pct_avg,
+        # available=complement, cached/buffered=cagg pct gauge. mem_pct_avg 규약과 동형(버킷 avg -> 창 avg).
         sql = text("""
             SELECT server_id,
-                avg(CASE WHEN mem_limit_bytes > 0
-                         THEN (1 - mem_available_bytes::float / mem_limit_bytes) * 100 END) AS used_pct,
-                avg(CASE WHEN mem_limit_bytes > 0 AND mem_available_bytes IS NOT NULL
-                         THEN mem_available_bytes::float / mem_limit_bytes * 100 END) AS available_pct,
-                avg(CASE WHEN mem_limit_bytes > 0 AND mem_cached_bytes IS NOT NULL
-                         THEN mem_cached_bytes::float / mem_limit_bytes * 100 END) AS cached_pct,
-                avg(CASE WHEN mem_limit_bytes > 0 AND mem_buffered_bytes IS NOT NULL
-                         THEN mem_buffered_bytes::float / mem_limit_bytes * 100 END) AS buffers_pct
-            FROM server_metrics
-            WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
+                avg(mem_pct_avg) AS used_pct,
+                100 - avg(mem_pct_avg) AS available_pct,
+                avg(mem_cached_pct_avg) AS cached_pct,
+                avg(mem_buffered_pct_avg) AS buffers_pct
+            FROM server_metrics_5m
+            WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
             GROUP BY server_id
         """)
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
