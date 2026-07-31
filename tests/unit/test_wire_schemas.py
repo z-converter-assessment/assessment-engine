@@ -1,13 +1,15 @@
-"""wire 인바운드 Pydantic 스키마 — 계약 예시 6종 라운드트립 검증.
+"""wire 계약 게이트 — 예시 6종을 JSON Schema 와 인바운드 Pydantic 양쪽으로 검증.
 
 정본 = docs/reference/contracts/wire.schema.json + wire-examples.json.
-엔진 인바운드 스키마(consumer/schemas.py)가 계약 예시를 전부 수용하는지 = ingest 진입 계약 정합.
+두 정본은 구조가 달라 직접 비교가 안 되므로 예시를 공통 증인으로 쓴다 — 스키마가 허용한다고
+규정한 입력을 인바운드 스키마(consumer/schemas.py)가 실제로 수용하는지 같은 파일로 확인한다.
 """
 
 import json
 from pathlib import Path
 
 import pytest
+from jsonschema import Draft202012Validator
 from pydantic import ValidationError
 
 from assessment_engine.consumer.schemas import (
@@ -19,9 +21,9 @@ from assessment_engine.consumer.schemas import (
     TaskResultInput,
 )
 
-_EXAMPLES = json.loads(
-    (Path(__file__).resolve().parents[2] / "docs/reference/contracts/wire-examples.json").read_text()
-)
+_CONTRACTS = Path(__file__).resolve().parents[2] / "docs/reference/contracts"
+_EXAMPLES = json.loads((_CONTRACTS / "wire-examples.json").read_text())
+_SCHEMA = json.loads((_CONTRACTS / "wire.schema.json").read_text())
 _MODEL_BY_TYPE = {
     "metrics": MetricsInput,
     "inventory": InventoryInput,
@@ -29,6 +31,18 @@ _MODEL_BY_TYPE = {
     "error": ErrorInput,
 }
 _CASES = [(name, msg) for name, msg in _EXAMPLES.items() if not name.startswith("_")]
+
+
+def test_wire_schema_is_valid() -> None:
+    """정본 스키마 자체가 Draft 2020-12 로 유효 — 오타 키워드는 조용히 무시되므로 먼저 막는다."""
+    Draft202012Validator.check_schema(_SCHEMA)
+
+
+@pytest.mark.parametrize("name,msg", _CASES, ids=[c[0] for c in _CASES])
+def test_v2_example_matches_schema(name: str, msg: dict) -> None:
+    """계약 예시 6종이 정본 JSON Schema 를 만족."""
+    errors = sorted(Draft202012Validator(_SCHEMA).iter_errors(msg), key=lambda e: e.json_path)
+    assert not errors, "\n".join(f"{e.json_path}: {e.message}" for e in errors)
 
 
 @pytest.mark.parametrize("name,msg", _CASES, ids=[c[0] for c in _CASES])
