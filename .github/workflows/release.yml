@@ -95,6 +95,7 @@ jobs:
 
       # 0.1.3 -> :0.1.3 + :0.1 + :0 + :latest.
       # 트리거가 branch push 라 ref 에 태그가 없다 — value 로 확정 버전을 넘겨 alias 를 파생시킨다.
+      # tags 만 쓴다. labels 출력은 저장소 메타데이터로 정적 라벨까지 자동 생성해 Dockerfile LABEL 을 덮는다.
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
@@ -105,9 +106,6 @@ jobs:
             type=semver,pattern={{major}}.{{minor}},value=v${{ needs.resolve-version.outputs.version }}
             type=semver,pattern={{major}},value=v${{ needs.resolve-version.outputs.version }}
             type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' }}
-          labels: |
-            org.opencontainers.image.source=https://github.com/${{ github.repository }}
-            org.opencontainers.image.revision=${{ github.sha }}
 
       # Multi-arch build + push. cache-from/to gha 로 layer cache (반복 빌드 시간 절감).
       - name: Build + push (linux/amd64,arm64)
@@ -119,7 +117,10 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          # 빌드 시점에만 아는 값. 이미지 정체(title·description·licenses·vendor·source)는 Dockerfile LABEL 이 선언한다.
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.version=${{ needs.resolve-version.outputs.version }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: true
