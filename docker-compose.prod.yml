@@ -6,7 +6,7 @@
 #
 # 하는 일은 비밀번호 주입 채널을 파일로 바꾸는 것 하나다(ADR 0046). env 로 넣으면 docker inspect·
 # compose config·/proc/environ 에 그대로 드러난다. 호스트 디스크의 평문은 남으므로 디렉토리 권한과
-# 디스크 암호화는 운영자 책임이다. 파일 생성·권한은 bootstrap.sh 가 하고 근거는 secrets/README.md 에 있다.
+# 디스크 암호화는 운영자 책임이다. 파일 생성·권한은 bootstrap.sh 가 하고 근거는 docs/reference/contracts/env.md 에 있다.
 #
 # 파일명이 pydantic 필드명과 같아야 app 의 secrets_dir 가 자동으로 매핑한다.
 # postgres·rabbitmq 는 base 에 비번 설정이 없으므로(dev override 가 env 로 채운다) 여기서 파일 채널만 준다.

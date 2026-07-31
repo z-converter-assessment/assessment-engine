@@ -16,14 +16,14 @@ from assessment_engine.consumer.handlers import (
     make_metrics_handler,
     make_task_result_handler,
 )
-from assessment_engine.consumer.settings import consumer_settings
+from assessment_engine.consumer.settings import get_consumer_settings
 from assessment_engine.db.repositories.collect_repository import CollectRepository
-from assessment_engine.db.session import AsyncSessionLocal
+from assessment_engine.db.session import get_session_factory
 from assessment_engine.log_config import setup_logging
 
-_COLLECT_EXCHANGE = consumer_settings.rabbitmq_exchange
+_COLLECT_EXCHANGE = get_consumer_settings().rabbitmq_exchange
 _COLLECT_DLX = f"{_COLLECT_EXCHANGE}.dlx"
-_TASK_EXCHANGE = consumer_settings.rabbitmq_task_exchange
+_TASK_EXCHANGE = get_consumer_settings().rabbitmq_task_exchange
 _TASK_DLX = f"{_TASK_EXCHANGE}.dlx"
 
 # 큐 정책 변경 시 broker의 기존 큐 재선언이 PRECONDITION_FAILED — 큐 수동 삭제 필요.
@@ -47,7 +47,7 @@ class _QueueBinding:
 
 
 async def main() -> None:
-    setup_logging(consumer_settings.log_format)
+    setup_logging(get_consumer_settings().log_format)
 
     logger.info(
         "consumer starting collect_exchange={} task_exchange={}",
@@ -69,26 +69,26 @@ async def main() -> None:
             _QueueBinding(
                 exchange_name=_COLLECT_EXCHANGE,
                 dlx_name=_COLLECT_DLX,
-                queue_name=consumer_settings.rabbitmq_routing_key_inventory,
-                routing_key=consumer_settings.rabbitmq_routing_key_inventory,
-                handler=make_inventory_handler(AsyncSessionLocal, CollectRepository, redis),
+                queue_name=get_consumer_settings().rabbitmq_routing_key_inventory,
+                routing_key=get_consumer_settings().rabbitmq_routing_key_inventory,
+                handler=make_inventory_handler(get_session_factory(), CollectRepository, redis),
                 ttl_ms=None,
                 max_len=None,
             ),
             _QueueBinding(
                 exchange_name=_COLLECT_EXCHANGE,
                 dlx_name=_COLLECT_DLX,
-                queue_name=consumer_settings.rabbitmq_routing_key_metrics,
-                routing_key=consumer_settings.rabbitmq_routing_key_metrics,
-                handler=make_metrics_handler(AsyncSessionLocal, CollectRepository, redis),
+                queue_name=get_consumer_settings().rabbitmq_routing_key_metrics,
+                routing_key=get_consumer_settings().rabbitmq_routing_key_metrics,
+                handler=make_metrics_handler(get_session_factory(), CollectRepository, redis),
                 ttl_ms=_METRICS_TTL_MS,
                 max_len=_METRICS_MAX_LEN,
             ),
             _QueueBinding(
                 exchange_name=_COLLECT_EXCHANGE,
                 dlx_name=_COLLECT_DLX,
-                queue_name=consumer_settings.rabbitmq_routing_key_error,
-                routing_key=consumer_settings.rabbitmq_routing_key_error,
+                queue_name=get_consumer_settings().rabbitmq_routing_key_error,
+                routing_key=get_consumer_settings().rabbitmq_routing_key_error,
                 handler=make_error_handler(redis),
                 ttl_ms=_ERROR_TTL_MS,
                 max_len=None,
@@ -96,20 +96,20 @@ async def main() -> None:
             _QueueBinding(
                 exchange_name=_TASK_EXCHANGE,
                 dlx_name=_TASK_DLX,
-                queue_name=consumer_settings.rabbitmq_queue_worker_result,
-                routing_key=consumer_settings.rabbitmq_routing_key_task_result,
+                queue_name=get_consumer_settings().rabbitmq_queue_worker_result,
+                routing_key=get_consumer_settings().rabbitmq_routing_key_task_result,
                 handler=make_task_result_handler(
-                    AsyncSessionLocal,
+                    get_session_factory(),
                     CollectRepository,
                     redis,
-                    consumer_settings.task_install_success_exit_codes,
+                    get_consumer_settings().task_install_success_exit_codes,
                 ),
                 ttl_ms=_TASK_RESULT_TTL_MS,
                 max_len=_TASK_RESULT_MAX_LEN,
             ),
         ]
 
-        conn = await aio_pika.connect_robust(consumer_settings.broker_url, timeout=10)
+        conn = await aio_pika.connect_robust(get_consumer_settings().broker_url, timeout=10)
         async with conn, conn.channel() as channel:
             await channel.set_qos(prefetch_count=10)
 

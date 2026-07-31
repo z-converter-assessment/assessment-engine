@@ -1,9 +1,9 @@
-"""config.py multi-node refactor 핵심 invariant — `_validate_prod_*` weak default 거부.
+"""config.py 설정 안전망 — 비밀번호 필수·뻔한 값 거부·채널 충돌 거부.
 
-본 테스트 영역은 prod 운영 안전망 단일 진실 (CLAUDE.md #A0·#F8·docs/operations/env.md 6절).
-APP_ENV=prod 시 weak default(`password`/`admin`/`root`/`changeme`/``)가 흘러가지
-못하게 차단. multi-node 분리 배포에서 web/consumer/diagnostic 각 노드가 자기 Settings만
-인스턴스화해도 본 검증이 노드별 작동 (Composition Root #F4 정합).
+검증은 환경으로 갈리지 않는다. 비밀번호에 기본값이 없어 미설정은 어디서든 실패하고,
+뻔한 값(`password`/`admin`/`root`/`changeme`)과 secret 파일·환경변수 동시 존재도 마찬가지다.
+multi-node 분리 배포에서 web/consumer/diagnostic 각 노드가 자기 Settings 만 만들어도
+노드별로 작동한다 (Composition Root #F4 정합).
 """
 
 import pytest
@@ -39,15 +39,21 @@ def _consumer_kwargs(**overrides):
     return base
 
 
-# ─── WebSettings — _validate_prod_web_secrets ─────────────────────────────
+# ─── WebSettings — _validate_web_secrets ──────────────────────────────────
 
 
-def test_web_settings_dev_default_passes():
-    """app_env=dev면 weak default 그대로 허용 — 검증 skip."""
+@pytest.mark.parametrize("app_env", ["dev", "prod"])
+def test_password_is_required_in_every_env(app_env):
+    """비밀번호에 기본값을 두지 않는다 — 환경과 무관하게 미설정이면 인스턴스화가 실패한다."""
     # _env_file=None — 코드 default 검증이 목적이라 ambient .env(로컬 dev 스택용) 배제 (CI·로컬 무관 robust).
-    s = WebSettings(app_env="dev", _env_file=None)  # user default "assessment", password default "changeme"
-    assert s.app_env == "dev"
-    assert s.postgres_password.get_secret_value() == "changeme"
+    with pytest.raises(ValidationError):
+        WebSettings(app_env=app_env, _env_file=None)
+
+
+def test_empty_password_rejected():
+    """빈 문자열은 필드 제약(min_length)이 잡는다 — weak 목록이 다룰 일이 아니다."""
+    with pytest.raises(ValidationError):
+        WebSettings(**_web_kwargs(postgres_password=SecretStr("")))
 
 
 def test_web_settings_prod_with_strong_defaults_passes():
@@ -199,12 +205,13 @@ def test_env_only_channel_passes_when_no_secret_file(monkeypatch, tmp_path):
     assert config.WebSettings(_env_file=None).postgres_password.get_secret_value() == "env-channel-secret-32chars"
 
 
-def test_dev_ignores_shadowing(monkeypatch, tmp_path):
-    """검사는 prod 한정 — dev 는 편의를 위해 env 평문을 그대로 쓴다."""
+def test_shadowing_rejected_in_dev_too(monkeypatch, tmp_path):
+    """환경으로 강도를 가르지 않는다 — dev 에서도 채널이 겹치면 거부한다."""
     (tmp_path / "postgres_password").write_text("file-secret-32chars")
     _prod_env(monkeypatch, tmp_path)
     monkeypatch.setenv("APP_ENV", "dev")
     monkeypatch.setenv("POSTGRES_PASSWORD", "env-wins")
     config = _reload_config()
 
-    assert config.WebSettings(_env_file=None).postgres_password.get_secret_value() == "env-wins"
+    with pytest.raises(ValidationError, match="secret file is ignored"):
+        config.WebSettings(_env_file=None)

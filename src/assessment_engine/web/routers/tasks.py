@@ -22,7 +22,7 @@ from assessment_engine.web.services.task_service import (
     TaskPublishFailed,
     TaskService,
 )
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.templating import templates
 from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
 
@@ -119,8 +119,8 @@ async def install(
     try:
         return await service.create_install_tasks(
             req.target_public_ids,
-            zdm_ip=req.zdm_ip or web_settings.zdm_default_ip,
-            zdm_user=req.zdm_user or web_settings.zdm_default_user,
+            zdm_ip=req.zdm_ip or get_web_settings().zdm_default_ip,
+            zdm_user=req.zdm_user or get_web_settings().zdm_default_user,
         )
     except TaskNotFound as e:
         raise HTTPException(status_code=404, detail=str(e)) from e

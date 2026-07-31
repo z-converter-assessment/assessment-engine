@@ -2,7 +2,7 @@
 
 본 문서는 운영 env 관리 단일 진실 — 정책·secret 채널·주입 흐름·전체 키 카탈로그·운영 체크리스트. 외부 인프라가 본 엔진을 prod 운영할 때 충족해야 할 contract 와 dev 분기 매트릭스 한 곳.
 
-정책 출처: CLAUDE.md #A0 (외부 인프라 책임 분리) · #F8 (secret·PII 노출 금지). 본 repo 는 결과 (weak default 거부) 만 검증, secret 주입 채널 자체는 외부 인프라 자유.
+정책 출처: CLAUDE.md #A0 (외부 인프라 책임 분리) · #F8 (secret·PII 노출 금지). 본 repo 는 결과만 검증하고 secret 주입 채널 자체는 외부 인프라 자유.
 
 ---
 
@@ -14,7 +14,7 @@
 | 2 | 같은 이미지를 모든 환경에서 사용 | `Dockerfile` 1개. 환경 차이는 환경변수·compose override·secret 채널로만 |
 | 3 | secret 과 일반 config 분리 | dev `.env` 평문 / prod 외부 인프라 자유 채널 (env·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등) |
 | 4 | Fail-fast 검증 | `config.py` `model_validator` 가 `APP_ENV=prod` 일 때 약한 default 거부 |
-| 5 | dev 에 안전한 default + prod 에서 거부 | `_WEAK_VALUES` 집합 (POSTGRES·RABBITMQ password·user) 거부 — prod 에서 시작 차단 |
+| 5 | 비밀번호는 기본값 없음 + 뻔한 값 거부 | 미설정·빈값은 필드 제약이, `_WEAK_VALUES`(POSTGRES·RABBITMQ password·user)는 검증이 차단 — 환경 무관 |
 | 6 | secret 을 코드·이미지·git 에 박지 않음 | `.dockerignore`·`.gitignore` 에 `.env` 명시 (.env.example·.env.dev.example 카탈로그만 commit) |
 
 ---
@@ -29,7 +29,7 @@
 | secret | 노출 시 즉시 무단 접근 가능한 자격 | `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`·향후 API token / TLS key | dev 한정 `.env` 평문, prod 는 외부 인프라 자유 채널 |
 
 경계 케이스:
-- `POSTGRES_USER` — 보통 config. 단 user 자체가 권한 분리 키이면 secret. 본 프로젝트는 config 분류하되 prod 검증 시 약한 값(빈값·password·admin·root·changeme) 거부 — `assessment`(dev default)는 운영 편의로 허용.
+- `POSTGRES_USER` — 보통 config. 단 user 자체가 권한 분리 키이면 secret. 본 프로젝트는 config 분류하되 뻔한 값(password·admin·root·changeme)은 거부한다 — `assessment`(dev 카탈로그 값)는 허용.
 - `ZDM_DEFAULT_IP` / `ZDM_DEFAULT_USER` — config (secret 아님, 노출 무해). startup 거부 안 함 — 잘못된 ZDM 발행은 런타임 (`HttpZdmPackageResolver` 메타 도달 실패 시 503) + agent host whitelist (`WORKER_DOWNLOAD_ALLOWED_HOSTS`, `url_not_allowed` reject) 가 방어 (빈값 default 정상 동작, startup 거부 없음).
 
 규칙: config 인지 secret 인지 헷갈리면 secret 으로 간주. 잘못 분류해 secret 을 평문 노출하는 비용이 그 반대보다 크다.
@@ -72,7 +72,7 @@ secret 파일명은 pydantic 필드명과 정확히 일치 의무. 외부 인프
 
 docker-compose `environment:` 블록은 `env_file:` 보다 우선이라 컨테이너 안 값을 덮어쓴다.
 
-docker-compose 에서 secret 의 OS env override 동작: `env_file:` 만으론 호스트 OS env 가 컨테이너에 전달되지 않아 `.env` 값이 고정된다(override 불가). 그래서 secret(`*_PASSWORD`)은 `environment:` 에 `${VAR:-changeme}` 보간으로 명시한다 — 호스트 OS env 있으면 우선(override) > compose 가 읽는 `.env` > `changeme`(미설정 시 prod 거부). 앱·DB 컨테이너가 동일 소스를 봐 항상 일치한다. dev 는 `cp .env.dev.example .env` 로 루트 `.env` 를 만들어 보간 소스를 `env_file` 과 통일한다.
+base compose 에는 비밀번호 설정이 없다 — dev override 가 env 채널을, prod overlay 가 file 채널을 각자 채운다. dev 는 `cp .env.dev.example .env` 로 만든 `.env` 를 `env_file` 이 컨테이너에 주입하고, rabbitmq 만 키 이름이 달라(`RABBITMQ_DEFAULT_PASS`) override 가 매핑한다.
 
 ---
 
@@ -98,11 +98,11 @@ docker-compose 에서 secret 의 OS env override 동작: `env_file:` 만으론 �
 
 ## 5. dev/prod 차이 매트릭스
 
-compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) + prod file-secret overlay(`docker-compose.prod.yml`). dev 는 base+override 자동 머지, prod 는 base+secrets(`deploy.sh` rollout 또는 수동 compose). 본 표는 dev/prod 구성 차이.
+compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) + prod overlay(`docker-compose.prod.yml`). dev 는 base+override 자동 머지, prod 는 base+prod.yml(`deploy.sh` rollout 또는 수동 compose). 본 표는 dev/prod 구성 차이.
 
 | 항목 | dev (본 repo) | prod (외부 인프라) |
 |------|--------------|---------------------|
-| 기동 방식 | `docker compose up` (base + override.yml 머지, 로컬 빌드) | base+secrets pull-and-run — `deploy.sh` rollout 또는 수동 `docker compose up -d` |
+| 기동 방식 | `docker compose up` (base + override.yml 머지, 로컬 빌드) | base+prod.yml pull-and-run — `deploy.sh` rollout 또는 수동 `docker compose up -d` |
 | compose 이미지 | override.yml 로컬 빌드(`assessment-engine:local`) | base 의 GHCR 핀(`ENGINE_IMAGE` 또는 기본 핀) pull |
 | `APP_ENV` | `dev` | `prod` 명시 (env var 또는 EnvironmentFile) |
 | 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
@@ -118,32 +118,35 @@ compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.
 
 ---
 
-## 6. Fail-fast 검증 (weak default 거부)
+## 6. Fail-fast 검증
 
-prod 환경에서 secret 누락·약한 default 통과 차단. secret 주입 채널 자체는 외부 인프라 책임 — 본 repo 는 결과만 검증.
+비밀번호 미설정·뻔한 값·채널 충돌을 기동 시점에 차단한다. 환경으로 강도를 가르지 않는다 — dev 카탈로그도 뻔한 값을 쓰지 않으므로 같은 기준이 통한다. secret 주입 채널 자체는 외부 인프라 책임이고 본 repo 는 결과만 본다.
 
 | 위치 | 검증 대상 | 강제 시점 |
 |------|---------|---------|
-| `config.py` `_validate_prod_*` model_validator | `_WEAK_VALUES`(`""`/`password`/`admin`/`root`/`changeme`) 거부 (POSTGRES·RABBITMQ password·user). `assessment`(dev default)는 허용 — 명시하면 USER·PASSWORD 둘 다 통과. PASSWORD default 는 `changeme`(weak)라 미설정 시 거부 | 앱 import 직후 (`Settings()` 인스턴스 생성 시) |
+| `Field(min_length=1)` 필드 제약 | 비밀번호 미설정·빈값 거부. 기본값이 없어 어느 환경에서도 값을 줘야 한다 | Settings 인스턴스화 |
+| `config.py` `_validate_*_secrets` model_validator | `_WEAK_VALUES`(`password`/`admin`/`root`/`changeme`) 거부 (POSTGRES·RABBITMQ password·user). `assessment`(dev 카탈로그 값)는 허용 | Settings 인스턴스화 |
 | `config.py` `_reject_env_shadowing_secret` | secret 파일과 같은 이름의 환경변수가 함께 있으면 거부 | 위와 같음 |
 
 두 번째 검사는 채널 충돌을 잡는다. 우선순위가 `OS env > .env > secrets_dir` 이라 secret 파일을 두고도 같은 이름의 환경변수가 있으면 파일이 조용히 무시되고, 노출을 피하려던 값이 컨테이너 env 에 그대로 뜬다. 실패도 경고도 없어 운영자가 알 방법이 없으므로 prod 기동을 막는다. 컨테이너는 compose `env_file` 이 값을 환경변수로 주입하므로 이 검사에 걸린다.
 
 ```python
+postgres_password: SecretStr = Field(min_length=1)   # 기본값 없음 = 필수
+
+
 @model_validator(mode="after")
-def _validate_prod_web_secrets(self) -> "WebSettings":
-    if self.app_env != "prod":
-        return self
+def _validate_web_secrets(self) -> "WebSettings":
+    _reject_env_shadowing_secret("postgres_password")
     if self.postgres_password.get_secret_value() in _WEAK_VALUES:
-        raise ValueError("POSTGRES_PASSWORD is unset or uses a dev default in prod. ...")
+        raise ValueError("POSTGRES_PASSWORD uses an obvious value. ...")
     if self.postgres_user in _WEAK_VALUES:
-        raise ValueError("POSTGRES_USER must be set to a non-default value in prod.")
+        raise ValueError("POSTGRES_USER must not be an obvious value ...")
     return self
 ```
 
 발동 위치 (컴포넌트별):
-- web: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password weak default 거부
-- consumer: `ConsumerSettings` → POSTGRES·RABBITMQ password weak default 거부
+- web: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password 검증
+- consumer: `ConsumerSettings` → POSTGRES·RABBITMQ password 검증
 
 효과:
 - prod 에서 `.env` 미주입·dev default 잔존 시 `Settings()` 호출이 즉시 `ValueError` → 컨테이너 crash (fail-fast).
@@ -166,8 +169,8 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 
 본 repo 책임 한계:
 - pydantic-settings 가 OS env·`secrets_dir` 둘 다 지원 — 외부 인프라 채널 선택 자유
-- `_validate_prod_*` 가 결과 (weak default 거부) 만 검증 — 채널 자체는 본 repo 무관
-- compose 배포는 file-secret 채널 단일 — `docker-compose.prod.yml` + `./secrets/*`(`secrets/README.md`). `.env.example` 에 평문 password 없고 `COMPOSE_FILE` 이 base+secrets 자동 머지. 단일 호스트 non-swarm 에서 env 노출 회피가 핵심 이득(호스트 디스크 평문은 `secrets/` 디렉토리 권한 0700(root 소유)으로 보호(파일 자체는 postgres non-root 유저 호환 위해 644)). 엔진은 env·secrets_dir 어느 채널도 읽으나(위 표) 배포 매체는 compose file-secret 단일.
+- 검증은 결과만 본다 — 채널 자체는 본 repo 무관
+- compose 배포는 file-secret 채널 단일 — `docker-compose.prod.yml` + `./secrets/*`. `.env.example` 에 평문 password 없고 `COMPOSE_FILE` 이 base+prod.yml 자동 머지. 단일 호스트 non-swarm 에서 env 노출 회피가 핵심 이득(호스트 디스크 평문은 `secrets/` 디렉토리 권한 0700(root 소유)으로 보호(파일 자체는 postgres non-root 유저 호환 위해 644)). 엔진은 env·secrets_dir 어느 채널도 읽으나(위 표) 배포 매체는 compose file-secret 단일.
 
 ---
 
@@ -225,7 +228,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 | 단계 | 패턴 | 적합 환경 | 외부 인프라 구현 |
 |------|------|----------|---------------|
 | A. 단일 `.env` 모든 노드 동일 inject | 한 파일 전부 — 단순 | 단일 host 또는 dev | docker-compose `env_file`·systemd `EnvironmentFile=/etc/assessment-engine.env` |
-| A2. compose file-secret (compose prod 표준) | config 는 `.env`, 비번만 `./secrets/*`(644) -> `/run/secrets/*` | 단일 host compose prod (유일 정석) | `.env.example` 의 `COMPOSE_FILE` 로 base+secrets 자동 -> `docker compose up -d` (`secrets/README.md`) |
+| A2. compose file-secret (compose prod 표준) | config 는 `.env`, 비번만 `./secrets/*`(644) -> `/run/secrets/*` | 단일 host compose prod (유일 정석) | `.env.example` 의 `COMPOSE_FILE` 로 base+prod 자동 -> `docker compose up -d` |
 | B. 컴포넌트별 `.env` 분리 | 노드별 자기 키만 | small multi-node | systemd unit 별 `EnvironmentFile=/etc/<component>.env` |
 | C. 계층화 — 공통 + 컴포넌트별 (권장) | `shared.env` (DB·MQ·Redis·LOG_FORMAT) + `<component>.env` (특화 키) | 4 node 분리 prod | Ansible `group_vars`(shared) + `host_vars`(component별). systemd `EnvironmentFile=` 여러 줄 |
 | D. 중앙 secret store | Vault·Consul·AWS Parameter Store·k8s ConfigMap·External Secrets | 다중 환경·동적 회전 | 인프라 측 자체 운영 |
@@ -255,7 +258,7 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 
 | 키 | 기본값 | 사용처 | 설명 |
 |----|--------|--------|------|
-| `APP_ENV` | `dev` | config.py / docker-compose | 환경 마커. `dev`/`staging`/`prod`. `prod` 일 때 weak default 거부 |
+| `APP_ENV` | `dev` | config.py / docker-compose | 환경 마커. `dev`/`staging`/`prod`. 로그 format·reload 등 동작 분기에 쓴다 |
 | `LOG_FORMAT` | `text` | config.py / 각 entry `setup_logging()` | 로그 출력 format. `text`(dev colorized·grep) 또는 `json`(외부 log aggregator). prod 는 `json` 권장 |
 | `ENGINE_IMAGE` | base 기본 핀 (`ghcr.io/z-converter-assessment/assessment-engine:<version>`) | compose base | 앱 서비스 이미지. config.py 미사용 — compose 전용. 미설정 시 base `docker-compose.yml` 기본값(release CI 가 태그 semver 로 핀한 GHCR 이미지). dev override.yml 은 `assessment-engine:local`(로컬 빌드)로 덮음. GHCR public — 토큰 없이 pull |
 | `PGDATA_HOST` | `postgres_data` (named volume) | compose base | postgres 영속 경로. host 절대경로 주입 시 bind mount(infra Cinder `/mnt/pgdata`), 미설정 시 named volume |

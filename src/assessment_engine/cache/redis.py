@@ -5,7 +5,7 @@ from redis.exceptions import RedisError
 from assessment_engine.config import WebSettings
 
 # db layer는 모든 컴포넌트 공통 — 자체 WebSettings 인스턴스화 (session.py와 동일 패턴).
-_settings = WebSettings()
+# 첫 get_pool 호출에서 만든다 — import 만으로 설정을 요구하지 않는다.
 _pool: ConnectionPool | None = None
 
 
@@ -14,7 +14,7 @@ def get_pool() -> ConnectionPool:
     pool = _pool
     if pool is None:
         pool = ConnectionPool.from_url(
-            _settings.redis_url,
+            WebSettings().redis_url,
             decode_responses=True,
             socket_timeout=5,  # F6 — 명령 timeout (fail-open 경계)
             socket_connect_timeout=3,

@@ -15,7 +15,7 @@ from assessment_engine.web.services.task_service import (
     TaskNotConfigured,
     _resolve_install_dispatch,
 )
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.worker.report_worker import run_report_worker
 from assessment_engine.worker.task_reaper import run_task_reaper
 from assessment_engine.worker.worker_lifecycle import graceful_drain
@@ -248,16 +248,16 @@ async def test_graceful_drain_swallows_already_cancelled():
 def test_resolve_install_dispatch_linux():
     """linux = tar.gz extract + install.sh (shell), install_script 존재."""
     package_path, install_type, install_script = _resolve_install_dispatch("linux")
-    assert package_path == web_settings.zdm_package_path
+    assert package_path == get_web_settings().zdm_package_path
     assert install_type == "shell"
-    assert install_script == web_settings.zdm_package_script
+    assert install_script == get_web_settings().zdm_package_script
     assert install_script is not None
 
 
 def test_resolve_install_dispatch_windows():
     """windows = single .exe 직접 실행 (direct_exec), install_script 는 None (extract 없음)."""
     package_path, install_type, install_script = _resolve_install_dispatch("windows")
-    assert package_path == web_settings.zdm_package_path_windows
+    assert package_path == get_web_settings().zdm_package_path_windows
     assert install_type == "direct_exec"
     assert install_script is None
 

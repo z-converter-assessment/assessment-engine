@@ -18,7 +18,7 @@ from assessment_engine.web.services.mappers.right_sizing_api import build_right_
 from assessment_engine.web.services.mappers.shared import _DONUT_SEGMENT_FROM_REC
 from assessment_engine.web.services.mappers.topology import build_network_topology
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import (
     CapacityWarningItem,
     EnvironmentAssessment,
@@ -269,7 +269,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         online = 신선 데이터 서버 수(차트의 '그 시점 발행 서버' 기준과 동일 정렬). sample_size/total 표기.
         """
         detail_by_id = {d.id: d for d in details}
-        fresh_threshold = now - timedelta(seconds=web_settings.redis_ttl_online)
+        fresh_threshold = now - timedelta(seconds=get_web_settings().redis_ttl_online)
         # 실시간 포화 원자료(CPU 실행큐·디스크 queue/await·메모리 paging) — 신선 표본 1쿼리 벌크(전용 경량 쿼리).
         sat_map = await self.repo.latest_saturation(server_ids, fresh_threshold)
         online = 0

@@ -46,7 +46,7 @@ from assessment_engine.web.services.mappers.shared import ReportView
 from assessment_engine.web.services.metrics_calculator import build_error_signals
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview, _filter_attention
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import (
     AttentionSignals,
     EnvironmentOverview,
@@ -239,11 +239,11 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
 
 
         # overview — 단일 서버 자원량. is_online 은 Redis online TTL (fail-open) 기반.
-        flag = await safe_get(self.redis, web_settings.redis_key_online.format(detail.id))
+        flag = await safe_get(self.redis, get_web_settings().redis_key_online.format(detail.id))
         if flag is not None:
             is_online = flag == "1"
         else:
-            threshold = end_dt - timedelta(seconds=web_settings.redis_ttl_online)
+            threshold = end_dt - timedelta(seconds=get_web_settings().redis_ttl_online)
             is_online = bool(detail.last_seen_at and detail.last_seen_at > threshold)
 
         # P2 단일 진실 — units helper 경유 (mapper·service 공통 단위 산식).
@@ -445,9 +445,9 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         if raws is None:
             raws = await self._assemble_report_raws(server_ids, period_days, end_dt)
 
-        online_keys = [web_settings.redis_key_online.format(r.server_id) for r in raws]
+        online_keys = [get_web_settings().redis_key_online.format(r.server_id) for r in raws]
         flags = await safe_mget(self.redis, online_keys)
-        threshold = end_dt - timedelta(seconds=web_settings.redis_ttl_online)
+        threshold = end_dt - timedelta(seconds=get_web_settings().redis_ttl_online)
         window_start = end_dt - timedelta(days=period_days)
 
         items: list[ReportRowItem] = []

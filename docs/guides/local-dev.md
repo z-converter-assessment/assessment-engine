@@ -16,7 +16,7 @@ docker-compose.yml          — prod-safe BASE. 앱 서비스 `build:` 없음, G
 docker-compose.override.yml — dev 전용. 소스 빌드(루트 Dockerfile)·`./src` bind mount·hot reload(watchfiles). `docker compose up` 시 base 에 자동 머지(override 우선). 배포 시 미사용
 Dockerfile                  — 엔진 이미지 (web·consumer·worker·migrate 공용, multi-stage·non-root). base·override·CI/release·systemd·k8s 공용 단일 이미지 (dev-prod parity — dev/prod Dockerfile 분리 안 함)
 .env.example                — 배포 템플릿 (APP_ENV=prod·secret 필수). dev 검증 카탈로그는 루트 .env.dev.example
-.env.dev.example            — dev 카탈로그 (APP_ENV=dev·weak default 허용·host=compose 서비스명)
+.env.dev.example            — dev 카탈로그 (APP_ENV=dev·평문 비번·host=compose 서비스명)
 .dockerignore               — 이미지 빌드 컨텍스트 제외 경로 (docs/·tests/·.env·.git 등)
 ```
 
@@ -32,7 +32,7 @@ docker compose down -v
 
 dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지 불변성). agent 가 붙는 VM 은 본 repo 범위 밖(OpenStack 공급).
 
-prod 하드닝(APP_ENV=prod·강 secret·외부 secret 채널·HTTPS ingress)은 base 가 강제하지 않음 — infra env 주입으로 달성하거나 `docs/reference/contracts/env.md` + `config.py` `_validate_prod_*` contract.
+prod 하드닝(강 secret·외부 secret 채널·HTTPS ingress)은 base 가 강제하지 않음 — infra 주입으로 달성하거나 `docs/reference/contracts/env.md` + `config.py` 검증 contract.
 
 ---
 

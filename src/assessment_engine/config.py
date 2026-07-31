@@ -2,17 +2,18 @@ import os
 from typing import Literal
 from urllib.parse import quote
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 외부 인프라가 secret을 어떻게 주입하든(systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등)
 # pydantic-settings는 env 우선·secrets_dir fallback 둘 다 지원. secrets_dir은 디렉토리가 존재할 때만 활성.
-# 본 repo는 secret 채널 자체를 강제하지 않음(CLAUDE.md #A0) — _validate_prod_*가 결과(weak default 거부)만 검증.
+# 본 repo는 secret 채널 자체를 강제하지 않음(CLAUDE.md #A0) — 결과만 검증한다.
 _SECRETS_DIR = os.environ.get("SECRETS_DIR", "/run/secrets")
 _SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
 
-# prod 기동 거부할 약한 값 (USER·PASSWORD 공용). "assessment"(dev default)는 허용 — 빈값·뻔한 값만 차단.
-_WEAK_VALUES = frozenset({"", "password", "admin", "root", "changeme"})
+# 거부할 뻔한 값 (USER·PASSWORD 공용). 미설정·빈값은 필드 제약(min_length)이 먼저 잡는다.
+# "assessment"(dev 카탈로그 값)는 허용 — 뻔한 값만 차단한다.
+_WEAK_VALUES = frozenset({"password", "admin", "root", "changeme"})
 
 
 def _reject_env_shadowing_secret(field: str) -> None:
@@ -23,6 +24,7 @@ def _reject_env_shadowing_secret(field: str) -> None:
 
     컨테이너는 compose `env_file` 이 값을 환경변수로 주입하므로 이 검사에 걸린다. 호스트에서
     pydantic 이 `.env` 를 직접 읽는 경로는 환경변수를 거치지 않아 여기서 잡히지 않는다.
+    secret 디렉토리가 없으면(dev) 충돌 자체가 성립하지 않아 그대로 통과한다.
     """
     if _SECRETS_DIR is None or field.upper() not in os.environ:
         return
@@ -52,8 +54,8 @@ class WebSettings(BaseSettings):
     postgres_host: str = "postgres"
     postgres_db: str = "assessment"
     postgres_user: str = "assessment"
-    # default 는 weak(changeme) — 미설정 시 prod 거부 강제 (명시 assessment 는 허용).
-    postgres_password: SecretStr = SecretStr("changeme")
+    # 기본값을 두지 않는다 — 미설정이 조용히 통과하면 그것을 거르는 검사가 또 필요해진다.
+    postgres_password: SecretStr = Field(min_length=1)
     postgres_port: int = 5432
     web_port: int = 8000
     # uvicorn auto-reload — dev hot-reload 전용, prod False. 루트 docker-compose.yml 이 WEB_RELOAD 주입.
@@ -129,19 +131,17 @@ class WebSettings(BaseSettings):
         return f"redis://{self.redis_host}:{self.redis_port}"
 
     @model_validator(mode="after")
-    def _validate_prod_web_secrets(self) -> "WebSettings":
-        if self.app_env != "prod":
-            return self
-        # 외부 인프라가 secret을 어떻게 주입하든(env·secrets_dir·EnvironmentFile·Vault 등) 결과만 검증.
-        # 채널 자체는 본 repo 책임 밖 (CLAUDE.md #A0). weak default 통과 차단이 핵심.
+    def _validate_web_secrets(self) -> "WebSettings":
+        # 환경으로 강도를 가르지 않는다 — dev 카탈로그도 뻔한 값을 쓰지 않으므로 같은 기준이 통한다.
+        # 채널 자체는 본 repo 책임 밖(CLAUDE.md #A0). 결과만 본다.
         _reject_env_shadowing_secret("postgres_password")
         if self.postgres_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
-                "POSTGRES_PASSWORD is unset or uses a dev default in prod. "
+                "POSTGRES_PASSWORD uses an obvious value. "
                 "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
             )
         if self.postgres_user in _WEAK_VALUES:
-            raise ValueError("POSTGRES_USER must not be a weak value (empty/password/admin/root/changeme) in prod.")
+            raise ValueError("POSTGRES_USER must not be an obvious value (password/admin/root/changeme).")
         return self
 
 
@@ -171,7 +171,7 @@ class ConsumerSettings(WebSettings):
     rabbitmq_vhost: str = "assessment"  # 에이전트가 발행하는 전용 vhost (무슬래시 — 앞 슬래시 없는 이름)
     rabbitmq_user: str = "assessment"
     # default 는 weak(changeme) — 미설정 시 prod 거부 강제 (명시 assessment 는 허용). USER 는 식별자라 default 허용.
-    rabbitmq_password: SecretStr = SecretStr("changeme")
+    rabbitmq_password: SecretStr = Field(min_length=1)
     rabbitmq_exchange: str = "assessment"
     rabbitmq_routing_key_inventory: str = "server.inventory"
     rabbitmq_routing_key_metrics: str = "server.metrics"
@@ -230,17 +230,15 @@ class ConsumerSettings(WebSettings):
         return f"{self.rabbitmq_task_install_key_prefix}.{agent_id}"
 
     @model_validator(mode="after")
-    def _validate_prod_consumer_secrets(self) -> "ConsumerSettings":
-        if self.app_env != "prod":
-            return self
+    def _validate_consumer_secrets(self) -> "ConsumerSettings":
         _reject_env_shadowing_secret("rabbitmq_password")
         if self.rabbitmq_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
-                "RABBITMQ_PASSWORD is unset or uses a dev default in prod. "
+                "RABBITMQ_PASSWORD uses an obvious value. "
                 "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
             )
         if self.rabbitmq_user in _WEAK_VALUES:
-            raise ValueError("RABBITMQ_USER must not be a weak value (empty/password/admin/root/changeme) in prod.")
+            raise ValueError("RABBITMQ_USER must not be an obvious value (password/admin/root/changeme).")
         return self
 
 

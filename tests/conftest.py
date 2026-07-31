@@ -47,7 +47,7 @@ async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncE
     async_url = f"postgresql+asyncpg://test:test@{host}:{port}/assessment_test"
 
     # alembic upgrade head — subprocess로 호출 (async fixture 내 nested asyncio 회피).
-    # web_settings.database_url을 env var 기반으로 만들도록 POSTGRES_* 주입.
+    # get_web_settings().database_url을 env var 기반으로 만들도록 POSTGRES_* 주입.
     env = os.environ.copy()
     env["POSTGRES_HOST"] = host
     env["POSTGRES_PORT"] = str(port)

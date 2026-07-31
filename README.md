@@ -128,6 +128,37 @@ CI(코드 quality + 이미지 발행)는 GitHub Actions가 담당한다. 배포(
 
 ---
 
+## 환경변수와 비밀번호
+
+설정은 `.env` 하나로 들어간다. 어느 템플릿을 복사했는지가 환경을 정한다 — `.env.dev.example` 이면
+dev(핫리로드), `.env.example` 이면 배포용이다. 그 안의 `COMPOSE_FILE` 이 어떤 compose 파일을 합칠지도 정한다.
+
+비밀번호에는 기본값이 없다. 미설정이면 환경과 무관하게 기동이 실패하고, `password`·`admin`·`root`·`changeme`
+같은 뻔한 값도 거부된다. 주입 경로는 둘인데 환경에 따라 다르다.
+
+| | 채널 | 값을 만드는 주체 |
+|---|------|----------------|
+| dev | `.env` 평문 (`POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`) | 템플릿에 이미 값이 들어 있다 — 그대로 쓴다 |
+| 배포 | `secrets/*` 파일 -> 컨테이너 `/run/secrets/*` | `bootstrap.sh` 가 없는 것만 생성 |
+
+배포에서 파일 채널을 쓰는 이유는 노출 회피다. env 로 넣으면 `docker inspect`·`compose config`·`/proc/environ`
+에 평문이 그대로 뜬다. 그래서 `.env.example` 에는 비밀번호 키 자체가 없다.
+
+두 채널을 동시에 두면 안 된다. 우선순위가 `환경변수 > .env > secrets/` 라 파일이 조용히 무시되는데,
+그 상태를 감지해 기동을 막는다. 배포용 `.env` 에 비밀번호 키를 되살리지 않으면 마주칠 일은 없다.
+
+직접 만들어야 할 때는 이렇게 한다. 파일명은 `docker-compose.prod.yml` 의 `secrets:` 항목과 같아야 하고,
+`echo` 는 개행을 붙이므로 쓰지 않는다.
+
+```bash
+printf '%s' "$(openssl rand -base64 32)" > secrets/<항목명>
+chmod 644 secrets/*          # 컨테이너의 non-root 유저가 읽어야 한다
+```
+
+권한 근거와 키 카탈로그는 `docs/reference/contracts/env.md`, 배포 절차는 `docs/guides/deploy.md` 가 갖는다.
+
+---
+
 ## 개발 (dev)
 
 dev = base + `docker-compose.override.yml` 핫리로드. 코드 수정이 컨테이너 restart 없이 반영된다.

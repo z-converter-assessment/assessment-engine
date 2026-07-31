@@ -22,7 +22,7 @@ from assessment_engine.web.services.mappers.shared import (
     PROVISIONING_CLASS_OPTIONS,
 )
 from assessment_engine.web.services.query_service import QueryService
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.templating import templates
 
 # 환경 개요(/) · 서버 목록(/servers) · 환경 단위(/environment/*) 3 라우터 — URL 명사 분리.
@@ -235,8 +235,8 @@ async def servers_list(
             "servers": servers,
             "generated_at": datetime.now(UTC),
             "zdm_defaults": {
-                "ip": web_settings.zdm_default_ip,
-                "user": web_settings.zdm_default_user,
+                "ip": get_web_settings().zdm_default_ip,
+                "user": get_web_settings().zdm_default_user,
             },
             # OS 필터 옵션 — endoflife 카탈로그 distro 전체(수집 무관, 지원 distro 노출).
             # single source: shared.DISTRO_FILTER_OPTIONS.

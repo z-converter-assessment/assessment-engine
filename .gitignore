@@ -6,9 +6,7 @@
 !.env.dev.example
 *.pem
 *.key
-secrets/*
-!secrets/.gitkeep
-!secrets/README.md
+secrets/
 
 # 빌드 산출물
 dist/

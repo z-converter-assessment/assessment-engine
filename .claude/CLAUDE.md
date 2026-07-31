@@ -52,11 +52,11 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 repo는 엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.sh`, 배포 대상 VM 에서 실행)까지 다룬다. VM provisioning(IaC — VM 생성·OS 설정)은 별도 준비 VM 전제. docker·cosign·deploy.sh 설치는 1회성 `bootstrap.sh`.
 
 본 절 결정:
-- compose = prod base(빌드 없는 GHCR pull) + dev override(소스 빌드·bind mount, 자동 머지) + prod file-secret overlay. prod = base+secrets, dev = base+override. `docker-compose.prod.yml` 안 둔다 (base 자체가 prod). Dockerfile 은 dev/prod 분리 안 함 (parity — dev 편의는 override bind mount 로만). prod 비번 = file-secret 채널 단일 (`SecretStr`). 파일 구조·서비스 카탈로그 상세 = `docs/guides/local-dev.md`.
+- compose = 공통 base + dev override(소스 빌드·bind mount, 파일명으로 자동 머지) + prod overlay(file-secret). dev = base+override, prod = base+prod.yml — 어느 쪽이 붙는지는 `.env` 의 `COMPOSE_FILE` 이 정한다. base 는 환경 색을 담지 않는다. Dockerfile 은 dev/prod 분리 안 함 (parity — dev 편의는 override bind mount 로만). prod 비번 = file-secret 채널 단일 (`SecretStr`). 파일 구조·서비스 카탈로그 상세 = `docs/guides/local-dev.md`.
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/reference/contracts/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
-  - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/reference/contracts/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
+  - 설정 검증 — 비밀번호 미설정·빈값·뻔한 값·채널 충돌을 기동 시점에 거부 (`docs/reference/contracts/env.md` 6절). 환경으로 강도를 가르지 않고, secret 주입 방식과 무관하게 결과만 검증
   - CI 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR). 배포는 VM 에서 `deploy.sh` 실행 (시퀀스는 `docs/guides/deploy.md` 3절). GitHub Actions runner 미사용(public repo 에 self-hosted runner 안티패턴 회피) — 내부망 VM 이 outbound 로 이미지 pull
 - VM provisioning 코드(`*.tf`·Ansible playbook·VM 생성·OS 설정)는 본 repo에 두지 않는다 — 배포 대상 VM 은 provisioning 완료 상태를 전제. 엔진 rollout(`deploy.sh`)·VM 부트스트랩(`bootstrap.sh`)은 범위 안. 단일 호스트 compose 수동 기동도 지원.
 
@@ -372,7 +372,7 @@ Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/refer
 - Redis·DB에 raw payload 캐싱 — Outbound DTO·ViewModel 단계에서 sanitize 후.
 - 메시지 payload 본문 로깅 (`agent_id`·`composite_id`는 식별자라 OK).
 
-secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/reference/contracts/env.md`.
+secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 
 ## F9. 변경 영향도 체크리스트
 

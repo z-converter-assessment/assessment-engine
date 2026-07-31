@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import get_service, resolve_internal_id
 from assessment_engine.web.services.query_service import QueryService
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.templating import templates
 
 server_detail_router = APIRouter(prefix="/servers")
@@ -98,8 +98,8 @@ async def get_server(
             "back_url": _safe_back(back, "/"),
             "self_back": _self_back(request),
             "zdm_defaults": {
-                "ip": web_settings.zdm_default_ip,
-                "user": web_settings.zdm_default_user,
+                "ip": get_web_settings().zdm_default_ip,
+                "user": get_web_settings().zdm_default_user,
             },
         },
     )

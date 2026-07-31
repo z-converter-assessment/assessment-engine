@@ -12,7 +12,7 @@ from assessment_engine.cache.redis import get_redis
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
 from assessment_engine.db.repositories.query.query_repository import QueryRepository
-from assessment_engine.db.session import AsyncSessionLocal, get_db
+from assessment_engine.db.session import get_db, get_session_factory
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import HttpZdmPackageResolver, TaskService
@@ -39,7 +39,7 @@ def get_task_service(
     """
     return TaskService(
         query_repo=QueryRepository(db),
-        session_factory=AsyncSessionLocal,
+        session_factory=get_session_factory(),
         collect_repo_factory=CollectRepository,
         broker_channel=request.app.state.broker_channel,
         zdm_resolver=HttpZdmPackageResolver(
@@ -57,7 +57,7 @@ def get_diagnostic_service() -> DiagnosticService:
     독립 세션으로 수행하므로 request-scoped 세션 의존 없음(워커가 DI 없이도 동일 인스턴스 구성 가능).
     """
     return DiagnosticService(
-        session_factory=AsyncSessionLocal,
+        session_factory=get_session_factory(),
         diagnostic_repo_factory=DiagnosticRepository,
     )
 

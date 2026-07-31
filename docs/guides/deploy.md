@@ -65,13 +65,13 @@ sudo $DEPLOY_DIR/deploy.sh vX.Y.Z
 평가(PoC)·간단 확인 시. repo checkout 기준으로 compose 직접 기동:
 
 ```bash
-cp .env.example .env               # COMPOSE_FILE 포함(base+secrets 자동 머지) · 평문 비번 없음
+cp .env.example .env               # COMPOSE_FILE 포함(base+prod 자동 머지) · 평문 비번 없음
 mkdir -p secrets
 printf '%s' "$(openssl rand -base64 32)" > secrets/<항목명>   # 목록: docker-compose.prod.yml 의 secrets:
 chmod 644 secrets/*
 # ENGINE_IMAGE 로 배포 버전 핀 (미설정 시 base 기본 = __ENGINE_VERSION__ placeholder, 정확 버전 명시 권장):
 echo 'ENGINE_IMAGE=ghcr.io/z-converter-assessment/assessment-engine:1.2.1' >> .env
-docker compose up -d              # base+secrets pull-and-run. web http://localhost:8000
+docker compose up -d              # base+prod pull-and-run. web http://localhost:8000
 ```
 
 GHCR public — 토큰 없이 pull. `APP_ENV=prod` 기본이라 secret 부재·weak 면 기동 거부(fail-fast). 영속 볼륨을 외부 디스크에 두려면 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(미설정 시 named volume).
@@ -84,7 +84,7 @@ GHCR public — 토큰 없이 pull. `APP_ENV=prod` 기본이라 secret 부재·w
 |---------|-----------|-------------------|
 | 이미지 무결성 | `release.yml` cosign 서명 | 배포 전 `cosign verify` (`deploy.sh` 자동) |
 | 환경변수 | `docs/reference/contracts/env.md` | `.env` + `secrets/*` 채움 |
-| Secret | `config.py` `_validate_prod_*` | `APP_ENV=prod` weak default 거부 — strong random 주입 |
+| Secret | `config.py` 필드 제약 + `_validate_*_secrets` | 미설정·빈값·뻔한 값 거부 (환경 무관) — strong random 주입 |
 | Schema | 이미지 안 `_alembic.ini` + `migrations/` | base compose migrate init-container 자동 실행 |
 | graceful shutdown | #F11 (`docs/reference/consumer.md`) | compose `stop_grace_period` 충분 (SIGTERM) |
 | 헬스 endpoint | `GET /health` (web) | `deploy.sh` health gate 가 compose healthcheck 결과와 함께 확인 |
@@ -94,7 +94,7 @@ GHCR public — 토큰 없이 pull. `APP_ENV=prod` 기본이라 secret 부재·w
 
 | 증상 | 원인·조치 |
 |------|----------|
-| `Settings()` 진입 시점 `ValueError` | weak default 거부 — `APP_ENV=prod` 인데 secret 파일 부재·weak. `secrets/*` 배치 점검 (`docs/reference/contracts/env.md`) |
+| `Settings()` 진입 시점 `ValueError` | 비밀번호 미설정·뻔한 값, 또는 secret 파일과 환경변수 동시 존재. `secrets/*` 배치와 `.env` 를 함께 점검 (`docs/reference/contracts/env.md`) |
 | migrate 컨테이너 실패 — `extension "timescaledb" is not available` | postgres 이미지는 `timescale/timescaledb-ha` 라 평시 문제없음. 외부 managed DB 사용 시 `CREATE EXTENSION IF NOT EXISTS timescaledb` 사전 실행 (`docs/guides/migrate.md`) |
 | consumer 가 broker 연결 실패 반복 | `RABBITMQ_*`·vhost 권한 검토 (`docs/reference/rabbitmq.md`) |
 | `/health` 200 인데 inventory 안 들어옴 | 에이전트 별도 install·broker 연결 필요. agent 측 점검 (`docs/reference/contracts/agent-data.md`) |
