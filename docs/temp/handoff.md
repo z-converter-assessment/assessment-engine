@@ -122,16 +122,22 @@ docker images engine:verify --format '{{.Size}}'
 
 ## 검증 결과
 
-(홈서버에서 채운다)
+docker 29.5.2 + compose v5.1.4 환경에서 실행했다.
 
 | 항목 | 결과 | 비고 |
 |------|------|------|
-| 1. 이미지 빌드 | | |
-| 2. 최종 이미지 내용 | | |
-| 3. ENTRYPOINT·CMD | | |
-| 4. 라벨 | | |
-| 5. compose 기동 | | |
-| 6. 이미지 크기 | | |
+| 1. 이미지 빌드 | pass | 24.7초 |
+| 2. 최종 이미지 내용 | pass | uv 바이너리·소스 트리 부재, version 1.2.1, 자원 4종 포함 |
+| 3. ENTRYPOINT·CMD | pass | 인자 없이 실행 시 exit 2 |
+| 4. 라벨 | pass | 정적 라벨 5종, source URL 일치 |
+| 5. compose 기동 | pass | 2분 23초, migrate exited(0) + revision 5건, web healthy |
+| 6. 이미지 크기 | 308MB | |
+
+미확인 지점 셋 중 둘은 해소됐고 하나는 전제가 어긋났다. uv 이미지 태그 `0.11.16`은 존재한다. `uv sync --no-editable`로 만든 `/opt/venv`는 복사 후에도 동작한다 — 세 컴포넌트가 모두 import 되고 `_alembic.ini`·`migrations/env.py`·템플릿·정적 자원이 패키지 안에 있다. `--mount=from=<stage>`는 Dockerfile에 쓰이지 않았다. 실제 구현은 `COPY --from=uv /uv /usr/local/bin/uv`다.
+
+본 문서 2절의 `docker run --rm engine:verify -c "..."` 형태는 그대로는 동작하지 않는다. ENTRYPOINT가 `python -m`이라 `-c`가 모듈명으로 해석되어 `No module named -c`가 난다. `--entrypoint python`을 붙여야 한다. 3절의 `--version`이 버전을 찍지 않고 실패하는 것도 같은 이유이며, CMD 기본값을 없앤 설계상 정상이다.
+
+compose 기동에서 migrate 가 revision 5건을 적용하고 종료했고, postgres·rabbitmq·redis 가 healthy, web 이 healthy 상태로 `/health` 200 을 반환했다. consumer 는 큐 4종을 소비하고 worker 는 reaper·report 두 루프를 띄웠다. bind mount 는 컨테이너 안 파일과 호스트 파일의 mtime 이 같아 동일 inode 임을 확인했다. 패키지에 `.py` 파일 하나를 만들자 web(uvicorn reload)·consumer·worker(watchfiles 래퍼) 셋 다 재시작해 hot reload 도 동작한다.
 
 ## 미결 항목
 
