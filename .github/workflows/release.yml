@@ -67,6 +67,8 @@ jobs:
     if: needs.resolve-version.outputs.release == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      IMAGE: ghcr.io/${{ github.repository_owner }}/assessment-engine
     permissions:
       contents: write   # 릴리스 태그 push
       id-token: write   # Sigstore/cosign keyless signing (OIDC token)
@@ -91,7 +93,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         with:
-          images: ghcr.io/${{ github.repository_owner }}/assessment-engine
+          images: ${{ env.IMAGE }}
           tags: |
             type=semver,pattern={{version}},value=v${{ needs.resolve-version.outputs.version }}
             type=semver,pattern={{major}}.{{minor}},value=v${{ needs.resolve-version.outputs.version }}
@@ -123,12 +125,10 @@ jobs:
       - name: Sign image with cosign (keyless)
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
-          TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          # tag 는 옮겨갈 수 있으므로 immutable digest 에 서명한다.
-          while IFS= read -r tag; do
-            cosign sign --yes "${tag}@${DIGEST}"
-          done <<< "${TAGS}"
+          # tag 는 옮겨갈 수 있으므로 immutable digest 에 서명한다. 태그마다 호출하면 같은 digest 에
+          # 서명 번들만 중복 적재된다 — alias 개수와 무관하게 1 회다.
+          cosign sign --yes "${IMAGE}@${DIGEST}"
 
       # 이미지 발행과 서명이 끝난 뒤에 태그를 남긴다 — 앞 단계가 실패하면 태그가 없어 그대로 재시도할 수 있다.
       - name: Tag released commit

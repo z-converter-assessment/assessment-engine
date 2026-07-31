@@ -12,13 +12,13 @@
 
 | 태그 | 의미 | 용도 |
 |------|------|------|
-| `ghcr.io/z-converter-assessment/assessment-engine:0.1.0` | immutable 정확 버전 (`pyproject.toml` 의 version) | prod pin (배포 기본) |
-| `:0.1` | minor 최신 | minor patch auto-track |
-| `:0` | major 최신 | major lock |
+| `ghcr.io/z-converter-assessment/assessment-engine:1.2.1` | immutable 정확 버전 (`pyproject.toml` 의 version) | prod pin (배포 기본) |
+| `:1.2` | minor 최신 | minor patch auto-track |
+| `:1` | major 최신 | major lock |
 | `:latest` | stable release 최신 | 모니터링 — prod 비추천 (변경 무경고) |
 
 이미지 attestation (별도 파일이 아니라 이미지에 귀속):
-- Cosign keyless signature — `cosign verify ghcr.io/.../assessment-engine:0.1.0 --certificate-identity-regexp=... --certificate-oidc-issuer=https://token.actions.githubusercontent.com`
+- Cosign keyless signature — `cosign verify ghcr.io/.../assessment-engine:1.2.1 --certificate-identity-regexp=... --certificate-oidc-issuer=https://token.actions.githubusercontent.com`
 - BuildKit SBOM (SPDX) — `docker buildx imagetools inspect --format '{{ json .SBOM.SPDX }}'`
 - SLSA provenance — `docker buildx imagetools inspect --format '{{ json .Provenance }}'`
 
@@ -57,11 +57,11 @@ multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
 
 semver 규칙 (`uv version --bump` 대상 결정 가이드):
 
-| 변경 성격 | bump | 0.x 동안 |
-|-----------|------|----------|
-| 새 기능 (`feat`) | MINOR | 0.1 → 0.2 |
-| 버그 수정 (`fix`/`perf`) | PATCH | 0.1.2 → 0.1.3 |
-| 호환성 깨짐 (`feat!`/`BREAKING`) | MAJOR | 0.x 동안은 MINOR로 (1.0 전 자유도) |
+| 변경 성격 | bump | 예 |
+|-----------|------|-----|
+| 새 기능 (`feat`) | MINOR | 1.2 → 1.3 |
+| 버그 수정 (`fix`/`perf`) | PATCH | 1.2.0 → 1.2.1 |
+| 호환성 깨짐 (`feat!`/`BREAKING`) | MAJOR | 1.2.1 → 2.0.0 |
 | 문서·잡무만 (`docs`/`chore`/`ci` 등) | 없음 | 릴리즈 안 함 |
 
 ## 3. 무결성 검증 (배포 게이트)
@@ -69,7 +69,7 @@ semver 규칙 (`uv version --bump` 대상 결정 가이드):
 배포(`deploy.sh`)가 pull 전에 cosign 서명을 검증한다 — 미통과 시 배포 중단. 수동 검증:
 
 ```bash
-cosign verify ghcr.io/z-converter-assessment/assessment-engine:1.2.3 \
+cosign verify ghcr.io/z-converter-assessment/assessment-engine:1.2.1 \
   --certificate-identity-regexp='^https://github.com/z-converter-assessment/assessment-engine/.github/workflows/release.yml@refs/(heads/main|tags/v)' \
   --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
 ```

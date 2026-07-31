@@ -71,7 +71,7 @@ printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
 printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
 chmod 644 secrets/*
 # ENGINE_IMAGE 로 배포 버전 핀 (미설정 시 base 기본 = __ENGINE_VERSION__ placeholder, 정확 버전 명시 권장):
-echo 'ENGINE_IMAGE=ghcr.io/z-converter-assessment/assessment-engine:0.1.0' >> .env
+echo 'ENGINE_IMAGE=ghcr.io/z-converter-assessment/assessment-engine:1.2.1' >> .env
 docker compose up -d              # base+secrets pull-and-run. web http://localhost:8000
 ```
 
