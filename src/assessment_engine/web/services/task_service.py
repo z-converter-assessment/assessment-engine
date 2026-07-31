@@ -29,7 +29,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
-from assessment_engine.contract import CONTRACT_VERSION
+from assessment_engine.contract import AGENT_CONTRACT_VERSION
 from assessment_engine.db.dtos.inbound import TaskCreate
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
@@ -375,9 +375,9 @@ class TaskService:
         download_url = f"http://{zdm_host}{package_path}"
         payload = {
             "message_type": "task.install",
-            # 통일 계약 버전(engine 레포 기준, contract.CONTRACT_VERSION). 특권 실행 경로라 에이전트가 실행 전
-            # major 게이트 — 모르는 major/부재 시 다운로드/실행 전 거부(unsupported_contract_version).
-            "schema_version": CONTRACT_VERSION,
+            # 특권 실행 경로라 에이전트가 실행 전 major 게이트 — 모르는 major/부재 시 다운로드·실행 전
+            # 거부(unsupported_contract_version).
+            "schema_version": AGENT_CONTRACT_VERSION,
             "task_id": task_id,
             "agent_id": agent_id,
             "issued_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),

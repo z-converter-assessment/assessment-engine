@@ -11,14 +11,17 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from assessment_engine.contract import AGENT_CONTRACT_VERSION
+
+_CONTRACT_MAJOR = AGENT_CONTRACT_VERSION.split(".", 1)[0]
+
 
 class MessageBase(BaseModel):
     # 계약 진화 (#B) — extra=ignore 로 agent 신규 필드 통과·무시. 자식 상속.
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
-    # 통일 계약 버전(engine 레포 기준, contract.CONTRACT_VERSION). 형식 major.minor, 게이트는 major. 현재 "1.0".
-    # wire/assessment/export/task.install 4계약 공통 단일 값 — 에이전트도 "1.0" emit.
-    schema_version: Literal["1.0"]
+    # 에이전트 계약 버전(contract.AGENT_CONTRACT_VERSION). 형식 major.minor.
+    schema_version: str = Field(pattern=r"^\d+\.\d+$")
     # agent_id — 호스트 식별 단일 키(불변 UUID). DB UNIQUE·MQ 라우팅. task.result 한정 nullable(task_id 매칭).
     agent_id: UUID
     message_id: UUID
@@ -32,6 +35,14 @@ class MessageBase(BaseModel):
     # agent_started_at — 발행 프로세스 기동 시각. task.result 만 항상 null.
     agent_started_at: datetime | None = None
     os_family: Literal["linux", "windows"]
+
+    @field_validator("schema_version")
+    @classmethod
+    def _gate_major(cls, v: str) -> str:
+        # minor 는 additive 변경 추적용이라 수신을 막지 않는다 — 규약은 contracts/agent-data.md.
+        if v.split(".", 1)[0] != _CONTRACT_MAJOR:
+            raise ValueError(f"schema_version major mismatch: {v} (engine speaks {_CONTRACT_MAJOR}.x)")
+        return v
 
     @field_validator("composite_id", mode="before")
     @classmethod

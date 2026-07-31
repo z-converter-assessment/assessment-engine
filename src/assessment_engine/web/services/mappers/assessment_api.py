@@ -11,7 +11,7 @@ reproduction 은 인벤토리(os 서술자·boot·nonblock_mounts 컬럼 + block
 from __future__ import annotations
 
 from assessment_engine import recommendation
-from assessment_engine.contract import CONTRACT_VERSION
+from assessment_engine.contract import API_CONTRACT_VERSION
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     build_host_confidence_notes,
@@ -310,7 +310,7 @@ def build_assessment_envelope(
     """
     servers = result["servers"]
     return {
-        "contract_version": CONTRACT_VERSION,
+        "contract_version": API_CONTRACT_VERSION,
         "generated_at": generated_at,
         "window": {
             "days": window_days,
