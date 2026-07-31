@@ -27,9 +27,9 @@ curl -fsSL https://raw.githubusercontent.com/z-converter-assessment/assessment-e
 sudo bash bootstrap.sh
 ```
 
-선택 env: `DEPLOY_DIR`(기본 `/opt/assessment-engine`), `COSIGN_VERSION`(기본 latest), `ENV_TEMPLATE_URL`·`DEPLOY_SCRIPT_URL`·`SECRETS_COMPOSE_URL`(기본 raw main).
+선택 env: `DEPLOY_DIR`(기본 `/opt/assessment-engine`), `COSIGN_VERSION`(기본 latest), `ENV_TEMPLATE_URL`·`DEPLOY_SCRIPT_URL`·`PROD_COMPOSE_URL`(기본 raw main).
 
-`bootstrap.sh` 가 `$DEPLOY_DIR/secrets/*` 를 만든다 — `docker-compose.secrets.yml` 의 `secrets:` 항목을 읽어
+`bootstrap.sh` 가 `$DEPLOY_DIR/secrets/*` 를 만든다 — `docker-compose.prod.yml` 의 `secrets:` 항목을 읽어
 없는 파일만 강 random 으로 채우고 권한 644 를 건다(디렉토리는 0700 root 소유, 근거는 `docs/reference/contracts/env.md`).
 재실행해도 기존 값은 보존되므로 `deploy.sh` 를 갱신하려고 다시 돌려도 안전하다.
 
@@ -67,7 +67,7 @@ sudo $DEPLOY_DIR/deploy.sh vX.Y.Z
 ```bash
 cp .env.example .env               # COMPOSE_FILE 포함(base+secrets 자동 머지) · 평문 비번 없음
 mkdir -p secrets
-printf '%s' "$(openssl rand -base64 32)" > secrets/<항목명>   # 목록: docker-compose.secrets.yml 의 secrets:
+printf '%s' "$(openssl rand -base64 32)" > secrets/<항목명>   # 목록: docker-compose.prod.yml 의 secrets:
 chmod 644 secrets/*
 # ENGINE_IMAGE 로 배포 버전 핀 (미설정 시 base 기본 = __ENGINE_VERSION__ placeholder, 정확 버전 명시 권장):
 echo 'ENGINE_IMAGE=ghcr.io/z-converter-assessment/assessment-engine:1.2.1' >> .env

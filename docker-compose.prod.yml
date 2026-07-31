@@ -1,0 +1,57 @@
+# prod overlay — base 에 얹어 쓴다. 단독으로는 유효한 compose 파일이 아니다
+# (image 를 base 가 갖고 있어, 이 파일만 검증하는 도구는 "image 도 build 도 없다" 고 지적한다).
+#
+# .env.example 의 COMPOSE_FILE 이 base 와 함께 지정하므로 배포 VM 은 `docker compose up -d` 한 줄이면 된다.
+# 그 변수 없이 쓰려면 -f 로 둘을 직접 준다.
+#
+# 하는 일은 비밀번호 주입 채널을 파일로 바꾸는 것 하나다(ADR 0046). env 로 넣으면 docker inspect·
+# compose config·/proc/environ 에 그대로 드러난다. 호스트 디스크의 평문은 남으므로 디렉토리 권한과
+# 디스크 암호화는 운영자 책임이다. 파일 생성·권한은 bootstrap.sh 가 하고 근거는 secrets/README.md 에 있다.
+#
+# 파일명이 pydantic 필드명과 같아야 app 의 secrets_dir 가 자동으로 매핑한다.
+# postgres·rabbitmq 는 base 에 비번 설정이 없으므로(dev override 가 env 로 채운다) 여기서 파일 채널만 준다.
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  rabbitmq_password:
+    file: ./secrets/rabbitmq_password
+
+services:
+  web:
+    secrets:
+      - postgres_password
+      - rabbitmq_password
+
+  consumer:
+    secrets:
+      - postgres_password
+      - rabbitmq_password
+
+  # 전용 백그라운드 워커 — DB job-claim 만(broker 미사용) 이라 postgres_password 만.
+  worker:
+    secrets:
+      - postgres_password
+
+  migrate:
+    secrets:
+      - postgres_password
+
+  postgres:
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+
+  rabbitmq:
+    # rabbitmq:3.13 은 RABBITMQ_DEFAULT_PASS_FILE 을 제거해서 wrapper 로 파일을 읽어 넣는다.
+    # DEFAULT_PASS 는 첫 부팅에만 유효하다. USER 는 식별자라 base 가 그대로 준다.
+    # 잔여 한계 — wrapper 의 export 가 컨테이너 내부 프로세스 env(/proc/PID/environ, 컨테이너 root 한정)에
+    # 잠시 노출된다. docker inspect 의 정적 Config.Env 에는 안 뜬다. 완전 격리는 rabbitmq.conf 의 hashed
+    # load_definitions 가 필요한데 과복잡이라 쓰지 않는다.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - export RABBITMQ_DEFAULT_PASS="$(cat /run/secrets/rabbitmq_password)"; exec docker-entrypoint.sh rabbitmq-server
+    secrets:
+      - rabbitmq_password

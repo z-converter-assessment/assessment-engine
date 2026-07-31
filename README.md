@@ -78,7 +78,7 @@
 | `Dockerfile` | 엔진 이미지 (web·consumer·worker·migrate 공용) | 빌드 컨텍스트가 루트 |
 | `docker-compose.yml` | prod-safe base | compose 가 루트에서 자동 인식 |
 | `docker-compose.override.yml` | dev 전용 (로컬 빌드·bind mount·핫리로드) | base 와 자동 머지 |
-| `docker-compose.secrets.yml` | prod file-secret overlay | 위와 같음 |
+| `docker-compose.prod.yml` | prod file-secret overlay | 위와 같음 |
 | `.env.example` · `.env.dev.example` | 배포·dev 환경변수 템플릿 | `cp` 해서 `.env` 로 쓰는 진입점 |
 | `bootstrap.sh` | 배포 VM 1회성 구성 | raw URL 로 받는 파일이라 경로가 운영 절차에 고정 |
 | `deploy.sh` | 엔진 rollout | 위와 같음 |

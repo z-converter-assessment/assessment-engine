@@ -1,11 +1,11 @@
 # secrets/ — prod file-secret 채널 (ADR 0046)
 
-`docker-compose.secrets.yml` overlay 가 본 디렉토리의 파일을 컨테이너 `/run/secrets/*` 로 마운트한다.
+`docker-compose.prod.yml` overlay 가 본 디렉토리의 파일을 컨테이너 `/run/secrets/*` 로 마운트한다.
 prod 에서 비밀번호를 env 가 아닌 파일로 주입하기 위한 채널 (env 노출 회피).
 
 ## 배치
 
-배포 VM 에서는 `bootstrap.sh` 가 만든다. `docker-compose.secrets.yml` 의 `secrets:` 항목을 읽어 없는
+배포 VM 에서는 `bootstrap.sh` 가 만든다. `docker-compose.prod.yml` 의 `secrets:` 항목을 읽어 없는
 파일만 강 random 으로 채우고 권한을 맞추므로, 다시 돌려도 기존 값은 보존된다.
 
 직접 만들 때(소스 트리 수동 기동 등)는 이렇게 한다. 파일명은 overlay 의 secret 이름과 정확히 일치해야
@@ -26,7 +26,7 @@ Swarm과 달리 호스트 파일 권한을 컨테이너 안에 그대로 반영)
 
 ## 기동
 
-`.env.example`(= prod `.env`)에 이미 `COMPOSE_FILE=docker-compose.yml:docker-compose.secrets.yml` 이
+`.env.example`(= prod `.env`)에 이미 `COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml` 이
 박혀 있어 base+secrets 가 자동 머지된다 — 위 secret 파일만 두면 한 줄로 기동:
 
 ```bash

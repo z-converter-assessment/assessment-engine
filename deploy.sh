@@ -45,7 +45,7 @@ cosign verify "$IMAGE" \
 # 이미지와 같은 태그의 compose 를 받아 토폴로지 버전을 맞춘다.
 log "compose fetch ($VERSION)"
 curl -fsSL "${RAW_BASE}/${VERSION}/docker-compose.yml" -o docker-compose.yml
-curl -fsSL "${RAW_BASE}/${VERSION}/docker-compose.secrets.yml" -o docker-compose.secrets.yml
+curl -fsSL "${RAW_BASE}/${VERSION}/docker-compose.prod.yml" -o docker-compose.prod.yml
 
 # 새 핀을 쓰기 전에 현재 핀을 남긴다 — 실패했을 때 되돌아갈 곳이 필요하다.
 CURRENT="$(grep -E '^ENGINE_IMAGE=' .env | tail -1 | cut -d= -f2- || true)"

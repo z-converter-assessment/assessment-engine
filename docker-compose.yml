@@ -1,8 +1,9 @@
-# prod-safe base — 빌드 키가 없고 GHCR 이미지를 pull 해서 그대로 띄운다. 여기에 overlay 를 얹어 환경을 만든다.
+# 공통 정의 — 환경 색을 담지 않는다. dev 는 docker-compose.override.yml, prod 는 docker-compose.prod.yml 이
+# 각자 채운다. 비밀번호가 여기 없는 것도 그래서다(dev 는 env 평문, prod 는 file-secret).
 #
-# 어느 overlay 가 붙는지는 명령이 아니라 .env 의 COMPOSE_FILE(compose 예약 변수)이 정한다.
-#   - prod: .env.example 이 COMPOSE_FILE 로 base + secrets 를 지정 — override 가 섞이지 않는다.
-#   - dev : .env.dev.example 에 그 변수가 없어 compose 기본 규칙이 base + override 를 합친다.
+# 어느 파일이 얹히는지는 명령이 아니라 .env 가 정한다.
+#   - dev : compose 가 파일명 규칙으로 override.yml 을 자동으로 합친다.
+#   - prod: .env.example 의 COMPOSE_FILE(compose 예약 변수)이 base + prod.yml 을 지정 — override 가 섞이지 않는다.
 #
 # 이미지 기본값의 __ENGINE_VERSION__ 은 치환되지 않는 placeholder 다 — 배포 버전은 .env 의 ENGINE_IMAGE 가
 # 정하고 deploy.sh 가 그 줄을 갱신한다.
@@ -13,15 +14,11 @@ x-app-base: &app-base
   image: ${ENGINE_IMAGE:-ghcr.io/z-converter-assessment/assessment-engine:__ENGINE_VERSION__}
   restart: unless-stopped
   env_file: ${ENV_FILE:-.env}
-  environment: &app-env
-    APP_ENV: ${APP_ENV:-prod}
+  # 접속 호스트는 compose 서비스명 고정 — 나머지 앱 설정은 env_file 이 준다.
+  environment:
     POSTGRES_HOST: postgres
     REDIS_HOST: redis
     RABBITMQ_HOST: rabbitmq
-    # secret — 호스트 OS env 있으면 우선(override) > compose 가 읽는 .env > changeme(미설정 = prod 거부).
-    # env_file 만으론 호스트 OS env override 가 안 돼(컨테이너에 .env 값 고정) 보간으로 명시. DB 컨테이너와 동일 소스라 항상 일치.
-    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-    RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-changeme}
   depends_on:
     postgres:
       condition: service_healthy
@@ -40,7 +37,6 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-assessment}
       POSTGRES_USER: ${POSTGRES_USER:-assessment}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     ports:
       # 127.0.0.1 바인딩 — VM-로컬 ops 접근만(psql). 고객사 네트워크 미노출. 앱 컨테이너는 docker 네트워크로 접근.
       - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
@@ -63,7 +59,6 @@ services:
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-assessment}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-assessment}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
     ports:
       # 5672 는 외부 호스트의 agent 가 broker 로 메트릭·결과를 발행하는 통로 — 노출 필수(0.0.0.0).
       - "${RABBITMQ_PORT:-5672}:5672"
@@ -104,7 +99,6 @@ services:
     command: ["alembic", "upgrade", "head"]
     env_file: ${ENV_FILE:-.env}
     environment:
-      APP_ENV: ${APP_ENV:-prod}
       POSTGRES_HOST: postgres
     depends_on:
       postgres:
@@ -114,10 +108,6 @@ services:
   web:
     <<: *app-base
     command: ["assessment_engine.web"]
-    environment:
-      <<: *app-env
-      # prod 기본 false (bind mount 없는 이미지 배포에선 auto-reload 무의미). dev 는 override.yml 이 true.
-      WEB_RELOAD: ${WEB_RELOAD:-false}
     ports:
       - "${WEB_PORT:-8000}:8000"
     healthcheck:

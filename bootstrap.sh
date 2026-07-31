@@ -15,7 +15,7 @@ DEPLOY_DIR="${DEPLOY_DIR:-/opt/assessment-engine}"
 RAW_MAIN="https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main"
 ENV_TEMPLATE_URL="${ENV_TEMPLATE_URL:-${RAW_MAIN}/.env.example}"
 DEPLOY_SCRIPT_URL="${DEPLOY_SCRIPT_URL:-${RAW_MAIN}/deploy.sh}"
-SECRETS_COMPOSE_URL="${SECRETS_COMPOSE_URL:-${RAW_MAIN}/docker-compose.secrets.yml}"
+PROD_COMPOSE_URL="${PROD_COMPOSE_URL:-${RAW_MAIN}/docker-compose.prod.yml}"
 COSIGN_VERSION="${COSIGN_VERSION:-latest}"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
@@ -80,11 +80,11 @@ else
   log ".env 이미 존재 — 보존"
 fi
 
-# 파일 목록은 docker-compose.secrets.yml 의 secrets: 항목이 정하므로 받아서 읽는다. 여기 열거하면
+# 파일 목록은 docker-compose.prod.yml 의 secrets: 항목이 정하므로 받아서 읽는다. 여기 열거하면
 # secret 이 늘 때마다 본 스크립트도 고쳐야 한다.
-SECRET_KEYS="$(curl -fsSL "$SECRETS_COMPOSE_URL" 2>/dev/null |
+SECRET_KEYS="$(curl -fsSL "$PROD_COMPOSE_URL" 2>/dev/null |
   awk '/^secrets:/{inblock=1; next} inblock && /^[^[:space:]]/{inblock=0} inblock && /^  [A-Za-z_][A-Za-z0-9_]*:/{sub(/:.*/,""); gsub(/ /,""); print}')"
-[[ -n "$SECRET_KEYS" ]] || die "secret 목록을 읽지 못했다 — $SECRETS_COMPOSE_URL"
+[[ -n "$SECRET_KEYS" ]] || die "secret 목록을 읽지 못했다 — $PROD_COMPOSE_URL"
 
 # 없는 것만 만든다 — 이미 기동 중인 DB 의 비번을 덮으면 접속이 끊긴다.
 # 권한 644 는 postgres 공식 이미지가 non-root 로 읽어야 하기 때문이고, 호스트 쪽 경계는 secrets/ 0700 이 맡는다.
