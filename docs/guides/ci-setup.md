@@ -8,10 +8,10 @@
 
 | 항목 | 값 | 사유 |
 |------|----------|------|
-| Read and write permissions | 권장(필수 아님) | 각 워크플로가 `permissions:` 블록으로 최소권한 자체 선언 (release.yml `packages: write`·`id-token: write`). 전역 read-only 여도 동작 |
-| Allow GitHub Actions to create and approve pull requests | 불필요 | bot 의 PR 생성 없음 (버전은 tag 단일 진실, bump 커밋 없음). 릴리즈 = 운영자가 main 에 tag push |
+| Read and write permissions | 필수 | 전역 설정이 각 워크플로 `permissions:` 블록의 상한이다. release.yml 이 릴리즈 tag 를 push 하려면 `contents: write` 가 필요하므로 전역 read-only 면 실패한다 |
+| Allow GitHub Actions to create and approve pull requests | 불필요 | bot 의 PR 생성 없음. 릴리즈 = 버전을 올린 커밋의 main 머지 |
 
-릴리즈는 GitHub Actions bot 이 아니라 운영자가 `main` 에 `v*` tag 를 push -> `release.yml` 발사. bot PR 생성 권한 불필요.
+릴리즈는 버전을 올린 커밋이 `main` 에 머지되면 `release.yml` 이 발사되고, 발행 성공 후 워크플로가 `v*` tag 를 남긴다. bot PR 생성 권한은 불필요하다.
 
 ## 2. CodeQL Default Setup (권장)
 
@@ -76,7 +76,7 @@ main PR 분기 강화는 `.claude/skills/pr-create/SKILL.md` "main PR 추가 강
 | Restrict deletions | 활성 | 발행된 release tag 삭제 차단 (불변 보존) |
 | Block force pushes (non-fast-forward) | 활성 | tag 재지정 차단 |
 
-tag 생성(creation)은 제한 안 함 — 운영자가 `main` 머지 후 `git tag v1.2.3 && git push origin v1.2.3` 으로 새 `v*` tag 를 push 하는 게 정상 릴리즈 경로. 이미 발행된 tag 의 삭제·재지정만 차단.
+tag 생성(creation)은 제한 안 함 — `release.yml` 이 릴리즈 성공 후 `v*` tag 를 push 한다. 이미 발행된 tag 의 삭제·재지정만 차단.
 
 ## 5. Repository Settings (권장)
 
@@ -91,7 +91,7 @@ tag 생성(creation)은 제한 안 함 — 운영자가 `main` 머지 후 `git t
 | Allow rebase merging | 비활성 |
 | Automatically delete head branches | 활성 |
 
-merge + squash 병행 — feature·fix 는 squash 로 develop 에 들어가고(PR title이 commit message), `develop` → `main` 은 merge commit 으로 승격해 두 장수 브랜치가 이력을 공유. 버전은 repo 에 없고 `main` 에 push 하는 `v*` tag 가 단일 진실 (hatch-vcs).
+merge + squash 병행 — feature·fix 는 squash 로 develop 에 들어가고(PR title이 commit message), `develop` → `main` 은 merge commit 으로 승격해 두 장수 브랜치가 이력을 공유. 버전은 `pyproject.toml` 의 `version` 단일 진실이며 `v*` tag 는 릴리즈 후 워크플로가 파생 생성한다.
 
 ### 5.2. Dependabot
 
@@ -129,5 +129,4 @@ merge + squash 병행 — feature·fix 는 squash 로 develop 에 들어가고(P
 
 - CI workflow 카탈로그: README "CI 파이프라인" 절
 - release artifact contract: `docs/guides/release.md`
-- release(tag-derived) ceremony 결정 기록: `docs/decisions/adr/` tag-derived versioning
 - 배포(rollout·compose 매체): `docs/guides/deploy.md` (결정 기록은 `docs/decisions/adr/` engine rollout)

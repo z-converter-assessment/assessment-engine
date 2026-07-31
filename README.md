@@ -76,15 +76,15 @@
 | Schema 관리 | Alembic 단일 진실 |
 | 진단 | 규칙 기반 right-sizing (USE Method, `recommendation.py` — web 인라인 계산) |
 | 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
-| 패키징 | uv + hatchling. CI 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
+| 패키징 | uv (빌드 백엔드 `uv_build`). CI 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
 | 정적 자원 | Chart.js · Cytoscape.js (네트워크 토폴로지) — 둘 다 vendored (`static/js/vendor/`, 내부망 offline) · 외부 `.js` + `defer` |
 
 ---
 
 ## CI 파이프라인
 
-- git flow — `feature/*`·`fix/*` → `develop` PR(squash) → `develop` → `main` PR(merge) → `main`에 `v*` tag push → release(이미지 발행) → VM에서 `deploy.sh vX.Y.Z` 실행.
-- 버전은 git tag 단일 진실 (hatch-vcs가 빌드 시 derive) — repo에 버전 미저장, bump 커밋 없음. branch protection + Conventional Commits PR title 강제.
+- git flow — `feature/*`·`fix/*` → `develop` PR(squash) → `develop` → `main` PR(merge) → release(이미지 발행) → VM에서 `deploy.sh vX.Y.Z` 실행.
+- 버전은 `pyproject.toml` 의 `version` 단일 진실 — 릴리즈 절차는 `docs/guides/release.md`. branch protection + Conventional Commits PR title 강제.
 
 | workflow | trigger | 검증·작업 |
 |----------|---------|------|
@@ -92,7 +92,7 @@
 | `ci.yml` | main PR | lint(ruff+hadolint) → test-unit·frontend typecheck·wheel build(병렬) → test-integration |
 | `alembic-check.yml` | main PR | ORM·migrations 라운드트립 정합 |
 | `codeql.yml` | main PR | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
-| `release.yml` | `main`에 tag `v*` push · workflow_dispatch | 멀티아치 엔진 이미지 빌드(버전=tag, hatch-vcs) → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
+| `release.yml` | `main` push · workflow_dispatch | 멀티아치 엔진 이미지 빌드 → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
 
 develop PR·push 는 CI 게이트가 없다 — develop 는 통합 브랜치로 게이트 없이 받고, 검증은 develop→main PR 에서 1회로 통일한다.
 
@@ -102,13 +102,13 @@ CI(코드 quality + 이미지 발행)는 GitHub Actions가 담당한다. 배포(
 
 ## 배포 산출물
 
-semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포 매체는 docker compose 단일.
+릴리즈가 내놓는 산출물. 배포 매체는 docker compose 단일.
 
 | 산출물 | 위치 |
 |--------|------|
-| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/z-converter-assessment/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` (semver tag `v0.1.0` -> 이미지 태그는 `v` 없는 `0.1.0`) |
+| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/z-converter-assessment/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` |
 | cosign 서명 + SBOM (SPDX) + SLSA provenance | 이미지 attestation (별도 파일 아님) — `cosign verify ghcr.io/z-converter-assessment/assessment-engine:0.1.0` 로 검증 |
-| Alembic migrations·`_alembic.ini` | 이미지 동봉 (`hatch.force-include`) — base compose migrate init-container 가 기동 전 자동 실행 |
+| Alembic migrations·`_alembic.ini` | 이미지 동봉 — base compose migrate init-container 가 기동 전 자동 실행 |
 
 ---
 
@@ -172,7 +172,7 @@ Debian/Ubuntu VM(GitHub로 outbound HTTPS 가능)에서 순서대로 진행한�
 
 3. `/opt/assessment-engine/.env` 운영값을 채운다 — `POSTGRES_USER`·`RABBITMQ_USER`(변경 권장)·`ZDM_DEFAULT_IP` 등 환경에 맞게. 비번은 위 secret 파일 채널이라 `.env`에 넣지 않는다.
 
-4. 이미지 발행 — `main`에 `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml`이 이미지를 빌드·서명해 GHCR에 발행한다 (배포할 이미지가 있어야 함).
+4. 이미지 발행 — 버전을 올린 커밋을 `main`에 머지한다. `release.yml`이 이미지를 빌드·서명해 GHCR에 발행하고 태그를 남긴다 (배포할 이미지가 있어야 함).
 
 5. 배포 — VM에서:
    ```bash
@@ -183,7 +183,7 @@ Debian/Ubuntu VM(GitHub로 outbound HTTPS 가능)에서 순서대로 진행한�
 ### 이후 배포
 
 새 버전을 올릴 때 두 단계만 반복한다:
-1. `main`에 새 태그 push → `release.yml`이 이미지 발행.
+1. 버전을 올려 `main`에 머지 → `release.yml`이 이미지 발행.
 2. VM에서 `sudo /opt/assessment-engine/deploy.sh vX.Y.Z`.
 
 되돌리기도 이전 버전으로 `deploy.sh v<이전>` 을 실행하면 된다.

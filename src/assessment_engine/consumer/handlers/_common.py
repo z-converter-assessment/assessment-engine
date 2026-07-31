@@ -11,6 +11,7 @@ from typing import Any
 from uuid import UUID
 
 from loguru import logger
+from pydantic import ValidationError
 from redis.asyncio import Redis
 from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -32,6 +33,11 @@ _DEADLOCK_SQLSTATE = "40P01"  # PostgreSQL deadlock_detected
 _RETRY_MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_BASE_SEC = 2
 
+# 검증 오류 로그에 남길 최대 필드 수 — inventory 는 한 메시지에 수십 건이 나올 수 있다 (F7).
+_VALIDATION_ERR_LIMIT = 5
+# 경로 한 조각의 길이 상한 — 에이전트가 정한 dict 키가 그대로 실린다.
+_VALIDATION_LOC_MAX = 48
+
 
 def _format_db_err(e: DBAPIError) -> str:
     """DB 예외에서 SQL·param·connection string 제외한 진단 메타만 추출 (F8)."""
@@ -44,6 +50,29 @@ def _format_db_err(e: DBAPIError) -> str:
     if sqlstate:
         return f"sa={sa_cls} orig={orig_cls} sqlstate={sqlstate}"
     return f"sa={sa_cls} orig={orig_cls}"
+
+
+def _sanitize_loc_part(part: object) -> str:
+    """경로 한 조각을 로그 안전 문자열로. 인쇄 가능 문자만 남기고 길이를 자른다.
+
+    metric 명·device id 처럼 에이전트가 정한 dict 키가 경로에 실리므로, 개행이 섞이면 로그 줄이 위조된다.
+    """
+    text = "".join(ch for ch in str(part) if ch.isprintable())
+    return text[:_VALIDATION_LOC_MAX] if len(text) <= _VALIDATION_LOC_MAX else text[:_VALIDATION_LOC_MAX] + "~"
+
+
+def _format_validation_err(e: ValidationError, limit: int = _VALIDATION_ERR_LIMIT) -> str:
+    """검증 오류에서 필드 경로와 오류 종류만 추출 (F8).
+
+    `msg` 는 입력값 조각을 싣는 경우가 있어(uuid_parsing 은 실패 문자를 노출) 제외한다. 필드가 많은
+    inventory 는 한 메시지에 오류가 수십 건 나올 수 있어 상위 limit 건만 남긴다 (F7).
+    """
+    errors = e.errors(include_url=False, include_context=False, include_input=False)
+    head = " ".join(
+        ".".join(_sanitize_loc_part(p) for p in it["loc"]) + "=" + it["type"] for it in errors[:limit]
+    )
+    more = f" +{len(errors) - limit}more" if len(errors) > limit else ""
+    return f"count={len(errors)} {head}{more}"
 
 
 def _is_retryable_db_exc(e: DBAPIError) -> bool:

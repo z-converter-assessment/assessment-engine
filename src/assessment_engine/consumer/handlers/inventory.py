@@ -13,6 +13,7 @@ from assessment_engine.cache.redis import safe_delete, safe_set
 from assessment_engine.consumer.handlers._common import (
     _check_idempotent,
     _db_retry,
+    _format_validation_err,
     _log_time_invariants,
 )
 from assessment_engine.consumer.mappers import to_inventory_create
@@ -31,7 +32,7 @@ def make_inventory_handler(
             try:
                 data = InventoryInput.model_validate_json(message.body)
             except ValidationError as e:
-                logger.error("inventory parse error count={}", len(e.errors()))
+                logger.error("inventory parse error {}", _format_validation_err(e))
                 raise
 
             if not await _check_idempotent(redis, data.message_id):

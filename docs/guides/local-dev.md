@@ -2,7 +2,7 @@
 
 정책: CLAUDE.md #A. 본 문서는 docker-compose 운영 단일 진실 — Dockerfile·compose 파일 구조·서비스 카탈로그·healthcheck·기동 순서.
 
-docker-compose는 엔진 그 자체 — web·consumer·postgres·rabbitmq·redis·migrate 6 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·migrate)은 단일 이미지 + command 분기(prod 는 GHCR pull, dev 는 로컬 빌드), 인프라(postgres·rabbitmq·redis)는 공식 이미지.
+docker-compose는 엔진 그 자체 — web·consumer·worker·postgres·rabbitmq·redis·migrate 7 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·worker·migrate)은 단일 이미지 + command 분기(prod 는 GHCR pull, dev 는 로컬 빌드), 인프라(postgres·rabbitmq·redis)는 공식 이미지.
 
 ---
 
@@ -14,7 +14,7 @@ compose 2 파일 — base(prod-safe) + override(dev) 자동 머지:
 docker-compose.yml          — prod-safe BASE. 앱 서비스 `build:` 없음, GHCR 이미지 핀 pull. bind mount 없음.
                               볼륨 env 바인딩(PGDATA_HOST·MQ_DATA_HOST). 릴리즈 첨부 = 빌드 없는 pull-and-run prod compose
 docker-compose.override.yml — dev 전용. 소스 빌드(루트 Dockerfile)·`./src` bind mount·hot reload(watchfiles). `docker compose up` 시 base 에 자동 머지(override 우선). prod/release 미배포
-Dockerfile                  — 엔진 이미지 (web·consumer·migrate 공용, multi-stage wheel install·non-root). base·override·CI/release·systemd·k8s 공용 단일 이미지 (dev-prod parity — dev/prod Dockerfile 분리 안 함)
+Dockerfile                  — 엔진 이미지 (web·consumer·worker·migrate 공용, multi-stage·non-root). base·override·CI/release·systemd·k8s 공용 단일 이미지 (dev-prod parity — dev/prod Dockerfile 분리 안 함)
 env.example                — 배포 템플릿 (릴리즈 첨부, APP_ENV=prod·secret 필수). dev 검증 카탈로그는 루트 env.dev.example
 env.dev.example            — dev 카탈로그 (APP_ENV=dev·weak default 허용·host=compose 서비스명)
 .dockerignore               — wheel build context 제외 경로 (docs/·tests/·.env 등)
@@ -39,30 +39,36 @@ prod 하드닝(APP_ENV=prod·강 secret·외부 secret 채널·HTTPS ingress)은
 ## Dockerfile
 
 ```dockerfile
-FROM python:3.12-slim
-ENV UV_PROJECT_ENVIRONMENT=/opt/venv
+FROM ghcr.io/astral-sh/uv:0.11.16 AS uv          # 버전 고정 지점
+
+FROM python:3.12-slim AS builder
+ENV UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 UV_PROJECT_ENVIRONMENT=/opt/venv
 WORKDIR /app
-RUN pip install uv
+COPY --from=uv /uv /usr/local/bin/uv
 
-# 1단: 의존성만 install (uv.lock 기준, --no-install-project로 src 무관)
-COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-install-project --no-dev
+COPY pyproject.toml uv.lock ./                   # 1단: 의존성만
+RUN uv sync --frozen --no-dev --no-install-project
 
-# 2단: src copy 후 project 자체(editable)만 추가
-COPY . .
-RUN uv sync --frozen --no-dev
+COPY src ./src                                   # 2단: 프로젝트만
+RUN uv sync --frozen --no-dev --no-editable
 
-ENV PATH="/opt/venv/bin:$PATH"
+FROM python:3.12-slim AS runtime
+ENV PYTHONUNBUFFERED=1 PATH="/opt/venv/bin:$PATH"
+COPY --from=builder --chown=app:app /opt/venv /opt/venv
+USER app
+ENTRYPOINT ["python", "-m"]
+CMD ["assessment_engine.web"]
 ```
 
 ### 단일 이미지 + command 분기
 
-web·consumer·migrate 모두 같은 이미지를 쓰고, docker-compose의 `command` 필드로 진입점을 분기한다.
+web·consumer·worker·migrate 모두 같은 이미지를 쓰고, docker-compose의 `command` 필드로 진입점을 분기한다.
 
 | 서비스 | command | 진입점 |
 |--------|---------|--------|
 | web | `python -m assessment_engine.web` | `src/assessment_engine/web/__main__.py` → uvicorn 기동 (override에서 reload) |
 | consumer | `python -m assessment_engine.consumer` | `src/assessment_engine/consumer/__main__.py` → `asyncio.run(consumer.main.main())` |
+| worker | `python -m assessment_engine.worker` | `src/assessment_engine/worker/__main__.py` → 보고서 생성 + install reaper |
 | migrate | `alembic upgrade head` | postgres healthy 후 1회 실행하고 종료 (`restart: "no"`) |
 
 이미지가 1개라 빌드/푸시·패치 운영 비용이 최소화된다. 의존성 패키지(SQLAlchemy·aio-pika·redis·FastAPI 등)도 양쪽이 모두 사용하므로 분리 이득이 적다.
@@ -71,23 +77,25 @@ web·consumer·migrate 모두 같은 이미지를 쓰고, docker-compose의 `com
 
 ```dockerfile
 COPY pyproject.toml uv.lock ./                     # ← 의존성 명세 + lock만 먼저
-RUN uv sync --frozen --no-install-project --no-dev # ← deps 전용 레이어 (cache hit 대상)
-COPY . .                                            # ← 소스 코드
-RUN uv sync --frozen --no-dev                       # ← project(editable)만 추가
+RUN uv sync --frozen --no-dev --no-install-project # ← deps 전용 레이어 (cache hit 대상)
+COPY src ./src                                      # ← 소스 코드
+RUN uv sync --frozen --no-dev --no-editable         # ← project 만 추가
 ```
 
-`pyproject.toml`·`uv.lock`만 먼저 복사 → deps install → `COPY . .` → project install 순서. 소스 코드만 변경 시 1단(deps install) 레이어는 cache hit으로 재실행되지 않는다 (보통 1초 미만).
+`pyproject.toml`·`uv.lock`만 먼저 복사 → deps install → 소스 복사 → project install 순서. 소스 코드만 변경 시 1단(deps install) 레이어는 cache hit으로 재실행되지 않는다 (보통 1초 미만).
 
 `pyproject.toml`·`uv.lock` 둘 중 하나라도 변경 시 deps 재설치(60s+) 발생.
 
 ### `uv sync --frozen` 패턴
 
 - `uv sync`: pyproject.toml + uv.lock을 정합 검사한 후, lockfile에 고정된 트랜지티브 버전 그대로 install. `uv pip install -e .`(pyproject만 봄)와 달리 lockfile 무시 불가능 → reproducible build.
-- `--frozen`: lockfile/pyproject drift 시 build 실패. lockfile 갱신 누락을 빌드 단계에서 catch.
+- `--frozen`: lockfile 을 재해석하지 않고 그대로 쓴다. 빌드 시점이 언제든 같은 버전 집합이 설치된다. drift 자체를 실패로 잡는 것은 `uv lock --check` 이며 `--frozen` 은 검사하지 않는다.
 - `--no-dev`: pyproject `[dependency-groups].dev`(pytest·ruff·testcontainers) 미포함. prod 이미지 슬림화.
 - `--no-install-project`: project 자체는 skip하고 외부 deps만 install (1단 layer cache 분리용).
-- editable install: uv는 hatchling project를 기본 editable로 install. 호스트 마운트(`./:/app`)와 결합해 코드 변경 즉시 반영.
-- `UV_PROJECT_ENVIRONMENT=/opt/venv`: venv를 `/app` 바깥에 둔다. dev override의 `./:/app` bind mount가 `/app/.venv`를 호스트로 마스킹하는 충돌을 회피.
+- `--no-editable`: 소스를 가리키는 링크가 아니라 파일을 복사해 넣는다. 최종 이미지에 소스 트리가 없어도 동작한다. dev 는 호스트 패키지를 venv 안 같은 경로에 bind mount 해 코드 변경을 반영한다.
+- `UV_PROJECT_ENVIRONMENT=/opt/venv`: venv를 `/app` 바깥에 둔다. bind mount가 `/app/.venv`를 호스트로 마스킹하는 충돌을 회피.
+
+베이스 이미지의 python minor 를 올릴 때는 `pyproject.toml` `requires-python`, Dockerfile `FROM`, 그리고 site-packages 경로가 박힌 compose 4줄(base `migrate` 의 `ALEMBIC_CONFIG`, override 의 마운트·watch 경로 3곳)을 함께 고친다.
 
 ### 의존성 추가 워크플로
 
@@ -100,33 +108,34 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 두 파일을 같은 commit에 포함. CLAUDE.md #F9 "신규 의존성" 항목과 일치.
 
-### 멀티스테이지/multi-arch 미사용
+### 멀티스테이지 + multi-arch
 
-- 멀티스테이지 빌드 미적용 — Python 슬림 이미지가 이미 작고 (~150MB), 빌드 도구가 추가로 필요 없음.
-- multi-arch 빌드도 미적용 — 운영 타겟이 Linux/x86_64로 고정.
+- 멀티스테이지 — builder 가 가상환경을 만들고 runtime 은 그것만 복사한다. uv 바이너리와 소스 트리가 최종 이미지에 남지 않는다.
+- multi-arch — 릴리즈는 `linux/amd64` + `linux/arm64` 를 발행한다 (운영자 ARM 서버 직접 호환).
 
 ### CI 빌드 산출물
 
-본 repo CI 산출물 = 서명·SBOM·provenance 된 GHCR 엔진 이미지. Dockerfile 은 dev·prod 공용 단일 이미지(dev-prod parity), docker compose 는 dev(override 핫리로드)·prod(secrets) 배포 매체. 배포는 VM 에서 `deploy.sh` 실행 — 상세는 `docs/guides/{release,deployment}.md`.
+본 repo CI 산출물 = 서명·SBOM·provenance 된 GHCR 엔진 이미지. Dockerfile 은 dev·prod 공용 단일 이미지(dev-prod parity), docker compose 는 dev(override 핫리로드)·prod(secrets) 배포 매체. 배포는 VM 에서 `deploy.sh` 실행 — 상세는 `docs/guides/release.md`·`docs/guides/deploy.md`.
 
 `.github/workflows/ci.yml`의 `build` job — `uv build` + 빌드된 wheel을 fresh venv에 install + import·정적 자원 포함 검증. Docker image 정합은 dev `docker compose build` 로 확인.
 
-`.github/workflows/release.yml` — semver tag(`v*`) push 시 서명·SBOM·provenance 된 멀티아치 엔진 이미지를 GHCR 로 발행. 배포는 VM 에서 `deploy.sh` 실행 — 상세는 `docs/guides/{release,deployment}.md`. 사내 폐쇄망은 `docker save/load` 로 대응.
+`.github/workflows/release.yml` — 서명·SBOM·provenance 된 멀티아치 엔진 이미지를 GHCR 로 발행. 배포는 VM 에서 `deploy.sh` 실행 — 상세는 `docs/guides/release.md`·`docs/guides/deploy.md`. 사내 폐쇄망은 `docker save/load` 로 대응.
 
 ---
 
 ## docker-compose.yml (루트, 단일)
 
-### 서비스 구성 (6개 — web·consumer·migrate·postgres·rabbitmq·redis)
+### 서비스 구성 (7개 — web·consumer·worker·migrate·postgres·rabbitmq·redis)
 
 | 서비스 | 이미지 | 역할 | 적용 환경 |
 |--------|--------|------|-----------|
 | `postgres` | `timescale/timescaledb-ha:pg16` | 메인 DB + TimescaleDB all-in-one | dev / prod |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | 메시지 브로커 (AMQP + 관리 UI) | dev / prod |
 | `redis` | `redis:7-alpine` | 캐시·온라인 TTL·PUB/SUB | dev / prod |
-| `migrate` | GHCR pull (dev: override 로컬 빌드) | `alembic upgrade head` 1회 실행 후 종료. 앱 서비스 2종이 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
+| `migrate` | GHCR pull (dev: override 로컬 빌드) | `alembic upgrade head` 1회 실행 후 종료. 앱 서비스가 `depends_on: service_completed_successfully`로 그 뒤 기동 | dev / prod |
 | `web` | GHCR pull (dev: override 로컬 빌드) | FastAPI SSR + API + StaticFiles | dev / prod |
 | `consumer` | GHCR pull (dev: override 로컬 빌드) | aio-pika 컨슈머 (server.* + task.result 큐) | dev / prod |
+| `worker` | GHCR pull (dev: override 로컬 빌드) | 보고서 생성 + install task reaper | dev / prod |
 
 ### 포트 노출
 
@@ -166,17 +175,14 @@ redis 는 볼륨 없음 — 재시작 시 캐시·온라인 TTL 초기화 (휘�
 
 ### 코드 마운트 (DEV 전용 — docker-compose.override.yml)
 
-bind mount·hot reload 는 override.yml 에만 있다 (base 는 불변 이미지). override 가 앱 패키지를 컨테이너 site-packages 에 덮어 코드 변경을 즉시 반영:
+bind mount·hot reload 는 override.yml 에만 있다 (base 는 불변 이미지). override 가 앱 패키지를 컨테이너 가상환경에 덮어 코드 변경을 즉시 반영:
 
 ```yaml
-# docker-compose.override.yml
-web|consumer:
-  volumes: [./src/assessment_engine:/usr/local/lib/python3.12/site-packages/assessment_engine]
-migrate:
-  volumes: [./migrations:/usr/local/lib/python3.12/site-packages/assessment_engine/migrations]
+# docker-compose.override.yml — web·consumer·worker·migrate 공용
+volumes: [./src/assessment_engine:/opt/venv/lib/python3.12/site-packages/assessment_engine]
 ```
 
-base 의 wheel install 패키지를 host 소스가 덮어 재빌드 없이 코드 변경 반영. 의존성(pyproject) 변경 시에만 `up --build`.
+`migrations/` 가 패키지 안에 있어 이 마운트 하나로 마이그레이션 파일까지 함께 덮인다. 이미지에 설치된 패키지를 host 소스가 덮어 재빌드 없이 코드 변경이 반영되고, 의존성(pyproject) 변경 시에만 `up --build`.
 
 조합 효과:
 - `web`: uvicorn `reload=True`(`WEB_RELOAD=true`, override 주입)가 파일 변경 감지 -> 자동 재기동. 새로고침만으로 변경 확인.
@@ -184,7 +190,7 @@ base 의 wheel install 패키지를 host 소스가 덮어 재빌드 없이 코�
 - `migrate`: host `./migrations` bind 로 새 alembic revision 을 재빌드 없이 인식.
 - 정적 자원(`.js`/`.css`/`.html`): dev 에서 `web/main.py` 미들웨어가 매 요청 `asset_v` 를 재발급(`app.state.dev_assets`, `app_env=="dev"` 일 때만 — APP_ENV 판정은 lifespan 단일 경로 #F4)해 `?v=` URL 이 매번 바뀌고 HTML·`/static/*` 응답에 `Cache-Control: no-store` 부여 — 브라우저 disk cache·304 까지 회피. `.py` 재시작이 없는 정적 변경(ASSET_V 가 프로세스 시작 시각 고정이라 캐시에 묻히던 경로)도 새로고침만으로 반영. prod 는 본 분기 비활성(cdn·long-cache).
 
-prod (base 단독): override 미배포라 위 bind mount·reload 전부 없음 — `Dockerfile` wheel install 결과(불변 이미지)만 사용. `.dockerignore` 가 `.env` 를 이미지에서 제외하고, base 는 코드 마운트가 없어 호스트 `.env` 가 컨테이너에 노출되지 않는다 (dev override bind 는 `./src` 한정이라 루트 `.env` 미포함).
+prod (base 단독): override 미배포라 위 bind mount·reload 전부 없음 — `Dockerfile` 빌드 결과(불변 이미지)만 사용. `.dockerignore` 가 `.env` 를 이미지에서 제외하고, base 는 코드 마운트가 없어 호스트 `.env` 가 컨테이너에 노출되지 않는다 (dev override bind 는 `./src` 한정이라 루트 `.env` 미포함).
 
 ### Redis 인라인 설정
 

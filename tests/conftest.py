@@ -56,7 +56,15 @@ async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncE
     env["POSTGRES_DB"] = "assessment_test"
     env["APP_ENV"] = "dev"  # prod model_validator 우회 (테스트 자격은 약한 default)
     subprocess.run(
-        [sys.executable, "-m", "alembic", "-c", str(_REPO_ROOT / "alembic.ini"), "upgrade", "head"],
+        [
+            sys.executable,
+            "-m",
+            "alembic",
+            "-c",
+            str(_REPO_ROOT / "src" / "assessment_engine" / "_alembic.ini"),
+            "upgrade",
+            "head",
+        ],
         env=env,
         check=True,
         capture_output=True,

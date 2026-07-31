@@ -19,12 +19,12 @@ CI (`ci.yml`·`alembic-check.yml`) 가 `uv sync --frozen` 사용 — `pyproject.
 
 ```toml
 [build-system]
-requires = ["hatchling", "hatch-vcs"]      # hatch-vcs = 버전을 git tag 에서 derive
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.11.16,<0.12.0"]
+build-backend = "uv_build"
 
 [project]
 name = "assessment-engine"
-dynamic = ["version"]   # 버전 미저장 — git tag(v*) 단일 진실. [tool.hatch.version] source="vcs"
+version = "0.1.2"       # 릴리즈 시 `uv version --bump <part>` 가 이 값을 올린다
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136.0",
@@ -40,13 +40,11 @@ dev = [
     # ...
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/assessment_engine"]
-force-include = { "migrations" = "...", "alembic.ini" = "..." }
-
 [tool.pytest.ini_options] # ...
 [tool.ruff] # ...
 ```
+
+빌드 대상 설정은 없다. `uv_build` 가 `src/` 아래 패키지를 자동으로 잡고, `migrations/` 와 `_alembic.ini` 는 패키지 디렉토리 안에 있어 확장자와 무관하게 함께 포장된다.
 
 ### 운영 vs dev 의존성
 

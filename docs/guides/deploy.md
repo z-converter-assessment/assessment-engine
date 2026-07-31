@@ -42,7 +42,7 @@ sudo bash bootstrap.sh
 
 ## 3. rollout (`deploy.sh`)
 
-배포는 VM 에서 사람이 실행한다 — 실행 자체가 배포 게이트(release 성공이 자동 배포로 이어지지 않는다). 배포할 버전의 이미지가 GHCR 에 발행돼 있어야 한다(태그 push -> `release.yml`).
+배포는 VM 에서 사람이 실행한다 — 실행 자체가 배포 게이트(release 성공이 자동 배포로 이어지지 않는다). 배포할 버전의 이미지가 GHCR 에 발행돼 있어야 한다 — 발행 절차는 `docs/guides/release.md`.
 
 ```bash
 sudo $DEPLOY_DIR/deploy.sh vX.Y.Z

@@ -39,6 +39,7 @@ jobs:
 
     env:
       APP_ENV: dev
+      ALEMBIC_CONFIG: src/assessment_engine/_alembic.ini
       POSTGRES_HOST: localhost
       POSTGRES_PORT: '5432'
       POSTGRES_DB: assessment_ci

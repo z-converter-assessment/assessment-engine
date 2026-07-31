@@ -131,8 +131,8 @@ elif docker info >/dev/null 2>&1; then
       sleep 1
     done
     if [ "$ready" = 1 ]; then
-      env APP_ENV=dev POSTGRES_HOST=localhost POSTGRES_PORT="$port" POSTGRES_DB=ci POSTGRES_USER=ci POSTGRES_PASSWORD=ci uv run alembic upgrade head >/dev/null 2>&1
-      if env APP_ENV=dev POSTGRES_HOST=localhost POSTGRES_PORT="$port" POSTGRES_DB=ci POSTGRES_USER=ci POSTGRES_PASSWORD=ci uv run alembic check >/dev/null 2>&1; then
+      env ALEMBIC_CONFIG=src/assessment_engine/_alembic.ini APP_ENV=dev POSTGRES_HOST=localhost POSTGRES_PORT="$port" POSTGRES_DB=ci POSTGRES_USER=ci POSTGRES_PASSWORD=ci uv run alembic upgrade head >/dev/null 2>&1
+      if env ALEMBIC_CONFIG=src/assessment_engine/_alembic.ini APP_ENV=dev POSTGRES_HOST=localhost POSTGRES_PORT="$port" POSTGRES_DB=ci POSTGRES_USER=ci POSTGRES_PASSWORD=ci uv run alembic check >/dev/null 2>&1; then
         ok "alembic upgrade head + check (drift 0)"
       else
         ng "alembic check 실패 — 모델 변경 후 마이그레이션 누락? 'alembic check' 로 상세"

@@ -8,7 +8,7 @@ from loguru import logger
 from pydantic import ValidationError
 from redis.asyncio import Redis
 
-from assessment_engine.consumer.handlers._common import _check_idempotent, _log_time_invariants
+from assessment_engine.consumer.handlers._common import _check_idempotent, _format_validation_err, _log_time_invariants
 from assessment_engine.consumer.schemas import ErrorInput
 
 
@@ -20,7 +20,7 @@ def make_error_handler(
             try:
                 data = ErrorInput.model_validate_json(message.body)
             except ValidationError as e:
-                logger.error("error message parse error count={}", len(e.errors()))
+                logger.error("error message parse error {}", _format_validation_err(e))
                 raise
 
             if not await _check_idempotent(redis, data.message_id):

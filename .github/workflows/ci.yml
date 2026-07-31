@@ -12,7 +12,7 @@ name: ci
 #   develop PR  : lint + test-unit + typecheck (integration·build skip — 경량 게이트)
 #   develop push: lint + test-unit + typecheck + test-integration (merge 후 통합 검증 1회 보충)
 #   main PR     : 전부 (release gate — full 검증)
-#   main push   : ci 미발화 (main PR에서 full 통과 + branch protection이 gate 강제). 릴리즈는 main 에 tag push -> release.yml (ADR 0030)
+#   main push   : ci 미발화 (main PR에서 full 통과 + branch protection이 gate 강제). 릴리즈는 release.yml 이 담당
 
 on:
   # CI 는 main PR 에서만 — develop 는 통합 브랜치라 게이트 없이 받고, 검증은 develop->main PR 에서 1회 full.
@@ -123,7 +123,7 @@ jobs:
     name: wheel build
     runs-on: ubuntu-latest
     needs: [lint]
-    # 패키징 검증은 main PR에서만 — release gate. tag push 시 release.yml 이 이미지 빌드+서명+publish 수행.
+    # 패키징 검증은 main PR에서만 — release gate. 이미지 빌드+서명+publish 는 release.yml 이 수행.
     if: github.base_ref == 'main'
     timeout-minutes: 10
     steps:
@@ -138,8 +138,8 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      # 패키징 검증 — release-image(Dockerfile)가 내부적으로 install 하는 wheel force-include 정합을 머지 전에 잡는다 (ADR 0048).
-      # `uv build`가 sdist + wheel 둘 다 생성. wheel은 hatchling이 pyproject.toml의 packages·force-include 적용.
+      # 패키징 검증 — 정적 자원·migrations 가 패키지에 포함되는지를 머지 전에 잡는다.
+      # `uv build`가 sdist + wheel 둘 다 생성.
       - name: uv build
         run: uv build
 

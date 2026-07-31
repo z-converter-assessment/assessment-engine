@@ -1,6 +1,8 @@
 # ADR 0030 — tag-derived 버전 (hatch-vcs, 버전을 repo 에 저장 안 함)
 
-상태: Accepted — 정정 (2026-06-08): tag derive 경로를 single-source 로 수렴 + stable semver 가드 + 등가성 검증. 정정 (2026-06-13): infra CD dispatch 를 `release: published` 이벤트 워크플로(`notify-infra.yml`)에서 `release.yml` 통합 job 으로 전환 — GITHUB_TOKEN 이벤트 재귀 차단 함정 해소 + single-source fan-out 완성 (하단 두 "정정" 절). tag-derived 원칙 불변.
+상태: Superseded by 0057 — 버전을 `pyproject.toml` 에 두고 tag 를 릴리즈 산물로 전환. 이하는 당시 결정 기록이다.
+
+정정 (2026-06-08): tag derive 경로를 single-source 로 수렴 + stable semver 가드 + 등가성 검증. 정정 (2026-06-13): infra CD dispatch 를 `release: published` 이벤트 워크플로(`notify-infra.yml`)에서 `release.yml` 통합 job 으로 전환 — GITHUB_TOKEN 이벤트 재귀 차단 함정 해소 + single-source fan-out 완성 (하단 두 "정정" 절). tag-derived 원칙 불변.
 
 ## Context
 

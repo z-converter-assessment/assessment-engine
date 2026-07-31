@@ -15,13 +15,22 @@ ORM(`Base.metadata`)과 DB schema의 diff를 `migrations/versions/*.py` revision
 | autogenerate | ORM vs DB schema diff -> revision 파일 자동 생성. `create_hypertable` 등 확장은 수동 보강 의무 |
 | `alembic_version` 테이블 | DB 자동 생성. 현재 revision id 저장 |
 
+패키지 안에 두어 별도 포장 설정 없이 이미지에 동봉된다. `_alembic.ini` 의 `script_location` 이 자기 위치 기준 상대경로라 두 파일이 같은 디렉토리에 있어야 한다.
+
 ```
-migrations/
-├── env.py                ← Base.metadata + asyncpg 비동기 패턴 + web_settings.database_url 주입
-├── script.py.mako        ← 신규 revision 템플릿
-├── versions/             ← 마이그레이션 파일 (revision id 순 자동 생성)
-└── README
-alembic.ini               ← 설정 (sqlalchemy.url은 env.py가 런타임 주입)
+src/assessment_engine/
+├── _alembic.ini          ← 설정 (sqlalchemy.url은 env.py가 런타임 주입)
+└── migrations/
+    ├── env.py            ← Base.metadata + asyncpg 비동기 패턴 + web_settings.database_url 주입
+    ├── script.py.mako    ← 신규 revision 템플릿
+    ├── versions/         ← 마이그레이션 파일 (revision id 순 자동 생성)
+    └── README
+```
+
+호스트에서 직접 실행할 때는 설정 경로를 환경변수로 준다. 컨테이너는 `migrate` 서비스가 `ALEMBIC_CONFIG` 를 이미 갖고 있어 그냥 `alembic <명령>` 으로 쓴다.
+
+```bash
+export ALEMBIC_CONFIG=src/assessment_engine/_alembic.ini
 ```
 
 ## 자동 적용 — migrate 컨테이너
@@ -39,7 +48,7 @@ docker-compose에 `migrate` 서비스가 정의되어 있다. 동작:
 
 ## DB URL 주입
 
-`alembic.ini`의 `sqlalchemy.url`은 비어있음. `migrations/env.py`가 `web_settings.database_url`로 런타임 주입 — `.env` / Docker secrets 등 동일 환경변수 정책 활용. migrate 컨테이너는 `POSTGRES_HOST=postgres` 환경변수 자동 주입.
+`_alembic.ini`의 `sqlalchemy.url`은 비어있음. `migrations/env.py`가 `web_settings.database_url`로 런타임 주입 — `.env` / Docker secrets 등 동일 환경변수 정책 활용. migrate 컨테이너는 `POSTGRES_HOST=postgres` 환경변수 자동 주입.
 
 호스트에서 직접 alembic 실행 시 `POSTGRES_HOST` env 명시 필요 (default `postgres`는 docker-compose 서비스명):
 
@@ -135,18 +144,17 @@ git commit -m "..."
 prod에 큰 변경(데이터 손실 가능 DROP·대량 행 ALTER) 적용 전 — 배포 환경 이미지 컨테이너에서:
 
 ```bash
-# 이미지 컨테이너 안에서 (예시)
-ALEMBIC_INI=$(python -c 'from importlib.resources import files; print(files("assessment_engine") / "_alembic.ini")')
+# migrate 서비스가 ALEMBIC_CONFIG 를 갖고 있어 경로 지정 없이 실행된다.
 
 # history 확인 — 어디까지 가는지
-python -m alembic -c "$ALEMBIC_INI" history
+docker compose run --rm migrate alembic history
 
 # offline SQL 추출 — 실행될 DDL 미리 검토
-python -m alembic -c "$ALEMBIC_INI" upgrade head --sql > /tmp/migration.sql
+docker compose run --rm migrate alembic upgrade head --sql > /tmp/migration.sql
 cat /tmp/migration.sql
 
 # 검토 OK면 적용
-python -m alembic -c "$ALEMBIC_INI" upgrade head
+docker compose run --rm migrate alembic upgrade head
 ```
 
 ## DEV·PROD 동일 책임 매트릭스

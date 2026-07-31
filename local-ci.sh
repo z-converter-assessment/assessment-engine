@@ -71,6 +71,7 @@ for _ in $(seq 1 60); do
   docker exec "$PG" pg_isready -h 127.0.0.1 -U ci >/dev/null 2>&1 && break
   sleep 1
 done
+export ALEMBIC_CONFIG=src/assessment_engine/_alembic.ini
 export APP_ENV=dev POSTGRES_HOST=localhost POSTGRES_PORT=5433 \
   POSTGRES_DB=assessment_ci POSTGRES_USER=ci POSTGRES_PASSWORD=ci
 uv run alembic upgrade head

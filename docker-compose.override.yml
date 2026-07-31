@@ -9,14 +9,12 @@ x-dev-app: &dev-app
   build:
     context: .
     dockerfile: Dockerfile
-    args:
-      # hatch-vcs 버전 주입 — .git 이 build context 제외라 host 가 구한 값 전달.
-      APP_VERSION: ${APP_VERSION:-0.0.0}
   # dev 로컬 빌드 태그 — base 의 GHCR 핀을 덮어 GHCR pull 없이 로컬 이미지 사용.
   image: ${ENGINE_IMAGE:-assessment-engine:local}
-  # host src 를 컨테이너 site-packages 에 bind mount — 코드 수정이 컨테이너 restart 만으로 반영(의존성 변경 시에만 재빌드).
+  # host src 를 컨테이너 가상환경에 bind mount — 코드 수정이 컨테이너 restart 만으로 반영(의존성 변경 시에만 재빌드).
+  # migrations 도 패키지 안에 있어 이 마운트 하나로 함께 덮인다.
   volumes:
-    - ./src/assessment_engine:/usr/local/lib/python3.12/site-packages/assessment_engine
+    - ./src/assessment_engine:/opt/venv/lib/python3.12/site-packages/assessment_engine
 
 services:
   web:
@@ -34,7 +32,7 @@ services:
     # dev hot-reload — bind mount 패키지 .py 변경 시 watchfiles 가 프로세스 재시작 (web uvicorn reload 와 짝).
     # consumer 는 uvicorn 이 아니라 watchfiles 래퍼로 reload (base 의 entrypoint=python -m override).
     entrypoint: ["watchfiles", "--filter", "python"]
-    command: ["python -m assessment_engine.consumer", "/usr/local/lib/python3.12/site-packages/assessment_engine"]
+    command: ["python -m assessment_engine.consumer", "/opt/venv/lib/python3.12/site-packages/assessment_engine"]
 
   worker:
     <<: *dev-app
@@ -42,18 +40,11 @@ services:
       APP_ENV: ${APP_ENV:-dev}
     # dev hot-reload — consumer 와 동일 watchfiles 래퍼(uvicorn 아님).
     entrypoint: ["watchfiles", "--filter", "python"]
-    command: ["python -m assessment_engine.worker", "/usr/local/lib/python3.12/site-packages/assessment_engine"]
+    command: ["python -m assessment_engine.worker", "/opt/venv/lib/python3.12/site-packages/assessment_engine"]
 
-  # 마이그레이션 — base 의 alembic entrypoint·command 유지. dev 는 build + host migrations bind mount 만 더함
+  # 마이그레이션 — base 의 alembic entrypoint·command 유지. dev 는 build + bind mount 만 더한다
   # (새 revision 을 재빌드 없이 인식).
   migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        APP_VERSION: ${APP_VERSION:-0.0.0}
-    image: ${ENGINE_IMAGE:-assessment-engine:local}
+    <<: *dev-app
     environment:
       APP_ENV: ${APP_ENV:-dev}
-    volumes:
-      - ./migrations:/usr/local/lib/python3.12/site-packages/assessment_engine/migrations
