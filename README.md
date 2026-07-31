@@ -109,7 +109,7 @@ CI(코드 quality + 이미지 발행)는 GitHub Actions가 담당한다. 배포(
 dev = base + `docker-compose.override.yml` 핫리로드. 코드 수정이 컨테이너 restart 없이 반영된다.
 
 ```bash
-cp env.dev.example .env
+cp .env.dev.example .env
 docker compose up -d      # web http://localhost:8000
 docker compose down -v    # 종료 (데이터 삭제)
 ```

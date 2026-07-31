@@ -15,18 +15,18 @@ docker-compose.yml          — prod-safe BASE. 앱 서비스 `build:` 없음, G
                               볼륨 env 바인딩(PGDATA_HOST·MQ_DATA_HOST). 배포 시 deploy.sh 가 버전 태그에서 raw fetch
 docker-compose.override.yml — dev 전용. 소스 빌드(루트 Dockerfile)·`./src` bind mount·hot reload(watchfiles). `docker compose up` 시 base 에 자동 머지(override 우선). 배포 시 미사용
 Dockerfile                  — 엔진 이미지 (web·consumer·worker·migrate 공용, multi-stage·non-root). base·override·CI/release·systemd·k8s 공용 단일 이미지 (dev-prod parity — dev/prod Dockerfile 분리 안 함)
-env.example                — 배포 템플릿 (APP_ENV=prod·secret 필수). dev 검증 카탈로그는 루트 env.dev.example
-env.dev.example            — dev 카탈로그 (APP_ENV=dev·weak default 허용·host=compose 서비스명)
+.env.example                — 배포 템플릿 (APP_ENV=prod·secret 필수). dev 검증 카탈로그는 루트 .env.dev.example
+.env.dev.example            — dev 카탈로그 (APP_ENV=dev·weak default 허용·host=compose 서비스명)
 .dockerignore               — 이미지 빌드 컨텍스트 제외 경로 (docs/·tests/·.env·.git 등)
 ```
 
 compose 가 루트라 별도 `-f` 없이 base+override 자동 인식. dev 는 dev 카탈로그로, 배포는 base 단독:
 
 ```bash
-# dev (소스 트리) — env.dev.example 카탈로그로 base+override 머지(로컬 빌드·핫리로드)
-cp env.dev.example .env && docker compose up -d   # web http://localhost:8000. 코드 수정 반영은 `up --build -d`
-# 배포 — 릴리즈 base + 루트 env.example(배포 템플릿) 채워서 base 단독
-cp env.example .env && docker compose -f docker-compose.yml up -d   # GHCR 이미지 pull (override 제외)
+# dev (소스 트리) — .env.dev.example 카탈로그로 base+override 머지(로컬 빌드·핫리로드)
+cp .env.dev.example .env && docker compose up -d   # web http://localhost:8000. 코드 수정 반영은 `up --build -d`
+# 배포 — 릴리즈 base + 루트 .env.example(배포 템플릿) 채워서 base 단독
+cp .env.example .env && docker compose -f docker-compose.yml up -d   # GHCR 이미지 pull (override 제외)
 docker compose down -v
 ```
 

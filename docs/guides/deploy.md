@@ -31,7 +31,7 @@ sudo bash bootstrap.sh
 
 부트스트랩 후 2 가지를 채운다:
 
-1. `$DEPLOY_DIR/.env` — bootstrap 가 raw 에서 받은 `env.example` 템플릿. `POSTGRES_USER`·`RABBITMQ_USER`·`ZDM_DEFAULT_IP` 등 운영값 (secret 은 제외 — file 채널).
+1. `$DEPLOY_DIR/.env` — bootstrap 가 raw 에서 받은 `.env.example` 템플릿. `POSTGRES_USER`·`RABBITMQ_USER`·`ZDM_DEFAULT_IP` 등 운영값 (secret 은 제외 — file 채널).
 2. `$DEPLOY_DIR/secrets/*` — 강 random 비번. 파일 목록은 `docker-compose.secrets.yml` 의 `secrets:` 항목이
    정하며 `bootstrap.sh` 가 그 목록을 읽어 생성 명령을 출력한다. 권한은 644, 디렉토리는 0700 root 소유 — 근거는 `docs/reference/contracts/env.md`.
    ```bash
@@ -67,7 +67,7 @@ sudo $DEPLOY_DIR/deploy.sh vX.Y.Z
 평가(PoC)·간단 확인 시. repo checkout 기준으로 compose 직접 기동:
 
 ```bash
-cp env.example .env               # COMPOSE_FILE 포함(base+secrets 자동 머지) · 평문 비번 없음
+cp .env.example .env               # COMPOSE_FILE 포함(base+secrets 자동 머지) · 평문 비번 없음
 mkdir -p secrets
 printf '%s' "$(openssl rand -base64 32)" > secrets/<항목명>   # 목록: docker-compose.secrets.yml 의 secrets:
 chmod 644 secrets/*

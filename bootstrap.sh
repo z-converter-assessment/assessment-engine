@@ -13,7 +13,7 @@ set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/assessment-engine}"
 RAW_MAIN="https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main"
-ENV_TEMPLATE_URL="${ENV_TEMPLATE_URL:-${RAW_MAIN}/env.example}"
+ENV_TEMPLATE_URL="${ENV_TEMPLATE_URL:-${RAW_MAIN}/.env.example}"
 DEPLOY_SCRIPT_URL="${DEPLOY_SCRIPT_URL:-${RAW_MAIN}/deploy.sh}"
 SECRETS_COMPOSE_URL="${SECRETS_COMPOSE_URL:-${RAW_MAIN}/docker-compose.secrets.yml}"
 COSIGN_VERSION="${COSIGN_VERSION:-latest}"
@@ -67,13 +67,13 @@ install -d -m 0755 "$DEPLOY_DIR"
 install -d -m 0700 "$DEPLOY_DIR/secrets"
 
 # .env 는 최초 1회만 생성 (이후 deploy.sh 가 ENGINE_IMAGE 만 갱신 — 덮어쓰지 않음).
-# env.example 템플릿을 raw 에서 받아 배치 (public repo — 토큰 불요). 운영자가 값 채움.
+# .env.example 템플릿을 raw 에서 받아 배치 (public repo — 토큰 불요). 운영자가 값 채움.
 if [[ ! -f "$DEPLOY_DIR/.env" ]]; then
   if curl -fsSL "$ENV_TEMPLATE_URL" -o "$DEPLOY_DIR/.env"; then
     chmod 0640 "$DEPLOY_DIR/.env"
-    log ".env 생성 (env.example 템플릿) — POSTGRES_USER 등 운영값을 채울 것"
+    log ".env 생성 (.env.example 템플릿) — POSTGRES_USER 등 운영값을 채울 것"
   else
-    log "env.example 다운로드 실패 — $DEPLOY_DIR/.env 를 수동 배치할 것"
+    log ".env.example 다운로드 실패 — $DEPLOY_DIR/.env 를 수동 배치할 것"
   fi
 else
   log ".env 이미 존재 — 보존"

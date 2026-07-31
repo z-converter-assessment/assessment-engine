@@ -29,14 +29,14 @@ Swarm과 달리 호스트 파일 권한을 컨테이너 안에 그대로 반영)
 
 ## 기동
 
-`env.example`(= prod `.env`)에 이미 `COMPOSE_FILE=docker-compose.yml:docker-compose.secrets.yml` 이
+`.env.example`(= prod `.env`)에 이미 `COMPOSE_FILE=docker-compose.yml:docker-compose.secrets.yml` 이
 박혀 있어 base+secrets 가 자동 머지된다 — 위 secret 파일만 두면 한 줄로 기동:
 
 ```bash
 docker compose up -d
 ```
 
-`env.example` 에는 평문 password 가 없다(file-channel 단일). OS 환경변수에도 `*_PASSWORD` 를 두지
+`.env.example` 에는 평문 password 가 없다(file-channel 단일). OS 환경변수에도 `*_PASSWORD` 를 두지
 않는다 — 남아 있으면 컨테이너에 평문 비번이 주입돼 env 노출 회피가 무의미해진다(postgres 는
 `POSTGRES_PASSWORD` 와 `_FILE` 동시 set 시 에러).
 

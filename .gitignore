@@ -1,6 +1,9 @@
 # 시크릿
 .env
 .env.*
+# 템플릿은 커밋한다 — 위 패턴에 걸리므로 되돌린다.
+!.env.example
+!.env.dev.example
 *.pem
 *.key
 secrets/*
