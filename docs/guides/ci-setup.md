@@ -8,7 +8,7 @@ CI workflow·릴리즈·브랜치 정책을 작동시키려면 GitHub 측에서 
 
 | 항목 | 값 | 사유 |
 |------|----|------|
-| Read and write permissions | 필수 | 전역 설정이 각 워크플로 `permissions:` 블록의 상한이다. `release.yml` 이 릴리즈 tag 를 push 하려면 `contents: write` 가 필요하므로 전역 read-only 면 실패한다 |
+| Read repository contents and packages permissions | 기본값 유지 | 워크플로가 `permissions:` 로 명시한 권한은 이 기본값과 무관하게 부여된다. `release.yml` 은 job 스코프로 `contents: write` 를 선언하므로 전역을 넓힐 필요가 없다 |
 | Allow GitHub Actions to create and approve pull requests | 불필요 | bot 의 PR 생성 없음 |
 
 ## 2. Code scanning
@@ -123,7 +123,7 @@ version updates 를 끄는 이유는 uv.lock 자동 갱신을 지원하지 않�
 
 ## 6. 활성 체크리스트
 
-- [ ] Actions -> Workflow permissions -> Read and write
+- [ ] Actions -> Workflow permissions -> Read repository contents and packages (기본값)
 - [ ] Code scanning -> Default setup 켜지 않음 (Advanced 유지)
 - [ ] Dependabot alerts + security updates 활성 (version updates 비활성)
 - [ ] Ruleset: main (3.1)

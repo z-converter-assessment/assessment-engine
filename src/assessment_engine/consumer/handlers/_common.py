@@ -58,7 +58,7 @@ def _sanitize_loc_part(part: object) -> str:
     metric 명·device id 처럼 에이전트가 정한 dict 키가 경로에 실리므로, 개행이 섞이면 로그 줄이 위조된다.
     """
     text = "".join(ch for ch in str(part) if ch.isprintable())
-    return text[:_VALIDATION_LOC_MAX] if len(text) <= _VALIDATION_LOC_MAX else text[:_VALIDATION_LOC_MAX] + "~"
+    return text if len(text) <= _VALIDATION_LOC_MAX else text[:_VALIDATION_LOC_MAX] + "~"
 
 
 def _format_validation_err(e: ValidationError, limit: int = _VALIDATION_ERR_LIMIT) -> str:

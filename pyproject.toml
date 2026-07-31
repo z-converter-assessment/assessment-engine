@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "assessment-engine"
 # 릴리스 시 `uv version --bump <part>` 로 올린다.
-version = "0.1.2"
+version = "1.2.1"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136.0",

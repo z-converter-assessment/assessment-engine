@@ -70,7 +70,7 @@ semver 규칙 (`uv version --bump` 대상 결정 가이드):
 
 ```bash
 cosign verify ghcr.io/z-converter-assessment/assessment-engine:1.2.3 \
-  --certificate-identity-regexp='^https://github.com/z-converter-assessment/assessment-engine/.github/workflows/release.yml@refs/heads/main' \
+  --certificate-identity-regexp='^https://github.com/z-converter-assessment/assessment-engine/.github/workflows/release.yml@refs/(heads/main|tags/v)' \
   --certificate-oidc-issuer='https://token.actions.githubusercontent.com'
 ```
 

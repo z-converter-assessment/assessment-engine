@@ -1,5 +1,8 @@
 # 시크릿
 .env
+.env.*
+*.pem
+*.key
 secrets/*
 !secrets/.gitkeep
 !secrets/README.md
@@ -15,8 +18,13 @@ __pycache__/
 .venv/
 *.egg-info/
 
-# macOS
+# OS
 .DS_Store
+Thumbs.db
+
+# merge 잔여물
+*.orig
+*.rej
 
 # 테스트 / 빌드 캐시
 .pytest_cache/

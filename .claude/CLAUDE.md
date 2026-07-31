@@ -295,13 +295,13 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/guides/con
 - `src/assessment_engine/web/settings.py` — `web_settings` (WebSettings) + `diagnostic_settings` (DiagnosticSettings, web 이 task.install 발행 위해 broker 사용)
 - `src/assessment_engine/consumer/settings.py` — `consumer_settings` (ConsumerSettings)
 - `src/assessment_engine/worker/settings.py` — `worker_settings` (WorkerSettings, 전용 백그라운드 워커 — 보고서 생성·install reaper)
-- `src/assessment_engine/db/session.py`·`cache/redis.py` + repo root `migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
+- `src/assessment_engine/db/session.py`·`cache/redis.py`·`migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
 
 `src/assessment_engine/config.py`는 class 정의만 — module-level instance 0 (multi-node 분리 정합, ADR/문서 패턴 정합).
 
 금지:
 - Service/Handler 안 구체 구현체 import.
-- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·worker/settings·db/session·cache/redis·migrations/env)만 허용.
+- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·worker/settings·db/session·cache/redis·migrations/env)만 허용 — 전부 `src/assessment_engine/` 아래다.
 - `assessment_engine.config`에서 직접 `web_settings`·`consumer_settings`·`diagnostic_settings` import — class만 export.
 - `APP_ENV` 환경 분기를 `config.py` model_validator · entry lifespan 외 위치에 추가.
 

@@ -5,7 +5,7 @@ FROM ghcr.io/astral-sh/uv:0.11.16 AS uv
 FROM python:3.12-slim AS builder
 
 # uv 는 hardlink 로 캐시를 연결하려다 레이어 경계에서 실패한다.
-# 가상환경은 /app 밖에 둔다 — dev bind mount 가 /app/.venv 를 가리고, 안의 shebang 이 절대경로라 runtime 과 경로가 같아야 한다.
+# 가상환경 안 스크립트에 절대경로 shebang 이 박혀 builder 와 runtime 의 경로가 같아야 한다.
 ENV UV_LINK_MODE=copy \
     UV_COMPILE_BYTECODE=1 \
     UV_PROJECT_ENVIRONMENT=/opt/venv
@@ -34,13 +34,13 @@ WORKDIR /app
 RUN groupadd --system --gid 1000 app && \
     useradd  --system --uid 1000 --gid app --no-create-home --shell /usr/sbin/nologin app
 
-COPY --from=builder --chown=app:app /opt/venv /opt/venv
+COPY --from=builder /opt/venv /opt/venv
 
 USER app
 
 LABEL org.opencontainers.image.title="ZConverter Cloud Assessment Engine" \
       org.opencontainers.image.description="B2B 서버 인벤토리·메트릭 수집·진단 엔진 — web·consumer·worker·migrate 단일 이미지" \
-      org.opencontainers.image.source="https://github.com/zconverter/assessment-engine" \
+      org.opencontainers.image.source="https://github.com/z-converter-assessment/assessment-engine" \
       org.opencontainers.image.licenses="Proprietary" \
       org.opencontainers.image.vendor="ZConverter"
 

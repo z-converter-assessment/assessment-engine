@@ -37,7 +37,7 @@ cd "$DEPLOY_DIR"
 # 공급망 게이트 — 이미지가 이 repo release.yml(GitHub OIDC)에서 서명됐는지 검증. 미통과 시 중단.
 log "cosign verify $IMAGE"
 cosign verify "$IMAGE" \
-  --certificate-identity-regexp="^https://github.com/${REPO_ID}/.github/workflows/release.yml@refs/heads/main" \
+  --certificate-identity-regexp="^https://github.com/${REPO_ID}/.github/workflows/release.yml@refs/(heads/main|tags/v)" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" >/dev/null \
   || die "이미지 서명 검증 실패 — $IMAGE (release.yml 서명본 아님?)"
 

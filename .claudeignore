@@ -1,27 +1,33 @@
-# 버전 관리 / IDE
-.idea/
-.git/
-.github/
+# 시크릿 — 응답·로그에 한 번 노출되면 회수할 수 없다 (CLAUDE.md #F8).
+.env
+.env.*
+*.pem
+*.key
+secrets/
 
-# 런타임 / 캐시
-.vagrant/
+# 버전 관리 / IDE
+.git/
+.idea/
+.vscode/
+
+# 런타임 · 캐시
 .venv/
+node_modules/
 __pycache__/
 *.pyc
 *.pyo
 .pytest_cache/
 .ruff_cache/
+.mypy_cache/
+.hypothesis/
 .coverage
 coverage*.xml
 htmlcov/
 
-# 시크릿 (CLAUDE.md #F8 — Claude 응답·로그에 노출되면 영구)
-.env
-dev/.env
-dev/agent.env
-secrets/
-
-# 빌드 산출물 (binary — Claude read 의미 0)
-dev/bin/assessment-agent
+# 빌드 산출물
 dist/
 build/
+*.egg-info/
+
+# vendored 라이브러리 — 읽을 일이 없고 토큰만 소모한다.
+src/assessment_engine/web/static/js/vendor/

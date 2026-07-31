@@ -92,7 +92,7 @@ RUN uv sync --frozen --no-dev --no-editable         # ← project 만 추가
 - `--no-dev`: pyproject `[dependency-groups].dev`(pytest·ruff·testcontainers) 미포함. prod 이미지 슬림화.
 - `--no-install-project`: project 자체는 skip하고 외부 deps만 install (1단 layer cache 분리용).
 - `--no-editable`: 소스를 가리키는 링크가 아니라 파일을 복사해 넣는다. 최종 이미지에 소스 트리가 없어도 동작한다. dev 는 호스트 패키지를 venv 안 같은 경로에 bind mount 해 코드 변경을 반영한다.
-- `UV_PROJECT_ENVIRONMENT=/opt/venv`: venv를 `/app` 바깥에 둔다. bind mount가 `/app/.venv`를 호스트로 마스킹하는 충돌을 회피.
+- `UV_PROJECT_ENVIRONMENT=/opt/venv`: venv 안 스크립트에 절대경로 shebang 이 박혀 builder 와 runtime 이 같은 경로를 써야 한다. 작업 디렉토리(`/app`)와 분리해 둔다.
 
 베이스 이미지의 python minor 를 올릴 때는 `pyproject.toml` `requires-python`, Dockerfile `FROM`, 그리고 site-packages 경로가 박힌 compose 4줄(base `migrate` 의 `ALEMBIC_CONFIG`, override 의 마운트·watch 경로 3곳)을 함께 고친다.
 
