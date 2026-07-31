@@ -186,7 +186,7 @@ git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 
 - `pyproject.toml` — 실제 구성 단일 진실
 - `uv.lock` — resolved 트리
-- `docs/guides/local-dev.md` "uv sync --frozen 패턴" — Docker 빌드 안 lockfile 사용
+- `docs/reference/docker.md` "uv 플래그" — Docker 빌드 안 lockfile 사용
 - `docs/guides/testing.md` — pytest 실행·fixture
 - `docs/guides/release.md` — OCI 이미지 발행(GHCR)·서명·SBOM·provenance
 - `.github/workflows/ci.yml`·`alembic-check.yml` — frozen sync CI 검증

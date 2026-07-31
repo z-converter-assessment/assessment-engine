@@ -87,7 +87,7 @@
 
 프론트엔드 설정이 섞여 보이지만 별도 프로젝트가 아니다. 번들러도 빌드 산출물도 없고, FastAPI 가 내보내는 OpenAPI 에서 TS 타입을 생성해 `tsc --checkJs` 로 클라이언트 JS 를 검사하는 용도다. 서빙되는 JS 는 빌드를 거치지 않고 `src/assessment_engine/web/static/` 에서 그대로 나간다.
 
-각 파일의 상세는 `docs/guides/local-dev.md`(compose·Dockerfile), `docs/guides/deploy.md`(배포 스크립트), `docs/reference/contracts/env.md`(환경변수), `docs/reference/web/type-contract.md`(타입 계약)가 갖는다.
+각 파일의 상세는 `docs/reference/docker.md`(compose·Dockerfile), `docs/guides/deploy.md`(배포 스크립트), `docs/reference/contracts/env.md`(환경변수), `docs/reference/web/type-contract.md`(타입 계약)가 갖는다.
 
 ---
 

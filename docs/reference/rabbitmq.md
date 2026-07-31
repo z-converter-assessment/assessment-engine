@@ -152,6 +152,6 @@ dev → production 시 #3 "분기 유지" 항목을 적용:
 
 - `docs/reference/consumer.md` — 위 토폴로지를 코드(aio-pika)로 어떻게 declare·subscribe하는지 / 핸들러 / 멱등성 / DB 재시도
 - `docs/reference/contracts/agent-data.md` — 에이전트 측 publish 동작 / publisher confirm / retry
-- `docs/guides/local-dev.md` — RabbitMQ 컨테이너 정의 / 헬스체크 / 환경변수
+- `docs/reference/docker.md` — RabbitMQ 컨테이너 정의 / 포트 / 볼륨
 - `docs/reference/contracts/env.md` — `RABBITMQ_*` 환경변수 키 목록
 - `docs/explanation/tradeoffs.md` T7 — 에이전트 broker 자동 재연결 (이미 구현됨)

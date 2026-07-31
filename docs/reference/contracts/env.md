@@ -82,7 +82,7 @@ base compose 에는 비밀번호 설정이 없다 — dev override 가 env 채�
 
 | 분기점 | 동작 |
 |--------|------|
-| web lifespan | `dev` 면 정적 자원 캐시 무효화가 켜진다 (동작 상세는 `docs/guides/local-dev.md`) |
+| web lifespan | `dev` 면 정적 자원 캐시 무효화가 켜진다 (동작 상세는 `docs/reference/docker.md`) |
 
 원칙: 코드 분기는 최소화. "환경 자체가 환경변수로 결정" 되는 게 이상이다. 비밀번호 검증은 이 값을 보지 않는다 (6절) — 환경 마커로 보안 강도를 가르지 않는다. 비즈니스 로직 분기 금지.
 
@@ -98,7 +98,7 @@ base compose 에는 비밀번호 설정이 없다 — dev override 가 env 채�
 
 ## 5. dev/prod 차이 매트릭스
 
-compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) + prod overlay(`docker-compose.prod.yml`). dev 는 base+override 자동 머지, prod 는 base+prod.yml(`deploy.sh` rollout 또는 수동 compose). 본 표는 dev/prod 구성 차이 — 포트 바인딩처럼 base 가 정해 양쪽이 같은 것은 `docs/guides/local-dev.md` 가 갖는다.
+compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) + prod overlay(`docker-compose.prod.yml`). dev 는 base+override 자동 머지, prod 는 base+prod.yml(`deploy.sh` rollout 또는 수동 compose). 본 표는 dev/prod 구성 차이 — 포트 바인딩처럼 base 가 정해 양쪽이 같은 것은 `docs/reference/docker.md` 가 갖는다.
 
 | 항목 | dev (본 repo) | prod (외부 인프라) |
 |------|--------------|---------------------|

@@ -15,7 +15,7 @@
 | 디렉토리 | 목적 (Diátaxis) | 성격 |
 |----------|----------------|------|
 | `docs/README.md` | 문서 관리 계약 (4원칙) + 지도 단일 진실 | 영구·갱신 |
-| `docs/reference/` | 지금 어떻게 도나 — subsystem 동작 + `contracts/`(agent-data·env 얼어붙은 계약) | 현재 상태 선언 |
+| `docs/reference/` | 지금 어떻게 도나 — subsystem 동작·docker 구성 + `contracts/`(agent-data·env 얼어붙은 계약) | 현재 상태 선언 |
 | `docs/guides/` | 어떻게 하나 — 작업 절차 (deploy·migrate·release·local-dev·testing·ci-setup·wrap-up·conventions·dependencies) | 현재 상태 선언 |
 | `docs/explanation/` | 왜 이렇게 설계했나 — 한계(`tradeoffs.md`)·산출물 의의(`products/`) | 현재 상태 선언 |
 | `docs/decisions/` | 왜 바꿨나 — `adr/`(결정)·`rfc/`(제안) append-only 이력 | 불변 아카이브 |
@@ -35,7 +35,7 @@
 - compose `migrate` 서비스 — alembic init-container (C4)
 
 작업 절차 진입 (상세는 각 guide):
-- dev·prod 기동·서비스 카탈로그 = `docs/guides/local-dev.md`
+- 이미지·compose 구성 = `docs/reference/docker.md` / dev 기동·코드 반영 = `docs/guides/local-dev.md`
 - 테스트 = `docs/guides/testing.md` / 마이그레이션 = `docs/guides/migrate.md`
 - 배포(VM rollout)·부트스트랩 = `docs/guides/deploy.md` / 릴리즈 = `docs/guides/release.md`
 - 표현계층 타입 계약(codegen·tsc) = `docs/reference/web/type-contract.md`
@@ -52,7 +52,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 repo는 엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.sh`, 배포 대상 VM 에서 실행)까지 다룬다. VM provisioning(IaC — VM 생성·OS 설정)은 별도 준비 VM 전제. docker·cosign·deploy.sh 설치는 1회성 `bootstrap.sh`.
 
 본 절 결정:
-- compose = 공통 base + dev override(소스 빌드·bind mount, 파일명으로 자동 머지) + prod overlay(file-secret). dev = base+override, prod = base+prod.yml — 어느 쪽이 붙는지는 `.env` 의 `COMPOSE_FILE` 이 정한다. base 는 환경 색을 담지 않는다. Dockerfile 은 dev/prod 분리 안 함 (parity — dev 편의는 override bind mount 로만). prod 비번 = file-secret 채널 단일 (`SecretStr`). 파일 구조·서비스 카탈로그 상세 = `docs/guides/local-dev.md`.
+- compose = 공통 base + dev override(소스 빌드·bind mount, 파일명으로 자동 머지) + prod overlay(file-secret). dev = base+override, prod = base+prod.yml — 어느 쪽이 붙는지는 `.env` 의 `COMPOSE_FILE` 이 정한다. base 는 환경 색을 담지 않는다. Dockerfile 은 dev/prod 분리 안 함 (parity — dev 편의는 override bind mount 로만). prod 비번 = file-secret 채널 단일 (`SecretStr`). 파일 구조·서비스 카탈로그 상세 = `docs/reference/docker.md`.
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/reference/contracts/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
