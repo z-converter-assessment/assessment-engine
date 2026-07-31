@@ -14,7 +14,7 @@ def get_pool() -> ConnectionPool:
     pool = _pool
     if pool is None:
         pool = ConnectionPool.from_url(
-            WebSettings().redis_url,
+            WebSettings().redis_url,  # pyright: ignore[reportCallIssue]
             decode_responses=True,
             socket_timeout=5,  # F6 — 명령 timeout (fail-open 경계)
             socket_connect_timeout=3,

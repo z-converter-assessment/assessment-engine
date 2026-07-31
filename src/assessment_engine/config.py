@@ -26,7 +26,10 @@ def _reject_env_shadowing_secret(field: str) -> None:
     pydantic 이 `.env` 를 직접 읽는 경로는 환경변수를 거치지 않아 여기서 잡히지 않는다.
     secret 디렉토리가 없으면(dev) 충돌 자체가 성립하지 않아 그대로 통과한다.
     """
-    if _SECRETS_DIR is None or field.upper() not in os.environ:
+    if _SECRETS_DIR is None:
+        return
+    # pydantic-settings 는 기본이 case_sensitive=False 라 소문자 env 도 secret 파일을 이긴다.
+    if not any(key.lower() == field for key in os.environ):
         return
     if os.path.isfile(os.path.join(_SECRETS_DIR, field)):
         raise ValueError(
@@ -53,8 +56,10 @@ class WebSettings(BaseSettings):
 
     postgres_host: str = "postgres"
     postgres_db: str = "assessment"
-    postgres_user: str = "assessment"
+    postgres_user: str = Field(default="assessment", min_length=1)
     # 기본값을 두지 않는다 — 미설정이 조용히 통과하면 그것을 거르는 검사가 또 필요해진다.
+    # 값은 env·secret 파일에서 오지만 pyright 는 dataclass_transform 시그니처만 보고 인자 누락으로
+    # 읽는다. 그래서 인스턴스화 지점에 `# pyright: ignore[reportCallIssue]` 가 붙어 있다.
     postgres_password: SecretStr = Field(min_length=1)
     postgres_port: int = 5432
     web_port: int = 8000
@@ -90,7 +95,7 @@ class WebSettings(BaseSettings):
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}"
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
-    # 운영 alert 튜닝 노브 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.
+    # 운영 alert 튜닝 노브 — env 카탈로그 미수록(.env.example·env.md), 필요 시 env override.
     agent_restart_alert_threshold: int = 3
 
     # ZDM 서버 기본 좌표 — install 모달 default (POST body 누락 시 fallback, 운영자 override 가능).
@@ -169,7 +174,7 @@ class ConsumerSettings(WebSettings):
     rabbitmq_host: str = "rabbitmq"
     rabbitmq_port: int = 5672
     rabbitmq_vhost: str = "assessment"  # 에이전트가 발행하는 전용 vhost (무슬래시 — 앞 슬래시 없는 이름)
-    rabbitmq_user: str = "assessment"
+    rabbitmq_user: str = Field(default="assessment", min_length=1)
     # USER 는 식별자라 default 를 두지만 PASSWORD 는 두지 않는다 — 값을 주지 않으면 기동이 멈춘다.
     rabbitmq_password: SecretStr = Field(min_length=1)
     rabbitmq_exchange: str = "assessment"

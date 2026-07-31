@@ -69,11 +69,16 @@ docker compose up -d
 # 본 파일도 따라 고쳐야 한다. 종료가 정상인지는 restart 정책으로 가른다: compose 가 재시작하지 않겠다고
 # 선언한 서비스(migration 같은 init-container)만 exited 0 이 완료를 뜻하고, 나머지는 떠 있어야 한다.
 services_healthy() {
-  local expected actual cid state code restart health
-  expected="$(docker compose config --services | sort)"
-  actual="$(docker compose ps -a --format '{{.Service}}' | sort -u)"
+  local cid state code restart health expected actual
+  local -a services
+  mapfile -t services < <(docker compose config --services | sort)
+  [[ ${#services[@]} -gt 0 ]] || return 1
+  # 선언된 서비스만 인자로 넘긴다 — 인자 없이 부르면 `run --rm` 잔재와 orphan 까지 읽어, 한 번 남은
+  # 실패 컨테이너가 이후 모든 배포를 rollback 으로 끌고 간다.
+  expected="$(printf '%s\n' "${services[@]}")"
+  actual="$(docker compose ps -a --format '{{.Service}}' "${services[@]}" | sort -u)"
   [[ "$expected" == "$actual" ]] || return 1
-  for cid in $(docker compose ps -aq); do
+  for cid in $(docker compose ps -aq "${services[@]}"); do
     IFS='|' read -r state code restart health <<< "$(docker inspect --format \
       '{{.State.Status}}|{{.State.ExitCode}}|{{.HostConfig.RestartPolicy.Name}}|{{if .State.Health}}{{.State.Health.Status}}{{end}}' \
       "$cid")"
@@ -84,6 +89,7 @@ services_healthy() {
       [[ -z "$health" || "$health" == healthy ]] || return 1
     fi
   done
+  return 0
 }
 
 # 컨테이너 상태와 별개로 호스트에서 실제 응답하는지 본다 — 포트 매핑이 어긋나면 컨테이너만 healthy 다.

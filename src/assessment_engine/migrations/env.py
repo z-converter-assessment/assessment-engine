@@ -42,7 +42,7 @@ if config.config_file_name is not None:
 # set_main_option 은 configparser interpolation을 거쳐 값을 저장 — 비밀번호가 URL-quote 되며 담긴 리터럴
 # '%'(예: openssl rand -base64 32 결과의 '+'/'/' 가 %2F/%2B 로 인코딩)가 있으면 "invalid interpolation
 # syntax" 로 죽는다. '%' -> '%%' 이스케이프는 get 시 interpolation이 도로 풀어주는 표준 왕복 패턴.
-_settings = WebSettings()
+_settings = WebSettings()  # pyright: ignore[reportCallIssue]
 config.set_main_option("sqlalchemy.url", _settings.database_url.replace("%", "%%"))
 
 target_metadata = Base.metadata

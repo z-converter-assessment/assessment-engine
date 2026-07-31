@@ -14,7 +14,7 @@ from assessment_engine.config import WebSettings
 
 @lru_cache(maxsize=1)
 def get_engine() -> AsyncEngine:
-    settings = WebSettings()
+    settings = WebSettings()  # pyright: ignore[reportCallIssue]
     return create_async_engine(
         settings.database_url,
         echo=settings.sqlalchemy_echo,

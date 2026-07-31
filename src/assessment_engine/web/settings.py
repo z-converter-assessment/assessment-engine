@@ -17,9 +17,9 @@ from assessment_engine.config import DiagnosticSettings, WebSettings
 
 @lru_cache(maxsize=1)
 def get_web_settings() -> WebSettings:
-    return WebSettings()
+    return WebSettings()  # pyright: ignore[reportCallIssue]
 
 
 @lru_cache(maxsize=1)
 def get_diagnostic_settings() -> DiagnosticSettings:
-    return DiagnosticSettings()
+    return DiagnosticSettings()  # pyright: ignore[reportCallIssue]

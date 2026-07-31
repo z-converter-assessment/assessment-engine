@@ -21,11 +21,6 @@ from assessment_engine.db.repositories.collect_repository import CollectReposito
 from assessment_engine.db.session import get_session_factory
 from assessment_engine.log_config import setup_logging
 
-_COLLECT_EXCHANGE = get_consumer_settings().rabbitmq_exchange
-_COLLECT_DLX = f"{_COLLECT_EXCHANGE}.dlx"
-_TASK_EXCHANGE = get_consumer_settings().rabbitmq_task_exchange
-_TASK_DLX = f"{_TASK_EXCHANGE}.dlx"
-
 # 큐 정책 변경 시 broker의 기존 큐 재선언이 PRECONDITION_FAILED — 큐 수동 삭제 필요.
 # TTL/max-length 둘 중 먼저 도달 시 oldest -> DLX.
 _METRICS_TTL_MS = 72 * 60 * 60 * 1000  # 72h
@@ -49,10 +44,16 @@ class _QueueBinding:
 async def main() -> None:
     setup_logging(get_consumer_settings().log_format)
 
+    # exchange 이름은 여기서 읽는다 — 모듈 스코프에 두면 import 만으로 설정을 요구한다.
+    collect_exchange = get_consumer_settings().rabbitmq_exchange
+    collect_dlx = f"{collect_exchange}.dlx"
+    task_exchange = get_consumer_settings().rabbitmq_task_exchange
+    task_dlx = f"{task_exchange}.dlx"
+
     logger.info(
         "consumer starting collect_exchange={} task_exchange={}",
-        _COLLECT_EXCHANGE,
-        _TASK_EXCHANGE,
+        collect_exchange,
+        task_exchange,
     )
 
     redis = get_redis()
@@ -67,8 +68,8 @@ async def main() -> None:
     try:
         bindings = [
             _QueueBinding(
-                exchange_name=_COLLECT_EXCHANGE,
-                dlx_name=_COLLECT_DLX,
+                exchange_name=collect_exchange,
+                dlx_name=collect_dlx,
                 queue_name=get_consumer_settings().rabbitmq_routing_key_inventory,
                 routing_key=get_consumer_settings().rabbitmq_routing_key_inventory,
                 handler=make_inventory_handler(get_session_factory(), CollectRepository, redis),
@@ -76,8 +77,8 @@ async def main() -> None:
                 max_len=None,
             ),
             _QueueBinding(
-                exchange_name=_COLLECT_EXCHANGE,
-                dlx_name=_COLLECT_DLX,
+                exchange_name=collect_exchange,
+                dlx_name=collect_dlx,
                 queue_name=get_consumer_settings().rabbitmq_routing_key_metrics,
                 routing_key=get_consumer_settings().rabbitmq_routing_key_metrics,
                 handler=make_metrics_handler(get_session_factory(), CollectRepository, redis),
@@ -85,8 +86,8 @@ async def main() -> None:
                 max_len=_METRICS_MAX_LEN,
             ),
             _QueueBinding(
-                exchange_name=_COLLECT_EXCHANGE,
-                dlx_name=_COLLECT_DLX,
+                exchange_name=collect_exchange,
+                dlx_name=collect_dlx,
                 queue_name=get_consumer_settings().rabbitmq_routing_key_error,
                 routing_key=get_consumer_settings().rabbitmq_routing_key_error,
                 handler=make_error_handler(redis),
@@ -94,8 +95,8 @@ async def main() -> None:
                 max_len=None,
             ),
             _QueueBinding(
-                exchange_name=_TASK_EXCHANGE,
-                dlx_name=_TASK_DLX,
+                exchange_name=task_exchange,
+                dlx_name=task_dlx,
                 queue_name=get_consumer_settings().rabbitmq_queue_worker_result,
                 routing_key=get_consumer_settings().rabbitmq_routing_key_task_result,
                 handler=make_task_result_handler(
@@ -114,7 +115,7 @@ async def main() -> None:
             await channel.set_qos(prefetch_count=10)
 
             exchanges: dict[str, aio_pika.abc.AbstractExchange] = {}
-            for name in (_COLLECT_EXCHANGE, _TASK_EXCHANGE, _COLLECT_DLX, _TASK_DLX):
+            for name in (collect_exchange, task_exchange, collect_dlx, task_dlx):
                 exchanges[name] = await channel.declare_exchange(
                     name,
                     aio_pika.ExchangeType.DIRECT,

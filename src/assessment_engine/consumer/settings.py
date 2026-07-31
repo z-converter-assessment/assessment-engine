@@ -10,4 +10,4 @@ from assessment_engine.config import ConsumerSettings
 
 @lru_cache(maxsize=1)
 def get_consumer_settings() -> ConsumerSettings:
-    return ConsumerSettings()
+    return ConsumerSettings()  # pyright: ignore[reportCallIssue]

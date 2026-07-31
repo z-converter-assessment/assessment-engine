@@ -48,7 +48,7 @@ class _FakeDiag:
 
 def test_worker_settings_exposes_worker_fields():
     """worker 설정이 report/reaper 필드 + 상속한 DB 설정을 노출."""
-    s = WorkerSettings()
+    s = WorkerSettings()  # pyright: ignore[reportCallIssue]
     assert s.report_worker_poll_interval_sec > 0
     assert s.report_worker_stale_seconds > 0
     assert s.report_worker_shutdown_timeout_sec > 0

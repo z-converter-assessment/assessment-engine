@@ -10,4 +10,4 @@ from assessment_engine.config import WorkerSettings
 
 @lru_cache(maxsize=1)
 def get_worker_settings() -> WorkerSettings:
-    return WorkerSettings()
+    return WorkerSettings()  # pyright: ignore[reportCallIssue]

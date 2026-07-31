@@ -180,8 +180,9 @@ class DiagnosticService:
         job_type = f"{view}_report"
         input_params = _build_input_params(view, scope, server_public_ids, time_range, anchor_at)
         input_hash = _compute_hash(scope, input_params)
-        # INSERT 가 충돌로 비고 회수 SELECT 까지 비는 경우 = 두 문장 사이에서 그 job 이 종료된 것이다.
-        # 충돌 상대가 이미 사라졌으므로 다시 INSERT 하면 자리를 잡는다.
+        # INSERT 가 충돌로 비고 회수 SELECT 까지 비는 경우는 둘이다 — 두 문장 사이에서 그 job 이 끝났거나,
+        # 동시 INSERT 가 아직 커밋 전이라 READ COMMITTED SELECT 에 안 보이거나. 앞의 경우는 다시 INSERT 하면
+        # 자리를 잡고, 뒤의 경우는 재시도가 상대의 커밋을 만나 회수로 이어진다.
         for _ in range(_ENQUEUE_MAX_ATTEMPTS):
             async with self.session_factory() as session:
                 repo = self.diagnostic_repo_factory(session)
