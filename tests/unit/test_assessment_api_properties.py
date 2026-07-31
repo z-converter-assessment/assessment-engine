@@ -12,7 +12,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from assessment_engine import recommendation as R
-from assessment_engine.contract import CONTRACT_VERSION
+from assessment_engine.contract import API_CONTRACT_VERSION
 from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
 from assessment_engine.web.services.mappers.assessment_api import (
     build_assessment_entry,
@@ -225,7 +225,7 @@ def test_envelope_contract(rows):
         window_start="2025-12-18T00:00:00+00:00", window_end="2026-01-01T00:00:00+00:00",
         filters={"hostname": [], "ip": [], "public_id": [], "pair": []},
     )
-    assert env["contract_version"] == CONTRACT_VERSION
+    assert env["contract_version"] == API_CONTRACT_VERSION
     assert env["count"] == len(servers)
     assert env["servers"] is servers
     assert set(env["warnings"]) == {"ambiguous_hostnames", "unresolved_pairs", "unmatched_filters"}
