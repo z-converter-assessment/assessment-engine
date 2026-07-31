@@ -68,8 +68,13 @@ jobs:
       - name: Install project (frozen)
         run: uv sync --frozen --group dev
 
-      - name: pytest unit (with coverage)
-        run: uv run pytest tests/unit/ -v --cov=assessment_engine --cov-report=term
+      # property 테스트 생성 횟수는 base 브랜치로 가른다 — main 승격은 선언값 전량, develop 통합은
+      # 1/10. 커버리지는 CI 에서 재지 않는다: 임계값 게이트가 없어 결과를 판정에 쓰지 않으면서
+      # 측정 비용만 매 PR 나갔다. 필요하면 로컬에서 `uv run pytest --cov=assessment_engine`.
+      - name: pytest unit
+        env:
+          HYPOTHESIS_SCALE: ${{ github.base_ref == 'main' && '1' || '0.1' }}
+        run: uv run pytest tests/unit/ -q
 
   typecheck:
     name: frontend typecheck
@@ -161,5 +166,5 @@ jobs:
         run: uv sync --frozen --group dev
 
       # testcontainers 가 TimescaleDB 컨테이너를 띄운다 — runner 의 docker daemon 필요.
-      - name: pytest integration (with coverage)
-        run: uv run pytest tests/integration/ -v --cov=assessment_engine --cov-report=term
+      - name: pytest integration
+        run: uv run pytest tests/integration/ -q

@@ -32,32 +32,6 @@ PR #112 가 한 일은 넷이다. compose 를 base + dev override + prod overlay
 
 ---
 
-## S0. 먼저 하면 나머지가 가벼워지는 것 — CI unit 6분
-
-develop PR 은 unit 만 도는데 그게 6m16s 다. 나머지 job 은 전부 1분 이하(ruff 23s · typecheck 23s · alembic 55s · title 4s)라 병목이 한 곳이다.
-
-로컬에서 coverage 없이 재보면 806개가 120초인데, 그중 8개가 118.7초를 쓴다.
-
-| 테스트 | 시간 |
-|--------|------|
-| `test_assessment_api_properties.py` 3개 | 56.8s |
-| `test_recommendation_properties.py` 5개 | 61.9s |
-| 나머지 798개 | 1.3s |
-
-둘 다 hypothesis property-based 라 케이스를 생성해 반복 실행한다. CI 에서 376초가 되는 건 여기에 `--cov=assessment_engine` 계측(2~3배)과 러너 성능 차이가 더해져서다.
-
-줄이는 방법 셋. 효과 순이다.
-
-1. hypothesis 예제 수를 CI 프로파일로 낮춘다. 기본 100회 생성인데 develop PR 에서 20~30 이면 회귀 검출력은 대부분 유지하면서 8개가 1/3~1/5 로 준다. main PR 에서만 전량 돌린다.
-2. coverage 를 develop PR 에서 뺀다. 지금 `--cov-report=term` 으로 출력만 하고 임계값 검사가 없다 — 아무도 안 보는 숫자에 절반 이상을 쓰고 있다.
-3. `pytest-xdist` 로 병렬화한다. 느린 8개가 동시에 돌면 24초 수준. 다만 의존성이 늘고, 이 저장소는 session-scope async fixture 를 써서 worker 분배와 충돌할 여지가 있다.
-
-추천은 1번과 2번을 함께 하는 것이다. 의존성 추가 없이 6분이 1~2분으로 준다.
-
-S1 이 integration 까지 돌리게 되면 testcontainers 라 더 느려진다. 그 전에 여기를 손보면 이후 작업 전체의 대기가 짧아진다.
-
----
-
 ## S1. 검증 — 아직 안 돌려본 것이 develop 에 들어가 있다
 
 develop CI 는 unit 까지만 본다. 아래 셋은 이번 작업에서 한 번도 실행되지 않았고, main 승격 PR 에서 처음 돈다. 거기서 깨지면 승격이 막히므로 미리 확인한다.
@@ -200,9 +174,6 @@ S2 에서 2번을 택하면 반드시 먼저 정해야 한다. dict 리터럴을
 ## 순서 요약
 
 ```
-S0 CI unit 6분 단축 (선택)
-   |   강제는 아니나 먼저 하면 아래 전부의 대기가 짧아진다
-   v
 S1 검증 (integration -> prod 경로 -> wheel)
    |   main 승격의 선행. 여기서 깨지면 승격이 막힌다
    v
@@ -215,4 +186,4 @@ S1 검증 (integration -> prod 경로 -> wheel)
    +--> S4-2~S4-6 부채 (S5-1 이 S4-2·S4-4 의 선행)
 ```
 
-S1 만 순서가 강제된다. S0 은 건너뛰어도 되지만 S1 부터 대기가 길어진다. S2 와 S3 는 서로 독립이라 어느 쪽을 먼저 해도 된다. S4 는 언제든.
+S1 만 순서가 강제된다. S2 와 S3 는 서로 독립이라 어느 쪽을 먼저 해도 된다. S4 는 언제든.

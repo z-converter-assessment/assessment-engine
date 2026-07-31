@@ -12,6 +12,7 @@ from hypothesis import strategies as st
 
 from assessment_engine import recommendation as R
 from assessment_engine.recommendation import ResourceStats
+from tests.hypothesis_scale import examples
 
 _HOST_STATUS = {"under", "idle", "over", "optimal", "insufficient"}
 _RES_KINDS = {"cpu", "memory", "disk_capacity", "disk_io", "network"}
@@ -67,7 +68,7 @@ def stats_strategy(draw) -> ResourceStats:
     )
 
 
-@settings(max_examples=3000)
+@settings(max_examples=examples(3000))
 @given(stats_strategy())
 def test_structural_invariants(stats: ResourceStats):
     """구조 불변식 — 어떤 유효 입력에도 성립해야 함 (위반 = 확정 버그)."""
@@ -87,7 +88,7 @@ def test_structural_invariants(stats: ResourceStats):
     assert R.classify_host(stats) == R.host_status_to_recommendation(host.host_status)
 
 
-@settings(max_examples=2000)
+@settings(max_examples=examples(2000))
 @given(stats_strategy())
 def test_determinism(stats: ResourceStats):
     """동일 입력 -> 동일 출력 (순수 함수)."""
@@ -99,7 +100,7 @@ def test_determinism(stats: ResourceStats):
     }
 
 
-@settings(max_examples=3000)
+@settings(max_examples=examples(3000))
 @given(stats_strategy())
 def test_cpu_never_under_provision(stats: ResourceStats):
     """CPU under -> sizing_target 은 현재 코어 이상 (부족을 더 부족하게 만들지 않음). over -> 이하."""
@@ -112,7 +113,7 @@ def test_cpu_never_under_provision(stats: ResourceStats):
         assert cpu.sizing_target <= stats.cpu_cores, (stats.cpu_cores, cpu.sizing_target)
 
 
-@settings(max_examples=3000)
+@settings(max_examples=examples(3000))
 @given(stats_strategy())
 def test_memory_sizing_bounded(stats: ResourceStats):
     """메모리 사이징 목표는 현재의 1.3배(near-peak<=100%/80% + floor 1.3x 상한) 를 넘지 않는다.
@@ -128,7 +129,7 @@ def test_memory_sizing_bounded(stats: ResourceStats):
         assert mem.sizing_target >= stats.mem_total_mb, (stats.mem_total_mb, mem.sizing_target)
 
 
-@settings(max_examples=3000)
+@settings(max_examples=examples(3000))
 @given(stats_strategy())
 def test_idle_cpu_not_under_by_runqueue_artifact(stats: ResourceStats):
     """CPU 이용률이 거의 0인데 run-queue 만으로 under(코어 증설)로 판정하면 안 된다.
