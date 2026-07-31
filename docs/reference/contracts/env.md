@@ -82,7 +82,7 @@ base compose 에는 비밀번호 설정이 없다 — dev override 가 env 채�
 
 | 분기점 | 동작 |
 |--------|------|
-| `web/main.py` lifespan | `dev` 면 `app.state.dev_assets` 를 세워 미들웨어가 매 요청 정적 자원 버전을 재발급 (hot reload 즉시 반영) |
+| web lifespan | `dev` 면 정적 자원 캐시 무효화가 켜진다 (동작 상세는 `docs/guides/local-dev.md`) |
 
 원칙: 코드 분기는 최소화. "환경 자체가 환경변수로 결정" 되는 게 이상이다. 비밀번호 검증은 이 값을 보지 않는다 (6절) — 환경 마커로 보안 강도를 가르지 않는다. 비즈니스 로직 분기 금지.
 
@@ -98,7 +98,7 @@ base compose 에는 비밀번호 설정이 없다 — dev override 가 env 채�
 
 ## 5. dev/prod 차이 매트릭스
 
-compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) + prod overlay(`docker-compose.prod.yml`). dev 는 base+override 자동 머지, prod 는 base+prod.yml(`deploy.sh` rollout 또는 수동 compose). 본 표는 dev/prod 구성 차이.
+compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.override.yml`) + prod overlay(`docker-compose.prod.yml`). dev 는 base+override 자동 머지, prod 는 base+prod.yml(`deploy.sh` rollout 또는 수동 compose). 본 표는 dev/prod 구성 차이 — 포트 바인딩처럼 base 가 정해 양쪽이 같은 것은 `docs/guides/local-dev.md` 가 갖는다.
 
 | 항목 | dev (본 repo) | prod (외부 인프라) |
 |------|--------------|---------------------|
@@ -107,7 +107,6 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 | `APP_ENV` | `dev` (정적 자원 캐시 무효화) | `prod` 명시 (정적 자원 버전 고정) |
 | 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
 | 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
-| 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web 만 (또는 reverse proxy 뒤) |
 | Password 주입 | `.env`(.env.dev.example 복사) 평문 | file-secret 단일(`docker-compose.prod.yml` + `./secrets/*` 644) — `/run/secrets/*` 마운트, env 노출 회피 |
 | Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 | 동일 — base compose `migrate` init-container 가 앱 서비스 기동 전 실행 (deploy.sh rollout 내재) |
 | Fail-fast 검증 | 동일 — 미설정·빈값·`_WEAK_VALUES` 는 어느 환경에서도 `Settings()` 생성 시점 `ValueError` | 동일 |
@@ -261,7 +260,6 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 |----|--------|--------|------|
 | `COMPOSE_FILE` | 없음 (compose 기본 규칙 = base + override) | compose CLI | 합칠 compose 파일 목록. `.env.example` 은 `docker-compose.yml:docker-compose.prod.yml` 로 dev override 를 뺀다 |
 | `COMPOSE_PROJECT_NAME` | 디렉토리명 | compose CLI | 컨테이너·네트워크·볼륨 이름 접두 |
-| `ENV_FILE` | `.env` | compose base `env_file:` | 서비스에 주입할 env 파일 경로 |
 
 애플리케이션 변수.
 
@@ -269,6 +267,7 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 |----|--------|--------|------|
 | `APP_ENV` | `dev` | config.py / docker-compose | 환경 마커. `dev`/`staging`/`prod`. 정적 자원 캐시 무효화만 가른다 (4절) |
 | `LOG_FORMAT` | `text` | config.py / 각 entry `setup_logging()` | 로그 출력 format. `text`(dev colorized·grep) 또는 `json`(외부 log aggregator). prod 는 `json` 권장 |
+| `ENV_FILE` | `.env` | compose base `env_file:` | 서비스에 주입할 env 파일 경로. compose 가 `${ENV_FILE:-.env}` 로 참조하는 평범한 보간 변수다 |
 | `ENGINE_IMAGE` | base 기본 핀 (`ghcr.io/z-converter-assessment/assessment-engine:<version>`) | compose base | 앱 서비스 이미지. config.py 미사용 — compose 전용. 미설정 시 base `docker-compose.yml` 기본값(release CI 가 태그 semver 로 핀한 GHCR 이미지). dev override.yml 은 `assessment-engine:local`(로컬 빌드)로 덮음. GHCR public — 토큰 없이 pull |
 | `PGDATA_HOST` | `postgres_data` (named volume) | compose base | postgres 영속 경로. host 절대경로 주입 시 bind mount(infra Cinder `/mnt/pgdata`), 미설정 시 named volume |
 | `MQ_DATA_HOST` | `rabbitmq_data` (named volume) | compose base | rabbitmq 영속 경로. 주입 시 host bind(`/mnt/mqdata`), 미설정 시 named volume |

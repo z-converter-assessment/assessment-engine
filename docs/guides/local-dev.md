@@ -1,6 +1,6 @@
 # Docker
 
-정책: CLAUDE.md #A. 본 문서는 docker-compose 운영 단일 진실 — Dockerfile·compose 파일 구조·서비스 카탈로그·healthcheck·기동 순서.
+정책: CLAUDE.md #A. 본 문서는 docker-compose 운영 단일 진실 — Dockerfile·compose 파일 구조·서비스 카탈로그·기동 순서.
 
 docker-compose는 엔진 그 자체 — web·consumer·worker·postgres·rabbitmq·redis·migrate 7 서비스가 고객사 네트워크 내 설치 단위. Python 앱(web·consumer·worker·migrate)은 단일 이미지 + command 분기(prod 는 GHCR pull, dev 는 로컬 빌드), 인프라(postgres·rabbitmq·redis)는 공식 이미지.
 
@@ -31,7 +31,7 @@ docker compose down -v
 
 배포 기동은 secret 파일 생성이 선행해야 성립한다 — 절차는 `docs/guides/deploy.md`.
 
-dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지 불변성). agent 가 붙는 VM 은 본 repo 범위 밖(OpenStack 공급).
+dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer·worker=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지 불변성). agent 가 붙는 VM 은 본 repo 범위 밖(OpenStack 공급).
 
 prod 하드닝(강 secret·외부 secret 채널·HTTPS ingress)은 base 가 강제하지 않음 — infra 주입으로 달성하거나 `docs/reference/contracts/env.md` + `config.py` 검증 contract.
 
@@ -39,9 +39,7 @@ prod 하드닝(강 secret·외부 secret 채널·HTTPS ingress)은 base 가 강�
 
 ## Dockerfile
 
-builder 에서 venv 를 만들고 runtime 으로 그 venv 만 복사하는 multi-stage 구성이다. 실제 내용은 루트 `Dockerfile` 이 정본이고, 여기서는 그 구조가 왜 그런지만 다룬다.
-
-`COPY` 를 두 단으로 쪼갠 것이 핵심이다 — `pyproject.toml`·`uv.lock` 만 먼저 넣고 의존성을 설치한 뒤, 소스를 넣고 프로젝트를 설치한다. 소스만 바뀌면 1단 레이어가 캐시에 남아 의존성 재설치(60s+)를 건너뛴다.
+builder 에서 venv 를 만들고 runtime 으로 그 venv 만 복사하는 multi-stage 구성이다. 실제 내용은 루트 `Dockerfile` 이 정본이고, 여기서는 그 구조를 왜 그렇게 잡았는지만 다룬다.
 
 ### 단일 이미지 + command 분기
 
@@ -106,7 +104,7 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 ---
 
-## docker-compose.yml (루트, 단일)
+## docker-compose.yml (base)
 
 ### 서비스 구성 (7개 — web·consumer·worker·migrate·postgres·rabbitmq·redis)
 
@@ -127,10 +125,10 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 | postgres | `127.0.0.1:${POSTGRES_PORT:-5432}` | 5432 | psql 직접 접속 (디버그) |
 | redis | `127.0.0.1:${REDIS_PORT:-6379}` | 6379 | redis-cli 직접 접속 (디버그) |
 | rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — 외부 호스트의 에이전트가 메트릭·결과 발행 |
-| rabbitmq | `${RABBITMQ_MANAGEMENT_PORT:-15672}` | 15672 | 관리 UI |
+| rabbitmq | `127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}` | 15672 | 관리 UI (SSH 터널) |
 | web | `${WEB_PORT:-8000}` | 8000 | HTTP — 브라우저 + `/static/*` 정적 자원 |
 
-postgres·redis 는 loopback 에만 묶어 VM 로컬 ops 접근으로 제한한다. AMQP 5672 만 0.0.0.0 인데, 외부 호스트의 에이전트가 발행하는 통로라 노출이 필수다. consumer·worker 는 포트를 열지 않는다.
+AMQP 5672 만 0.0.0.0 이다 — 외부 호스트의 에이전트가 발행하는 통로라 노출이 필수다. 나머지는 loopback 에 묶어 VM 로컬 ops 접근으로 제한한다. consumer·worker 는 포트를 열지 않는다.
 
 ### 영속 볼륨
 
@@ -170,11 +168,11 @@ volumes: [./src/assessment_engine:/opt/venv/lib/python3.12/site-packages/assessm
 
 조합 효과:
 - `web`: uvicorn `reload=True`(`WEB_RELOAD=true`, override 주입)가 파일 변경 감지 -> 자동 재기동. 새로고침만으로 변경 확인.
-- `consumer`: watchfiles 래퍼 entrypoint(override)가 `.py` 변경 시 프로세스 재시작.
+- `consumer`·`worker`: watchfiles 래퍼 entrypoint(override)가 `.py` 변경 시 프로세스 재시작.
 - `migrate`: 위 마운트가 패키지 안 `migrations/` 까지 덮어 새 alembic revision 을 재빌드 없이 인식.
 - 정적 자원(`.js`/`.css`/`.html`): dev 에서 `web/main.py` 미들웨어가 매 요청 `asset_v` 를 재발급(`app.state.dev_assets`, `app_env=="dev"` 일 때만 — APP_ENV 판정은 lifespan 단일 경로 #F4)해 `?v=` URL 이 매번 바뀌고 HTML·`/static/*` 응답에 `Cache-Control: no-store` 부여 — 브라우저 disk cache·304 까지 회피. `.py` 재시작이 없는 정적 변경(ASSET_V 가 프로세스 시작 시각 고정이라 캐시에 묻히던 경로)도 새로고침만으로 반영. prod 는 본 분기 비활성(cdn·long-cache).
 
-prod (base 단독): override 미배포라 위 bind mount·reload 전부 없음 — `Dockerfile` 빌드 결과(불변 이미지)만 사용. `.dockerignore` 가 `.env` 를 이미지에서 제외하고, base 는 코드 마운트가 없어 호스트 `.env` 가 컨테이너에 노출되지 않는다 (dev override bind 는 `./src` 한정이라 루트 `.env` 미포함).
+prod (base + prod overlay): override 미배포라 위 bind mount·reload 전부 없음 — `Dockerfile` 빌드 결과(불변 이미지)만 사용. `.dockerignore` 가 `.env` 를 이미지에서 제외하고, base 는 코드 마운트가 없어 호스트 `.env` 가 컨테이너에 노출되지 않는다 (dev override bind 는 `./src` 한정이라 루트 `.env` 미포함).
 
 ### Redis 인라인 설정
 
@@ -227,9 +225,11 @@ postgres ─ healthy ─▶ migrate (alembic upgrade head, 1회 실행 후 exit)
             ▼      ▼             ▼
            web   consumer      worker
             ▲      ▲             ▲
-   redis ───┴──────┼─────────────┘
-rabbitmq ──────────┘
+   redis ───┼──────┼─────────────┤
+rabbitmq ───┴──────┴─────────────┘
 ```
+
+postgres·redis·rabbitmq healthy + migrate 완료를 앱 3종이 모두 기다린다 (`x-app-base` 공통 `depends_on`).
 
 모든 환경(dev·staging·prod) Alembic 단일 진실. `migrate` 컨테이너가 schema 준비 완료를 보장한 뒤 앱 3종 기동.
 
@@ -250,7 +250,7 @@ rabbitmq ──────────┘
 |-----------|-----|----------|--------|----------|
 | Python 코드 (web/) | uvicorn auto-reload | — | — | 없음 |
 | Python 코드 (consumer/) | — | watchfiles 재시작 | — | 없음 |
-| Python 코드 (worker/, db/, config.py) | uvicorn auto-reload | watchfiles 재시작 | 미반영 | `docker compose restart worker` |
+| Python 코드 (worker/, db/, config.py) | uvicorn auto-reload | watchfiles 재시작 | watchfiles 재시작 | 없음 |
 | 정적 자원 (web/static/) | 즉시 (브라우저 cache 주의) | — | — | 브라우저 강제 새로고침 |
 | Jinja2 템플릿 (web/templates/) | 즉시 | — | — | 없음 |
 | `pyproject.toml` (의존성) | 미반영 | 미반영 | 미반영 | `docker compose up --build -d` (의존성 레이어 재빌드) |

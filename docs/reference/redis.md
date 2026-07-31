@@ -86,7 +86,7 @@ web의 `get_latest_metric`이 cache MISS 후 DB query를 마쳤지만 SET을 수
 
 ```python
 # web/services/query_service.py:list_servers
-keys = [settings.redis_key_online.format(dto.id) for dto in dtos]
+keys = [get_web_settings().redis_key_online.format(dto.id) for dto in dtos]
 online_flags = await self.redis.mget(keys)
 for dto, flag in zip(dtos, online_flags):
     item = to_server_list_item(dto)
