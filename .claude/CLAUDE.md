@@ -312,7 +312,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/guides/con
 원칙: 자동화 변환(sed · `Edit replace_all` · 디렉토리 mv · Python 일괄 갱신) 직후 검증을 3 채널로 분담.
 - Hook (`.claude/hooks/`) — 무인 강제. F7(`print`/`sys.stdout.write`)·C3(직접 redis 호출)·글로벌(markdown bold·비키보드 unicode) 위반 차단.
 - 메인 세션 — 자가 검증. 변환 직후 매 회 의무 (아래 4 항목).
-- 에이전트 (code-reviewer / schema-contract-auditor) — 사용자 명시 요청(`리뷰해줘`·`스키마 일관성 확인` 등) 시에만 발동.
+- 에이전트 (code-reviewer / schema-contract-auditor) — 본 절 맥락(변환 직후 점검)에서는 사용자 명시 요청(`리뷰해줘`·`스키마 일관성 확인` 등) 시에만 발동. PR 게이트의 코드 리뷰는 별개 채널이며 배치는 `docs/guides/wrap-up.md` 0절이 정한다 (develop PR = `/pr` 이 code-reviewer 발동).
 
 메인 자가 검증 의무:
 1. 옛 패턴 잔존 0건 grep.
@@ -324,7 +324,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/guides/con
 - 검증 생략 후 다음 단계 진행.
 - 사용자 IDE 경고·브라우저 콘솔 발견에 의존.
 - 명시 요청 없이 pytest 실행 또는 "테스트 통과"를 검증 결과로 보고.
-- 메인이 에이전트 자동 위임 제안.
+- 변환 직후 점검에서 메인이 에이전트 자동 위임 제안 (게이트가 규정한 발동은 해당 없음).
 
 에이전트 결과: Error → 즉시 수정 / Warning → 사용자 결정 위임 / Info → 보고만.
 
