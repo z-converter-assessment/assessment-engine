@@ -1,6 +1,6 @@
 # docker-compose.override.yml — dev 전용. `docker compose up` 시 base 에 자동 머지(override 우선).
 # 소스 로컬 빌드 + ./src bind mount + hot reload (base 의 GHCR 이미지 핀을 dev 빌드로 덮음).
-# 릴리즈는 base 만 첨부하므로 배포엔 본 파일이 없다. base 단독 기동: `docker compose -f docker-compose.yml up`.
+# deploy.sh 는 base 와 secrets overlay 만 받으므로 배포 VM 에는 본 파일이 없다. base 단독 기동: `docker compose -f docker-compose.yml up`.
 #
 # YAML 앵커는 파일 스코프라 base 의 *app-base 를 못 써 dev 공통(build·image·volumes)을 *dev-app 으로 재정의.
 # 환경변수·command·depends_on 등 나머지는 base 에서 머지.

@@ -67,6 +67,30 @@
 
 ---
 
+## 루트 구성
+
+저장소 루트에 평평하게 놓인 파일들이다. 대부분 도구가 루트에서 찾기 때문에 다른 곳으로 옮길 수 없다.
+
+| 파일 | 무엇 | 왜 루트인가 |
+|------|------|------------|
+| `pyproject.toml` · `uv.lock` | 파이썬 의존성·빌드·lint 설정 | uv 와 빌드 백엔드가 프로젝트 루트로 인식 |
+| `package.json` · `pnpm-lock.yaml` · `tsconfig.json` | 표현계층 타입 계약 도구 (dev·CI 전용, 번들·빌드 아님) | 검사 대상이 `src/` 안 정적 JS 라 도구와 대상을 갈라놓을 이유가 없다 |
+| `Dockerfile` | 엔진 이미지 (web·consumer·worker·migrate 공용) | 빌드 컨텍스트가 루트 |
+| `docker-compose.yml` | prod-safe base | compose 가 루트에서 자동 인식 |
+| `docker-compose.override.yml` | dev 전용 (로컬 빌드·bind mount·핫리로드) | base 와 자동 머지 |
+| `docker-compose.secrets.yml` | prod file-secret overlay | 위와 같음 |
+| `.env.example` · `.env.dev.example` | 배포·dev 환경변수 템플릿 | `cp` 해서 `.env` 로 쓰는 진입점 |
+| `bootstrap.sh` | 배포 VM 1회성 구성 | raw URL 로 받는 파일이라 경로가 운영 절차에 고정 |
+| `deploy.sh` | 엔진 rollout | 위와 같음 |
+| `README.md` | 본 문서 | GitHub 이 루트에서 렌더 |
+| `.gitignore` · `.dockerignore` · `.claudeignore` | 각 도구의 제외 목록 | 도구가 컨텍스트 루트에서 읽음 |
+
+프론트엔드 설정이 섞여 보이지만 별도 프로젝트가 아니다. 번들러도 빌드 산출물도 없고, FastAPI 가 내보내는 OpenAPI 에서 TS 타입을 생성해 `tsc --checkJs` 로 클라이언트 JS 를 검사하는 용도다. 서빙되는 JS 는 빌드를 거치지 않고 `src/assessment_engine/web/static/` 에서 그대로 나간다.
+
+각 파일의 상세는 `docs/guides/local-dev.md`(compose·Dockerfile), `docs/guides/deploy.md`(배포 스크립트), `docs/reference/contracts/env.md`(환경변수), `docs/reference/web/type-contract.md`(타입 계약)가 갖는다.
+
+---
+
 ## 스택
 
 | 영역 | 기술 |

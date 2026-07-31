@@ -32,16 +32,12 @@ Thumbs.db
 # 테스트 / 빌드 캐시
 .pytest_cache/
 .ruff_cache/
-.mypy_cache/
 .coverage
 coverage*.xml
 htmlcov/
 
 # 런타임 로그
 *.log
-
-# 인프라 상태
-.vagrant/
 
 # 에디터 (JetBrains 통째 무시 / VS Code는 공용 규칙만 화이트리스트)
 .idea/
