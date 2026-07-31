@@ -268,7 +268,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 - 단 Pydantic 모델(`config.py`·`consumer/schemas.py`·consumer handler inbound DTO·라우터 body 모델)은 필드 타입을 `TYPE_CHECKING` 블록에만 두지 않는다 — Pydantic v2 는 model build 시 `get_type_hints()` 로 어노테이션을 resolve 하므로 런타임 네임스페이스에 타입이 없으면 `NameError`/`PydanticUndefinedAnnotation`. Pydantic 필드 타입은 런타임 import 유지.
 - 시그니처는 정직하게 — 실제로 `None` 을 반환하면 `-> T | None` 으로 선언한다. type checker 억제(`# type: ignore[return-value]`)로 거짓 시그니처를 덮지 않는다.
 
-IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/guides/conventions.md` 단일 진실. hook 위반은 즉시 수정 의무.
+IDE 경고 대처 매뉴얼 · 강제 채널 카탈로그: `docs/guides/conventions.md` 단일 진실.
 
 ## F2. 시간대 정책 (UTC 저장 / KST 표시)
 
@@ -309,8 +309,7 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/guides/con
 
 ## F5. 자동화 변환 — 책임 분담
 
-원칙: 자동화 변환(sed · `Edit replace_all` · 디렉토리 mv · Python 일괄 갱신) 직후 검증을 3 채널로 분담.
-- Hook (`.claude/hooks/`) — 무인 강제. F7(`print`/`sys.stdout.write`)·C3(직접 redis 호출)·글로벌(markdown bold·비키보드 unicode) 위반 차단.
+원칙: 자동화 변환(sed · `Edit replace_all` · 디렉토리 mv · Python 일괄 갱신) 직후 검증을 2 채널로 분담. 로컬 훅은 두지 않는다 — 우회 가능한 자리라 강제 수단이 못 된다(`docs/guides/conventions.md` 2절).
 - 메인 세션 — 자가 검증. 변환 직후 매 회 의무 (아래 4 항목).
 - 에이전트 (code-reviewer / schema-contract-auditor) — 본 절 맥락(변환 직후 점검)에서는 사용자 명시 요청(`리뷰해줘`·`스키마 일관성 확인` 등) 시에만 발동. PR 게이트의 코드 리뷰는 별개 채널이며 배치는 `docs/guides/wrap-up.md` 0절이 정한다 (develop PR = `/pr` 이 code-reviewer 발동).
 
