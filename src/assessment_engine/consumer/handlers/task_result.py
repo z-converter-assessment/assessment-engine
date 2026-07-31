@@ -9,7 +9,7 @@ from pydantic import ValidationError
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from assessment_engine.consumer.handlers._common import _check_idempotent, _db_retry
+from assessment_engine.consumer.handlers._common import _check_idempotent, _db_retry, _format_validation_err
 from assessment_engine.consumer.schemas import TaskResultInput
 from assessment_engine.db.dtos.inbound import TaskResultUpdate
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
@@ -36,7 +36,7 @@ def make_task_result_handler(
             try:
                 data = TaskResultInput.model_validate_json(message.body)
             except ValidationError as e:
-                logger.error("task_result parse error count={}", len(e.errors()))
+                logger.error("task_result parse error {}", _format_validation_err(e))
                 raise
 
             if not await _check_idempotent(redis, data.message_id):

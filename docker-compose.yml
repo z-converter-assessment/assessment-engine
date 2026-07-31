@@ -99,18 +99,16 @@ services:
       start_period: 5s
 
   # 마이그레이션 1회성(init-container 패턴) — postgres healthy 후 alembic upgrade head 실행 후 종료.
-  # prod 이미지는 wheel install 이라 alembic.ini 가 패키지 안 `_alembic.ini`. 경로를 동적 해석해 실행.
-  # ENTRYPOINT 가 `python -m` 이라 entrypoint 를 sh 로 override. dev 의 migrations bind mount 는 override.yml.
+  # 이미지 ENTRYPOINT(`python -m`)를 그대로 써서 `docker compose run --rm migrate alembic history` 처럼
+  # 명령만 바꿔 실행할 수 있다. ALEMBIC_CONFIG 가 설정 경로를 잡으므로 각 명령에 -c 를 붙이지 않는다.
   migrate:
     image: ${ENGINE_IMAGE:-ghcr.io/z-converter-assessment/assessment-engine:__ENGINE_VERSION__}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        python -m alembic -c "$$(python -c 'from importlib.resources import files; print(files("assessment_engine") / "_alembic.ini")')" upgrade head
+    command: ["alembic", "upgrade", "head"]
     env_file: ${ENV_FILE:-.env}
     environment:
       APP_ENV: ${APP_ENV:-prod}
       POSTGRES_HOST: postgres
+      ALEMBIC_CONFIG: /opt/venv/lib/python3.12/site-packages/assessment_engine/_alembic.ini
     depends_on:
       postgres:
         condition: service_healthy

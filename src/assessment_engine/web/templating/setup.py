@@ -48,7 +48,7 @@ env.filters["or_dash"] = or_dash
 ASSET_V: str = format(int(time.time()), "x")
 env.globals["asset_v"] = ASSET_V
 
-# 엔진(포털) 버전 — 전역 상단 바에 노출. hatch vcs 동적 버전(설치 메타데이터). 미설치/개발 트리면 "dev".
+# 엔진(포털) 버전 — 전역 상단 바에 노출. 설치 메타데이터의 버전. 미설치/개발 트리면 "dev".
 try:
     ENGINE_VERSION: str = version("assessment-engine")
 except PackageNotFoundError:

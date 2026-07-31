@@ -45,7 +45,7 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 
 ## CI 게이트
 
-`ci.yml` typecheck job(develop PR 게이트 포함): `pnpm run codegen` 재생성 후 `git diff --exit-code`(엔드포인트
+`ci.yml` typecheck job: `pnpm run codegen` 재생성 후 `git diff --exit-code`(엔드포인트
 변경 후 codegen 미실행 = drift 차단) + `pnpm run typecheck`(계약 위반 차단).
 
 ## 확장 방법

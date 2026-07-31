@@ -13,18 +13,18 @@
 
 `pyproject.toml` 만 있으면 사용자 마다 다른 transitive 버전 install (resolver 시점 의존). `uv.lock` 이 그 결과를 freeze — 같은 lockfile 로는 어디서나 정확히 같은 install.
 
-CI (`ci.yml`·`alembic-check.yml`) 가 `uv sync --frozen` 사용 — `pyproject.toml` 과 `uv.lock` drift 시 fail. lockfile 갱신 누락이 즉시 노출.
+CI (`ci.yml`·`alembic-check.yml`) 가 `uv sync --frozen` 으로 설치한다 — lockfile 을 재해석하지 않고 그대로 써서 빌드 시점과 무관하게 같은 버전 집합이 깔린다. drift 자체를 실패로 잡는 것은 `uv lock --check` 이며 현재 CI 에는 없다.
 
 ## 2. `pyproject.toml` 구조
 
 ```toml
 [build-system]
-requires = ["hatchling", "hatch-vcs"]      # hatch-vcs = 버전을 git tag 에서 derive
-build-backend = "hatchling.build"
+requires = ["uv_build>=0.11.16,<0.12.0"]
+build-backend = "uv_build"
 
 [project]
 name = "assessment-engine"
-dynamic = ["version"]   # 버전 미저장 — git tag(v*) 단일 진실. [tool.hatch.version] source="vcs"
+version = "X.Y.Z"       # 릴리즈 시 `uv version --bump <part>` 가 이 값을 올린다
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136.0",
@@ -40,13 +40,11 @@ dev = [
     # ...
 ]
 
-[tool.hatch.build.targets.wheel]
-packages = ["src/assessment_engine"]
-force-include = { "migrations" = "...", "alembic.ini" = "..." }
-
 [tool.pytest.ini_options] # ...
 [tool.ruff] # ...
 ```
+
+빌드 대상 설정은 없다. `uv_build` 가 `src/` 아래 패키지를 자동으로 잡고, `migrations/` 와 `_alembic.ini` 는 패키지 디렉토리 안에 있어 확장자와 무관하게 함께 포장된다.
 
 ### 운영 vs dev 의존성
 
@@ -78,7 +76,7 @@ git diff 보면 큰 lockfile 변경이 흔함 — transitive 트리 resolver 결
 # dev 의존성 + 운영 의존성 모두 설치 (가장 흔함)
 uv sync --group dev
 
-# CI 와 동일한 frozen install (lockfile drift 검증 + reproducible)
+# CI 와 동일한 frozen install (lockfile 그대로 — reproducible)
 uv sync --frozen --group dev
 
 # 운영 의존성만 (Docker prod 이미지 빌드 시점)
@@ -133,7 +131,7 @@ CI matrix 확장 시 `.github/workflows/ci.yml` `setup-python` 의 `python-versi
 본 repo 는 GitHub Dependabot version updates 비활성 (`.github/dependabot.yml` 없음). 사유:
 
 - Dependabot 이 `uv.lock` 직접 갱신 미지원 (uv 의 ecosystem 미통합) — PR 머지 시 `pyproject.toml` 만 갱신, `uv.lock` 은 drift 상태로 남음.
-- CI `uv sync --frozen` 이 다음 PR 에서 drift fail → 운영자가 결국 수동 `uv lock` 실행 의무. 자동화의 이점 없음.
+- lockfile 이 갱신되지 않은 채 머지되면 결국 운영자가 수동으로 `uv lock` 을 돌려야 한다. 자동화의 이점이 없다.
 - 의존성 PR 폭주 + 자동 merge 패턴이 운영 흐름 방해.
 
 대안 — 운영자 수동 주기 검토:
@@ -175,13 +173,13 @@ git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 4. `uv run pytest` (전체 회귀 검증)
 5. commit (`pyproject.toml` + `uv.lock`)
 
-### CI fail "lockfile drift" 대응
+### lockfile drift 대응
 
-증상: PR CI 에서 `uv sync --frozen` 단계 fail — "lockfile is out of date".
+증상: `pyproject.toml` 의 의존성과 `uv.lock` 이 어긋난 상태. `uv lock --check` 로 확인한다.
 
-원인: 누군가 `pyproject.toml` 만 편집하고 `uv.lock` 미갱신.
+원인: `pyproject.toml` 만 편집하고 `uv.lock` 을 갱신하지 않음.
 
-해결: `uv lock` 호출 → `uv.lock` 갱신 → commit + push.
+해결: `uv lock` 호출 -> `uv.lock` 갱신 -> commit.
 
 ## 관련 문서·코드
 
@@ -191,4 +189,4 @@ git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 - `docs/guides/testing.md` — pytest 실행·fixture
 - `docs/guides/release.md` — OCI 이미지 발행(GHCR)·서명·SBOM·provenance
 - `.github/workflows/ci.yml`·`alembic-check.yml` — frozen sync CI 검증
-- 현행 CI 산출물 = OCI 이미지 (결정 기록: `docs/decisions/adr/`)
+- `.github/workflows/release.yml` — OCI 이미지 발행

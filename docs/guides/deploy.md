@@ -39,10 +39,11 @@ sudo bash bootstrap.sh
    printf '%s' "$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/rabbitmq_password
    chmod 644 $DEPLOY_DIR/secrets/*
    ```
+   `rabbitmq_password` 는 외부 agent 가 broker 발행에 쓰는 값이라 agent 설정에도 같은 값을 넣는다 — 불일치 시 agent 인증이 실패해 데이터가 들어오지 않는다. 값은 `sudo cat $DEPLOY_DIR/secrets/<name>` 으로 확인한다.
 
 ## 3. rollout (`deploy.sh`)
 
-배포는 VM 에서 사람이 실행한다 — 실행 자체가 배포 게이트(release 성공이 자동 배포로 이어지지 않는다). 배포할 버전의 이미지가 GHCR 에 발행돼 있어야 한다(태그 push -> `release.yml`).
+배포는 VM 에서 사람이 실행한다 — 실행 자체가 배포 게이트(release 성공이 자동 배포로 이어지지 않는다). 배포할 버전의 이미지가 GHCR 에 발행돼 있어야 한다 — 발행 절차는 `docs/guides/release.md`.
 
 ```bash
 sudo $DEPLOY_DIR/deploy.sh vX.Y.Z

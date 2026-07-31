@@ -25,7 +25,7 @@ model: opus
 | 2 | `assessment-engine/src/assessment_engine/consumer/schemas.py` | 엔진 Pydantic 검증 계약 |
 | 3 | `assessment-agent/src/collect.c` + `assessment-agent/src/main.c` (외부 레포) | 에이전트 발행 측 실제 코드 |
 
-`assessment-agent` 레포는 일반적으로 `/Users/whdcks/PycharmProjects/assessment-agent/` (또는 형제 디렉토리)에 위치. `ls ../assessment-agent` 같이 상대로 찾기.
+`assessment-agent` 레포는 일반적으로 `/Users/whdcksdbwls/PycharmProjects/assessment-agent/` (또는 형제 디렉토리)에 위치. `ls ../assessment-agent` 같이 상대로 찾기.
 
 ## 검사 영역
 
@@ -82,7 +82,7 @@ model: opus
 
 ## 단위 규약 검사
 
-- 메모리 = `kb` / 디스크·네트워크 = `bytes` (docs/architecture/agent.md 데이터 형식 절)
+- 메모리 = `kb` / 디스크·네트워크 = `bytes` (docs/reference/contracts/agent-data.md)
 - counter 누적값 (delta·% 계산은 엔진 책임)
 - ISO 8601 UTC 명시 (KST 변환 금지 — F2)
 

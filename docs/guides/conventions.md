@@ -20,7 +20,7 @@ ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook
 
 ## 2. Hook 강제 채널 (#F5 부속)
 
-두 종류의 hook이 강제한다 — Claude Code PostToolUse hook(편집 시점)과 git hook(commit/push 시점). 둘 다 skill(opt-in 가이드)과 별개의 게이트 — 누가 어떤 경로로 작업하든 적용.
+Claude Code PostToolUse hook 이 편집 시점에 강제한다. skill(opt-in 가이드)과 별개의 게이트라 누가 어떤 경로로 작업하든 적용된다.
 
 ### Claude Code hook (`.claude/hooks/`, 편집 시점)
 
@@ -35,18 +35,17 @@ PostToolUse hook이 강제하는 위반(exit 2 → system-reminder 피드백)은
 
 hook 파일 자체(`.claude/hooks/*`)는 패턴 정의를 포함하므로 self-skip — `.claude/hooks/` 경로는 검사 안 함.
 
-### git hook (`.githooks/`, commit/push 시점)
+### 서버·CI 강제 (push/PR 시점)
 
-`core.hooksPath = .githooks` (scripts/local-ci.sh가 idempotent하게 자동 설정 — clone별 로컬 설정).
+로컬 git hook 은 두지 않는다 — `--no-verify` 로 뚫리므로 강제 수단이 될 수 없고, 같은 검사를 두 곳에서 유지하는 비용만 든다.
 
-| 위반 | 시점 | Hook |
-|------|------|------|
-| 커밋 메시지 type prefix 컨벤션 위반 | commit-msg | `commit-msg` |
-| AI 메타데이터 (Co-Authored-By: Claude / Generated with Claude Code) | commit-msg | `commit-msg` |
-| 이모지·장식 기호 | commit-msg | `commit-msg` |
-| main/master 직접 push | pre-push | `pre-push` |
+| 위반 | 강제 지점 |
+|------|----------|
+| 보호 브랜치 직접 push·force push·삭제 | GitHub ruleset |
+| PR title Conventional Commits | `pr-title-check.yml` |
+| lint·테스트·타입 계약·마이그레이션 drift | `ci.yml`·`alembic-check.yml` (required check 목록은 `docs/guides/ci-setup.md` 3.4) |
 
-불가피 시 `--no-verify` 우회 가능하나 권장 안 함 — CI(`pr-title-check.yml`)가 PR title을 별도 강제.
+설정 카탈로그는 `docs/guides/ci-setup.md`.
 
 ## 3. 자동화 변환 검증 (#F5 부속)
 

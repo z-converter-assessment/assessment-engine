@@ -13,6 +13,7 @@ from assessment_engine.cache.redis import safe_delete, safe_set
 from assessment_engine.consumer.handlers._common import (
     _check_idempotent,
     _db_retry,
+    _format_validation_err,
     _log_time_invariants,
     _track_agent_restart,
 )
@@ -32,7 +33,7 @@ def make_metrics_handler(
             try:
                 data = MetricsInput.model_validate_json(message.body)
             except ValidationError as e:
-                logger.error("metrics parse error count={}", len(e.errors()))
+                logger.error("metrics parse error {}", _format_validation_err(e))
                 raise
 
             if not await _check_idempotent(redis, data.message_id):

@@ -36,13 +36,14 @@ model: opus
 - dataclass 필드 순서 (default 있는 필드를 default 없는 필드 위에 두면 `non-default argument follows default` `TypeError`)
 - 런타임 데드코드 (`assert x is not None` 같은 type checker 만족용)
 - `TYPE_CHECKING` 블록 남용 (실제 순환 import 없는데 사용)
-- 참고: `from __future__ import annotations` 추가는 `.claude/hooks/conventions-check.sh`가 자동 차단 — 본 에이전트 검토 항목 아님.
+- Pydantic 모델 필드 타입을 `TYPE_CHECKING` 블록에만 뒀는지 — 런타임 resolve 라 `NameError` 가 난다
+- 시그니처가 정직한지 — 실제로 `None` 을 반환하면 `-> T | None`. `# type: ignore[return-value]` 로 덮은 거짓 시그니처는 위반
 
 ### F9. 자동화 변환 — 메인 책임 영역만 보조 검토
 
 - 메인이 변환 직후 보고한 grep 결과(옛 패턴 잔존 / 새 패턴 스코프)가 누락됐는지 — 보고 자체가 없으면 지적
 - DTO·매퍼·cache_serializer·템플릿·JS 체인에서 한 곳 누락 발견 시 지적
-- 참고: `from __future__ import annotations` 추가는 `conventions-check.sh` hook이 자동 차단 — 본 에이전트가 재검토하지 않음. ruff 위반은 별도 항목(아래 "일반")에서 직접 검토.
+- ruff 위반은 별도 항목(아래 "일반")에서 직접 검토.
 
 ### C1. 키·제약 — 멱등성 의존 (엔진 내부 일관성)
 
@@ -61,7 +62,7 @@ model: opus
 - Pydantic Input 모델에 `extra=forbid` 사용 (금지)
 - 의미 모르는 필드를 매퍼에 추측으로 추가했는지
 
-### 테스트 정책 (`docs/development/testing.md` 참조)
+### 테스트 정책 (`docs/guides/testing.md` 참조)
 
 - 새 코드에 테스트가 추가됐는지 — 단, 사용자가 명시 요청 안 했으면 "테스트 작성 안 함"을 확인하는 정도. 테스트 실행은 절대 금지 (본 에이전트 read-only)
 
