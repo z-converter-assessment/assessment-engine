@@ -21,7 +21,7 @@ from assessment_engine.web.services.metrics_calculator import (
     build_saturation_signals,
 )
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.metric import MetricDashboard, MetricSeriesItem
 
 
@@ -29,7 +29,7 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
     async def get_latest_metric(
         self, server_id: int, saturation: SaturationRaw | None = None
     ) -> MetricDashboard | None:
-        cache_key = web_settings.redis_key_cache_metrics.format(server_id)
+        cache_key = get_web_settings().redis_key_cache_metrics.format(server_id)
         cached = await safe_get(self.redis, cache_key)
         if cached:
             return dashboard_from_json(cached)
@@ -61,7 +61,7 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         result.net_saturation = signals["net"]
         # 에러 축(E)은 서버 세부 '자원 이용률·포화·에러' 카드(14일 창, SSR get_period_assessment)로 통합 — 실시간
         # 스냅샷은 이용률(도넛)·포화·활동만. per-server latest_errors N+1 회피 겸.
-        await safe_set(self.redis, cache_key, dashboard_to_json(result), ex=web_settings.redis_ttl_cache_metrics)
+        await safe_set(self.redis, cache_key, dashboard_to_json(result), ex=get_web_settings().redis_ttl_cache_metrics)
         return result
 
     async def get_metric_snapshots(

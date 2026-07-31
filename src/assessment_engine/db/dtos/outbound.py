@@ -468,7 +468,7 @@ class ReportRowRaw:
     cpu_steal_p95_pct: float | None = None  # steal% p95 (가상화 경합 — 충실도 편향 + 인과 분리)
     cpu_burst_ratio: float | None = None  # cpu p95/median (버스티 -> 통계 정밀도 하향)
     procs_blocked_p95: float | None = None  # D-state 블록 p95 (IO발 CPU 로드 분리 근본원인)
-    procs_running_p95: float | None = None  # R-state 실행 큐 p95 (Linux CPU 포화 — load 대체)
+    procs_running_p95: float | None = None  # R-state 실행 큐 p95 (Linux CPU 포화)
     mem_swap_paging: bool = False  # paging_major(refault) rate sustained (Linux 메모리 포화 dual-gate 입력)
     oom_occurred: bool = False  # 창 안 OOM kill 발생 (메모리 under 사후 증거)
     history_hours: float | None = None  # 관측 버킷(5분) 누적 시간 — 통계 정밀도 바닥(30h floor)

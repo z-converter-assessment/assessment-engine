@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_get, safe_incr_with_ttl, safe_set, safe_set_nx
 from assessment_engine.consumer.schemas import MessageBase
-from assessment_engine.consumer.settings import consumer_settings
+from assessment_engine.consumer.settings import get_consumer_settings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 
 # 일시 장애(connection·deadlock)만 retry. 영구 장애(IntegrityError·ProgrammingError·DataError 등)는
@@ -121,8 +121,8 @@ async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:
     Redis 장애 시 fail-open (True 반환) — 처리 진행. DB UNIQUE 제약(2단)이 중복 INSERT를 흡수.
     CLAUDE.md #D2 (멱등성 2단 방어) 참조.
     """
-    key = consumer_settings.redis_key_idempotent.format(message_id.hex)
-    result = await safe_set_nx(redis, key, "1", consumer_settings.redis_ttl_idempotent)
+    key = get_consumer_settings().redis_key_idempotent.format(message_id.hex)
+    result = await safe_set_nx(redis, key, "1", get_consumer_settings().redis_ttl_idempotent)
     return True if result is None else result
 
 
@@ -141,8 +141,8 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     boot_ok = data.boot_time is None or data.boot_time <= data.agent_started_at
     if boot_ok and data.agent_started_at <= data.collected_at:
         return
-    cooldown_key = consumer_settings.redis_key_time_invariant_warned.format(data.agent_id)
-    set_result = await safe_set_nx(redis, cooldown_key, "1", consumer_settings.redis_ttl_time_invariant_warned)
+    cooldown_key = get_consumer_settings().redis_key_time_invariant_warned.format(data.agent_id)
+    set_result = await safe_set_nx(redis, cooldown_key, "1", get_consumer_settings().redis_ttl_time_invariant_warned)
     if set_result is False:
         return  # 쿨다운 윈도우 안
     if data.boot_time is not None and data.boot_time > data.agent_started_at:
@@ -173,20 +173,20 @@ async def _track_agent_restart(
     """
     if agent_started_at is None:
         return
-    last_key = consumer_settings.redis_key_last_agent_start.format(server_id)
-    counter_key = consumer_settings.redis_key_agent_restarts.format(server_id)
+    last_key = get_consumer_settings().redis_key_last_agent_start.format(server_id)
+    counter_key = get_consumer_settings().redis_key_agent_restarts.format(server_id)
     current_iso = agent_started_at.isoformat()
 
     last_iso = await safe_get(redis, last_key)
     if last_iso and last_iso != current_iso:
-        count = await safe_incr_with_ttl(redis, counter_key, consumer_settings.redis_ttl_agent_restarts)
-        if count is not None and count >= consumer_settings.agent_restart_alert_threshold:
+        count = await safe_incr_with_ttl(redis, counter_key, get_consumer_settings().redis_ttl_agent_restarts)
+        if count is not None and count >= get_consumer_settings().agent_restart_alert_threshold:
             logger.warning(
                 "agent restart frequency alert agent_id={} server_id={} count={}/h threshold={}",
                 agent_id,
                 server_id,
                 count,
-                consumer_settings.agent_restart_alert_threshold,
+                get_consumer_settings().agent_restart_alert_threshold,
             )
 
-    await safe_set(redis, last_key, current_iso, ex=consumer_settings.redis_ttl_last_agent_start)
+    await safe_set(redis, last_key, current_iso, ex=get_consumer_settings().redis_ttl_last_agent_start)

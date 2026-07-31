@@ -11,7 +11,7 @@ from redis.asyncio import Redis
 
 from assessment_engine.cache.redis import safe_mget
 from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import AttentionSignals, EnvironmentOverview
 
 
@@ -27,9 +27,9 @@ class _BaseQueryServiceMixin:
 
         get_servers 는 순서 비보존이라 server_ids 기준 dict 매칭으로 순서 의존 제거.
         """
-        online_keys = [web_settings.redis_key_online.format(sid) for sid in server_ids]
+        online_keys = [get_web_settings().redis_key_online.format(sid) for sid in server_ids]
         flags = await safe_mget(self.redis, online_keys)
-        threshold = now - timedelta(seconds=web_settings.redis_ttl_online)
+        threshold = now - timedelta(seconds=get_web_settings().redis_ttl_online)
         if flags is None:
             return {d.id: bool(d.last_seen_at and d.last_seen_at > threshold) for d in details}
         return {sid: (flags[i] is not None) for i, sid in enumerate(server_ids)}

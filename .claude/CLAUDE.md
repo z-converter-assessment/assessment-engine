@@ -15,7 +15,7 @@
 | 디렉토리 | 목적 (Diátaxis) | 성격 |
 |----------|----------------|------|
 | `docs/README.md` | 문서 관리 계약 (4원칙) + 지도 단일 진실 | 영구·갱신 |
-| `docs/reference/` | 지금 어떻게 도나 — subsystem 동작 + `contracts/`(agent-data·env 얼어붙은 계약) | 현재 상태 선언 |
+| `docs/reference/` | 지금 어떻게 도나 — subsystem 동작·docker 구성 + `contracts/`(agent-data·env 얼어붙은 계약) | 현재 상태 선언 |
 | `docs/guides/` | 어떻게 하나 — 작업 절차 (deploy·migrate·release·local-dev·testing·ci-setup·wrap-up·conventions·dependencies) | 현재 상태 선언 |
 | `docs/explanation/` | 왜 이렇게 설계했나 — 한계(`tradeoffs.md`)·산출물 의의(`products/`) | 현재 상태 선언 |
 | `docs/decisions/` | 왜 바꿨나 — `adr/`(결정)·`rfc/`(제안) append-only 이력 | 불변 아카이브 |
@@ -35,7 +35,7 @@
 - compose `migrate` 서비스 — alembic init-container (C4)
 
 작업 절차 진입 (상세는 각 guide):
-- dev·prod 기동·서비스 카탈로그 = `docs/guides/local-dev.md`
+- 이미지·compose 구성 = `docs/reference/docker.md` / dev 기동·코드 반영 = `docs/guides/local-dev.md`
 - 테스트 = `docs/guides/testing.md` / 마이그레이션 = `docs/guides/migrate.md`
 - 배포(VM rollout)·부트스트랩 = `docs/guides/deploy.md` / 릴리즈 = `docs/guides/release.md`
 - 표현계층 타입 계약(codegen·tsc) = `docs/reference/web/type-contract.md`
@@ -52,12 +52,12 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 repo는 엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.sh`, 배포 대상 VM 에서 실행)까지 다룬다. VM provisioning(IaC — VM 생성·OS 설정)은 별도 준비 VM 전제. docker·cosign·deploy.sh 설치는 1회성 `bootstrap.sh`.
 
 본 절 결정:
-- compose = prod base(빌드 없는 GHCR pull) + dev override(소스 빌드·bind mount, 자동 머지) + prod file-secret overlay. prod = base+secrets, dev = base+override. `docker-compose.prod.yml` 안 둔다 (base 자체가 prod). Dockerfile 은 dev/prod 분리 안 함 (parity — dev 편의는 override bind mount 로만). prod 비번 = file-secret 채널 단일 (`SecretStr`). 파일 구조·서비스 카탈로그 상세 = `docs/guides/local-dev.md`.
+- compose = 공통 base + dev override(소스 빌드·bind mount, 파일명으로 자동 머지) + prod overlay(file-secret). dev = base+override, prod = base+prod.yml — 어느 쪽이 붙는지는 `.env` 의 `COMPOSE_FILE` 이 정한다. base 는 환경 색을 담지 않는다. Dockerfile 은 dev/prod 분리 안 함 (parity — dev 편의는 override bind mount 로만). prod 비번 = file-secret 채널 단일 (`SecretStr`). 파일 구조·서비스 카탈로그 상세 = `docs/reference/docker.md`.
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/reference/contracts/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
-  - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/reference/contracts/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
-  - CI 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR). 배포는 VM 에서 `deploy.sh` 실행 (cosign verify -> compose pull -> migration -> up -> health -> rollback). GitHub Actions runner 미사용(public repo 에 self-hosted runner 안티패턴 회피) — 내부망 VM 이 outbound 로 이미지 pull
+  - 설정 검증 — 비밀번호 미설정·빈값·뻔한 값·채널 충돌을 기동 시점에 거부 (`docs/reference/contracts/env.md` 6절). 환경으로 강도를 가르지 않고, secret 주입 방식과 무관하게 결과만 검증
+  - CI 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR). 배포는 VM 에서 `deploy.sh` 실행 (시퀀스는 `docs/guides/deploy.md` 3절). GitHub Actions runner 미사용(public repo 에 self-hosted runner 안티패턴 회피) — 내부망 VM 이 outbound 로 이미지 pull
 - VM provisioning 코드(`*.tf`·Ansible playbook·VM 생성·OS 설정)는 본 repo에 두지 않는다 — 배포 대상 VM 은 provisioning 완료 상태를 전제. 엔진 rollout(`deploy.sh`)·VM 부트스트랩(`bootstrap.sh`)은 범위 안. 단일 호스트 compose 수동 기동도 지원.
 
 ---
@@ -69,7 +69,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 절 결정:
 - Pydantic Input 모델 `extra=ignore` 유지 — 메시지에 새 필드가 도착해도 엔진은 통과시키고 무시. 비대칭 배포에서 reject 로 엔진이 죽지 않게 함.
 - 활용하지 않는 필드는 mapper drop. 필요해진 시점에 mapper read + inbound DTO 필드 추가를 명시적 결정으로 처리.
-- wire 계약 버전 = envelope `schema_version` (현 "1.0", 통일 `CONTRACT_VERSION` 단일 진실 = `contract.py`). 구조 전환은 schema_version 판별(flag-day cutover). `agent_version` major bump 수신 시 엔진 코드 수정 트리거, minor bump silent 호환.
+- wire 계약 버전 = envelope `schema_version` (현 "1.0", 상수 `AGENT_CONTRACT_VERSION` = `contract.py`). 게이트는 major 일치 — minor 는 additive 라 수용한다. 구조 전환은 major 판별(flag-day cutover). `agent_version` major bump 수신 시 엔진 코드 수정 트리거, minor bump silent 호환.
 - `task.result` 메시지는 발행 측 worker 컨텍스트가 수집 캐시와 분리되어 `boot_time` / `agent_started_at` 가 항상 null — 본 메시지에 한해 nullable override. 다른 메시지 타입은 required 유지.
 - `task.result` 종료 신호: `exit_code` / `signal_no` (int\|null) 상호배타 — 정상종료=exit_code / 시그널종료=signal_no / 미포착=둘 다 null (POSIX wait status). `task_policy`(bool\|null)는 exit_code 보다 우선 판정. `signal_no` 는 `tasks.signal_no` 저장 + task 상세 표시(`mappers/task._signal_label` SIG 이름 라벨). Windows signal_no 항상 null. task_id 로 매칭(composite_id 불요).
 - 인바운드 DTO 는 wire 계약과 정합: `boot_time` nullable (판독 불가 시 null, `_log_time_invariants` None 가드) / `composite_id` "" -> None 정규화 (digest 실패 흡수) / error `failed_component` 자유 문자열 수용 (wire permissive, `Literal` 로 좁히면 유효 메시지 DLQ).
@@ -100,7 +100,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 8테이블 자�
 
 ## C3. Redis 전략 — fail-open 의무
 
-키 설계 표 / TTL 근거 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/reference/redis.md`. 의사결정 ADR: `docs/decisions/adr/0001-redis-decoupling.md`.
+키 설계 표 / TTL 근거 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/reference/redis.md`.
 
 본 절 결정:
 - 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
@@ -243,7 +243,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 - SVG `stroke-dasharray`·`stroke-dashoffset` 비례 산술은 mapper precompute — 템플릿은 raw 값만 삽입.
 - 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·프로비저닝 분포·capacity trigger 일관).
 - 모든 카테고리 항상 노출(count 0 포함). 비활성은 동일 슬롯 옅은 회색. (도넛 카테고리는 #E9 일반 원칙의 한 사례 — 발화 없는 카테고리도 범례에 노출.)
-- 도넛 중앙 라벨은 도넛 유형별 의미로 통일: 구성 분포(워크로드·OS 등)=합계 / 포화=발화 호스트 수(count, 표본은 하단) / 이용률=대표 % 값. 분류(risk) 분포는 중앙 라벨 없는 막대(provisioning_dist_bar)로 렌더 — 옛 "가장 시급한 카테고리 카운트 1개" 규약은 폐기(risk 도넛 자체가 막대로 대체됨). 각 유형은 자기 맥락의 단일 중앙 표기만.
+- 도넛 중앙 라벨은 도넛 유형별 의미로 통일: 구성 분포(워크로드·OS 등)=합계 / 포화=발화 호스트 수(count, 표본은 하단) / 이용률=대표 % 값. 분류(risk) 분포는 중앙 라벨 없는 막대(provisioning_dist_bar)로 렌더. 각 유형은 자기 맥락의 단일 중앙 표기만.
 
 ## E9. 발화 가능 정보 노출 (discoverability, P3 적용)
 
@@ -268,7 +268,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 - 단 Pydantic 모델(`config.py`·`consumer/schemas.py`·consumer handler inbound DTO·라우터 body 모델)은 필드 타입을 `TYPE_CHECKING` 블록에만 두지 않는다 — Pydantic v2 는 model build 시 `get_type_hints()` 로 어노테이션을 resolve 하므로 런타임 네임스페이스에 타입이 없으면 `NameError`/`PydanticUndefinedAnnotation`. Pydantic 필드 타입은 런타임 import 유지.
 - 시그니처는 정직하게 — 실제로 `None` 을 반환하면 `-> T | None` 으로 선언한다. type checker 억제(`# type: ignore[return-value]`)로 거짓 시그니처를 덮지 않는다.
 
-IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/guides/conventions.md` 단일 진실. hook 위반은 즉시 수정 의무.
+정적 검사 도구(ruff·pyright) · 편집기 설정 · 경고 대처 · 강제 채널 카탈로그: `docs/guides/conventions.md` 단일 진실.
 
 ## F2. 시간대 정책 (UTC 저장 / KST 표시)
 
@@ -291,10 +291,10 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/guides/con
 
 원칙: Service/Handler는 추상 인터페이스(`Base*Repository`)만 의존. 구체 구현체·`Settings()` 인스턴스는 Composition Root에서만.
 
-`Settings()` 인스턴스 단일 진실 위치:
-- `src/assessment_engine/web/settings.py` — `web_settings` (WebSettings) + `diagnostic_settings` (DiagnosticSettings, web 이 task.install 발행 위해 broker 사용)
-- `src/assessment_engine/consumer/settings.py` — `consumer_settings` (ConsumerSettings)
-- `src/assessment_engine/worker/settings.py` — `worker_settings` (WorkerSettings, 전용 백그라운드 워커 — 보고서 생성·install reaper)
+`Settings()` 인스턴스 단일 진실 위치 — 전부 첫 호출에서 만든다(`lru_cache`). import 만으로 설정을 읽으면 비밀번호를 필수 필드로 둘 수 없다:
+- `src/assessment_engine/web/settings.py` — `get_web_settings()` (WebSettings) + `get_diagnostic_settings()` (DiagnosticSettings, web 이 task.install 발행 위해 broker 사용)
+- `src/assessment_engine/consumer/settings.py` — `get_consumer_settings()` (ConsumerSettings)
+- `src/assessment_engine/worker/settings.py` — `get_worker_settings()` (WorkerSettings, 전용 백그라운드 워커 — 보고서 생성·install reaper)
 - `src/assessment_engine/db/session.py`·`cache/redis.py`·`migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
 
 `src/assessment_engine/config.py`는 class 정의만 — module-level instance 0 (multi-node 분리 정합, ADR/문서 패턴 정합).
@@ -302,15 +302,14 @@ IDE 경고 대처 매뉴얼 · Hook 강제 채널 카탈로그: `docs/guides/con
 금지:
 - Service/Handler 안 구체 구현체 import.
 - Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·worker/settings·db/session·cache/redis·migrations/env)만 허용 — 전부 `src/assessment_engine/` 아래다.
-- `assessment_engine.config`에서 직접 `web_settings`·`consumer_settings`·`diagnostic_settings` import — class만 export.
-- `APP_ENV` 환경 분기를 `config.py` model_validator · entry lifespan 외 위치에 추가.
+- `assessment_engine.config`에서 Settings 인스턴스 import — class만 export.
+- `APP_ENV` 환경 분기를 entry lifespan 외 위치에 추가. 비밀번호 검증은 환경을 가르지 않는다 (#F8·`contracts/env.md` 6절).
 
 추상 인터페이스 카탈로그·새 Repository 절차: `docs/reference/web/layering.md` · `docs/reference/db/repositories.md`.
 
 ## F5. 자동화 변환 — 책임 분담
 
-원칙: 자동화 변환(sed · `Edit replace_all` · 디렉토리 mv · Python 일괄 갱신) 직후 검증을 3 채널로 분담.
-- Hook (`.claude/hooks/`) — 무인 강제. F7(`print`/`sys.stdout.write`)·C3(직접 redis 호출)·글로벌(markdown bold·비키보드 unicode) 위반 차단.
+원칙: 자동화 변환(sed · `Edit replace_all` · 디렉토리 mv · Python 일괄 갱신) 직후 검증을 2 채널로 분담. 로컬 훅은 두지 않는다 — 우회 가능한 자리라 강제 수단이 못 된다(`docs/guides/conventions.md` 2절).
 - 메인 세션 — 자가 검증. 변환 직후 매 회 의무 (아래 4 항목).
 - 에이전트 (code-reviewer / schema-contract-auditor) — 본 절 맥락(변환 직후 점검)에서는 사용자 명시 요청(`리뷰해줘`·`스키마 일관성 확인` 등) 시에만 발동. PR 게이트의 코드 리뷰는 별개 채널이며 배치는 `docs/guides/wrap-up.md` 0절이 정한다 (develop PR = `/pr` 이 code-reviewer 발동).
 
@@ -373,7 +372,7 @@ Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/refer
 - Redis·DB에 raw payload 캐싱 — Outbound DTO·ViewModel 단계에서 sanitize 후.
 - 메시지 payload 본문 로깅 (`agent_id`·`composite_id`는 식별자라 OK).
 
-secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/reference/contracts/env.md`.
+secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 
 ## F9. 변경 영향도 체크리스트
 
@@ -420,7 +419,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/reference/c
 
 ## F12. 문서·주석 현황 선언성
 
-원칙: 영구 문서(`docs/reference/`·`operations/`·`products/`·`development/`·루트 `README.md`)와 코드 주석은 현재 상태만 선언적으로 기술한다. 변경 시 과거 흔적(폐기된 도구·용어·구조·경위)을 제거하고 현황으로 덮는다 — "이전엔 X 였다"·"Y 에서 전환" 회고형 서술 0.
+원칙: 영구 문서(`docs/reference/`·`docs/guides/`·`docs/explanation/`·루트 `README.md`)와 코드 주석은 현재 상태만 선언적으로 기술한다. 변경 시 과거 흔적(폐기된 도구·용어·구조·경위)을 제거하고 현황으로 덮는다 — "이전엔 X 였다"·"Y 에서 전환" 회고형 서술 0.
 
 본 절 결정:
 - 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함) — 예: dev libvirt 파이프라인·ZDM mock 제거 후 `libvirt`(도메인 가상망 용례 제외)·`virsh`·`dev-up`·`dev-down`·`win-server-01`·`dev_zdm_mock`·`host.docker.internal` 잔존 0.

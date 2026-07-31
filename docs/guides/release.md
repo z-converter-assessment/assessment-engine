@@ -90,10 +90,9 @@ cosign verify ghcr.io/z-converter-assessment/assessment-engine:1.2.1 \
 본 문서는 artifact 정의·생성·검증까지. VM 부트스트랩·rollout·환경변수·alembic 절차는 별도:
 
 - `docs/guides/deploy.md` — bootstrap + rollout(deploy.sh) 가이드
-- `docs/reference/contracts/env.md` — secret·환경변수 contract + APP_ENV=prod fail-fast 검증
+- `docs/reference/contracts/env.md` — secret·환경변수 contract + 기동 시점 fail-fast 검증
 - `docs/guides/migrate.md` — schema 마이그레이션 (이미지 안 `_alembic.ini`, base compose migrate init-container)
 
 ## 6. 한계
 
 - 버전 정책 — stable semver `X.Y.Z`만 지원 (prerelease/RC 미지원). prerelease 도입 시 규약 통일 별도 ADR 의무
-- 배포 매체 = docker compose 단일. wheel+venv·k8s 등 다른 매체는 미지원 — 필요 시 별도 ADR

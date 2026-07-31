@@ -144,9 +144,8 @@ def _action(kind: str, ra: recommendation.ResourceAssessment, op: str) -> dict:
 def _recommendation(host, stats, rec: str) -> dict:
     """종합 권고 구조 (파싱용 견고 포맷) — 이 하나만 보고 조치를 결정한다.
 
-    actions = 관측된 under 자원 전부(자원별 독립, 인과에 의한 억제 없음 — ADR 0055, assessment API sizing.axes
-    와 동일 정책). suppressed 는 항상 빈 배열 — 과거(ADR 0052) 근본원인만 처방하던 시절의 스키마 호환 필드로
-    유지(기존 소비자가 이 키 존재를 가정할 수 있어 제거 대신 상시 empty). 인과 근거는 summary/root_cause 필드
+    actions = 관측된 under 자원 전부(자원별 독립, 인과에 의한 억제 없음 — assessment API sizing.axes 와 동일
+    정책). suppressed 는 항상 빈 배열 — 기존 소비자가 키 존재를 가정할 수 있어 제거하지 않고 둔다. 인과 근거는 summary/root_cause 필드
     (root_cause_display, "왜")가 전달 — actions 자체(무엇을)는 자원마다 독립 판정.
     per-resource sizing_target 은 자원별 독립 목표 — actions 목록과 정합(둘 다 같은 독립 판정 소스).
     """

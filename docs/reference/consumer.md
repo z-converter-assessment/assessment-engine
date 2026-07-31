@@ -137,10 +137,6 @@ RabbitMQ 전용 비동기 클라이언트. AMQP 0-9-1 프로토콜만 지원.
 
 upsert 성공 후 `SET online:{server_id} EX 90`. 첫 메트릭 수신 전(최대 60초)까지 온라인 표시가 "등록됐다"는 의미로 오해될 수 있다. inventory를 발행한 에이전트는 직후 60초 안에 metrics를 발행하므로 오표시 구간이 짧고, 등록 즉시 피드백을 주는 것이 UX상 낫다.
 
-### InventoryMountInfo 미사용 필드
-
-inventory mounts 는 정적 정보(mount/kind/fstype/total_bytes/major/minor)만 저장 — 동적 사용량(free/avail)은 metrics `system.filesystem` -> `server_filesystem` 시계열 전담(agent 가 역할 분리 발행). mount-disk 조인용 major/minor 는 inventory mount 만 보유(metrics mount 는 usage 전담). 필드 카탈로그는 `agent.md` "활용 중인 필드"/"엔진이 받지만 사용하지 않는 필드" 표 단일 진실.
-
 ### 부가 시그널 — 운영 가시성
 
 handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (모두 fail-open · 처리 ack 영향 없음):

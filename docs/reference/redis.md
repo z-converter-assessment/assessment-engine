@@ -86,7 +86,7 @@ web의 `get_latest_metric`이 cache MISS 후 DB query를 마쳤지만 SET을 수
 
 ```python
 # web/services/query_service.py:list_servers
-keys = [web_settings.redis_key_online.format(dto.id) for dto in dtos]
+keys = [get_web_settings().redis_key_online.format(dto.id) for dto in dtos]
 online_flags = await self.redis.mget(keys)
 for dto, flag in zip(dtos, online_flags):
     item = to_server_list_item(dto)
@@ -119,10 +119,13 @@ cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_ser
 ```python
 _pool: ConnectionPool | None = None
 
-def get_pool() -> ConnectionPool:
-    if _pool is None:
-        _pool = ConnectionPool.from_url(web_settings.redis_url, decode_responses=True)
-    return _pool
+def get_pool() -> ConnectionPool:      # 첫 호출에서 만든다 — import 만으로 설정을 요구하지 않는다
+    global _pool
+    pool = _pool
+    if pool is None:
+        pool = ConnectionPool.from_url(WebSettings().redis_url, decode_responses=True, ...)
+        _pool = pool
+    return pool
 
 def get_redis() -> Redis:
     return Redis(connection_pool=get_pool())
@@ -150,7 +153,7 @@ async def close_pool() -> None: ...
 `maxmemory 256mb`, `volatile-lru` 정책. TTL 있는 키만 evict 대상. 멱등성 키도 TTL 있어 evict 가능 (T1 트레이드오프 일부).
 
 ### 키 패턴 정의 위치
-모든 키 패턴(`redis_key_online`, `redis_key_cache_*`, `redis_key_idempotent`)은 `WebSettings`에 정의. `ConsumerSettings`는 `WebSettings`를 상속하므로 동일 키 사용. `query_service.py`는 `web_settings`를 직접 참조 — consumer/web 모두 같은 키 네임스페이스.
+모든 키 패턴(`redis_key_online`, `redis_key_cache_*`, `redis_key_idempotent`)은 `WebSettings`에 정의. `ConsumerSettings`는 `WebSettings`를 상속하므로 동일 키 사용. consumer·web 모두 같은 키 네임스페이스를 쓴다.
 
 ### Redis 장애 시 동작 — fail-open
 

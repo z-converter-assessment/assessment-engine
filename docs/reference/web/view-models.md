@@ -86,7 +86,7 @@
 - `_CAUSE_LABEL_BY_TRIGGER` — trigger key -> os-neutral 원인 라벨 (자원 부족 원인 집계 단일 진실, mapper)
 - `disk_threshold_pct = 85` — disk_warnings 진입 임계 (service 기본값)
 - `days_until_full_threshold = 30` — 디스크 잔여 신호 진입 임계 (service 기본값)
-- `agent_restart_alert_threshold = 3` — 1h 윈도우 재시작 임계 (web_settings)
+- `agent_restart_alert_threshold = 3` — 1h 윈도우 재시작 임계 (WebSettings)
 - `_eol_info` (mapper, shared) — endoflife.date 스냅샷 카탈로그(`os_eol_catalog.json`) 조회 + support(메인스트림 종료)·eol(연장지원 종료) 2 날짜로 상태 판정 단일 진실. Linux: `os_id`->endoflife product slug(`_OS_ID_TO_EOL_PRODUCT`), `os_version`->cycle (support 미수록 -> extended 없이 eol/supported 2상태). Windows: `kernel build`->windows-server latest build (운영=Server 가정), support/eol 분리라 연장지원(extended) 상태 존재. 빌드가 복수 채널 겹치면 후보 전체로 정직 판정(전부 eol 경과=종료 / 전부 support 경과=연장지원 / 아니면 지원 중). 래퍼: `resolve_os_eol`(발화용 — status==eol 만 반환, attention 카드·보고서 요약) / `lookup_os_eol`(표시용 — OsEolInfo(eol_iso·support_iso·label·status) 반환, 서버 목록·상세·보고서 상태 칼럼).
 
 활용률 게이지 색 카탈로그 (mapper 상수):

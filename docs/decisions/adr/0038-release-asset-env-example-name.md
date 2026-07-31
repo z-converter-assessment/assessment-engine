@@ -1,6 +1,6 @@
 # ADR 0038 — release 에셋명 env.example (점 prefix 제거, GitHub leading-dot 회피)
 
-상태: Accepted (2026-06-08)
+상태: Superseded by ADR 0058 (2026-07-31) — 릴리즈 에셋 첨부 폐기로 leading-dot 제약이 소멸했다.
 
 ## Context
 

@@ -1,31 +1,21 @@
 #!/usr/bin/env bash
 #
-# bootstrap.sh — 배포 대상 VM 1회성 멱등 부트스트랩 (ADR 0048).
+# bootstrap.sh — 배포 대상 VM 1회성 부트스트랩 (ADR 0048). deploy.sh 가 전제하는 VM 상태를 만든다.
 #
-# deploy.sh(엔진 rollout)가 전제하는 VM 상태를 만든다:
-#   (1) docker engine + compose plugin + cosign
-#   (2) 배포 디렉토리(DEPLOY_DIR) + secrets/ + .env 템플릿
-#   (3) deploy.sh 배치
-#
-# 멱등 — 이미 된 단계는 건너뛴다. 여러 번 실행해도 안전.
-# 대상 OS: Debian/Ubuntu (apt). 다른 distro 는 docker 설치 절만 대체.
-#
-# 사용 (public repo — raw 에서 받아 실행, clone 불요):
+# 사용 (public repo — clone 없이 raw 에서 받아 실행):
 #   curl -fsSL https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main/bootstrap.sh -o bootstrap.sh
 #   sudo bash bootstrap.sh
 #
-# 선택 env:
-#   DEPLOY_DIR         배포 디렉토리 (기본 /opt/assessment-engine)
-#   ENV_TEMPLATE_URL   .env 템플릿 소스 (기본 raw main env.example)
-#   DEPLOY_SCRIPT_URL  deploy.sh 소스 (기본 raw main deploy.sh)
-#   COSIGN_VERSION     cosign 버전 (기본 latest)
+# 멱등 — 이미 끝난 단계는 건너뛰므로 deploy.sh 를 갱신할 때 다시 돌려도 된다.
+# 대상 OS 는 Debian/Ubuntu(apt). 다른 distro 는 docker 설치 절만 대체한다.
 
 set -euo pipefail
 
 DEPLOY_DIR="${DEPLOY_DIR:-/opt/assessment-engine}"
 RAW_MAIN="https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main"
-ENV_TEMPLATE_URL="${ENV_TEMPLATE_URL:-${RAW_MAIN}/env.example}"
+ENV_TEMPLATE_URL="${ENV_TEMPLATE_URL:-${RAW_MAIN}/.env.example}"
 DEPLOY_SCRIPT_URL="${DEPLOY_SCRIPT_URL:-${RAW_MAIN}/deploy.sh}"
+PROD_COMPOSE_URL="${PROD_COMPOSE_URL:-${RAW_MAIN}/docker-compose.prod.yml}"
 COSIGN_VERSION="${COSIGN_VERSION:-latest}"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
@@ -33,8 +23,9 @@ die() { printf '[bootstrap][error] %s\n' "$*" >&2; exit 1; }
 
 [[ "$(id -u)" -eq 0 ]] || die "root 로 실행 (sudo)"
 
-# curl — 이미지·스크립트 다운로드에 사용. 없으면 설치.
+# curl 은 스크립트·템플릿 다운로드, openssl 은 secret 값 생성에 쓴다.
 command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq curl; }
+command -v openssl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq openssl; }
 
 # ─── (1) docker engine + compose plugin ───────────────────────────────────
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
@@ -77,29 +68,45 @@ install -d -m 0755 "$DEPLOY_DIR"
 install -d -m 0700 "$DEPLOY_DIR/secrets"
 
 # .env 는 최초 1회만 생성 (이후 deploy.sh 가 ENGINE_IMAGE 만 갱신 — 덮어쓰지 않음).
-# env.example 템플릿을 raw 에서 받아 배치 (public repo — 토큰 불요). 운영자가 값 채움.
+# .env.example 템플릿을 raw 에서 받아 배치 (public repo — 토큰 불요). 운영자가 값 채움.
 if [[ ! -f "$DEPLOY_DIR/.env" ]]; then
   if curl -fsSL "$ENV_TEMPLATE_URL" -o "$DEPLOY_DIR/.env"; then
     chmod 0640 "$DEPLOY_DIR/.env"
-    log ".env 생성 (env.example 템플릿) — POSTGRES_USER 등 운영값을 채울 것"
+    log ".env 생성 (.env.example 템플릿) — POSTGRES_USER 등 운영값을 채울 것"
   else
-    log "env.example 다운로드 실패 — $DEPLOY_DIR/.env 를 수동 배치할 것"
+    log ".env.example 다운로드 실패 — $DEPLOY_DIR/.env 를 수동 배치할 것"
   fi
 else
   log ".env 이미 존재 — 보존"
 fi
 
-# secret 파일 안내 (강 random 생성은 운영자 책임 — 여기서 자동 생성하지 않음).
-cat <<EOF
-[bootstrap] secret 파일을 아래처럼 배치할 것 (없으면 APP_ENV=prod 기동 거부):
-  printf '%s' "\$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/postgres_password
-  printf '%s' "\$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/rabbitmq_password
-  chmod 644 $DEPLOY_DIR/secrets/*
-EOF
+# 파일 목록은 docker-compose.prod.yml 의 secrets: 항목이 정하므로 받아서 읽는다. 여기 열거하면
+# secret 이 늘 때마다 본 스크립트도 고쳐야 한다.
+# fetch 와 parse 를 나눈다 — 파이프로 묶으면 pipefail 이 대입 자체를 실패로 만들어 아래 die 에
+# 닿지 못하고 조용히 죽는다.
+PROD_COMPOSE_YAML="$(curl -fsSL "$PROD_COMPOSE_URL")" \
+  || die "prod compose 를 받지 못했다 — $PROD_COMPOSE_URL"
+SECRET_KEYS="$(printf '%s\n' "$PROD_COMPOSE_YAML" |
+  awk '/^secrets:/{inblock=1; next} inblock && /^[^[:space:]]/{inblock=0} inblock && /^  [A-Za-z_][A-Za-z0-9_]*:/{sub(/:.*/,""); gsub(/ /,""); print}')"
+[[ -n "$SECRET_KEYS" ]] || die "prod compose 에서 secrets: 항목을 찾지 못했다 — $PROD_COMPOSE_URL"
+
+# 없는 것만 만든다 — 이미 기동 중인 DB 의 비번을 덮으면 접속이 끊긴다.
+# 권한 644 는 postgres 공식 이미지가 non-root 로 읽어야 하기 때문이고, 호스트 쪽 경계는 secrets/ 0700 이 맡는다.
+# 값은 출력하지 않는다.
+while read -r key; do
+  secret_file="$DEPLOY_DIR/secrets/$key"
+  if [[ -f "$secret_file" ]]; then
+    log "secret $key — 이미 존재, 보존"
+  else
+    printf '%s' "$(openssl rand -base64 32)" > "$secret_file"
+    chmod 644 "$secret_file"
+    log "secret $key — 생성"
+  fi
+done <<< "$SECRET_KEYS"
 
 # ─── (3) deploy.sh 배치 (raw 에서 받아 배치) ───────────────────────────────
 log "deploy.sh 배치: $DEPLOY_DIR/deploy.sh"
 curl -fsSL "$DEPLOY_SCRIPT_URL" -o "$DEPLOY_DIR/deploy.sh"
 chmod 0755 "$DEPLOY_DIR/deploy.sh"
 
-log "완료. 다음: (1) $DEPLOY_DIR/.env 운영값 (2) secrets/* 배치 (3) sudo $DEPLOY_DIR/deploy.sh vX.Y.Z"
+log "완료. 다음: (1) $DEPLOY_DIR/.env 운영값 채우기 (2) sudo $DEPLOY_DIR/deploy.sh vX.Y.Z"

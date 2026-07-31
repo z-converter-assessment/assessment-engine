@@ -9,7 +9,7 @@ from assessment_engine.web.services.mappers.attention import (
     to_os_eol_warning_item,
 )
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _filter_attention
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import AttentionRow, AttentionSignals
 
 # 운영신호(attention) 카탈로그 항목 한도 + gap 윈도우 — 단건 get_attention_signals 와 대시보드 묶음 공유.
@@ -76,7 +76,7 @@ class AttentionQueryMixin(_BaseQueryServiceMixin):
                 os_eol_warnings.append(eol)
         agent_unstable: list[AttentionRow] = []
         raws_by_id = {r.server_id: r for r in raws_period}
-        threshold_n = web_settings.agent_restart_alert_threshold
+        threshold_n = get_web_settings().agent_restart_alert_threshold
         for sid, count in restart_counts.items():
             if count >= threshold_n:
                 raw = raws_by_id.get(sid)

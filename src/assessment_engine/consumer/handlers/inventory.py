@@ -18,7 +18,7 @@ from assessment_engine.consumer.handlers._common import (
 )
 from assessment_engine.consumer.mappers import to_inventory_create
 from assessment_engine.consumer.schemas import InventoryInput
-from assessment_engine.consumer.settings import consumer_settings
+from assessment_engine.consumer.settings import get_consumer_settings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 
 
@@ -48,9 +48,9 @@ def make_inventory_handler(
 
             resolved_server_id = await _db_retry(session_factory, repo_factory, upsert)
 
-            online_key = consumer_settings.redis_key_online.format(resolved_server_id)
-            inventory_key = consumer_settings.redis_key_cache_inventory.format(resolved_server_id)
-            await safe_set(redis, online_key, "1", ex=consumer_settings.redis_ttl_online)
+            online_key = get_consumer_settings().redis_key_online.format(resolved_server_id)
+            inventory_key = get_consumer_settings().redis_key_cache_inventory.format(resolved_server_id)
+            await safe_set(redis, online_key, "1", ex=get_consumer_settings().redis_ttl_online)
             # 인벤토리 변경 즉시 반영 — TTL 만료 대기 제거
             await safe_delete(redis, inventory_key)
 

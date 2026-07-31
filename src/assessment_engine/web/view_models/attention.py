@@ -283,5 +283,5 @@ class EnvironmentRealtime:
     utilization: list[UtilizationBar] = field(default_factory=list)
     last_collected_at: datetime | None = None
     load_rows: list[RealtimeLoadRow] = field(default_factory=list)
-    # 포화 비율 도넛 (CPU 포화·디스크 I/O 포화·메모리 압박 = 포화 호스트 수/표본) — 처리량 총량 도넛 대체.
+    # 포화 비율 도넛 (CPU 포화·디스크 I/O 포화·메모리 압박 = 포화 호스트 수/표본).
     saturation_donuts: list[SaturationDonut] = field(default_factory=list)

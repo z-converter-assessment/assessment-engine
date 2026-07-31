@@ -100,7 +100,7 @@ Self-audit 메타 인용 제외:
 - [1.7] F1 — Pydantic 모델 필드 타입이 `TYPE_CHECKING` 블록에만 있는지 0건(런타임 resolve 라 `NameError`). type checker 만족용 런타임 `assert x is not None` 0건. `# type: ignore[return-value]` 로 덮은 거짓 시그니처 0건.
 - [1.8] F2 — KST 변환이 표시 경계 4 함수(SSR `kst` · client `fmtLabel` · `fmtKst` · `initAnchor`) 외 0건. naive datetime · 인라인 KST offset 더하기 0건.
 - [1.9] F3 — 검증이 진입점(라우터 Pydantic · Consumer `model_validate_json` · `BaseSettings`) 외 위치에서 재실행 0건. `_VALID_*` frozenset·런타임 enum 멤버십 체크 0건.
-- [1.10] F4 — Service/Handler 안 구체 구현체 import 0건. `config.py` module-level instance 0건. `assessment_engine.config` 에서 `web_settings` 등 직접 import 0건.
+- [1.10] F4 — Service/Handler 안 구체 구현체 import 0건. `config.py` module-level instance 0건. `assessment_engine.config` 에서 Settings 인스턴스 import 0건.
 - [1.11] F6 — `except Exception` 광범위 catch 0건. timeout 없는 외부 호출 0건 (`asyncio.wait_for` 또는 클라이언트 timeout 옵션 의무). 영구 오류(`IntegrityError` · 4xx) 재시도 0건.
 - [1.12] F7 — `print` · stdlib `logging` · `sys.stdout.write` 혼용 0건. `logger.exception()` 은 except 블록 안에만. raw payload 로깅 0건 (식별자 + 카운트만). 신규 시그널 로그는 (레벨 · 빈도 제어 · 운영자 행동) 셋 다 명시.
 - [1.13] F8 — secret 필드 `SecretStr` 누락 0건. PII(composite_id · public_id 외 식별자 · 전체 payload · 접속 문자열) 응답·캐시·로그·예외 0건.
@@ -262,7 +262,7 @@ Self-audit 메타 인용 제외:
 - [5.6] ADR 은 정정만 (덮어쓰기 금지). 결정 변경은 새 ADR + 이전 ADR `Status: Superseded by 00NN` (Withdrawn 이면 사유 1줄). retroactive 수정 0건.
 - [5.7] CLAUDE.md F9 "변경 영향도 체크리스트" 에 본 feature 가 추가한 변경 유형이 빠졌으면 행 추가 (변경 유형 + 동시 갱신 위치).
 - [5.8] 새 외부 의존(HTTP · 외부 큐) 도입 시 F6 "외부 의존 실패 모드 매트릭스"(`docs/reference/observability.md`)에 행 추가 (fail-open/close · timeout · 재시도).
-- [5.9] CLAUDE.md "본 절 결정" 신규는 (a) 검사 가능(`rg`·`ruff`·hook·테스트로 위반 발견) (b) F9 영향도 표시 (c) 위반 시 행동 명시 셋 다 충족. 새 F-policy 는 번호 단조 증가. 단순 조언(`...하는 게 좋다`)이면 채택 X — 결정·금지·매트릭스 형태만.
+- [5.9] CLAUDE.md "본 절 결정" 신규는 (a) 검사 가능(`rg`·`ruff`·테스트로 위반 발견) (b) F9 영향도 표시 (c) 위반 시 행동 명시 셋 다 충족. 새 F-policy 는 번호 단조 증가. 단순 조언(`...하는 게 좋다`)이면 채택 X — 결정·금지·매트릭스 형태만.
 
 원칙 (3):
 - [5.10] 모든 "상세는 X 절" 포인터가 가리키는 단일 진실이 실제 존재·정확. 검사: `rg '상세는|단일 진실|catalog: ' CLAUDE.md docs/` 추출 후 인용 경로·절 실재 확인.

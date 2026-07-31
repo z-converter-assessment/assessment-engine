@@ -1,8 +1,19 @@
 # 본 repo 작업 규약
 
-정책: CLAUDE.md #F1·#F5. 본 문서는 본 repo 코드 작업 시 따라야 할 검증 룰 단일 진실 — 정적 차단(IDE·hook)과 동적 검증(자동화 변환 직후) 모두 포함.
+정책: CLAUDE.md #F1·#F5. 본 문서는 본 repo 코드 작업 시 따라야 할 검증 룰 단일 진실 — 정적 검사와 편집기 설정, 자동화 변환 직후 동적 검증, 서버·CI 강제를 모두 포함.
 
-## 1. IDE 경고 대처 (#F1 부속)
+## 1. 정적 검사 (#F1 부속)
+
+파이썬 검사 도구는 둘이고 설정을 `pyproject.toml` 에 둔다 — 편집기와 CLI 가 같은 파일을 읽어야 편집기에서 통과한 것이 CLI 에서도 통과한다.
+
+| 도구 | 대상 | 설정 | 실행 |
+|------|------|------|------|
+| ruff | lint (E·F·I·B·UP) + format | `[tool.ruff]` | `uv run ruff check .` |
+| pyright | 타입 | `[tool.pyright]` | `uv run pyright` |
+
+ruff 는 CI(`ci.yml`)가 PR 마다 전체를 돌린다. pyright 는 게이트가 없다 — 저장소 전체가 아직 통과하지 못한다. 통과 못 하는 검사를 required 로 걸면 늘 빨간 CI 이고, 통과하도록 rule 을 끄면 아무것도 잡지 못한다. 잔여 위반을 줄인 뒤 건다.
+
+저장소가 공유하는 편집기 설정은 `.vscode/` 두 파일이다. `settings.json` 은 워크스페이스 우선순위로 개인 설정을 덮으므로 팀이 통일해야 할 것만 담는다 (ruff 포맷터·저장 시 포맷·import 정렬·pytest 활성화). `extensions.json` 은 추천일 뿐 강제가 아니며, 이 저장소에 검사 대상이 있는 확장만 올린다.
 
 | Severity | 정석 |
 |----------|------|
@@ -16,34 +27,17 @@ Warning 처리 우선순위:
 2. 외부 라이브러리 type stub의 false positive → `# type: ignore[specific_code]` (specific code 명시 + 이유 한 줄 주석). 무분별한 generic `# type: ignore` 금지.
 3. `cast(T, x)`는 런타임 NO-OP이라 `assert`보다는 안전하지만 narrowing 의도라 stub 한계엔 `# type: ignore`가 더 솔직. cast는 진짜 "타입 변환" 의도일 때만 (예: `Any` → 구체 타입).
 
-ruff 위반(E501 line-too-long · F841 unused · I001 import 정렬 등)은 hook 자동 차단 채널 없음 — PyCharm IDE 경고 또는 수동 `uv run ruff check <file>` 실행으로 검증. CI(`.github/workflows/ci.yml`)가 PR마다 전체 ruff check 자동 — 본 단계가 최종 안전망. 위 Warning 우선순위로 처리.
+## 2. 강제 채널 (#F5 부속)
 
-## 2. Hook 강제 채널 (#F5 부속)
-
-Claude Code PostToolUse hook 이 편집 시점에 강제한다. skill(opt-in 가이드)과 별개의 게이트라 누가 어떤 경로로 작업하든 적용된다.
-
-### Claude Code hook (`.claude/hooks/`, 편집 시점)
-
-PostToolUse hook이 강제하는 위반(exit 2 → system-reminder 피드백)은 위 Warning 우선순위와 별개의 강제 채널 — 즉시 수정. IDE Info-Hint와 달리 Claude 컨텍스트로 직접 피드백되므로 묻힐 위험 없음.
-
-| 위반 | 적용 범위 | Hook |
-|------|----------|------|
-| F7 — `print(` / `sys.stdout.write` | `.py` | `conventions-check.sh` |
-| C3 — `safe_*` 미경유 redis 클라이언트 직접 호출 (`redis.set/get/delete/publish/incr/exists/mget/expire/setnx`) | `.py` (`cache/redis.py` 본인 제외) | `conventions-check.sh` |
-| 글로벌 — markdown asterisk-pair bold (굵게 강조 문법) | 모든 파일 | `conventions-check.sh` |
-| 글로벌 — 비키보드 unicode 기호·이모지 (예시: 절기호, 양방향 화살표, 체크/엑스 표식, 부등호 기호, 가운뎃점 글머리표 등) | 모든 파일 | `conventions-check.sh` |
-
-hook 파일 자체(`.claude/hooks/*`)는 패턴 정의를 포함하므로 self-skip — `.claude/hooks/` 경로는 검사 안 함.
-
-### 서버·CI 강제 (push/PR 시점)
-
-로컬 git hook 은 두지 않는다 — `--no-verify` 로 뚫리므로 강제 수단이 될 수 없고, 같은 검사를 두 곳에서 유지하는 비용만 든다.
+강제는 서버와 CI 에만 둔다. 로컬 훅은 두지 않는다 — git hook 은 `--no-verify` 로 뚫리고 편집기 훅은 그 도구로 작업할 때만 도므로, 어느 쪽도 우회 가능한 자리다. 같은 검사를 두 곳에서 유지하는 비용도 든다.
 
 | 위반 | 강제 지점 |
 |------|----------|
 | 보호 브랜치 직접 push·force push·삭제 | GitHub ruleset |
 | PR title Conventional Commits | `pr-title-check.yml` |
-| lint·테스트·타입 계약·마이그레이션 drift | `ci.yml`·`alembic-check.yml` (required check 목록은 `docs/guides/ci-setup.md` 3.4) |
+| lint·테스트·프론트 타입 계약·마이그레이션 drift | `ci.yml`·`alembic-check.yml` (required check 목록은 `docs/guides/ci-setup.md` 3.4) |
+
+강제 채널이 없는 규약은 사람과 리뷰가 지킨다. F7(`print`·`sys.stdout.write`)·C3(`safe_*` 미경유 redis 직접 호출)·글로벌 표기 규칙(markdown bold·비키보드 unicode)·파이썬 타입(pyright)이 여기 해당한다 — ruff select 대상이 아니라 CI 도 잡지 못한다. 자동화 변환 직후 자가 검증(#F5)과 develop PR 코드 리뷰가 유일한 그물이다.
 
 설정 카탈로그는 `docs/guides/ci-setup.md`.
 
@@ -80,8 +74,7 @@ hook 파일 자체(`.claude/hooks/*`)는 패턴 정의를 포함하므로 self-s
 ## 관련 문서
 
 - CLAUDE.md #F1 — 타입 어노테이션 허용·주의 (from __future__·TYPE_CHECKING 허용, Pydantic 필드 타입 런타임 유지)
-- CLAUDE.md #F5 — 자동화 변환 책임 분담 (Hook·메인·에이전트 채널)
+- CLAUDE.md #F5 — 자동화 변환 책임 분담 (메인 자가 검증·에이전트 채널)
 - CLAUDE.md #F7 — 로깅 (`print` 금지의 근거 정책)
 - CLAUDE.md #C3 — Redis fail-open `safe_*` helper 의무
 - CLAUDE.md #F9 — 변경 영향도 체크리스트 (의미적 단일 진실 보장)
-- `.claude/hooks/conventions-check.sh` — Hook 강제 위반 패턴 카탈로그

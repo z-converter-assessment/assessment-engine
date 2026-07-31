@@ -1,9 +1,14 @@
-# docker-compose.override.yml — dev 전용. `docker compose up` 시 base 에 자동 머지(override 우선).
-# 소스 로컬 빌드 + ./src bind mount + hot reload (base 의 GHCR 이미지 핀을 dev 빌드로 덮음).
-# 릴리즈는 base 만 첨부하므로 배포엔 본 파일이 없다. base 단독 기동: `docker compose -f docker-compose.yml up`.
+# dev overlay — 파일명이 docker-compose.override.yml 이라 compose 가 base 에 자동으로 얹는다.
+# .env 에 COMPOSE_FILE 이 있으면 그 목록이 우선하므로 배포 환경에서는 섞이지 않는다.
 #
-# YAML 앵커는 파일 스코프라 base 의 *app-base 를 못 써 dev 공통(build·image·volumes)을 *dev-app 으로 재정의.
-# 환경변수·command·depends_on 등 나머지는 base 에서 머지.
+# 하는 일은 셋이다. GHCR 이미지 핀을 로컬 빌드로 덮고, 호스트 소스를 컨테이너 가상환경에 bind mount 하고,
+# 코드 변경이 재빌드 없이 반영되게 한다.
+#
+# 비밀번호는 .env 평문을 그대로 쓴다(env 채널) — dev 는 secret 파일을 만들지 않아도 기동된다.
+# 앱 컨테이너는 env_file 로 값을 받고, rabbitmq 만 변수명이 달라 아래에서 매핑한다.
+#
+# 앵커는 파일 스코프라 base 의 *app-base 를 여기서 못 쓴다 — dev 공통을 *dev-app 으로 다시 묶었다.
+# 나머지(환경변수·command·depends_on)는 base 에서 머지된다.
 
 x-dev-app: &dev-app
   build:
@@ -17,18 +22,20 @@ x-dev-app: &dev-app
     - ./src/assessment_engine:/opt/venv/lib/python3.12/site-packages/assessment_engine
 
 services:
+  # rabbitmq 는 RABBITMQ_DEFAULT_PASS 를 읽는데 .env 의 키는 RABBITMQ_PASSWORD 라 이름을 맞춰준다.
+  # postgres 는 키 이름이 같아 env_file 로 그대로 들어간다.
+  rabbitmq:
+    environment:
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
+
   web:
     <<: *dev-app
     environment:
-      # base 의 APP_ENV fallback(prod)을 dev 로 덮음 (cross-file deep merge).
-      APP_ENV: ${APP_ENV:-dev}
       # dev hot-reload — uvicorn auto-reload (reload_dirs=bind mount 패키지, web/__main__.py).
       WEB_RELOAD: ${WEB_RELOAD:-true}
 
   consumer:
     <<: *dev-app
-    environment:
-      APP_ENV: ${APP_ENV:-dev}
     # dev hot-reload — bind mount 패키지 .py 변경 시 watchfiles 가 프로세스 재시작 (web uvicorn reload 와 짝).
     # consumer 는 uvicorn 이 아니라 watchfiles 래퍼로 reload (base 의 entrypoint=python -m override).
     entrypoint: ["watchfiles", "--filter", "python"]
@@ -36,8 +43,6 @@ services:
 
   worker:
     <<: *dev-app
-    environment:
-      APP_ENV: ${APP_ENV:-dev}
     # dev hot-reload — consumer 와 동일 watchfiles 래퍼(uvicorn 아님).
     entrypoint: ["watchfiles", "--filter", "python"]
     command: ["python -m assessment_engine.worker", "/opt/venv/lib/python3.12/site-packages/assessment_engine"]
@@ -46,5 +51,3 @@ services:
   # (새 revision 을 재빌드 없이 인식).
   migrate:
     <<: *dev-app
-    environment:
-      APP_ENV: ${APP_ENV:-dev}

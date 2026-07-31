@@ -1,25 +1,25 @@
-"""web 컴포넌트 Settings 인스턴스 단일 진실 (Composition Root, CLAUDE.md #F4).
+"""web 컴포넌트 Settings 진입점 (Composition Root, CLAUDE.md #F4).
 
-- `web_settings` (WebSettings): POSTGRES·REDIS·WEB_PORT·INSTALL_* 등 web 라우터·서비스 공통. eager.
-- `diagnostic_settings` (DiagnosticSettings): web이 task.install 발행 시 broker·task exchange 사용.
-  지연 인스턴스화 (PEP 562 module `__getattr__`) — DB-only 컴포넌트(worker)가 query 계층을 통해
-  `web_settings` 만 import 할 때 broker 설정(DiagnosticSettings 의 rabbitmq prod 검증)까지 강제로
-  만들지 않게 한다. broker 를 실제 쓰는 web(main·task_service)만 import 시 인스턴스화된다.
+import 이 아니라 첫 호출에서 인스턴스화한다. 모듈 로드만으로 설정을 읽으면 비밀번호를 필수 필드로
+둘 수 없고(테스트가 import 만 해도 값을 요구한다), 검증이 언제 도는지도 흐려진다.
 
-multi-node 분리 시 web 노드만 본 module을 import — ConsumerSettings는 만들지 않음.
+- `get_web_settings()` — POSTGRES·REDIS·WEB_PORT·INSTALL_* 등 web 라우터·서비스 공통.
+- `get_diagnostic_settings()` — web 이 task.install 을 발행할 때 쓰는 broker·task exchange 설정.
+  분리해 둔 이유는 DB 만 쓰는 경로가 broker 설정 검증까지 통과하지 않아도 되게 하려는 것이다.
+
+multi-node 분리 시 web 노드만 본 module 을 쓴다 — ConsumerSettings 는 만들지 않는다.
 """
+
+from functools import lru_cache
 
 from assessment_engine.config import DiagnosticSettings, WebSettings
 
-web_settings = WebSettings()
 
-_diagnostic_settings: DiagnosticSettings | None = None
+@lru_cache(maxsize=1)
+def get_web_settings() -> WebSettings:
+    return WebSettings()  # pyright: ignore[reportCallIssue]
 
 
-def __getattr__(name: str) -> object:
-    if name == "diagnostic_settings":
-        global _diagnostic_settings
-        if _diagnostic_settings is None:
-            _diagnostic_settings = DiagnosticSettings()
-        return _diagnostic_settings
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+@lru_cache(maxsize=1)
+def get_diagnostic_settings() -> DiagnosticSettings:
+    return DiagnosticSettings()  # pyright: ignore[reportCallIssue]

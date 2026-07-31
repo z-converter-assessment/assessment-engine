@@ -17,31 +17,31 @@ from assessment_engine.web.routers.pages import pages_router
 from assessment_engine.web.routers.reports import reference_router, reports_router
 from assessment_engine.web.routers.right_sizing import right_sizing_router
 from assessment_engine.web.routers.tasks import tasks_router
-from assessment_engine.web.settings import diagnostic_settings, web_settings
+from assessment_engine.web.settings import get_diagnostic_settings, get_web_settings
 from assessment_engine.web.templating import templates
-
-# Composition Root에서 log sink 단일 등록 — text(dev) vs json(prod) 분기 (LOG_FORMAT env).
-setup_logging(web_settings.log_format)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # log sink 단일 등록 — text(dev) vs json(prod) 분기 (LOG_FORMAT env). 모듈 스코프가 아니라 여기서
+    # 부른다 — import 만으로 설정을 읽으면 값 없이는 import 조차 못 한다(consumer·worker 동일).
+    setup_logging(get_web_settings().log_format)
     # schema 관리는 모든 환경에서 Alembic — docker-compose `migrate` 서비스(init-container 패턴)가
     # postgres healthy 후 `alembic upgrade head` 1회 실행 후 종료. 본 lifespan은 schema 가정만 함.
     # web을 포함한 모든 앱 서비스는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동 (ADR 0005).
-    logger.info("app_env={} — schema is Alembic-managed (entrypoint applied upgrade)", web_settings.app_env)
+    logger.info("app_env={} — schema is Alembic-managed (entrypoint applied upgrade)", get_web_settings().app_env)
     # dev 한정 정적 자원 캐시 무효화 신호 — 미들웨어가 매 요청 asset_v 재발급(F4: app_env 판정은 lifespan 에서만).
-    app.state.dev_assets = web_settings.app_env == "dev"
+    app.state.dev_assets = get_web_settings().app_env == "dev"
 
     # task.install 발행용 broker connection — consumer 와 동일 인자로 declare 의무 (rabbitmq.md 토폴로지).
     # exchange type mismatch 시 PRECONDITION_FAILED. DIRECT exchange 컨벤션.
-    broker_conn = await aio_pika.connect_robust(diagnostic_settings.broker_url, timeout=10)
+    broker_conn = await aio_pika.connect_robust(get_diagnostic_settings().broker_url, timeout=10)
     broker_channel = await broker_conn.channel()
 
     # 원격 작업 발행용 exchange. 동일 인자 재선언은 idempotent — consumer 가 먼저 declare 해도 안전.
     # agent.tasks.<agent_id> 머신별 큐는 task.install 발행 시점에 TaskService 가 동적 declare.
     await broker_channel.declare_exchange(
-        diagnostic_settings.rabbitmq_task_exchange,
+        get_diagnostic_settings().rabbitmq_task_exchange,
         aio_pika.ExchangeType.DIRECT,
         durable=True,
     )
@@ -50,17 +50,17 @@ async def lifespan(app: FastAPI):
     app.state.broker_channel = broker_channel
     logger.info(
         "broker initialized — task_exchange={}",
-        diagnostic_settings.rabbitmq_task_exchange,
+        get_diagnostic_settings().rabbitmq_task_exchange,
     )
 
     # ZDM 메타 fetch 용 httpx async client — connect 5s, total 120s (44MB GET 가정).
     # 단일 client 인스턴스를 TCP 재사용 위해 lifespan 에서 생성·shutdown 에서 close.
     http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(
-            connect=web_settings.zdm_meta_connect_timeout_sec,
-            read=web_settings.zdm_meta_total_timeout_sec,
-            write=web_settings.zdm_meta_total_timeout_sec,
-            pool=web_settings.zdm_meta_connect_timeout_sec,
+            connect=get_web_settings().zdm_meta_connect_timeout_sec,
+            read=get_web_settings().zdm_meta_total_timeout_sec,
+            write=get_web_settings().zdm_meta_total_timeout_sec,
+            pool=get_web_settings().zdm_meta_connect_timeout_sec,
         ),
         follow_redirects=False,
     )

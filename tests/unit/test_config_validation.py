@@ -1,9 +1,12 @@
-"""config.py multi-node refactor 핵심 invariant — `_validate_prod_*` weak default 거부.
+# pyright: reportCallIssue=false
+#   `_env_file`·`_secrets_dir` 는 pydantic-settings 가 실제로 받는 init 인자이고 비밀번호는 env·파일에서
+#   온다. pyright 는 dataclass_transform 이 만든 시그니처만 보고 둘 다 오류로 읽는다.
+"""config.py 설정 안전망 — 비밀번호 필수·뻔한 값 거부·채널 충돌 거부.
 
-본 테스트 영역은 prod 운영 안전망 단일 진실 (CLAUDE.md #A0·#F8·docs/operations/env.md 6절).
-APP_ENV=prod 시 weak default(`password`/`admin`/`root`/`changeme`/``)가 흘러가지
-못하게 차단. multi-node 분리 배포에서 web/consumer/diagnostic 각 노드가 자기 Settings만
-인스턴스화해도 본 검증이 노드별 작동 (Composition Root #F4 정합).
+검증은 환경으로 갈리지 않는다. 비밀번호에 기본값이 없어 미설정은 어디서든 실패하고,
+뻔한 값(`password`/`admin`/`root`/`changeme`)과 secret 파일·환경변수 동시 존재도 마찬가지다.
+multi-node 분리 배포에서 web/consumer/diagnostic 각 노드가 자기 Settings 만 만들어도
+노드별로 작동한다 (Composition Root #F4 정합).
 """
 
 import pytest
@@ -39,15 +42,23 @@ def _consumer_kwargs(**overrides):
     return base
 
 
-# ─── WebSettings — _validate_prod_web_secrets ─────────────────────────────
+# ─── WebSettings — _validate_web_secrets ──────────────────────────────────
 
 
-def test_web_settings_dev_default_passes():
-    """app_env=dev면 weak default 그대로 허용 — 검증 skip."""
-    # _env_file=None — 코드 default 검증이 목적이라 ambient .env(로컬 dev 스택용) 배제 (CI·로컬 무관 robust).
-    s = WebSettings(app_env="dev", _env_file=None)  # user default "assessment", password default "changeme"
-    assert s.app_env == "dev"
-    assert s.postgres_password.get_secret_value() == "changeme"
+@pytest.mark.parametrize("app_env", ["dev", "prod"])
+def test_password_is_required_in_every_env(app_env, monkeypatch):
+    """비밀번호에 기본값을 두지 않는다 — 환경과 무관하게 미설정이면 인스턴스화가 실패한다."""
+    # 코드 default 검증이 목적이라 값을 주는 채널을 전부 끊는다 — conftest autouse env·ambient .env 둘 다.
+    for key in ("POSTGRES_PASSWORD", "RABBITMQ_PASSWORD"):
+        monkeypatch.delenv(key, raising=False)
+    with pytest.raises(ValidationError):
+        WebSettings(app_env=app_env, _env_file=None)
+
+
+def test_empty_password_rejected():
+    """빈 문자열은 필드 제약(min_length)이 잡는다 — weak 목록이 다룰 일이 아니다."""
+    with pytest.raises(ValidationError):
+        WebSettings(**_web_kwargs(postgres_password=SecretStr("")))
 
 
 def test_web_settings_prod_with_strong_defaults_passes():
@@ -73,7 +84,7 @@ def test_web_settings_prod_rejects_weak_postgres_user(weak_user):
     assert "POSTGRES_USER" in str(exc.value)
 
 
-# ─── ConsumerSettings — _validate_prod_consumer_secrets + WebSettings 상속 ─
+# ─── ConsumerSettings — _validate_consumer_secrets + WebSettings 상속 ─────
 
 
 def test_consumer_settings_prod_with_strong_defaults_passes():
@@ -133,3 +144,82 @@ def test_consumer_settings_broker_url_encodes_vhost():
     # URL spec: amqp://user:pass@host:port/<encoded_vhost>. port와 vhost 사이 `/`는 raw,
     # vhost 자체의 `/`는 %2F. `/assessment`라는 vhost는 `%2Fassessment`로 인코딩되어 들어감.
     assert s.broker_url.endswith("/%2Fassessment")
+
+
+# ─── secret 파일 vs 환경변수 충돌 — _reject_env_shadowing_secret ───────────
+
+
+def _prod_env(monkeypatch, secrets_dir):
+    """prod 기동에 필요한 최소 env. 개별 테스트가 비밀번호만 추가로 넣는다."""
+    monkeypatch.setenv("SECRETS_DIR", str(secrets_dir))
+    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.setenv("POSTGRES_USER", "strong_user")
+    monkeypatch.setenv("RABBITMQ_USER", "strong_mq_user")
+    for key in ("POSTGRES_PASSWORD", "RABBITMQ_PASSWORD"):
+        monkeypatch.delenv(key, raising=False)
+
+
+def _patch_secrets_dir(monkeypatch, secrets_dir):
+    """_SECRETS_DIR 는 import 시점에 굳는다. reload 는 모듈 전역을 갈아끼우고 복원하지 않아 뒤 테스트가
+    그 값을 물려받으므로, monkeypatch 로 바꾸고 인스턴스화 때 `_secrets_dir` 을 함께 넘긴다."""
+    import assessment_engine.config as config_module
+
+    monkeypatch.setattr(config_module, "_SECRETS_DIR", str(secrets_dir))
+    return config_module
+
+
+def test_prod_accepts_secret_file_without_env(monkeypatch, tmp_path):
+    """파일 채널만 쓰면 통과 — 값은 secrets_dir 에서 온다."""
+    (tmp_path / "postgres_password").write_text("file-only-secret-32chars")
+    (tmp_path / "rabbitmq_password").write_text("file-only-mq-secret-32chars")
+    _prod_env(monkeypatch, tmp_path)
+    config = _patch_secrets_dir(monkeypatch, tmp_path)
+
+    web = config.WebSettings(_env_file=None, _secrets_dir=str(tmp_path))
+    consumer = config.ConsumerSettings(_env_file=None, _secrets_dir=str(tmp_path))
+    assert web.postgres_password.get_secret_value() == "file-only-secret-32chars"
+    assert consumer.rabbitmq_password.get_secret_value() == "file-only-mq-secret-32chars"
+
+
+def test_prod_rejects_env_shadowing_postgres_secret_file(monkeypatch, tmp_path):
+    """env 가 secret 파일을 가리면 거부 — 우선순위상 파일이 무시돼 노출 회피가 무너진다."""
+    (tmp_path / "postgres_password").write_text("file-secret-32chars")
+    _prod_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("POSTGRES_PASSWORD", "env-wins-and-leaks")
+    config = _patch_secrets_dir(monkeypatch, tmp_path)
+
+    with pytest.raises(ValidationError, match="secret file is ignored"):
+        config.WebSettings(_env_file=None, _secrets_dir=str(tmp_path))
+
+
+def test_prod_rejects_env_shadowing_rabbitmq_secret_file(monkeypatch, tmp_path):
+    (tmp_path / "postgres_password").write_text("file-secret-32chars")
+    (tmp_path / "rabbitmq_password").write_text("file-mq-secret-32chars")
+    _prod_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("RABBITMQ_PASSWORD", "env-wins-and-leaks")
+    config = _patch_secrets_dir(monkeypatch, tmp_path)
+
+    with pytest.raises(ValidationError, match="secret file is ignored"):
+        config.ConsumerSettings(_env_file=None, _secrets_dir=str(tmp_path))
+
+
+def test_env_only_channel_passes_when_no_secret_file(monkeypatch, tmp_path):
+    """secret 파일이 없으면 env 채널이 정상 경로 — 충돌이 아니다 (#A0 채널 비강제)."""
+    _prod_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("POSTGRES_PASSWORD", "env-channel-secret-32chars")
+    config = _patch_secrets_dir(monkeypatch, tmp_path)
+
+    web = config.WebSettings(_env_file=None, _secrets_dir=str(tmp_path))
+    assert web.postgres_password.get_secret_value() == "env-channel-secret-32chars"
+
+
+def test_shadowing_rejected_in_dev_too(monkeypatch, tmp_path):
+    """환경으로 강도를 가르지 않는다 — dev 에서도 채널이 겹치면 거부한다."""
+    (tmp_path / "postgres_password").write_text("file-secret-32chars")
+    _prod_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "env-wins")
+    config = _patch_secrets_dir(monkeypatch, tmp_path)
+
+    with pytest.raises(ValidationError, match="secret file is ignored"):
+        config.WebSettings(_env_file=None, _secrets_dir=str(tmp_path))
