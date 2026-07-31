@@ -29,6 +29,10 @@ FROM python:3.12-slim AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
+# alembic 은 cwd 의 alembic.ini 를 찾는데 설정 파일이 패키지 안에 있어 못 만난다. 이미지가 값을 들고
+# 있어야 compose 없이 docker run 으로도 마이그레이션 명령이 돈다.
+ENV ALEMBIC_CONFIG=/opt/venv/lib/python3.12/site-packages/assessment_engine/_alembic.ini
+
 WORKDIR /app
 
 RUN groupadd --system --gid 1000 app && \
