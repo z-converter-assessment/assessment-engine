@@ -19,6 +19,7 @@ from assessment_engine.web.services.mappers.assessment_api import (
     build_assessment_envelope,
 )
 from assessment_engine.web.view_models.assessment_api import AssessmentServer
+from tests.hypothesis_scale import examples
 
 _ACTIONS = {"increase", "decrease", "keep"}
 _QUALITY = {"exact", "floor", "uncertain"}
@@ -141,7 +142,7 @@ def _mounts(draw) -> list[MountCapacityRaw]:
     return out
 
 
-@settings(max_examples=3000)
+@settings(max_examples=examples(3000))
 @given(_report_row(), _mounts(), st.booleans(), st.booleans())
 def test_entry_contract_invariants(raw, mounts, is_online, ambiguous):
     """어떤 유효 입력에도 서버 항목 계약이 성립 (위반 = 확정 버그)."""
@@ -200,7 +201,7 @@ def test_entry_contract_invariants(raw, mounts, is_online, ambiguous):
     assert isinstance(diag["advisory"]["network_congested"], bool)
 
 
-@settings(max_examples=1500)
+@settings(max_examples=examples(1500))
 @given(_report_row(), _mounts(), st.booleans())
 def test_entry_deterministic(raw, mounts, is_online):
     """동일 입력 -> byte-identical 출력 (순수 함수)."""
@@ -209,7 +210,7 @@ def test_entry_deterministic(raw, mounts, is_online):
     assert json.dumps(e1, sort_keys=True) == json.dumps(e2, sort_keys=True)
 
 
-@settings(max_examples=1000)
+@settings(max_examples=examples(1000))
 @given(st.lists(st.tuples(_report_row(), _mounts(), st.booleans()), max_size=5))
 def test_envelope_contract(rows):
     """envelope(4.1) — count==len(servers), contract_version, warnings 3키, JSON 직렬."""
