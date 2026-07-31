@@ -29,16 +29,14 @@ sudo bash bootstrap.sh
 
 선택 env: `DEPLOY_DIR`(기본 `/opt/assessment-engine`), `COSIGN_VERSION`(기본 latest), `ENV_TEMPLATE_URL`·`DEPLOY_SCRIPT_URL`·`SECRETS_COMPOSE_URL`(기본 raw main).
 
-부트스트랩 후 2 가지를 채운다:
+`bootstrap.sh` 가 `$DEPLOY_DIR/secrets/*` 를 만든다 — `docker-compose.secrets.yml` 의 `secrets:` 항목을 읽어
+없는 파일만 강 random 으로 채우고 권한 644 를 건다(디렉토리는 0700 root 소유, 근거는 `docs/reference/contracts/env.md`).
+재실행해도 기존 값은 보존되므로 `deploy.sh` 를 갱신하려고 다시 돌려도 안전하다.
 
-1. `$DEPLOY_DIR/.env` — bootstrap 가 raw 에서 받은 `.env.example` 템플릿. `POSTGRES_USER`·`RABBITMQ_USER`·`ZDM_DEFAULT_IP` 등 운영값 (secret 은 제외 — file 채널).
-2. `$DEPLOY_DIR/secrets/*` — 강 random 비번. 파일 목록은 `docker-compose.secrets.yml` 의 `secrets:` 항목이
-   정하며 `bootstrap.sh` 가 그 목록을 읽어 생성 명령을 출력한다. 권한은 644, 디렉토리는 0700 root 소유 — 근거는 `docs/reference/contracts/env.md`.
-   ```bash
-   printf '%s' "$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/<항목명>
-   chmod 644 $DEPLOY_DIR/secrets/*
-   ```
-   `rabbitmq_password` 는 외부 agent 가 broker 발행에 쓰는 값이라 agent 설정에도 같은 값을 넣는다 — 불일치 시 agent 인증이 실패해 데이터가 들어오지 않는다. 값은 `sudo cat $DEPLOY_DIR/secrets/<name>` 으로 확인한다.
+남는 일은 하나다. `$DEPLOY_DIR/.env` 에 `POSTGRES_USER`·`RABBITMQ_USER`·`ZDM_DEFAULT_IP` 등 운영값을 채운다
+(비밀번호는 file 채널이라 여기 두지 않는다).
+
+`rabbitmq_password` 는 외부 agent 가 broker 발행에 쓰는 값이라 agent 설정에도 같은 값을 넣는다 — 불일치 시 agent 인증이 실패해 데이터가 들어오지 않는다. 값은 `sudo cat $DEPLOY_DIR/secrets/rabbitmq_password` 로 확인한다.
 
 ## 3. rollout (`deploy.sh`)
 

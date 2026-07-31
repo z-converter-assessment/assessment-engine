@@ -5,21 +5,18 @@ prod 에서 비밀번호를 env 가 아닌 파일로 주입하기 위한 채널 
 
 ## 배치
 
-파일명은 `docker-compose.secrets.yml` 의 secret 이름과 정확히 일치해야 한다 (app 의 pydantic
-`secrets_dir=/run/secrets` 자동 매핑 조건이라 `postgres_password`·`rabbitmq_password` 는 필드명 그대로):
+배포 VM 에서는 `bootstrap.sh` 가 만든다. `docker-compose.secrets.yml` 의 `secrets:` 항목을 읽어 없는
+파일만 강 random 으로 채우고 권한을 맞추므로, 다시 돌려도 기존 값은 보존된다.
 
-```
-secrets/postgres_password    # PostgreSQL 비밀번호
-secrets/rabbitmq_password    # RabbitMQ 비밀번호
-```
-
-생성 예 (강 random + 권한 644, trailing newline 없이):
+직접 만들 때(소스 트리 수동 기동 등)는 이렇게 한다. 파일명은 overlay 의 secret 이름과 정확히 일치해야
+한다 — app 의 pydantic `secrets_dir=/run/secrets` 가 필드명으로 자동 매핑하기 때문이다.
 
 ```bash
-printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
-printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
+printf '%s' "$(openssl rand -base64 32)" > secrets/<항목명>
 chmod 644 secrets/*
 ```
+
+trailing newline 이 붙으면 비밀번호에 그대로 섞이므로 `printf` 를 쓴다(`echo` 는 개행을 붙인다).
 
 권한은 644(world-readable) — 600으로 두면 postgres 공식 이미지가 non-root `postgres` 유저로 전환한
 뒤 `POSTGRES_PASSWORD_FILE` 을 읽다가 Permission denied 로 기동 실패한다(Docker Compose file-secret은

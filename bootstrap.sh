@@ -23,8 +23,9 @@ die() { printf '[bootstrap][error] %s\n' "$*" >&2; exit 1; }
 
 [[ "$(id -u)" -eq 0 ]] || die "root 로 실행 (sudo)"
 
-# curl — 이미지·스크립트 다운로드에 사용. 없으면 설치.
+# curl 은 스크립트·템플릿 다운로드, openssl 은 secret 값 생성에 쓴다.
 command -v curl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq curl; }
+command -v openssl >/dev/null 2>&1 || { apt-get update -qq && apt-get install -y -qq openssl; }
 
 # ─── (1) docker engine + compose plugin ───────────────────────────────────
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
@@ -79,26 +80,29 @@ else
   log ".env 이미 존재 — 보존"
 fi
 
-# 값 생성은 운영자 책임 — 여기서 만들면 부트스트랩 로그에 비밀이 남는다.
 # 파일 목록은 docker-compose.secrets.yml 의 secrets: 항목이 정하므로 받아서 읽는다. 여기 열거하면
 # secret 이 늘 때마다 본 스크립트도 고쳐야 한다.
 SECRET_KEYS="$(curl -fsSL "$SECRETS_COMPOSE_URL" 2>/dev/null |
   awk '/^secrets:/{inblock=1; next} inblock && /^[^[:space:]]/{inblock=0} inblock && /^  [A-Za-z_][A-Za-z0-9_]*:/{sub(/:.*/,""); gsub(/ /,""); print}')"
+[[ -n "$SECRET_KEYS" ]] || die "secret 목록을 읽지 못했다 — $SECRETS_COMPOSE_URL"
 
-log "secret 파일을 배치할 것 (없으면 APP_ENV=prod 기동 거부):"
-if [[ -n "$SECRET_KEYS" ]]; then
-  while read -r key; do
-    # shellcheck disable=SC2016  # 운영자가 복사해 실행할 명령문이라 여기서 전개되면 안 된다.
-    printf '  printf %%s "$(openssl rand -base64 32)" > %s/secrets/%s\n' "$DEPLOY_DIR" "$key"
-  done <<< "$SECRET_KEYS"
-  printf '  chmod 644 %s/secrets/*\n' "$DEPLOY_DIR"
-else
-  printf '  %s 의 secrets: 항목마다 같은 이름의 파일을 만들 것 (목록 조회 실패)\n' "$SECRETS_COMPOSE_URL"
-fi
+# 없는 것만 만든다 — 이미 기동 중인 DB 의 비번을 덮으면 접속이 끊긴다.
+# 권한 644 는 postgres 공식 이미지가 non-root 로 읽어야 하기 때문이고, 호스트 쪽 경계는 secrets/ 0700 이 맡는다.
+# 값은 출력하지 않는다.
+while read -r key; do
+  secret_file="$DEPLOY_DIR/secrets/$key"
+  if [[ -f "$secret_file" ]]; then
+    log "secret $key — 이미 존재, 보존"
+  else
+    printf '%s' "$(openssl rand -base64 32)" > "$secret_file"
+    chmod 644 "$secret_file"
+    log "secret $key — 생성"
+  fi
+done <<< "$SECRET_KEYS"
 
 # ─── (3) deploy.sh 배치 (raw 에서 받아 배치) ───────────────────────────────
 log "deploy.sh 배치: $DEPLOY_DIR/deploy.sh"
 curl -fsSL "$DEPLOY_SCRIPT_URL" -o "$DEPLOY_DIR/deploy.sh"
 chmod 0755 "$DEPLOY_DIR/deploy.sh"
 
-log "완료. 다음: (1) $DEPLOY_DIR/.env 운영값 (2) secrets/* 배치 (3) sudo $DEPLOY_DIR/deploy.sh vX.Y.Z"
+log "완료. 다음: (1) $DEPLOY_DIR/.env 운영값 채우기 (2) sudo $DEPLOY_DIR/deploy.sh vX.Y.Z"
