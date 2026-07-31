@@ -92,6 +92,29 @@ def test_schema_version_required() -> None:
         ErrorInput.model_validate(bad)
 
 
+@pytest.mark.parametrize(
+    "version,accepted",
+    [
+        ("1.0", True),
+        ("1.1", True),  # minor additive — silent 호환
+        ("1.12", True),
+        ("2.0", False),  # major 전환 — flag-day
+        ("0.9", False),
+        ("1", False),  # major.minor 형식 위반
+    ],
+)
+def test_schema_version_major_gate(version: str, accepted: bool) -> None:
+    """major 일치만 통과. 두 정본이 같은 입력에 같은 판정을 내리는지 함께 확인한다."""
+    msg = _EXAMPLES["error"] | {"schema_version": version}
+    schema_ok = not list(Draft202012Validator(_SCHEMA).iter_errors(msg))
+    try:
+        ErrorInput.model_validate(msg)
+        pydantic_ok = True
+    except ValidationError:
+        pydantic_ok = False
+    assert (schema_ok, pydantic_ok) == (accepted, accepted)
+
+
 def test_inventory_reproduction_descriptors_parse() -> None:
     """reproduction 재현 서술자 — flat 필드 + BootInfo/NonblockMountInfo nested 파싱."""
     payload = dict(_EXAMPLES["linux_inventory"])
