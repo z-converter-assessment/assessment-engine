@@ -2,23 +2,10 @@
   "recommendations": [
     "ms-python.python",
     "ms-python.vscode-pylance",
-    "ms-python.debugpy",
-    "ms-python.vscode-python-envs",
     "charliermarsh.ruff",
     "ms-azuretools.vscode-docker",
-    "ms-azuretools.vscode-containers",
     "redhat.vscode-yaml",
     "tamasfe.even-better-toml",
-    "humao.rest-client",
-    "timonwong.shellcheck",
-    "esbenp.prettier-vscode",
-    "christian-kohler.path-intellisense",
-    "eamodio.gitlens"
-  ],
-  "unwantedRecommendations": [
-    "llvm-vs-code-extensions.vscode-clangd",
-    "ms-vscode.cmake-tools",
-    "rust-lang.rust-analyzer",
-    "vadimcn.vscode-lldb"
+    "timonwong.shellcheck"
   ]
 }
