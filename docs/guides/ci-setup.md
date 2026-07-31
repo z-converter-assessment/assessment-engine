@@ -63,10 +63,12 @@ Branch protection rules 가 아니라 ruleset 을 쓴다 — 여러 패턴을 �
 | Target | `refs/tags/v*` | |
 | Restrict deletions | 활성 | 발행된 tag 불변 보존 |
 | Block force pushes | 활성 | tag 재지정 차단 |
-| Restrict creations | 활성 | 사람이 tag 를 붙이지 않는다 — `release.yml` 이 `pyproject.toml` 의 version 에서 파생 생성한다 |
-| Bypass list | GitHub Actions | 워크플로가 tag 를 push 해야 한다 |
+| Restrict creations | 비활성 | 저장소 ruleset 은 GitHub Actions 를 bypass actor 로 받지 않는다 — 설치된 앱이 아니라 API 가 422 로 거부한다. 켜면 `release.yml` 의 tag push 가 막혀 릴리즈가 완료되지 못한다 |
+| Bypass list | 비움 | |
 
-생성 제한은 bypass 에 Actions 가 등록돼야 성립한다. 등록 없이 켜면 릴리즈가 tag push 단계에서 실패하므로, 첫 릴리즈로 tag 가 실제로 남는지 확인한다.
+tag 는 `release.yml` 이 `pyproject.toml` 의 version 에서 파생 생성하며, 사람이 붙이지 않는 것은 규약으로 지킨다 (`docs/guides/release.md` 2절).
+
+`v*` tag 는 릴리즈 완료 마커다 — `resolve-version` job 이 tag 존재 여부로 릴리즈 여부를 판정한다. 손으로 만든 tag 는 이 마커를 위조해 해당 버전의 릴리즈를 건너뛰게 만든다. 그 경우 `workflow_dispatch` 로 재발행한다 (dispatch 는 tag 존재 판정을 건너뛰고, tag push 단계는 이미 있으면 그대로 종료한다).
 
 ### 3.4. Required status checks
 
