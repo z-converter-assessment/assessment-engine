@@ -1,13 +1,8 @@
 name: release
 
-# 서명·attestation 된 멀티아치 엔진 이미지를 GHCR 로 발행한다.
-#   Docker image (linux/amd64, linux/arm64) -> GHCR push + cosign keyless sign
-#   + SBOM(SPDX, BuildKit attestation) + SLSA provenance (ADR 0017)
-# 외부 인프라는 GHCR 에서 pull 해 docker compose 로 기동하고 cosign verify 로 발행자를 검증한다.
-#
-# 릴리스 = pyproject.toml 의 version 을 올린 커밋이 main 에 들어오는 것. 버전 입력 지점은 그 파일 하나이며
-# git tag 는 릴리스 성공 후 본 워크플로가 파생 생성한다 (사람이 붙이지 않으므로 파일과 태그가 어긋날 수 없다).
-# 버전이 그대로인 머지는 첫 job 에서 종료한다.
+# 릴리스 = pyproject.toml 의 version 을 올린 커밋이 main 에 들어오는 것. git tag 는 발행 성공 후 본 워크플로가
+# 그 값에서 파생 생성한다 — 사람이 붙이지 않으므로 파일과 태그가 어긋날 수 없다.
+# 절차·산출물 카탈로그는 docs/guides/release.md.
 
 on:
   push:
@@ -21,11 +16,10 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  # release는 cancel 안 함 — 중간 cancel 시 partial release 위험.
+  # 중간 cancel 은 partial release 를 남긴다.
   cancel-in-progress: false
 
 jobs:
-  # ─── (0) 버전 확정 + 릴리스 여부 판정 ──────────────────────────────────────
   resolve-version:
     name: resolve version + decide release
     runs-on: ubuntu-latest
@@ -67,7 +61,6 @@ jobs:
             echo "release=true" >> "$GITHUB_OUTPUT"
           fi
 
-  # ─── (1) Docker image → GHCR (multi-arch) ─────────────────────────────────
   release-image:
     name: build + GHCR push (multi-arch + cosign + SBOM)
     needs: resolve-version
@@ -81,11 +74,10 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      # buildx + QEMU — linux/amd64 + linux/arm64 cross-build. GitHub Actions runner 가 amd64 라 arm64 는 QEMU emulation.
+      # runner 가 amd64 라 arm64 는 QEMU emulation 으로 빌드한다.
       - uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4.2.0
       - uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
-      # GHCR 인증 — GITHUB_TOKEN 자동 (permissions.packages: write 의존).
       - name: Login to GHCR
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
@@ -93,9 +85,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # 0.1.3 -> :0.1.3 + :0.1 + :0 + :latest.
       # 트리거가 branch push 라 ref 에 태그가 없다 — value 로 확정 버전을 넘겨 alias 를 파생시킨다.
-      # tags 만 쓴다. labels 출력은 저장소 메타데이터로 정적 라벨까지 자동 생성해 Dockerfile LABEL 을 덮는다.
+      # labels 출력은 쓰지 않는다. 저장소 메타데이터로 정적 라벨까지 만들어 Dockerfile LABEL 을 덮는다.
       - name: Extract image metadata
         id: meta
         uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
@@ -107,7 +98,6 @@ jobs:
             type=semver,pattern={{major}},value=v${{ needs.resolve-version.outputs.version }}
             type=raw,value=latest,enable=${{ github.event_name != 'workflow_dispatch' }}
 
-      # Multi-arch build + push. cache-from/to gha 로 layer cache (반복 빌드 시간 절감).
       - name: Build + push (linux/amd64,arm64)
         id: build
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
@@ -126,9 +116,7 @@ jobs:
           provenance: true
           sbom: true   # BuildKit 자동 SBOM (SPDX 형식) — image attestation 으로 첨부
 
-      # Cosign keyless image signing — OIDC keychain (private key 관리 0).
-      # 운영자가 `cosign verify ghcr.io/.../assessment-engine:0.1.3 \
-      #   --certificate-identity-regexp=... --certificate-oidc-issuer=...` 로 무결성·발행자 검증.
+      # keyless — OIDC 로 서명해 개인키를 관리하지 않는다. 검증 명령은 docs/guides/release.md.
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
 
@@ -137,7 +125,7 @@ jobs:
           DIGEST: ${{ steps.build.outputs.digest }}
           TAGS: ${{ steps.meta.outputs.tags }}
         run: |
-          # tag 들 각각에 대해 digest 기반 서명 (mutable tag 가 아닌 immutable digest 서명).
+          # tag 는 옮겨갈 수 있으므로 immutable digest 에 서명한다.
           while IFS= read -r tag; do
             cosign sign --yes "${tag}@${DIGEST}"
           done <<< "${TAGS}"

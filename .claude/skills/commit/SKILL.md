@@ -24,7 +24,7 @@ feature branch 의 working diff 를 커밋한다. 가볍게 자주 커밋하는 
 
 1. `git branch --show-current` · `git status --short` · `git diff --stat` — 변경 범위 1줄 요약.
 2. `uv run ruff check .` — 초 단위 게이트만. NG 면 수정 후 재시도.
-   테스트는 돌리지 않는다. 단위 테스트는 develop PR 게이트(`scripts/local-ci.sh develop`)가 담당한다.
+   테스트는 돌리지 않는다. 단위 테스트는 develop PR 의 CI 가 담당한다.
 3. 무관한 변경이 섞였으면 (다른 작업의 잔여물, 에디터 설정 등) 사용자에게 확인하고 경로 제외 staging.
 4. 커밋 — 현황 선언형 메시지. 무엇을 왜 바꿨나.
 

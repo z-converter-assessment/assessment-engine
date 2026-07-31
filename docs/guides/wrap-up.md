@@ -23,6 +23,8 @@
 | develop PR | 코드 리뷰 · 단위 테스트 · 파이프라인 | 1·2·3 | `/pr` |
 | main PR | 문서 정합 · ADR · 영향도 · 통합 테스트 | 4·5 | `/pr --base main` |
 
+Stage 4·5(문서)는 릴리즈 주기와 별개로도 실행한다. drift 는 기능 단위가 아니라 시간이 지나며 쌓이므로, 코드 현황과 문서를 대조하는 작업 자체는 `/docs` 로 언제든 발동한다. main PR 게이트는 그 skill 을 승격 대상 영역에 대해 호출하는 것이다.
+
 커밋마다 무거운 검증을 강제하지 않는다 — 동작 검증(`/run`·`/verify`)과 변경 직후 자가 점검(#F5)이면 충분하다.
 
 문서(Stage 4·5)를 main PR 로 미루는 이유는 응집도다. 문서는 무엇이 릴리즈되는가에 대한 서술이라, feature 마다 쓰면 develop 에 여러 갈래가 모였을 때 서로 어긋난다. 릴리즈 단위로 한 번에 쓰면 중복도 재작업도 없다.
@@ -76,7 +78,7 @@ Self-audit 메타 인용 제외:
 
 목적:
 - 본 feature 코드가 정석(canonical)으로 짜여 있고, 본 repo 명문 규약(F1~F11 · #B · #C5 · #E1 P1~P4 · 관련 ADR)을 위반하지 않음을 보장.
-- 정석 idiom 과 명문 규약 양자 충족 — 정석 패턴이라도 명문 규약 위반이면 위반 (예: `from __future__ import annotations` 은 일반 python 베스트 프랙티스지만 F1 위반).
+- 정석 idiom 과 명문 규약 양자 충족 — 정석 패턴이라도 명문 규약에 어긋나면 위반이다.
 - 리팩토링은 동작 보존이 절대 — 진입 시 통과한 동작 검증이 안전망. 구조만 바꾸고 동작이 바뀌면 리팩토링이 아니라 기능 변경(범위 밖).
 
 체크리스트:
@@ -96,7 +98,7 @@ Self-audit 메타 인용 제외:
 - [1.6] 명명 · 매직 넘버. 약식 접미사(`_data` · `_temp` · `_v2` · `_new` · `_old` · `_fix`) 0건. 임계·시간·크기·HTTP status 는 명명 상수 또는 enum(`Literal` · `IntEnum`). 단 0/1/-1 · `LIMIT 1` 같은 자명한 경우 예외.
 
 명문 규약 매핑 (9):
-- [1.7] F1 — `from __future__ import annotations` · `TYPE_CHECKING` · type checker 만족용 런타임 `assert x is not None` 0건. hook 위반 시 메시지 그대로 수정 (우회 X).
+- [1.7] F1 — Pydantic 모델 필드 타입이 `TYPE_CHECKING` 블록에만 있는지 0건(런타임 resolve 라 `NameError`). type checker 만족용 런타임 `assert x is not None` 0건. `# type: ignore[return-value]` 로 덮은 거짓 시그니처 0건.
 - [1.8] F2 — KST 변환이 표시 경계 4 함수(SSR `kst` · client `fmtLabel` · `fmtKst` · `initAnchor`) 외 0건. naive datetime · 인라인 KST offset 더하기 0건.
 - [1.9] F3 — 검증이 진입점(라우터 Pydantic · Consumer `model_validate_json` · `BaseSettings`) 외 위치에서 재실행 0건. `_VALID_*` frozenset·런타임 enum 멤버십 체크 0건.
 - [1.10] F4 — Service/Handler 안 구체 구현체 import 0건. `config.py` module-level instance 0건. `assessment_engine.config` 에서 `web_settings` 등 직접 import 0건.
@@ -175,17 +177,17 @@ Self-audit 메타 인용 제외:
 - CI 트리거(PR 의 ci · alembic-check · codeql, tag push 의 release)가 발화하기 전에 로컬에서 동일 검증을 재현 — 회귀·산출물 버그를 머지·이메일 폭탄 전에 차단.
 
 체크리스트:
-- [3.1] PR base 대상 모드로 `scripts/local-ci.sh` 실행 (feature->develop = `develop`, develop->main = `main`), NG 0건. 모드별 검증 범위(`develop`: ruff·hadolint·unit·alembic·integration / `main`: 전부 + wheel build·codeql·image build·prod compose 정합)는 스크립트 단일 진실 — 본 명세가 항목을 복제하지 않는다. main 모드는 tag push -> release(이미지 빌드·서명·GHCR push) 전 경로(액션 버전·wheel build·image build·prod compose config)를 머지 전 재현해 release 버그를 머지 후 발견하는 것을 막는다.
+- [3.1] PR 발행 후 CI 결과 NG 0건. 발화 범위는 base 가 정한다 — develop PR 은 lint·단위 테스트·타입 계약·alembic drift, main PR 은 거기에 wheel build·통합 테스트가 더해진다. 워크플로가 단일 진실이라 본 명세는 항목을 복제하지 않는다.
 - [3.2] OIDC·GHCR 인증 필요한 step(cosign 서명 · GHCR push · SBOM/provenance attestation)은 본질적으로 CI 전용 — 로컬 skip (그 직전까지 산출물·액션 resolve 는 검증됨).
 
 도구:
-- `scripts/local-ci.sh` (`core.hooksPath` 자동 설정 + CI 트리거 로컬 재현).
+- GitHub Actions (PR 발행 시 자동 발화).
 
 산출물:
 - 검증 결과. NG 로 코드 수정 시 Stage 1·2 재검 트리거.
 
 통과 기준:
-- `scripts/local-ci.sh` NG 0건.
+- PR CI NG 0건.
 
 ---
 

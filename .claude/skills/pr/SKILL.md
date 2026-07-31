@@ -5,7 +5,7 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 
 # /pr — PR 생성
 
-브랜치 전략: main(배포 — 직접 push 금지) / develop(통합 — PR 머지) / feature·fix·chore(작업). main 직접 push 는 `.githooks/pre-push` 가 차단.
+브랜치 전략: main(배포 — 직접 push 금지) / develop(통합 — PR 머지) / feature·fix·chore(작업). 보호 브랜치 직접 push 는 GitHub ruleset 이 차단.
 
 ## Base 브랜치 정책
 
@@ -18,7 +18,8 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 코드 품질을 기능 단위로 판정하는 지점. 문서는 여기서 손대지 않는다 — develop 에 여러 feature 가 모인 뒤 main 승격 시점에 한 번에 맞춘다.
 
 1. code-reviewer 에이전트 1회 (`Agent(subagent_type='code-reviewer')`) — 정석 idiom + 명문 규약(P1-P4·F1-F11·#B·#C5). Error 즉시 수정 / Warning 위임 / Info 보고.
-2. `bash scripts/local-ci.sh develop` — lint + 단위 테스트 + 파이프라인.
+
+lint·단위 테스트·타입 계약·alembic drift 는 PR 발행 후 CI 가 돌린다 — 로컬 재현 없이 CI 결과를 확인한다.
 
 ### `--base main` 추가 강화 (배포 branch)
 
@@ -27,12 +28,9 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 1. 정상 경로 = `develop -> main` 승격 또는 `hotfix/*`. 다른 prefix 직접 main PR 이면 의도 재확인.
 2. `uv run pytest tests/integration -q` 의무 (사용자 confirm 없이 — main 안전 우선).
 3. `git log origin/main..HEAD --oneline` 전 커밋이 Conventional Commits 형식 의무.
-4. 문서 정합 — 승격 대상 전체 diff 가 만진 영역을 Diátaxis 목적별로 갱신 (`docs/guides/wrap-up.md` Stage 4·5). 변경 유형이 결합 목록에 걸리면 `change-impact` skill 로 동시 갱신 위치 확인.
+4. 문서 정합 — `docs` skill 을 승격 대상 영역으로 실행. 코드 현황 대조·문서 갱신·doc-auditor 검증까지 그 skill 이 담당한다. 변경 유형이 결합 목록에 걸리면 `change-impact` skill 로 동시 갱신 위치를 먼저 확인한다.
 5. 결정이 바뀌었으면(기존 ADR 을 뒤집거나 breaking) `docs/decisions/adr/NNNN-*.md` 신설 + 이전 ADR `Superseded by` + 인덱스 행 추가 의무 — 누락 시 차단.
-6. doc-auditor 에이전트(`Agent(subagent_type='doc-auditor')`) — 중복·목적 혼선·이력 서사·죽은 포인터 독립 검증. 지적 반영 후 재검.
-7. 훅 규칙 자가 확인 — 라이브 docs 에 `ADR [0-9]{4}` · 옛 doc 경로 · bold · 비키보드 unicode grep 0.
-8. `bash scripts/local-ci.sh main` 전체 로컬 재현.
-9. PR body 에 "main PR 사유"(release·hotfix) 절 강제.
+6. PR body 에 "main PR 사유"(release·hotfix) 절 강제.
 
 ## Pre-check (발행 직전 의무 — CI 실패·알림 noise 회피)
 
@@ -44,7 +42,7 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 - OK: `feat: 운영자 자율 선택` / `fix: handle null hostname`. NG: `feat: ZDM 직접 fetch`(대문자).
 
 ### B. 코드 검증
-`bash scripts/local-ci.sh <base>` (base=develop 이면 develop, main 이면 main). NG 있으면 발행 차단 — 수정 + 새 commit 후 재시도. (pre-push hook 도 local-ci 를 돌지만, 발행 전 명시 확인.)
+발행 후 CI 결과를 확인한다. 실패하면 수정 + 새 commit 을 올려 재검한다.
 
 ## PR template 우선 (의무)
 
@@ -61,7 +59,7 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 
 ## 생성
 
-- push 안 됐으면 `git push -u origin <branch>` 먼저 (pre-push hook 이 local-ci 게이트).
+- push 안 됐으면 `git push -u origin <branch>` 먼저.
 - `gh pr create --base develop --title "<type>: 한 줄 요약" --body "$(cat <<'EOF' ... EOF)"` — HEREDOC body.
 - 제목 70자 미만. body 는 template 구조 채움 (현재 상태 선언, 브랜치 전체 요약).
 - AI 메타데이터 footer(Generated with·Co-Authored-By) 절대 금지.
