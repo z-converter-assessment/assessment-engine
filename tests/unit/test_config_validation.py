@@ -133,3 +133,78 @@ def test_consumer_settings_broker_url_encodes_vhost():
     # URL spec: amqp://user:pass@host:port/<encoded_vhost>. port와 vhost 사이 `/`는 raw,
     # vhost 자체의 `/`는 %2F. `/assessment`라는 vhost는 `%2Fassessment`로 인코딩되어 들어감.
     assert s.broker_url.endswith("/%2Fassessment")
+
+
+# ─── secret 파일 vs 환경변수 충돌 — _reject_env_shadowing_secret ───────────
+
+
+def _prod_env(monkeypatch, secrets_dir):
+    """prod 기동에 필요한 최소 env. 개별 테스트가 비밀번호만 추가로 넣는다."""
+    monkeypatch.setenv("SECRETS_DIR", str(secrets_dir))
+    monkeypatch.setenv("APP_ENV", "prod")
+    monkeypatch.setenv("POSTGRES_USER", "strong_user")
+    monkeypatch.setenv("RABBITMQ_USER", "strong_mq_user")
+    for key in ("POSTGRES_PASSWORD", "RABBITMQ_PASSWORD"):
+        monkeypatch.delenv(key, raising=False)
+
+
+def _reload_config():
+    """_SECRETS_DIR 는 import 시점에 굳으므로 SECRETS_DIR 을 바꾼 뒤 다시 읽어야 한다."""
+    import importlib
+
+    import assessment_engine.config as config_module
+
+    return importlib.reload(config_module)
+
+
+def test_prod_accepts_secret_file_without_env(monkeypatch, tmp_path):
+    """파일 채널만 쓰면 통과 — 값은 secrets_dir 에서 온다."""
+    (tmp_path / "postgres_password").write_text("file-only-secret-32chars")
+    (tmp_path / "rabbitmq_password").write_text("file-only-mq-secret-32chars")
+    _prod_env(monkeypatch, tmp_path)
+    config = _reload_config()
+
+    assert config.WebSettings(_env_file=None).postgres_password.get_secret_value() == "file-only-secret-32chars"
+    assert config.ConsumerSettings(_env_file=None).rabbitmq_password.get_secret_value() == "file-only-mq-secret-32chars"
+
+
+def test_prod_rejects_env_shadowing_postgres_secret_file(monkeypatch, tmp_path):
+    """env 가 secret 파일을 가리면 거부 — 우선순위상 파일이 무시돼 노출 회피가 무너진다."""
+    (tmp_path / "postgres_password").write_text("file-secret-32chars")
+    _prod_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("POSTGRES_PASSWORD", "env-wins-and-leaks")
+    config = _reload_config()
+
+    with pytest.raises(ValidationError, match="secret file is ignored"):
+        config.WebSettings(_env_file=None)
+
+
+def test_prod_rejects_env_shadowing_rabbitmq_secret_file(monkeypatch, tmp_path):
+    (tmp_path / "postgres_password").write_text("file-secret-32chars")
+    (tmp_path / "rabbitmq_password").write_text("file-mq-secret-32chars")
+    _prod_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("RABBITMQ_PASSWORD", "env-wins-and-leaks")
+    config = _reload_config()
+
+    with pytest.raises(ValidationError, match="secret file is ignored"):
+        config.ConsumerSettings(_env_file=None)
+
+
+def test_env_only_channel_passes_when_no_secret_file(monkeypatch, tmp_path):
+    """secret 파일이 없으면 env 채널이 정상 경로 — 충돌이 아니다 (#A0 채널 비강제)."""
+    _prod_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("POSTGRES_PASSWORD", "env-channel-secret-32chars")
+    config = _reload_config()
+
+    assert config.WebSettings(_env_file=None).postgres_password.get_secret_value() == "env-channel-secret-32chars"
+
+
+def test_dev_ignores_shadowing(monkeypatch, tmp_path):
+    """검사는 prod 한정 — dev 는 편의를 위해 env 평문을 그대로 쓴다."""
+    (tmp_path / "postgres_password").write_text("file-secret-32chars")
+    _prod_env(monkeypatch, tmp_path)
+    monkeypatch.setenv("APP_ENV", "dev")
+    monkeypatch.setenv("POSTGRES_PASSWORD", "env-wins")
+    config = _reload_config()
+
+    assert config.WebSettings(_env_file=None).postgres_password.get_secret_value() == "env-wins"

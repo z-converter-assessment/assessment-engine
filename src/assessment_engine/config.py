@@ -15,6 +15,25 @@ _SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
 _WEAK_VALUES = frozenset({"", "password", "admin", "root", "changeme"})
 
 
+def _reject_env_shadowing_secret(field: str) -> None:
+    """secret 파일과 같은 이름의 환경변수가 함께 있으면 거부한다.
+
+    우선순위상 환경변수가 이겨서 파일 채널이 조용히 무력화된다 — 노출 회피를 의도했는데 값이
+    컨테이너 env 에 그대로 뜬다. 실패도 경고도 없어 운영자가 알아채지 못한다.
+
+    컨테이너는 compose `env_file` 이 값을 환경변수로 주입하므로 이 검사에 걸린다. 호스트에서
+    pydantic 이 `.env` 를 직접 읽는 경로는 환경변수를 거치지 않아 여기서 잡히지 않는다.
+    """
+    if _SECRETS_DIR is None or field.upper() not in os.environ:
+        return
+    if os.path.isfile(os.path.join(_SECRETS_DIR, field)):
+        raise ValueError(
+            f"{field.upper()} is set in the environment while {_SECRETS_DIR}/{field} exists. "
+            "The environment value takes precedence, so the secret file is ignored and the value "
+            "is exposed in the container env. Remove it from .env (and OS env) to use the file channel."
+        )
+
+
 class WebSettings(BaseSettings):
     # 우선순위: OS env > .env (cwd) > <SECRETS_DIR>/<field> 파일 > 코드 default
     # SECRETS_DIR env로 주입 경로 override 가능 (default `/run/secrets`).
@@ -115,6 +134,7 @@ class WebSettings(BaseSettings):
             return self
         # 외부 인프라가 secret을 어떻게 주입하든(env·secrets_dir·EnvironmentFile·Vault 등) 결과만 검증.
         # 채널 자체는 본 repo 책임 밖 (CLAUDE.md #A0). weak default 통과 차단이 핵심.
+        _reject_env_shadowing_secret("postgres_password")
         if self.postgres_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
                 "POSTGRES_PASSWORD is unset or uses a dev default in prod. "
@@ -213,6 +233,7 @@ class ConsumerSettings(WebSettings):
     def _validate_prod_consumer_secrets(self) -> "ConsumerSettings":
         if self.app_env != "prod":
             return self
+        _reject_env_shadowing_secret("rabbitmq_password")
         if self.rabbitmq_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
                 "RABBITMQ_PASSWORD is unset or uses a dev default in prod. "

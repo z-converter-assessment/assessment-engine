@@ -125,6 +125,9 @@ prod 환경에서 secret 누락·약한 default 통과 차단. secret 주입 채
 | 위치 | 검증 대상 | 강제 시점 |
 |------|---------|---------|
 | `config.py` `_validate_prod_*` model_validator | `_WEAK_VALUES`(`""`/`password`/`admin`/`root`/`changeme`) 거부 (POSTGRES·RABBITMQ password·user). `assessment`(dev default)는 허용 — 명시하면 USER·PASSWORD 둘 다 통과. PASSWORD default 는 `changeme`(weak)라 미설정 시 거부 | 앱 import 직후 (`Settings()` 인스턴스 생성 시) |
+| `config.py` `_reject_env_shadowing_secret` | secret 파일과 같은 이름의 환경변수가 함께 있으면 거부 | 위와 같음 |
+
+두 번째 검사는 채널 충돌을 잡는다. 우선순위가 `OS env > .env > secrets_dir` 이라 secret 파일을 두고도 같은 이름의 환경변수가 있으면 파일이 조용히 무시되고, 노출을 피하려던 값이 컨테이너 env 에 그대로 뜬다. 실패도 경고도 없어 운영자가 알 방법이 없으므로 prod 기동을 막는다. 컨테이너는 compose `env_file` 이 값을 환경변수로 주입하므로 이 검사에 걸린다.
 
 ```python
 @model_validator(mode="after")
