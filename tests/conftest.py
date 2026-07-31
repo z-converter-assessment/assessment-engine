@@ -1,14 +1,7 @@
-"""세션 전체에서 단 1회 spawn하는 TimescaleDB 컨테이너 + async engine.
+"""integration 테스트용 TimescaleDB 컨테이너와 세션.
 
-정석 fixture 계층:
-- session scope: 컨테이너 + Alembic migration 적용 + engine (한 번 띄우고 모든 테스트 공유)
-- function scope: session + repository + transaction rollback (각 테스트 격리)
-
-schema는 alembic upgrade head로 적용 — 운영(dev/staging/prod)과 동일 경로.
-TimescaleDB extension·hypertable·partial index 등 모두 마이그레이션에 포함되어 자동 적용.
-
-session-scope async fixture를 쓰려면 pyproject의
-`asyncio_default_fixture_loop_scope = "session"` 설정이 필수.
+스키마는 `alembic upgrade head` 로 만든다 — 운영과 같은 경로라 extension·hypertable·partial
+index 가 실제 배포와 같은 순서로 적용된다. DDL 을 테스트용으로 따로 쓰지 않는 이유다.
 """
 
 import os
@@ -27,7 +20,6 @@ _REPO_ROOT = Path(__file__).parent.parent
 
 @pytest.fixture(scope="session")
 def _postgres_container() -> PostgresContainer:
-    """세션 전체 1회 spawn. TimescaleDB all-in-one 이미지."""
     container = PostgresContainer(
         image="timescale/timescaledb-ha:pg16",
         username="test",
@@ -41,13 +33,12 @@ def _postgres_container() -> PostgresContainer:
 
 @pytest_asyncio.fixture(scope="session")
 async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncEngine]:
-    """asyncpg 드라이버 + Alembic 마이그레이션 적용 (dev/staging/prod와 동일 경로)."""
     host = _postgres_container.get_container_host_ip()
     port = _postgres_container.get_exposed_port(5432)
     async_url = f"postgresql+asyncpg://test:test@{host}:{port}/assessment_test"
 
-    # alembic upgrade head — subprocess로 호출 (async fixture 내 nested asyncio 회피).
-    # get_web_settings().database_url을 env var 기반으로 만들도록 POSTGRES_* 주입.
+    # subprocess 로 부른다 — async fixture 안에서 alembic 을 직접 부르면 이벤트 루프가 중첩된다.
+    # POSTGRES_* 는 alembic 이 자기 Settings 로 접속 문자열을 조립할 때 읽는다.
     env = os.environ.copy()
     env["POSTGRES_HOST"] = host
     env["POSTGRES_PORT"] = str(port)
@@ -77,10 +68,7 @@ async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncE
 
 @pytest_asyncio.fixture
 async def db_session(engine: AsyncEngine) -> AsyncGenerator:
-    """function-scope. 각 테스트 시작 시 새 session, 끝에 rollback으로 격리.
-
-    Hypertable 데이터도 transaction rollback으로 정리된다 (TimescaleDB 호환).
-    """
+    """테스트마다 rollback 으로 격리한다 — hypertable 에 쓴 행도 함께 되돌아간다."""
     SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
     async with SessionLocal() as session:
         try:

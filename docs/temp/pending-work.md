@@ -14,21 +14,28 @@ cat docs/temp/pending-work.md
 
 ## 현재 상태 (2026-07-31 기준)
 
-PR #112 `refactor: 배포·설정 채널을 표준 배치로 정리` 가 develop 에 squash 머지됐다 (`5e75c3f`). 열린 PR 없음. develop 은 main 대비 6커밋 앞서 있다.
+develop 은 `e472a56`, main 대비 9커밋 앞서 있다. 열린 PR 없음.
 
-머지 전 develop CI 5종이 통과했다. 두 job 은 develop PR 에서 안 돈다 (`if: github.base_ref == 'main'`).
+| PR | 내용 |
+|----|------|
+| #112 | 배포·설정 채널 표준 배치 — compose 3파일, 비밀번호 검증 환경 분기 제거, rollout 판정 전체 서비스로 확대, 문서·주석 실측 정합 |
+| #113 | 본 문서 신설 |
+| #114 | CI unit 병목 기록 |
+| #115 | CI 에서 커버리지 제거 + property 생성 횟수를 base 브랜치로 분기 |
+
+develop PR CI 는 다섯이 돌고 둘은 main 전용이다 (`if: github.base_ref == 'main'`).
 
 ```
-pass       ruff + hadolint            18s
-pass       pytest (unit)              5m2s     806개
-pass       frontend typecheck         20s
-pass       alembic-check              47s
+pass       ruff + hadolint            19s
+pass       pytest (unit)              43s      806개
+pass       frontend typecheck         27s
+pass       alembic-check              45s
 pass       pr title + metadata        4s
 skipping   wheel build                main PR 전용
 skipping   pytest (integration)       main PR 전용
 ```
 
-PR #112 가 한 일은 넷이다. compose 를 base + dev override + prod overlay 3파일 표준으로 세웠고, 비밀번호 검증에서 환경 분기를 걷어냈고(기본값 없는 필수 필드 + 뻔한 값 거부 + secret/env 채널 충돌 거부), rollout 성공 판정을 전체 서비스로 넓혔고, 문서·주석을 코드 실측에 맞췄다.
+미머지 작업이 하나 있다. `docs/tests-comments` 브랜치에 tests 루트 세 파일(`conftest.py`·`factories.py`·`hypothesis_scale.py`)의 주석 정리가 커밋되어 있고 push 는 안 했다.
 
 ---
 
@@ -106,7 +113,7 @@ src 69건은 절반이 도구 한계고 절반이 진짜다. SQLAlchemy 스텁�
 
 ## S3. 결정 — 릴리즈
 
-버전이 `1.2.1` 에 멈춰 있다. develop 이 main 대비 6커밋 앞서 있고 fix 가 여럿이라 bump 가 필요하다.
+버전이 `1.2.1` 에 멈춰 있다. develop 이 main 대비 9커밋 앞서 있고 fix 가 여럿이라 bump 가 필요하다.
 
 두 가지를 함께 정한다.
 
@@ -139,7 +146,9 @@ S2 결정에 종속. src 69건 정리는 대략 이렇게 갈린다.
 
 ### S4-4. 주석 전수 미검토
 
-파이썬 파일 137개 중 실제로 읽고 판단한 것은 주석 밀도 상위 몇 개다. 나머지는 grep 패턴에 걸린 것만 고쳤다. 패턴으로 안 잡히는 것 — 코드를 옮겨 적은 주석, 정책 서술이 섞인 주석 — 은 남아 있다.
+파이썬 파일 137개 중 실제로 읽고 판단한 것은 주석 밀도 상위 몇 개와 tests 루트 세 파일뿐이다. 나머지는 grep 패턴에 걸린 것만 고쳤다. 패턴으로 안 잡히는 것 — 코드를 옮겨 적은 주석, 탈락한 대안을 늘어놓은 설명, 정책 서술이 섞인 주석 — 은 남아 있다.
+
+tests 루트를 손봐 보니 세 유형이 반복됐다. fixture scope·이미지 이름처럼 코드가 이미 말하는 것을 옮겨 적은 주석, 쓰지 않기로 한 라이브러리를 왜 안 쓰는지 늘어놓은 설명, "(v2)"·"구 X"·"v1 컬럼이 아니라" 같은 회고 토큰. 다른 파일도 같은 것을 찾으면 된다.
 
 ### S4-5. `docs/temp/handoff.md`
 
