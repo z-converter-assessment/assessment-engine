@@ -3,7 +3,7 @@
 > 기능 개발(feature branch) 동작 완성 후 거치는 5단계 마무리의 단일 진실. `/commit`·`/pr` skill 이 각자 담당 Stage 를 실행한다 — skill 은 절차만 가지고 체크리스트는 본 문서를 인용한다.
 >
 > 최상위 원칙 둘:
-> - 코드: 정석 코드 퀄리티 — canonical pattern / framework idiom / declarative 우선, ad-hoc hack 0. 본 repo 명문 규약(CLAUDE.md F1~F11 · #B · #C · #E1 P1~P4 · ADR 결정·금지) 위반 0건이 전제 — 외부 일반 베스트 프랙티스보다 본 repo 명문 규약 우선.
+> - 코드: 정석 코드 퀄리티 — canonical pattern / framework idiom / declarative 우선, ad-hoc hack 0. 본 repo 명문 규약(CLAUDE.md F1~F12 · #B · #C · #E1 P1~P4 · ADR 결정·금지) 위반 0건이 전제 — 외부 일반 베스트 프랙티스보다 본 repo 명문 규약 우선.
 > - 문서: 정합 · 중복 없는 간결한 엄밀함 — 단일 진실 / "왜"만 적기 / 코드로 알 수 있는 사실 적지 않기 / 모호 표현 0.
 >
 > 충돌 시 코드 우선 — 코드가 정석 + 명문 원칙을 따를 때만 문서 정합이 의미를 가진다.
@@ -11,7 +11,7 @@
 ## 0. 적용 시점 · 범위
 
 진입 조건:
-- 기능 동작 완성 — `/run` · `/verify` · 수동 검증 통과. 이 동작 검증이 Stage 1 리팩토링의 회귀 안전망 (정석 리팩토링은 통과하는 검증 하에서만 구조를 바꾼다 — Fowler).
+- 기능 동작 완성 — `/run` 또는 수동 검증 통과. 이 동작 검증이 Stage 1 리팩토링의 회귀 안전망이다 (통과하는 검증 하에서만 구조를 바꾼다 — Fowler).
 - feature branch 위 (`main`·`master` 직접 X). 미커밋 변경만 또는 clean 상태.
 - commit·PR 전. commit·PR 자체는 본 워크플로 종료 후 사용자 명시 시 `/commit`·`/pr` 별도 발동.
 
@@ -25,15 +25,14 @@
 
 Stage 4·5(문서)는 릴리즈 주기와 별개로도 실행한다. drift 는 기능 단위가 아니라 시간이 지나며 쌓이므로, 코드 현황과 문서를 대조하는 작업 자체는 `/docs` 로 언제든 발동한다. main PR 게이트는 그 skill 을 승격 대상 영역에 대해 호출하는 것이다.
 
-커밋마다 무거운 검증을 강제하지 않는다 — 동작 검증(`/run`·`/verify`)과 변경 직후 자가 점검(#F5)이면 충분하다.
+커밋마다 무거운 검증을 강제하지 않는다 — 동작 검증(`/run`)과 변경 직후 자가 점검(#F5)이면 충분하다.
 
 문서(Stage 4·5)를 main PR 로 미루는 이유는 응집도다. 문서는 무엇이 릴리즈되는가에 대한 서술이라, feature 마다 쓰면 develop 에 여러 갈래가 모였을 때 서로 어긋난다. 릴리즈 단위로 한 번에 쓰면 중복도 재작업도 없다.
 
 범위 밖:
 - 기능 동작 개발 자체 — 개발 시간의 대부분. 본 워크플로는 동작하는 코드를 전제로 그 위에서 정석화·정합만 수행 (make it work 후의 make it right).
 - commit 메시지·PR 본문 작성·push.
-- 동작 검증 (`/run`·`/verify`).
-- README.md (형식 개편 별도 진행 — 본 워크플로 대상 아님).
+- 동작 검증 (`/run`).
 
 Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파이프라인 검증 -> 문서 -> CLAUDE.md. 코드가 먼저 정석에 도달한 뒤 문서를 맞춘다 (역순이면 코드 변경 때마다 문서 재작업).
 
@@ -57,7 +56,7 @@ Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파
   - Stage 2 테스트 중 코드 부족 발견 -> Stage 1 재실행.
   - Stage 3 파이프라인 검증 실패로 코드 수정 -> Stage 1·2 재실행.
   - Stage 4·5 문서 중 코드 모순 발견 -> Stage 1 재실행.
-- 최대 3 cycle. 4 cycle 진입 시 사용자에게 정지·재설계 제안 (메모리 `feedback_one_minute_timeout.md` 정합 — stuck 즉시 보고).
+- 최대 3 cycle. 4 cycle 진입 시 사용자에게 정지·재설계를 제안한다 — stuck 은 즉시 보고.
 
 진행 신호:
 - 매 Stage 진입 전 1줄 알림 (`Stage N — <목적> (도구: X)`).
@@ -77,7 +76,7 @@ Self-audit 메타 인용 제외:
 - 기능 동작 완성 코드 + `git diff <base>...HEAD` (`<base>` 는 PR base — 보통 `develop`).
 
 목적:
-- 본 feature 코드가 정석(canonical)으로 짜여 있고, 본 repo 명문 규약(F1~F11 · #B · #C5 · #E1 P1~P4 · 관련 ADR)을 위반하지 않음을 보장.
+- 본 feature 코드가 정석(canonical)으로 짜여 있고, 본 repo 명문 규약(F1~F12 · #B · #C5 · #E1 P1~P4 · 관련 ADR)을 위반하지 않음을 보장.
 - 정석 idiom 과 명문 규약 양자 충족 — 정석 패턴이라도 명문 규약에 어긋나면 위반이다.
 - 리팩토링은 동작 보존이 절대 — 진입 시 통과한 동작 검증이 안전망. 구조만 바꾸고 동작이 바뀌면 리팩토링이 아니라 기능 변경(범위 밖).
 
@@ -155,7 +154,7 @@ Self-audit 메타 인용 제외:
 원칙 (3):
 - [2.11] 테스트 한 개 = 한 분기. assert 누락·smoke-only 0건. 한 함수에 무관한 assert 다발 0건.
 - [2.12] 동일 픽스처·테스트 데이터 중복 0건 — fixture / factory / parametrize.
-- [2.13] 사용자 명시 없이 pytest 자동 실행 0건 (메모리 `feedback_no_test_runs.md`). 단계 종료 시 "테스트 실행하시겠습니까?" 1회 옵션.
+- [2.13] 사용자 명시 없이 pytest 자동 실행 0건. 단계 종료 시 "테스트 실행하시겠습니까?" 1회 옵션.
 
 도구:
 - 직접 수행 (레이어 결정 + 패턴 작성). 테스트 정책 단일 진실 `docs/guides/testing.md`.
@@ -174,10 +173,10 @@ Self-audit 메타 인용 제외:
 - Stage 2 통과 코드 + 테스트.
 
 목적:
-- CI 트리거(PR 의 ci · alembic-check · codeql, tag push 의 release)가 발화하기 전에 로컬에서 동일 검증을 재현 — 회귀·산출물 버그를 머지·이메일 폭탄 전에 차단.
+- PR CI 가 회귀를 머지 전에 차단한다. 릴리즈 파이프라인은 main 머지 후 `release.yml` 이 담당한다.
 
 체크리스트:
-- [3.1] PR 발행 후 CI 결과 NG 0건. 발화 범위는 base 가 정한다 — develop PR 은 lint·단위 테스트·타입 계약·alembic drift, main PR 은 거기에 wheel build·통합 테스트가 더해진다. 워크플로가 단일 진실이라 본 명세는 항목을 복제하지 않는다.
+- [3.1] PR 발행 후 CI 결과 NG 0건. 발화 범위는 base 가 정하며 목록은 `docs/guides/ci-setup.md` 3.4 소유.
 - [3.2] OIDC·GHCR 인증 필요한 step(cosign 서명 · GHCR push · SBOM/provenance attestation)은 본질적으로 CI 전용 — 로컬 skip (그 직전까지 산출물·액션 resolve 는 검증됨).
 
 도구:
@@ -218,7 +217,7 @@ Self-audit 메타 인용 제외:
 
 간결 (3):
 - [4.10] 코드만 봐도 알 수 있는 사실(디렉토리 트리·함수 시그니처 본문·import graph·라인 수) 0건 — 코드 경로 포인터로.
-- [4.11] 임시 상태(`TODO`·`FIXME`·`XXX`·"작업 중"·"향후"·"차후") 0건. 검사: `rg -i '\b(TODO|FIXME|XXX|작업중|향후|차후)\b' docs/reference/ docs/guides/ docs/explanation/products/ docs/guides/`. 임시는 `docs/temp/` 또는 PR 본문.
+- [4.11] 임시 상태(`TODO`·`FIXME`·`XXX`·"작업 중"·"향후"·"차후") 0건. 검사: `rg -i '\b(TODO|FIXME|XXX|작업중|향후|차후)\b' docs/reference/ docs/guides/ docs/explanation/`. 임시는 `docs/temp/` 또는 PR 본문.
 - [4.12] 동일 결정·금지가 한 문서 안 반복 0건.
 
 엄밀 (3):
@@ -227,7 +226,7 @@ Self-audit 메타 인용 제외:
 - [4.15] 임계·시간·크기는 명명 상수 또는 단위 동반 숫자(`14 일` · `90 %` · `300 ms`). 단위 없는 raw 숫자 0건.
 
 원칙 (2):
-- [4.16] `docs/temp/` 인용 0건 (양방향). 검사: `rg 'docs/temp' src/ docs/reference/ docs/guides/ docs/explanation/products/ docs/guides/ docs/decisions/adr/ CLAUDE.md`.
+- [4.16] `docs/temp/` 인용 0건 (양방향). 검사: `rg 'docs/temp' src/ docs/reference/ docs/guides/ docs/explanation/ docs/decisions/adr/ .claude/CLAUDE.md`.
 - [4.17] 영구 문서 간 같은 사실의 양방향 의존(순환) 0건. 상위(CLAUDE.md) → 하위(`docs/reference/*`) 단방향. 동등 계층은 다른 책임의 단일 진실 간 cross-reference 만 허용 — 같은 사실을 양쪽에 복제 금지.
 
 도구:
@@ -285,7 +284,7 @@ Self-audit 메타 인용 제외:
 
 5 Stage 통과 + 사용자 최종 컨펌 → 종료.
 
-commit·PR 자동 트리거 X — 사용자 명시 시 `/commit` · `/pr` 별도 발동 (메모리 `feedback_no_commit_pr_mention.md`).
+commit·PR 자동 트리거 X — 사용자 명시 시 `/commit` · `/pr` 별도 발동.
 
 종료 보고 형식:
 - 누적 변경 파일 카탈로그 (코드 · 문서 · 테스트 분류).

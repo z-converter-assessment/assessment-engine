@@ -62,7 +62,7 @@ lint·단위 테스트·타입 계약·alembic drift 는 PR 발행 후 CI 가 �
 - push 안 됐으면 `git push -u origin <branch>` 먼저.
 - `gh pr create --base develop --title "<type>: 한 줄 요약" --body "$(cat <<'EOF' ... EOF)"` — HEREDOC body.
 - 제목 70자 미만. body 는 template 구조 채움 (현재 상태 선언, 브랜치 전체 요약).
-- AI 메타데이터 footer(Generated with·Co-Authored-By) 절대 금지.
+- AI 메타데이터 footer(Generated with·Co-Authored-By) 절대 금지 — `pr-title-check.yml` 이 강제한다.
 - 반환 PR URL 사용자에게 노출.
 
 ## 금지

@@ -1,132 +1,138 @@
 # GitHub UI Setup
 
-본 repo CI workflow·release(tag push) ceremony·branch policy를 정상 작동시키기 위해 GitHub 측에서 한 번만 활성해야 하는 설정 카탈로그. 본 repo 코드 영역 밖이라 운영자가 GitHub Settings(또는 ruleset)에서 수동 활성. (배포는 GitHub 설정이 불요 — 배포 대상 VM 에서 `deploy.sh` 를 실행한다. `docs/guides/deploy.md`.)
+CI workflow·릴리즈·브랜치 정책을 작동시키려면 GitHub 측에서 한 번 활성해야 하는 설정 카탈로그. 저장소 코드 영역 밖이라 운영자가 Settings 에서 수동 적용한다. 배포는 GitHub 설정이 불요 — 배포 대상 VM 에서 `deploy.sh` 를 실행한다(`docs/guides/deploy.md`).
 
 ## 1. Actions 권한
 
-위치: Settings → Actions → General → Workflow permissions
+위치: Settings -> Actions -> General -> Workflow permissions
 
 | 항목 | 값 | 사유 |
-|------|----------|------|
-| Read and write permissions | 필수 | 전역 설정이 각 워크플로 `permissions:` 블록의 상한이다. release.yml 이 릴리즈 tag 를 push 하려면 `contents: write` 가 필요하므로 전역 read-only 면 실패한다 |
-| Allow GitHub Actions to create and approve pull requests | 불필요 | bot 의 PR 생성 없음. 릴리즈 = 버전을 올린 커밋의 main 머지 |
+|------|----|------|
+| Read and write permissions | 필수 | 전역 설정이 각 워크플로 `permissions:` 블록의 상한이다. `release.yml` 이 릴리즈 tag 를 push 하려면 `contents: write` 가 필요하므로 전역 read-only 면 실패한다 |
+| Allow GitHub Actions to create and approve pull requests | 불필요 | bot 의 PR 생성 없음 |
 
-릴리즈는 버전을 올린 커밋이 `main` 에 머지되면 `release.yml` 이 발사되고, 발행 성공 후 워크플로가 `v*` tag 를 남긴다. bot PR 생성 권한은 불필요하다.
+## 2. Code scanning
 
-## 2. CodeQL Default Setup (권장)
+위치: Settings -> Code security -> Code scanning
 
-위치: Settings → Code security → Code scanning → CodeQL → "Default setup" → Enable
+Default setup 을 켜지 않는다. `.github/workflows/codeql.yml`(Advanced setup)이 이미 SAST 를 수행하며, GitHub 은 두 방식을 동시에 쓸 수 없어 Default setup 을 켜면 이 워크플로가 비활성화된다.
 
-본 repo의 `.github/workflows/codeql.yml`이 이미 SAST 실행하지만, GitHub UI의 Default setup도 함께 활성하면:
-- Security 탭의 alert dashboard 통합 가시화
-- main 기준 baseline scan 자동 등록
+Advanced 를 유지하는 이유는 둘이다. 쿼리 범위를 `security-extended` 로 넓혀 두었고, 발화 시점을 main PR 로 좁혀 두었다. Default setup 은 둘 다 GitHub 이 정한다.
 
-UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이 부족.
+CodeQL 결과는 required status check 가 아니라 Security 탭 alert 으로 운영자가 인지한다.
 
-## 3. Branch Protection Rule (정석)
+## 3. Rulesets
 
-위치: Settings → Branches → Add branch protection rule
+위치: Settings -> Rules -> Rulesets -> New ruleset
 
-### 3.1. `main` branch
+Branch protection rules 가 아니라 ruleset 을 쓴다 — 여러 패턴을 한 규칙으로 묶고, bypass 대상을 지정할 수 있으며, 적용 전 평가 모드로 돌려볼 수 있다.
 
-| 옵션 | 값 | 사유 |
-|------|-----|------|
-| Branch name pattern | `main` | |
-| Require a pull request before merging | 활성 | 직접 push 차단, PR 강제 |
-| Require approvals | 1+ (선택) | 1인 운영이면 0, 팀이면 1+ |
-| Dismiss stale pull request approvals when new commits are pushed | 활성 | 강제 push로 우회 차단 |
-| Require status checks to pass before merging | 활성 | CI workflow 통과 의무 |
-| Required status checks | 아래 6 항목 모두 의무 등록 (체크) — 모든 PR 이 본 check 통과해야 merge 가능 |
-| Require branches to be up to date before merging | 활성 | merge 직전 main rebase 강제 |
-| Require conversation resolution before merging | 활성 | PR comment 미해결 차단 |
-| Require linear history | 비활성 | `develop` → `main` 승격을 merge commit 으로 해 이력 공유 (divergence 0). linear 강제 시 squash 만 되어 main/develop 영구 분기 |
-| Do not allow bypassing the above settings | 활성 | admin도 우회 불가 — 본 옵션이 정책의 마지막 안전망 |
-| Allow force pushes | 비활성 | git history 보호 |
-| Allow deletions | 비활성 | branch 삭제 차단 |
+### 3.1. main
 
-#### Required status checks 카탈로그 (6 항목 — main 머지 의무)
+| 규칙 | 값 | 사유 |
+|------|----|------|
+| Target | `refs/heads/main` | |
+| Restrict deletions | 활성 | |
+| Block force pushes | 활성 | git 이력 보호 |
+| Require linear history | 비활성 | `develop` -> `main` 승격을 merge commit 으로 해야 두 브랜치가 이력을 공유한다. linear 를 강제하면 squash·rebase 만 남아 승격할 때마다 이미 반영된 커밋이 다시 대상이 된다 |
+| Require a pull request before merging | 활성 | |
+| Required approvals | 1+ (선택) | 1인 운영이면 0 |
+| Dismiss stale pull request approvals | 활성 | 새 커밋이 올라오면 승인 무효화 |
+| Require conversation resolution | 활성 | |
+| Allowed merge methods | Merge 만 | 승격 방법을 사람 선택에 맡기지 않는다 |
+| Require status checks to pass | 활성 (아래 3.4 main 목록) | |
+| Require branches to be up to date | 활성 | |
+| Bypass list | 비움 | 관리자도 우회 불가 |
 
-| Check 이름 (GitHub UI 표시) | 발화 workflow | 검증 | 비고 |
-|------------------------------|-----------------|------|------|
-| `PR title (conventional commits)` | `pr-title-check.yml` | PR title 형식 (`feat:`·`fix:`·`feat!:` 등) | git history 일관 |
-| `ci / ruff + hadolint` | `ci.yml` | python lint + Dockerfile lint | |
-| `ci / pytest (unit)` | `ci.yml` | 단위 테스트 + coverage | |
-| `ci / wheel build` | `ci.yml` | `uv build` 성공 | 패키징 빌드 검증 (PEP 517 — 이미지 빌드가 소비하는 패키지 정합) |
-| `ci / pytest (integration)` | `ci.yml` | testcontainers postgres/redis + 통합 | wheel build 의존 |
-| `alembic-check` | `alembic-check.yml` | ORM·migrations 라운드트립 정합 | paths 무관 매 PR 발화 (paths 조건 제거 — branch protection skip 함정 회피) |
+### 3.2. develop
 
-본 6 check 모두 통과 의무 — paths 조건 없는 워크플로라 main PR 매번 발화 (`alembic-check` ~10s). CodeQL SAST 는 `codeql.yml` 이 별도 SARIF 업로드라 본 required 목록 외 — Security 탭 alert 으로 운영자 인지. 의존성 CVE 는 GitHub Dependabot alerts(아래 5.2)로 수신 — CI gate 아님.
+| 규칙 | 값 | 사유 |
+|------|----|------|
+| Target | `refs/heads/develop` | |
+| Restrict deletions · Block force pushes | 활성 | |
+| Require linear history | 비활성 | `develop` 이 merge commit 을 받을 수 있어야 승격 정합이 맞는다 |
+| Require a pull request before merging | 활성 | |
+| Allowed merge methods | Squash 만 | feature 의 작업 커밋을 압축한다. PR title 이 그대로 커밋 메시지가 되므로 형식 검사가 의미를 갖는다 |
+| Require status checks to pass | 활성 (아래 3.4 develop 목록) | |
+| Bypass list | 비움 | |
 
-main PR 분기 강화는 `.claude/skills/pr/SKILL.md` "main PR 추가 강화" 절 — `pytest tests/integration` 의무·BREAKING change 시 ADR 신설 의무·`hotfix/*` branch naming 권장.
+### 3.3. release tags
 
-### 3.2. `develop` branch
+| 규칙 | 값 | 사유 |
+|------|----|------|
+| Target | `refs/tags/v*` | |
+| Restrict deletions | 활성 | 발행된 tag 불변 보존 |
+| Block force pushes | 활성 | tag 재지정 차단 |
+| Restrict creations | 활성 | 사람이 tag 를 붙이지 않는다 — `release.yml` 이 `pyproject.toml` 의 version 에서 파생 생성한다 |
+| Bypass list | GitHub Actions | 워크플로가 tag 를 push 해야 한다 |
 
-`main`과 동일 패턴 — `develop`도 PR 강제. 단:
-- "Required status checks" — 위 6 항목 동일 적용 (`alembic-check` 도 paths 무관 매 PR 발화)
-- "Require linear history" 비활성 — feature 는 squash 로 들어오지만 `develop` 자체가 merge commit 을 받을 수 있어야 화해·승격 정합
-- "Do not allow bypassing" 활성
+생성 제한은 bypass 에 Actions 가 등록돼야 성립한다. 등록 없이 켜면 릴리즈가 tag push 단계에서 실패하므로, 첫 릴리즈로 tag 가 실제로 남는지 확인한다.
 
-## 4. Tag Protection Rule (정석)
+### 3.4. Required status checks
 
-위치: Settings → Tags → New tag protection rule
+발화 범위가 base 브랜치마다 다르다. 실행되지 않는 check 를 required 로 등록하면 영원히 대기 상태가 되어 머지가 막힌다.
 
-| 옵션 | 값 | 사유 |
-|------|-----|------|
-| Pattern | `refs/tags/v*` | semver release tag만 적용 |
-| Restrict deletions | 활성 | 발행된 release tag 삭제 차단 (불변 보존) |
-| Block force pushes (non-fast-forward) | 활성 | tag 재지정 차단 |
+| Check | 워크플로 | develop | main |
+|-------|---------|---------|------|
+| `pr title + metadata` | `pr-title-check.yml` | 의무 | 의무 |
+| `ruff + hadolint` | `ci.yml` | 의무 | 의무 |
+| `pytest (unit)` | `ci.yml` | 의무 | 의무 |
+| `frontend typecheck` | `ci.yml` | 의무 | 의무 |
+| `alembic-check` | `alembic-check.yml` | 의무 | 의무 |
+| `wheel build` | `ci.yml` | 미발화 | 의무 |
+| `pytest (integration)` | `ci.yml` | 미발화 | 의무 |
 
-tag 생성(creation)은 제한 안 함 — `release.yml` 이 릴리즈 성공 후 `v*` tag 를 push 한다. 이미 발행된 tag 의 삭제·재지정만 차단.
+develop 5개, main 7개다. UI 검색 결과에 워크플로 이름이 접두로 붙어 보일 수 있으니(`ci / pytest (unit)`) 검색해서 나오는 항목을 그대로 고른다.
 
-## 5. Repository Settings (권장)
+`pr title + metadata` 는 Conventional Commits 형식과 AI 메타데이터 부재를 함께 본다.
 
-### 5.1. Pull request
+`wheel build` 와 `pytest (integration)` 은 job 의 `if` 조건으로 main PR 에서만 실행된다. paths 조건은 어느 워크플로에도 없다 — paths 로 skip 된 required check 가 N/A 로 남아 머지를 막는 함정을 피한다.
 
-위치: Settings → General → Pull Requests
+## 4. Repository Settings
+
+### 4.1. Pull request
+
+위치: Settings -> General -> Pull Requests
 
 | 옵션 | 값 |
-|------|-----|
-| Allow merge commits | 활성 | `develop` → `main` 승격용 — main 이 develop 이력 공유 |
-| Allow squash merging | 활성 (default: PR title and description) | feature·fix → develop 통합용 |
+|------|----|
+| Allow merge commits | 활성 |
+| Allow squash merging | 활성 (default: PR title and description) |
 | Allow rebase merging | 비활성 |
 | Automatically delete head branches | 활성 |
 
-merge + squash 병행 — feature·fix 는 squash 로 develop 에 들어가고(PR title이 commit message), `develop` → `main` 은 merge commit 으로 승격해 두 장수 브랜치가 이력을 공유. 버전은 `pyproject.toml` 의 `version` 단일 진실이며 `v*` tag 는 릴리즈 후 워크플로가 파생 생성한다.
+머지 방법 강제는 ruleset 의 Allowed merge methods 가 한다. 여기서는 저장소 전체에서 허용할 방법만 켠다.
 
-### 5.2. Dependabot
+### 4.2. Dependabot
 
-위치: Settings → Code security → Dependabot
+위치: Settings -> Code security -> Dependabot
 
 | 항목 | 값 |
-|------|-----|
+|------|----|
 | Dependabot alerts | 활성 |
 | Dependabot security updates | 활성 |
 | Dependabot version updates | 비활성 |
 
-본 repo 는 Dependabot version updates 를 비활성 — 의존성 PR 폭주 회피 + uv.lock 자동 갱신 미지원 한계 (PR 머지 시 lockfile drift 누적 → 다음 PR CI fail). 의존성 버전 bump 는 운영자 수동 (`uv lock --upgrade-package <name>` 또는 주기 검토). 보안 알림은 alerts + security updates 로 별도 신호 수신.
+version updates 를 끄는 이유는 uv.lock 자동 갱신을 지원하지 않기 때문이다 — PR 이 머지되면 lockfile drift 가 누적되어 다음 PR 의 CI 가 실패한다. 버전 bump 는 운영자가 `uv lock --upgrade-package <name>` 으로 처리한다.
 
-## 6. Secrets (추가 없음)
+## 5. Secrets
 
-본 repo는 `GITHUB_TOKEN` 외 추가 secret 사용 안 함. 배포(`deploy.sh`)는 배포 대상 VM 에서 실행되고 GitHub secret·runner·Environment 를 쓰지 않는다 (public 이미지 pull·cosign 공개 검증). 외부 secret 추가 시점:
-- PyPI publish 시 — `PYPI_API_TOKEN`
-- 사내 Nexus·devpi mirror push 시 — `NEXUS_USER`·`NEXUS_PASSWORD`
-- Codecov upload 시 — `CODECOV_TOKEN` (현재 coverage 는 CI 콘솔 표시만, artifact 미업로드)
+`GITHUB_TOKEN` 외 추가 secret 을 쓰지 않는다. 배포는 대상 VM 에서 실행되며 GitHub secret·runner·Environment 를 쓰지 않는다(public 이미지 pull + cosign 공개 검증).
 
-## 7. 활성 체크리스트 (운영 시작 전)
+추가가 필요해지는 시점은 PyPI publish(`PYPI_API_TOKEN`), 사내 mirror push(`NEXUS_USER`·`NEXUS_PASSWORD`), Codecov upload(`CODECOV_TOKEN`) 정도다.
 
-순서대로 활성:
+## 6. 활성 체크리스트
 
-- [ ] Code security → CodeQL → Default setup → Enable
-- [ ] Dependabot alerts + security updates → 활성 (version updates 는 비활성 — 운영자 수동 bump)
-- [ ] Branches → main branch protection rule (위 3.1 표 적용 — linear history 비활성)
-- [ ] Branches → develop branch protection rule (위 3.2 적용)
-- [ ] Tags → `v*` tag protection rule (위 4 — deletion·force-push 차단, creation 허용)
-- [ ] General → Pull Requests → merge + squash 병행 활성 + Auto-delete head branches
+- [ ] Actions -> Workflow permissions -> Read and write
+- [ ] Code scanning -> Default setup 켜지 않음 (Advanced 유지)
+- [ ] Dependabot alerts + security updates 활성 (version updates 비활성)
+- [ ] Ruleset: main (3.1)
+- [ ] Ruleset: develop (3.2)
+- [ ] Ruleset: release tags (3.3) + 첫 릴리즈에서 tag 생성 확인
+- [ ] Pull Requests: merge + squash 허용, rebase 비활성, head branch 자동 삭제
 
-본 체크리스트 모두 완료 = 본 repo CI·release 정합 활성. (배포는 GitHub 설정 불요 — VM 에서 `deploy.sh`.)
+## 7. 관련 문서
 
-## 8. 관련 문서
-
-- CI workflow 카탈로그: README "CI 파이프라인" 절
-- release artifact contract: `docs/guides/release.md`
-- 배포(rollout·compose 매체): `docs/guides/deploy.md` (결정 기록은 `docs/decisions/adr/` engine rollout)
+- 워크플로 책임 카탈로그: 루트 `README.md` "CI 파이프라인" 절 (발화 조건·required check 는 본 문서 3.4 소유)
+- 릴리즈 artifact·절차: `docs/guides/release.md`
+- 배포(rollout): `docs/guides/deploy.md`

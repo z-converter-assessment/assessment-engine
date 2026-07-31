@@ -39,6 +39,7 @@ sudo bash bootstrap.sh
    printf '%s' "$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/rabbitmq_password
    chmod 644 $DEPLOY_DIR/secrets/*
    ```
+   `rabbitmq_password` 는 외부 agent 가 broker 발행에 쓰는 값이라 agent 설정에도 같은 값을 넣는다 — 불일치 시 agent 인증이 실패해 데이터가 들어오지 않는다. 값은 `sudo cat $DEPLOY_DIR/secrets/<name>` 으로 확인한다.
 
 ## 3. rollout (`deploy.sh`)
 

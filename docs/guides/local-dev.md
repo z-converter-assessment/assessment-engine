@@ -12,12 +12,12 @@ compose 2 파일 — base(prod-safe) + override(dev) 자동 머지:
 
 ```
 docker-compose.yml          — prod-safe BASE. 앱 서비스 `build:` 없음, GHCR 이미지 핀 pull. bind mount 없음.
-                              볼륨 env 바인딩(PGDATA_HOST·MQ_DATA_HOST). 릴리즈 첨부 = 빌드 없는 pull-and-run prod compose
-docker-compose.override.yml — dev 전용. 소스 빌드(루트 Dockerfile)·`./src` bind mount·hot reload(watchfiles). `docker compose up` 시 base 에 자동 머지(override 우선). prod/release 미배포
+                              볼륨 env 바인딩(PGDATA_HOST·MQ_DATA_HOST). 배포 시 deploy.sh 가 버전 태그에서 raw fetch
+docker-compose.override.yml — dev 전용. 소스 빌드(루트 Dockerfile)·`./src` bind mount·hot reload(watchfiles). `docker compose up` 시 base 에 자동 머지(override 우선). 배포 시 미사용
 Dockerfile                  — 엔진 이미지 (web·consumer·worker·migrate 공용, multi-stage·non-root). base·override·CI/release·systemd·k8s 공용 단일 이미지 (dev-prod parity — dev/prod Dockerfile 분리 안 함)
-env.example                — 배포 템플릿 (릴리즈 첨부, APP_ENV=prod·secret 필수). dev 검증 카탈로그는 루트 env.dev.example
+env.example                — 배포 템플릿 (APP_ENV=prod·secret 필수). dev 검증 카탈로그는 루트 env.dev.example
 env.dev.example            — dev 카탈로그 (APP_ENV=dev·weak default 허용·host=compose 서비스명)
-.dockerignore               — wheel build context 제외 경로 (docs/·tests/·.env 등)
+.dockerignore               — 이미지 빌드 컨텍스트 제외 경로 (docs/·tests/·.env·.git 등)
 ```
 
 compose 가 루트라 별도 `-f` 없이 base+override 자동 인식. dev 는 dev 카탈로그로, 배포는 base 단독:
@@ -30,7 +30,7 @@ cp env.example .env && docker compose -f docker-compose.yml up -d   # GHCR 이�
 docker compose down -v
 ```
 
-dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지·wheel 불변성). agent 가 붙는 VM 은 본 repo 범위 밖(OpenStack 공급).
+dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지 불변성). agent 가 붙는 VM 은 본 repo 범위 밖(OpenStack 공급).
 
 prod 하드닝(APP_ENV=prod·강 secret·외부 secret 채널·HTTPS ingress)은 base 가 강제하지 않음 — infra env 주입으로 달성하거나 `docs/reference/contracts/env.md` + `config.py` `_validate_prod_*` contract.
 
@@ -39,7 +39,7 @@ prod 하드닝(APP_ENV=prod·강 secret·외부 secret 채널·HTTPS ingress)은
 ## Dockerfile
 
 ```dockerfile
-FROM ghcr.io/astral-sh/uv:0.11.16 AS uv          # 버전 고정 지점
+FROM ghcr.io/astral-sh/uv:0.11.16 AS uv
 
 FROM python:3.12-slim AS builder
 ENV UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 UV_PROJECT_ENVIRONMENT=/opt/venv
@@ -57,7 +57,6 @@ ENV PYTHONUNBUFFERED=1 PATH="/opt/venv/bin:$PATH"
 COPY --from=builder --chown=app:app /opt/venv /opt/venv
 USER app
 ENTRYPOINT ["python", "-m"]
-CMD ["assessment_engine.web"]
 ```
 
 ### 단일 이미지 + command 분기
@@ -71,7 +70,7 @@ web·consumer·worker·migrate 모두 같은 이미지를 쓰고, docker-compose
 | worker | `python -m assessment_engine.worker` | `src/assessment_engine/worker/__main__.py` → 보고서 생성 + install reaper |
 | migrate | `alembic upgrade head` | postgres healthy 후 1회 실행하고 종료 (`restart: "no"`) |
 
-이미지가 1개라 빌드/푸시·패치 운영 비용이 최소화된다. 의존성 패키지(SQLAlchemy·aio-pika·redis·FastAPI 등)도 양쪽이 모두 사용하므로 분리 이득이 적다.
+이미지가 1개라 빌드·푸시·패치 운영 비용이 최소화된다. 네 컴포넌트가 같은 의존성 집합(SQLAlchemy·aio-pika·redis·FastAPI 등)을 쓰므로 나눠도 크기 이득이 작다.
 
 ### 빌드 캐시 전략 — 2단 uv sync
 
@@ -99,7 +98,7 @@ RUN uv sync --frozen --no-dev --no-editable         # ← project 만 추가
 
 ### 의존성 추가 워크플로
 
-`pyproject.toml`만 수정한 PR은 `--frozen` build에서 fail한다. 다음 둘 중 하나로 lockfile 동시 갱신 의무:
+`pyproject.toml` 을 고치면 `uv.lock` 도 같은 커밋에 넣는다 (근거·검사 방법은 `docs/guides/dependencies.md`). 둘 중 하나로 갱신한다:
 
 ```bash
 uv add <pkg>          # pyproject.toml + uv.lock 동시 갱신

@@ -32,7 +32,7 @@ uv run pytest tests/integration/test_query_repository.py::test_metric_chart_disp
 uv run pytest -v
 ```
 
-CI 자동 실행: `.github/workflows/ci.yml`이 PR마다 lint → unit → integration 자동 실행. PR 결과에서 통과 여부 확인.
+CI 자동 실행: PR 을 올리면 `.github/workflows/ci.yml` 이 테스트를 돌린다. base 별 발화 범위는 `docs/guides/ci-setup.md` 3.4.
 
 ## 3. 설정·Fixture
 

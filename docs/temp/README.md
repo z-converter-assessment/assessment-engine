@@ -6,7 +6,7 @@
 
 - 디렉토리 위치 자체는 영구. 안의 파일은 임시 — 자유 작성·삭제.
 - 양방향 의존 0 의무:
-  - 본 repo 영구 문서·코드 가 본 디렉토리 안 파일을 인용 금지 (메모리 룰 `feedback_no_reference_citations.md`).
+  - 본 repo 영구 문서·코드 가 본 디렉토리 안 파일을 인용 금지.
   - 본 디렉토리 안 파일 자체도 본 repo 영구 문서·코드를 의존 금지 (외부 공유 시 self-contained 필수 — 외부 reader 가 본 repo 다른 위치 참조 못 함).
 - `docs/README.md` 인덱스 표 / `.claude/CLAUDE.md` 문서 인덱스 표 에 추가 안 함.
 

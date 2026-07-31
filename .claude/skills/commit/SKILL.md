@@ -7,13 +7,7 @@ description: TRIGGER when the user wants to commit work in progress ("커밋", "
 
 feature branch 의 working diff 를 커밋한다. 가볍게 자주 커밋하는 것이 목적이라 무거운 검증을 걸지 않는다.
 
-검증 배치 단일 진실 = `docs/guides/wrap-up.md` 0절. 본 skill 은 그중 커밋 단계만 담당한다:
-
-| 단계 | 게이트 | 담당 |
-|------|--------|------|
-| 커밋 | lint | 본 skill |
-| develop PR | 코드 리뷰 · 단위 테스트 · 파이프라인 | `/pr` |
-| main PR | 문서 정합 · ADR · 영향도 · 통합 테스트 | `/pr --base main` |
+검증 배치 단일 진실 = `docs/guides/wrap-up.md` 0절. 본 skill 은 그중 커밋 단계(lint)만 담당한다.
 
 ## 진입 조건
 
@@ -40,4 +34,4 @@ feature branch 의 working diff 를 커밋한다. 가볍게 자주 커밋하는 
 - 문서 갱신·ADR 작성 — PR 단계 책임이다. 커밋마다 문서를 고치면 develop 통합 시점에 서로 어긋난다.
 - 리뷰 에이전트 발동 — `/pr` 이 담당.
 - pytest 전체 실행 — 사용자 명시 시에만.
-- push·PR 생성 — `/push`·`/pr` 별도 발동.
+- push·PR 생성 — `/pr` 이 담당한다.

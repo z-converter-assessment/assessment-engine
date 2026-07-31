@@ -5,14 +5,14 @@
 ## 1. artifact 카탈로그
 
 릴리즈는 서명·attestation 된 멀티아치 엔진 이미지 하나를 GHCR 로 발행한다.
-배포 매체는 docker compose 단일 — 이미지가 유일한 배포 산출물이고, compose 파일은 repo 안에서 checkout 해
-쓴다(별도 release 첨부 없음).
+배포 매체는 docker compose 단일 — 이미지가 유일한 배포 산출물이고, compose 파일은 `deploy.sh` 가 배포 대상
+버전 태그의 raw 에서 받는다.
 
 ### 1.1. Docker image → GHCR
 
 | 태그 | 의미 | 용도 |
 |------|------|------|
-| `ghcr.io/z-converter-assessment/assessment-engine:0.1.0` | immutable 정확 버전 (semver, git tag `v0.1.0` -> 태그는 `v` 없는 `0.1.0`) | prod pin (배포 기본) |
+| `ghcr.io/z-converter-assessment/assessment-engine:0.1.0` | immutable 정확 버전 (`pyproject.toml` 의 version) | prod pin (배포 기본) |
 | `:0.1` | minor 최신 | minor patch auto-track |
 | `:0` | major 최신 | major lock |
 | `:latest` | stable release 최신 | 모니터링 — prod 비추천 (변경 무경고) |
@@ -24,9 +24,8 @@
 
 multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
 
-단일 이미지 + ENTRYPOINT 가 `python -m` + CMD 가 `assessment_engine.web` (default).
-운영자가 module override:
-- web (default): `docker run image` → `python -m assessment_engine.web`
+단일 이미지 + ENTRYPOINT 가 `python -m`. CMD 기본값은 두지 않아 컴포넌트를 항상 인자로 명시한다 — 누락 시 조용히 web 이 뜨는 대신 즉시 실패한다.
+- web: `docker run image assessment_engine.web`
 - consumer: `docker run image assessment_engine.consumer`
 - worker: `docker run image assessment_engine.worker`
 - migrate: base compose 의 init-container 가 `alembic upgrade head` 실행 (이미지 안 `_alembic.ini`·`migrations/`)
@@ -56,14 +55,14 @@ multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
 
 `workflow_dispatch` 는 이미 릴리즈된 버전의 재발행(이미지 유실·재서명)에 쓴다 — tag 중복 판정을 건너뛰고 진행한다.
 
-semver 규칙 (사람이 tag 결정 시 가이드):
+semver 규칙 (`uv version --bump` 대상 결정 가이드):
 
 | 변경 성격 | bump | 0.x 동안 |
 |-----------|------|----------|
 | 새 기능 (`feat`) | MINOR | 0.1 → 0.2 |
 | 버그 수정 (`fix`/`perf`) | PATCH | 0.1.2 → 0.1.3 |
 | 호환성 깨짐 (`feat!`/`BREAKING`) | MAJOR | 0.x 동안은 MINOR로 (1.0 전 자유도) |
-| 문서·잡무만 (`docs`/`chore`/`ci` 등) | 없음 | tag 안 함 |
+| 문서·잡무만 (`docs`/`chore`/`ci` 등) | 없음 | 릴리즈 안 함 |
 
 ## 3. 무결성 검증 (배포 게이트)
 

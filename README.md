@@ -84,17 +84,15 @@
 ## CI 파이프라인
 
 - git flow — `feature/*`·`fix/*` → `develop` PR(squash) → `develop` → `main` PR(merge) → release(이미지 발행) → VM에서 `deploy.sh vX.Y.Z` 실행.
-- 버전은 `pyproject.toml` 의 `version` 단일 진실 — 릴리즈 절차는 `docs/guides/release.md`. branch protection + Conventional Commits PR title 강제.
+- 버전은 `pyproject.toml` 의 `version` 단일 진실 — 릴리즈 절차는 `docs/guides/release.md`. 브랜치·태그 보호와 required check 는 GitHub ruleset (`docs/guides/ci-setup.md`).
 
-| workflow | trigger | 검증·작업 |
-|----------|---------|------|
-| `pr-title-check.yml` | main PR opened·edited·synchronize·reopened | PR title이 Conventional Commits 형식 (`feat:`·`fix:`·`docs:` 등) 강제 |
-| `ci.yml` | main PR | lint(ruff+hadolint) → test-unit·frontend typecheck·wheel build(병렬) → test-integration |
-| `alembic-check.yml` | main PR | ORM·migrations 라운드트립 정합 |
-| `codeql.yml` | main PR | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
-| `release.yml` | `main` push · workflow_dispatch | 멀티아치 엔진 이미지 빌드 → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
-
-develop PR·push 는 CI 게이트가 없다 — develop 는 통합 브랜치로 게이트 없이 받고, 검증은 develop→main PR 에서 1회로 통일한다.
+| workflow | 검증·작업 |
+|----------|------|
+| `pr-title-check.yml` | PR title 이 Conventional Commits 형식인지 |
+| `ci.yml` | lint(ruff+hadolint) · 단위 테스트 · 프론트 타입 계약 · wheel build · 통합 테스트 |
+| `alembic-check.yml` | ORM·migrations 라운드트립 정합 |
+| `codeql.yml` | CodeQL SAST (Security 탭 alert) |
+| `release.yml` | `main` push 시 멀티아치 엔진 이미지 빌드 → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
 
 CI(코드 quality + 이미지 발행)는 GitHub Actions가 담당한다. 배포(rollout)는 GitHub Actions가 아니라 배포 대상 VM에서 `deploy.sh vX.Y.Z` 를 실행한다 — 내부망 outbound-only VM이라 밖에서 push하지 않고 VM이 이미지를 pull한다(아래 배포 절).
 
@@ -102,13 +100,7 @@ CI(코드 quality + 이미지 발행)는 GitHub Actions가 담당한다. 배포(
 
 ## 배포 산출물
 
-릴리즈가 내놓는 산출물. 배포 매체는 docker compose 단일.
-
-| 산출물 | 위치 |
-|--------|------|
-| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/z-converter-assessment/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` |
-| cosign 서명 + SBOM (SPDX) + SLSA provenance | 이미지 attestation (별도 파일 아님) — `cosign verify ghcr.io/z-converter-assessment/assessment-engine:0.1.0` 로 검증 |
-| Alembic migrations·`_alembic.ini` | 이미지 동봉 — base compose migrate init-container 가 기동 전 자동 실행 |
+릴리즈가 내놓는 것은 GHCR 이미지 하나다 — cosign 서명·SBOM·provenance 가 이미지 attestation 으로 붙고, Alembic migrations 도 그 안에 동봉된다. 태그 체계·검증 명령은 `docs/guides/release.md`.
 
 ---
 
@@ -148,59 +140,8 @@ uv run alembic check              # ORM·migrations 정합
 
 ## 배포 (prod)
 
-배포 대상은 내부망 운영 VM 한 대다. 최초 1회 서버 구성으로 빈 VM에서 엔진이 실행될 때까지 세팅한 뒤, 이후 배포는 새 태그 발행 + `deploy.sh` 실행만 반복한다.
+배포 대상은 내부망 운영 VM 한 대다. 빈 VM 을 `bootstrap.sh` 로 1회 구성한 뒤, 이후 배포는 버전을 올려 `main` 에 머지하고 VM 에서 `deploy.sh vX.Y.Z` 를 실행하는 두 단계를 반복한다.
 
-### 최초 서버 구성 (빈 VM에서 엔진 실행까지)
+`deploy.sh` 는 cosign verify -> 그 태그의 compose fetch -> pull -> migration -> up -> `/health` 확인 순으로 진행하고, 실패하면 직전 정상 이미지로 되돌린다. 되돌리기도 이전 버전으로 같은 명령을 실행하면 된다.
 
-Debian/Ubuntu VM(GitHub로 outbound HTTPS 가능)에서 순서대로 진행한다.
-
-1. 부트스트랩 — docker engine·compose·cosign·디렉토리·`deploy.sh`를 구성한다. `bootstrap.sh`를 받아 실행(public repo — clone 불요):
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main/bootstrap.sh -o bootstrap.sh
-   sudo bash bootstrap.sh
-   ```
-   실행 후 `/opt/assessment-engine/`에 `.env`(env.example 템플릿)·`secrets/`·`deploy.sh`가 놓인다.
-
-2. secret 파일 배치 (강 random, 권한 644 — postgres 공식 이미지가 non-root 유저로 읽으므로 600이면 Permission denied 로 기동 실패):
-   ```bash
-   cd /opt/assessment-engine
-   printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
-   printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-   chmod 644 secrets/*
-   ```
-   랜덤이어도 잃어버리지 않는다 — 값은 `secrets/` 파일에 저장돼 앱이 자동으로 읽고, 필요 시 `sudo cat secrets/<name>`으로 확인한다(psql·RabbitMQ 관리 UI 등). 웹 포털은 무인증이라 별도 로그인이 없다. 단 `rabbitmq_password`는 외부 agent가 broker 발행에 쓰는 값이라 agent 설정에도 동일하게 넣어야 한다(불일치 시 agent 인증 실패로 데이터 미수집).
-
-3. `/opt/assessment-engine/.env` 운영값을 채운다 — `POSTGRES_USER`·`RABBITMQ_USER`(변경 권장)·`ZDM_DEFAULT_IP` 등 환경에 맞게. 비번은 위 secret 파일 채널이라 `.env`에 넣지 않는다.
-
-4. 이미지 발행 — 버전을 올린 커밋을 `main`에 머지한다. `release.yml`이 이미지를 빌드·서명해 GHCR에 발행하고 태그를 남긴다 (배포할 이미지가 있어야 함).
-
-5. 배포 — VM에서:
-   ```bash
-   sudo /opt/assessment-engine/deploy.sh vX.Y.Z
-   ```
-   cosign verify → 그 태그의 compose fetch → pull → migration(init-container) → up → `/health` 확인이 진행되고, 실패 시 직전 정상 이미지로 자동 rollback. 엔진이 여기서 처음 뜬다.
-
-### 이후 배포
-
-새 버전을 올릴 때 두 단계만 반복한다:
-1. 버전을 올려 `main`에 머지 → `release.yml`이 이미지 발행.
-2. VM에서 `sudo /opt/assessment-engine/deploy.sh vX.Y.Z`.
-
-되돌리기도 이전 버전으로 `deploy.sh v<이전>` 을 실행하면 된다.
-
-### 단일 호스트 수동 기동 (deploy.sh 없이)
-
-평가·runner 미구성 시. prod = base + `docker-compose.secrets.yml`(file-secret). 비번을 `./secrets/*` 파일로 주입 — 컨테이너 env에 안 뜬다.
-
-```bash
-cp env.example .env                         # COMPOSE_FILE 포함(base+secrets) · 평문 비번 없음
-
-mkdir -p secrets                            # 비번 파일 (강 random, 권한 644 — non-root 컨테이너 유저 호환)
-printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
-printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-chmod 644 secrets/*
-
-docker compose up -d                        # base+secrets pull-and-run. web http://localhost:8000
-```
-
-`APP_ENV=prod` 라 secret 부재·weak 면 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. 외부 디스크 볼륨은 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(선택).
+절차·secret 배치·단일 호스트 수동 기동은 `docs/guides/deploy.md` 가 단일 진실이다.
