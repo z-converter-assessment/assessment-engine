@@ -13,14 +13,26 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 - `--base main` 은 사용자가 명시적으로 "main에 PR" 요청한 경우만 (release 승격 또는 hotfix).
 - 원격 `develop` 부재 시 임의 생성 X — `git ls-remote --heads origin develop` 확인 후 사용자에게 보고.
 
+### base = `develop` 게이트 (통합 branch)
+
+코드 품질을 기능 단위로 판정하는 지점. 문서는 여기서 손대지 않는다 — develop 에 여러 feature 가 모인 뒤 main 승격 시점에 한 번에 맞춘다.
+
+1. code-reviewer 에이전트 1회 (`Agent(subagent_type='code-reviewer')`) — 정석 idiom + 명문 규약(P1-P4·F1-F11·#B·#C5). Error 즉시 수정 / Warning 위임 / Info 보고.
+2. `bash scripts/local-ci.sh develop` — lint + 단위 테스트 + 파이프라인.
+
 ### `--base main` 추가 강화 (배포 branch)
+
+릴리즈 단위가 확정되는 지점. 문서·ADR 정합을 여기서 일괄 처리한다.
 
 1. 정상 경로 = `develop -> main` 승격 또는 `hotfix/*`. 다른 prefix 직접 main PR 이면 의도 재확인.
 2. `uv run pytest tests/integration -q` 의무 (사용자 confirm 없이 — main 안전 우선).
 3. `git log origin/main..HEAD --oneline` 전 커밋이 Conventional Commits 형식 의무.
-4. breaking(`feat!:`·body `BREAKING CHANGE:`) 이면 `docs/decisions/adr/NNNN-*.md` 신설 의무 — 누락 시 차단.
-5. `bash scripts/local-ci.sh main` 전체 로컬 재현.
-6. PR body 에 "main PR 사유"(release·hotfix) 절 강제.
+4. 문서 정합 — 승격 대상 전체 diff 가 만진 영역을 Diátaxis 목적별로 갱신 (`docs/guides/wrap-up.md` Stage 4·5). 변경 유형이 결합 목록에 걸리면 `change-impact` skill 로 동시 갱신 위치 확인.
+5. 결정이 바뀌었으면(기존 ADR 을 뒤집거나 breaking) `docs/decisions/adr/NNNN-*.md` 신설 + 이전 ADR `Superseded by` + 인덱스 행 추가 의무 — 누락 시 차단.
+6. doc-auditor 에이전트(`Agent(subagent_type='doc-auditor')`) — 중복·목적 혼선·이력 서사·죽은 포인터 독립 검증. 지적 반영 후 재검.
+7. 훅 규칙 자가 확인 — 라이브 docs 에 `ADR [0-9]{4}` · 옛 doc 경로 · bold · 비키보드 unicode grep 0.
+8. `bash scripts/local-ci.sh main` 전체 로컬 재현.
+9. PR body 에 "main PR 사유"(release·hotfix) 절 강제.
 
 ## Pre-check (발행 직전 의무 — CI 실패·알림 noise 회피)
 
@@ -44,7 +56,7 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 
 ## 분석 (병렬 Bash)
 
-1. `git status` — 미커밋 있으면 사용자에게 commit(`/ship`) 권유.
+1. `git status` — 미커밋 있으면 사용자에게 `/commit` 권유.
 2. `git fetch origin develop` + `git log origin/develop..HEAD --oneline` + `git diff origin/develop...HEAD --stat` — 브랜치의 ALL 커밋 분석 (최신 커밋만 보면 누락).
 
 ## 생성

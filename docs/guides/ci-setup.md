@@ -57,7 +57,7 @@ UI 활성 안 하고 workflow만 두어도 동작 — 단 Security 탭 통합이
 
 본 6 check 모두 통과 의무 — paths 조건 없는 워크플로라 main PR 매번 발화 (`alembic-check` ~10s). CodeQL SAST 는 `codeql.yml` 이 별도 SARIF 업로드라 본 required 목록 외 — Security 탭 alert 으로 운영자 인지. 의존성 CVE 는 GitHub Dependabot alerts(아래 5.2)로 수신 — CI gate 아님.
 
-main PR 분기 강화는 `.claude/skills/pr-create/SKILL.md` "main PR 추가 강화" 절 — `pytest tests/integration` 의무·BREAKING change 시 ADR 신설 의무·`hotfix/*` branch naming 권장.
+main PR 분기 강화는 `.claude/skills/pr/SKILL.md` "main PR 추가 강화" 절 — `pytest tests/integration` 의무·BREAKING change 시 ADR 신설 의무·`hotfix/*` branch naming 권장.
 
 ### 3.2. `develop` branch
 

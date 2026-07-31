@@ -1,6 +1,6 @@
 # wrap-up — 기능 개발 마무리 표준 워크플로
 
-> 기능 개발(feature branch) 동작 완성 후 commit·PR 전까지 거치는 5단계 마무리의 단일 진실. `.claude/skills/wrap-up/SKILL.md` 은 본 명세를 실행하는 orchestrator — 절차만 가지고, 체크리스트는 본 문서 인용.
+> 기능 개발(feature branch) 동작 완성 후 거치는 5단계 마무리의 단일 진실. `/commit`·`/pr` skill 이 각자 담당 Stage 를 실행한다 — skill 은 절차만 가지고 체크리스트는 본 문서를 인용한다.
 >
 > 최상위 원칙 둘:
 > - 코드: 정석 코드 퀄리티 — canonical pattern / framework idiom / declarative 우선, ad-hoc hack 0. 본 repo 명문 규약(CLAUDE.md F1~F11 · #B · #C · #E1 P1~P4 · ADR 결정·금지) 위반 0건이 전제 — 외부 일반 베스트 프랙티스보다 본 repo 명문 규약 우선.
@@ -13,11 +13,19 @@
 진입 조건:
 - 기능 동작 완성 — `/run` · `/verify` · 수동 검증 통과. 이 동작 검증이 Stage 1 리팩토링의 회귀 안전망 (정석 리팩토링은 통과하는 검증 하에서만 구조를 바꾼다 — Fowler).
 - feature branch 위 (`main`·`master` 직접 X). 미커밋 변경만 또는 clean 상태.
-- commit·PR 전. commit·PR 자체는 본 워크플로 종료 후 사용자 명시 시 `/commit`·`/pr-create` 별도 발동.
+- commit·PR 전. commit·PR 자체는 본 워크플로 종료 후 사용자 명시 시 `/commit`·`/pr` 별도 발동.
 
-검증 강도 — 이벤트별 (사용자 정책):
-- 로컬 commit 단독 = 빡센 검증(ruff·pytest·파이프라인·전체 파싱 sweep) 비대상. 동작 검증(`/run`·`/verify`)과 변경 직후 자가 점검(#F5)만으로 충분 — 가볍게 자주 커밋.
-- push·PR·배포 등 외부 공유 이벤트(= push 이상) 직전에만 본 wrap-up 5단계(특히 Stage 2 테스트·Stage 3 파이프라인) 빡센 검증 발동. 커밋마다 무거운 검증을 강제하지 않는다.
+검증 강도 — 되돌리기 비용에 비례해 배치한다. 커밋은 `amend`·`rebase` 로 지울 수 있고, develop 통합은 revert 로 물릴 수 있고, main 승격은 배포로 이어진다.
+
+| 이벤트 | 게이트 | Stage | 발동 |
+|--------|--------|-------|------|
+| 로컬 commit | lint | — | `/commit` |
+| develop PR | 코드 리뷰 · 단위 테스트 · 파이프라인 | 1·2·3 | `/pr` |
+| main PR | 문서 정합 · ADR · 영향도 · 통합 테스트 | 4·5 | `/pr --base main` |
+
+커밋마다 무거운 검증을 강제하지 않는다 — 동작 검증(`/run`·`/verify`)과 변경 직후 자가 점검(#F5)이면 충분하다.
+
+문서(Stage 4·5)를 main PR 로 미루는 이유는 응집도다. 문서는 무엇이 릴리즈되는가에 대한 서술이라, feature 마다 쓰면 develop 에 여러 갈래가 모였을 때 서로 어긋난다. 릴리즈 단위로 한 번에 쓰면 중복도 재작업도 없다.
 
 범위 밖:
 - 기능 동작 개발 자체 — 개발 시간의 대부분. 본 워크플로는 동작하는 코드를 전제로 그 위에서 정석화·정합만 수행 (make it work 후의 make it right).
@@ -275,7 +283,7 @@ Self-audit 메타 인용 제외:
 
 5 Stage 통과 + 사용자 최종 컨펌 → 종료.
 
-commit·PR 자동 트리거 X — 사용자 명시 시 `/commit` · `/pr-create` 별도 발동 (메모리 `feedback_no_commit_pr_mention.md`).
+commit·PR 자동 트리거 X — 사용자 명시 시 `/commit` · `/pr` 별도 발동 (메모리 `feedback_no_commit_pr_mention.md`).
 
 종료 보고 형식:
 - 누적 변경 파일 카탈로그 (코드 · 문서 · 테스트 분류).
