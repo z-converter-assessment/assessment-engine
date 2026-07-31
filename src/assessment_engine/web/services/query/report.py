@@ -298,7 +298,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             )
 
             # 스토리지 레이아웃 트리 — storage.html 과 동일 단일 진실(build_storage_tree). 현재 스냅샷 기준
-            # (마운트별 세부 사용량·usage_pct 는 트리 리프 노드가 겸함 — 별도 마운트 표 폐기).
+            # (마운트별 세부 사용량·usage_pct 는 트리 리프 노드가 겸한다).
             storage_dto = await self.repo.get_storage(server_id)
             if storage_dto is not None:
                 summary.storage_tree = build_storage_tree(

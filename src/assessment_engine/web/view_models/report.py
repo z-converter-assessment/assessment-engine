@@ -65,7 +65,7 @@ class ReportRowItem:
     disk_total_gb: float | None = None
 
     # CPU 실행 큐 p95 (코어당 정규화 전 raw) — os-aware CPU 포화 축 (Linux procs_running / Windows Processor Queue).
-    # single_report CPU 상세 표에 노출(양 OS, load average 대체).
+    # single_report CPU 상세 표에 노출(양 OS).
     cpu_run_queue_p95: float | None = None
 
     # I/O wait — 디스크 병목 신호 (양식 B 컬럼)
@@ -122,7 +122,7 @@ class ReportRowItem:
     net_status_label: str = ""
     net_congested: bool = False
 
-    # 메모리 page-out 발생 여부 (신 모델 포화 신호 = paging_major refault sustained). 실제 압박 신호.
+    # 메모리 page-out 발생 여부 (포화 신호 = paging_major refault sustained). 실제 압박 신호.
     # single_report 메모리 상세가 본 신호로 판정(서버 상세 메모리 탭·period_assessment 포화 축과 정합).
     mem_swap_paging: bool = False
 

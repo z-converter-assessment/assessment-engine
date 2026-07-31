@@ -523,7 +523,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 FROM cpu_valid GROUP BY bucket HAVING SUM(d_total) > 0
             ),
             mem_per_ts AS (
-                -- B3: capacity-weighted mem% per bucket 를 cagg byte gauge 에서 (raw server_metrics 스캔 대체).
+                -- capacity-weighted mem% per bucket 을 cagg byte gauge 에서 낸다 (raw hypertable 스캔 회피).
                 SELECT SUM(mem_limit_avg - mem_available_avg) / NULLIF(SUM(mem_limit_avg), 0) * 100 AS v
                 FROM server_metrics_5m
                 WHERE bucket >= :start AND bucket <= :end{sid}
@@ -650,7 +650,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     ) -> dict[int, MemoryBreakdownRaw]:
         """`report_memory_breakdown` 배치 — GROUP BY server_id. v2 By gauge 비율."""
         start = end - timedelta(days=period_days)
-        # B3: memory_breakdown 를 cagg 에서 (raw server_metrics 스캔 대체). used=mem_pct_avg,
+        # cagg 에서 낸다 (raw hypertable 스캔 회피). used=mem_pct_avg,
         # available=complement, cached/buffered=cagg pct gauge. mem_pct_avg 규약과 동형(버킷 avg -> 창 avg).
         sql = text("""
             SELECT server_id,

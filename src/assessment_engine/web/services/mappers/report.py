@@ -693,12 +693,12 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
     return recommendation.ResourceStats(
         cpu_p95_pct=raw.cpu_p95_pct,
         cpu_peak_pct=raw.cpu_peak_pct,
-        # load average 축 폐기(Gate0) -> Linux CPU 포화는 procs_running_p95, Windows 는 cpu_run_queue_p95 로 판정.
+        # CPU 포화는 실행 큐로 판정한다 — Linux procs_running_p95, Windows cpu_run_queue_p95.
         cpu_load_15m_max=None,
         cpu_cores=raw.cpu_cores,
         mem_p95_pct=raw.mem_p95_pct,
         mem_near_peak_pct=raw.mem_near_peak_pct,
-        # 스왑 점유(swap_used) 축 폐기(Gate0) -> 메모리 포화는 mem_swap_paging(paging_major refault sustained) 로 판정.
+        # 필드명은 점유량이지만 싣는 값은 페이징 신호다 — 메모리 포화를 swap 점유가 아니라 refault 지속으로 본다.
         swap_used=raw.mem_swap_paging,
         disk_used_pct=raw.worst_mount_used_pct,
         iowait_p95_pct=raw.iowait_p95_pct,
@@ -708,11 +708,11 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         # Windows CPU saturation — Processor Queue Length p95 / Memory 는 Pages Input/sec rate p95 (os-aware 소비).
         cpu_run_queue_p95=raw.cpu_run_queue_p95,
         mem_pages_input_rate_p95=raw.mem_pages_input_rate_p95,
-        # ─── ADR 0052 신 모델(rollup_host) 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ───
+        # ─── rollup_host 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ───
         # 가장 바쁜 코어 p95 — 단일스레드 병목 판정(RS_CPU_PERCORE_HOLD). Windows·구 agent 는 None(graceful skip).
         cpu_percore_p95_max=raw.cpu_percore_p95_max,
         procs_blocked_p95=raw.procs_blocked_p95,
-        # Linux CPU 포화 신호(load 대체) + OOM 메모리 증거 — cpu_saturated·assess_memory os-aware 소비.
+        # Linux CPU 포화 신호 + OOM 메모리 증거 — cpu_saturated·assess_memory os-aware 소비.
         procs_running_p95=raw.procs_running_p95,
         oom_occurred=raw.oom_occurred,
         mem_swap_paging=raw.mem_swap_paging,
@@ -795,7 +795,7 @@ def to_report_row_item(
     info = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
     os_eol, os_eol_status = ("", "unknown") if info is None else (info.eol_iso, info.status)
     stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
-    # 신 모델 rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생(화면 간 정합, ADR 0052 Phase D).
+    # rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생한다 (화면 간 분류 정합).
     host = recommendation.rollup_host(stats)
     # 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). assess_network status 를 라벨로.
     net_status_label = _NET_STATUS_LABEL.get(host.resources["network"].status, "미측정")

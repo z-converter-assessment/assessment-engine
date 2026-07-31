@@ -64,7 +64,7 @@ DISK_QUEUE_PER_DISK_SATURATION = 2.0
 # Windows memory saturation — Memory\Pages Input/sec(하드 페이지 폴트율) p95 >= 20 pages/sec.
 # Pages Input/sec 은 디스크에서 읽어온 하드 폴트만 세어 mmap 파일 I/O 미혼입(총 Pages/sec 과 대비 — agent 가
 # 이 목적으로 별도 발행). Microsoft/업계 관례: sustained 5=증설 권고 / 20=체감 저하 / 100=thrashing.
-# under-provisioned 신호는 "체감 저하" 20 채택(보수적). 총 Pages/sec 1000 은 카운터·자릿수 이중 오류라 폐기.
+# under-provisioned 신호는 "체감 저하" 20 채택(보수적).
 WIN_PAGES_INPUT_SATURATION = 20.0
 # 근본원인 인과 게이트 — procs_blocked(D-state, uninterruptible sleep) p95 >= 1 이면 "블록된 프로세스 존재".
 # 디스크발 CPU 로드(디스크 I/O 대기로 프로세스가 D-state 로 쌓임)를 판별해 root_cause 를 disk_io 로 귀속. run
@@ -114,11 +114,11 @@ class ResourceStats:
     # mem_pages_input_rate_p95 = Memory\Pages Input/sec rate p95 (하드 페이지 폴트율, mmap 미혼입).
     mem_pages_input_rate_p95: float | None = None
 
-    # ─── ADR 0052 신 모델 신호 (전부 default None/False — 기존 호출처 무손상 additive) ───
+    # ─── per-resource USE 신호 (전부 default None/False — 미보유 agent 는 graceful skip) ───
     # CPU
     cpu_percore_p95_max: float | None = None  # 코어별 p95 최대 — 단일스레드 병목 감지(집계로는 낮게 보임)
     procs_blocked_p95: float | None = None  # D-state IO 블록 p95 — 근본원인: IO발 CPU 로드 분리
-    procs_running_p95: float | None = None  # R-state 실행 큐 p95 — Linux CPU 포화 신호(load 대체, IO 오염 없음)
+    procs_running_p95: float | None = None  # R-state 실행 큐 p95 — Linux CPU 포화 신호(IO 대기 미혼입)
     # 메모리
     mem_swap_paging: bool = False  # 스왑 page-out 발생(pswpin/pswpout rate > 0) — swap 호스트 포화 + 근본원인 판별
     oom_occurred: bool = False  # 창 안 OOM kill 발생 — 메모리 실패 사후 증거(강한 under 신호)
@@ -367,11 +367,8 @@ def recommend_action(rec: Recommendation, stats: ResourceStats) -> str:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# ADR 0052 — 자원 적정성 분류 재설계 (per-resource USE + 근본원인 종합 + 신뢰도 4종)
-#
-# 신 모델: 자원 5개를 각각 USE 로 판정하고 인과 근본원인으로 호스트 종합. 모든 임계는
-# (계층, 출처) 선언. 구현 중 — 위 assess/classify(단일 분류)는 호출처 호환으로 유지하고
-# Phase C/D 이관 후 Phase E 제거. 설계 단일 진실 = ADR 0052.
+# 자원 적정성 분류 — 자원 5개를 각각 USE 로 판정하고 인과 근본원인으로 호스트를 종합한다.
+# 임계는 전부 (계층, 출처)를 명기한다. 명세·근거 단일 진실 = `docs/reference/right-sizing.md`.
 # ═══════════════════════════════════════════════════════════════════════════
 
 # ─── 신 임계 (전부 tier 근거 — 계층·출처 명기) ───
@@ -1019,7 +1016,7 @@ def downsize_prescribable(assessment: ResourceAssessment, stats: ResourceStats) 
     return True
 
 
-# ─── 신 모델 표시 라벨 (한국어, mapper/템플릿 표시용 — Phase D 에서 소비) ───
+# ─── 표시 라벨 (한국어, mapper/템플릿 소비) ───
 RS_STATUS_LABEL_KO: dict[str, str] = {
     "under": "부족",
     "optimal": "정상",
