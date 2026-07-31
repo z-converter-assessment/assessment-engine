@@ -57,7 +57,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
   - 환경변수 contract — `docs/reference/contracts/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
   - 환경 분기 — `APP_ENV=prod` + `_validate_prod_*` weak default 거부 (`docs/reference/contracts/env.md` 8절). secret 주입 방식은 무관, 결과(약한 default 거부)만 검증
-  - CI 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR). 배포는 VM 에서 `deploy.sh` 실행 (cosign verify -> compose pull -> migration -> up -> health -> rollback). GitHub Actions runner 미사용(public repo 에 self-hosted runner 안티패턴 회피) — 내부망 VM 이 outbound 로 이미지 pull
+  - CI 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR). 배포는 VM 에서 `deploy.sh` 실행 (시퀀스는 `docs/guides/deploy.md` 3절). GitHub Actions runner 미사용(public repo 에 self-hosted runner 안티패턴 회피) — 내부망 VM 이 outbound 로 이미지 pull
 - VM provisioning 코드(`*.tf`·Ansible playbook·VM 생성·OS 설정)는 본 repo에 두지 않는다 — 배포 대상 VM 은 provisioning 완료 상태를 전제. 엔진 rollout(`deploy.sh`)·VM 부트스트랩(`bootstrap.sh`)은 범위 안. 단일 호스트 compose 수동 기동도 지원.
 
 ---
@@ -69,7 +69,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 본 절 결정:
 - Pydantic Input 모델 `extra=ignore` 유지 — 메시지에 새 필드가 도착해도 엔진은 통과시키고 무시. 비대칭 배포에서 reject 로 엔진이 죽지 않게 함.
 - 활용하지 않는 필드는 mapper drop. 필요해진 시점에 mapper read + inbound DTO 필드 추가를 명시적 결정으로 처리.
-- wire 계약 버전 = envelope `schema_version` (현 "1.0", 통일 `CONTRACT_VERSION` 단일 진실 = `contract.py`). 구조 전환은 schema_version 판별(flag-day cutover). `agent_version` major bump 수신 시 엔진 코드 수정 트리거, minor bump silent 호환.
+- wire 계약 버전 = envelope `schema_version` (현 "1.0", 상수 `AGENT_CONTRACT_VERSION` = `contract.py`). 게이트는 major 일치 — minor 는 additive 라 수용한다. 구조 전환은 major 판별(flag-day cutover). `agent_version` major bump 수신 시 엔진 코드 수정 트리거, minor bump silent 호환.
 - `task.result` 메시지는 발행 측 worker 컨텍스트가 수집 캐시와 분리되어 `boot_time` / `agent_started_at` 가 항상 null — 본 메시지에 한해 nullable override. 다른 메시지 타입은 required 유지.
 - `task.result` 종료 신호: `exit_code` / `signal_no` (int\|null) 상호배타 — 정상종료=exit_code / 시그널종료=signal_no / 미포착=둘 다 null (POSIX wait status). `task_policy`(bool\|null)는 exit_code 보다 우선 판정. `signal_no` 는 `tasks.signal_no` 저장 + task 상세 표시(`mappers/task._signal_label` SIG 이름 라벨). Windows signal_no 항상 null. task_id 로 매칭(composite_id 불요).
 - 인바운드 DTO 는 wire 계약과 정합: `boot_time` nullable (판독 불가 시 null, `_log_time_invariants` None 가드) / `composite_id` "" -> None 정규화 (digest 실패 흡수) / error `failed_component` 자유 문자열 수용 (wire permissive, `Literal` 로 좁히면 유효 메시지 DLQ).
@@ -100,7 +100,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 8테이블 자�
 
 ## C3. Redis 전략 — fail-open 의무
 
-키 설계 표 / TTL 근거 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/reference/redis.md`. 의사결정 ADR: `docs/decisions/adr/0001-redis-decoupling.md`.
+키 설계 표 / TTL 근거 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/reference/redis.md`.
 
 본 절 결정:
 - 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
@@ -243,7 +243,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 - SVG `stroke-dasharray`·`stroke-dashoffset` 비례 산술은 mapper precompute — 템플릿은 raw 값만 삽입.
 - 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·프로비저닝 분포·capacity trigger 일관).
 - 모든 카테고리 항상 노출(count 0 포함). 비활성은 동일 슬롯 옅은 회색. (도넛 카테고리는 #E9 일반 원칙의 한 사례 — 발화 없는 카테고리도 범례에 노출.)
-- 도넛 중앙 라벨은 도넛 유형별 의미로 통일: 구성 분포(워크로드·OS 등)=합계 / 포화=발화 호스트 수(count, 표본은 하단) / 이용률=대표 % 값. 분류(risk) 분포는 중앙 라벨 없는 막대(provisioning_dist_bar)로 렌더 — 옛 "가장 시급한 카테고리 카운트 1개" 규약은 폐기(risk 도넛 자체가 막대로 대체됨). 각 유형은 자기 맥락의 단일 중앙 표기만.
+- 도넛 중앙 라벨은 도넛 유형별 의미로 통일: 구성 분포(워크로드·OS 등)=합계 / 포화=발화 호스트 수(count, 표본은 하단) / 이용률=대표 % 값. 분류(risk) 분포는 중앙 라벨 없는 막대(provisioning_dist_bar)로 렌더. 각 유형은 자기 맥락의 단일 중앙 표기만.
 
 ## E9. 발화 가능 정보 노출 (discoverability, P3 적용)
 
@@ -419,7 +419,7 @@ secret 채널·prod default 자동 검증(`_validate_prod_*`): `docs/reference/c
 
 ## F12. 문서·주석 현황 선언성
 
-원칙: 영구 문서(`docs/reference/`·`operations/`·`products/`·`development/`·루트 `README.md`)와 코드 주석은 현재 상태만 선언적으로 기술한다. 변경 시 과거 흔적(폐기된 도구·용어·구조·경위)을 제거하고 현황으로 덮는다 — "이전엔 X 였다"·"Y 에서 전환" 회고형 서술 0.
+원칙: 영구 문서(`docs/reference/`·`docs/guides/`·`docs/explanation/`·루트 `README.md`)와 코드 주석은 현재 상태만 선언적으로 기술한다. 변경 시 과거 흔적(폐기된 도구·용어·구조·경위)을 제거하고 현황으로 덮는다 — "이전엔 X 였다"·"Y 에서 전환" 회고형 서술 0.
 
 본 절 결정:
 - 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함) — 예: dev libvirt 파이프라인·ZDM mock 제거 후 `libvirt`(도메인 가상망 용례 제외)·`virsh`·`dev-up`·`dev-down`·`win-server-01`·`dev_zdm_mock`·`host.docker.internal` 잔존 0.

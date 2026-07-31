@@ -4,7 +4,7 @@
 
 `schema_version` = 현재 `"1.0"`. 메시지 4종: `metrics` · `inventory` · `task.result` · `error`.
 
-버전: 에이전트와 주고받는 계약 버전은 엔진 레포 `contract.AGENT_CONTRACT_VERSION`(현 `"1.0"`, major.minor)이다 — wire 4종(agent -> engine)과 task.install(engine -> agent)이 이 값을 공유한다. 결과 보고가 명령과 짝이라 함께 움직인다. 외부 시스템에 나가는 평가 API·export 는 진화 궤도가 달라 별도 상수(`contract.API_CONTRACT_VERSION`)를 쓴다. 에이전트는 4종 메시지를 `"1.0"` 으로 emit 한다. 게이트는 major(점 앞 정수)만 비교. task.install 은 이 버전을 실어 보내 에이전트가 실행 전 major 게이트한다. 버전 규약 단일 진실 = `contract.py`.
+버전: 에이전트와 주고받는 계약 버전은 엔진 레포 `contract.AGENT_CONTRACT_VERSION`(현 `"1.0"`, major.minor)이다 — wire 4종(agent -> engine)과 task.install(engine -> agent)이 이 값을 공유한다. 결과 보고가 명령과 짝이라 함께 움직인다. 외부 시스템에 나가는 평가 API·export 는 진화 궤도가 달라 별도 상수(`contract.API_CONTRACT_VERSION`)를 쓴다. 에이전트는 4종 메시지를 `"1.0"` 으로 emit 한다. 게이트는 major(점 앞 정수)만 비교. task.install 은 이 버전을 실어 보내 에이전트가 실행 전 major 게이트한다.
 
 설계 원칙:
 - 2레이어 분리 — Layer 1(wire) = 자원 네임스페이스별 raw counter/gauge 사실만. Layer 2(engine) = USE Method 해석(`recommendation.py`). USE(이용률·포화·오류 판정)를 wire 에 넣지 않는다.
@@ -265,7 +265,7 @@ swapless Linux 는 direction=out 상시 0(실측) -> PSI/commit 이 포화 커�
 | disk.pending_operations | g | operations | device | S축 보조 = queue |
 | disk.errors | t | errors | device, kind, class, (member) | E축 |
 
-Linux 소스: diskstats(sectors*512 -> By, io_ticks/time_reading ms->s, in_flight). Windows: perflib(Disk Read/Write Bytes/sec, Avg. Disk sec/Read·Write, Current Disk Queue Length, query_time - %Idle Time). IOCTL 성능경로 폐기.
+Linux 소스: diskstats(sectors*512 -> By, io_ticks/time_reading ms->s, in_flight). Windows: perflib(Disk Read/Write Bytes/sec, Avg. Disk sec/Read·Write, Current Disk Queue Length, query_time - %Idle Time).
 `disk.errors` 는 단일 counter + attr 로 통합: `{kind: mdraid, class: member_errors|degraded, member: vdf}`, `{kind: btrfs, class: corruption}`, `{kind: ext4, class: errors_count}`, Windows `{kind: eventlog}`. 정상 시 0.
 
 ### G5. system.filesystem (opt, per mount)

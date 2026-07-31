@@ -142,6 +142,6 @@ uv run alembic check              # ORM·migrations 정합
 
 배포 대상은 내부망 운영 VM 한 대다. 빈 VM 을 `bootstrap.sh` 로 1회 구성한 뒤, 이후 배포는 버전을 올려 `main` 에 머지하고 VM 에서 `deploy.sh vX.Y.Z` 를 실행하는 두 단계를 반복한다.
 
-`deploy.sh` 는 cosign verify -> 그 태그의 compose fetch -> pull -> migration -> up -> `/health` 확인 순으로 진행하고, 실패하면 직전 정상 이미지로 되돌린다. 되돌리기도 이전 버전으로 같은 명령을 실행하면 된다.
+`deploy.sh` 는 공급망 검증부터 health gate 까지를 한 번에 수행하고 실패하면 직전 정상 이미지로 되돌린다. 되돌리기도 이전 버전으로 같은 명령을 실행하면 된다. 단계별 상세는 `docs/guides/deploy.md` 3절.
 
 절차·secret 배치·단일 호스트 수동 기동은 `docs/guides/deploy.md` 가 단일 진실이다.

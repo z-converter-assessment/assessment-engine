@@ -262,7 +262,7 @@ Self-audit 메타 인용 제외:
 - [5.6] ADR 은 정정만 (덮어쓰기 금지). 결정 변경은 새 ADR + 이전 ADR `Status: Superseded by 00NN` (Withdrawn 이면 사유 1줄). retroactive 수정 0건.
 - [5.7] CLAUDE.md F9 "변경 영향도 체크리스트" 에 본 feature 가 추가한 변경 유형이 빠졌으면 행 추가 (변경 유형 + 동시 갱신 위치).
 - [5.8] 새 외부 의존(HTTP · 외부 큐) 도입 시 F6 "외부 의존 실패 모드 매트릭스"(`docs/reference/observability.md`)에 행 추가 (fail-open/close · timeout · 재시도).
-- [5.9] CLAUDE.md "본 절 결정" 신규는 (a) 검사 가능(`rg`·`ruff`·hook·테스트로 위반 발견) (b) F9 영향도 표시 (c) 위반 시 행동 명시 셋 다 충족. 새 F-policy 는 번호 단조 증가. 단순 조언(`...하는 게 좋다`)이면 채택 X — 결정·금지·매트릭스 형태만.
+- [5.9] CLAUDE.md "본 절 결정" 신규는 (a) 검사 가능(`rg`·`ruff`·테스트로 위반 발견) (b) F9 영향도 표시 (c) 위반 시 행동 명시 셋 다 충족. 새 F-policy 는 번호 단조 증가. 단순 조언(`...하는 게 좋다`)이면 채택 X — 결정·금지·매트릭스 형태만.
 
 원칙 (3):
 - [5.10] 모든 "상세는 X 절" 포인터가 가리키는 단일 진실이 실제 존재·정확. 검사: `rg '상세는|단일 진실|catalog: ' CLAUDE.md docs/` 추출 후 인용 경로·절 실재 확인.

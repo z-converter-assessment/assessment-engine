@@ -109,7 +109,7 @@ compose 는 prod-safe base(`docker-compose.yml`) + dev override(`docker-compose.
 | 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
 | 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web 만 (또는 reverse proxy 뒤) |
 | Password 주입 | `.env`(env.dev.example 복사) 평문 | file-secret 단일(`docker-compose.secrets.yml` + `./secrets/*` 644) — `/run/secrets/*` 마운트, env 노출 회피 |
-| Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 | 동일 — base compose `migrate` init-container 가 web/consumer 기동 전 실행 (deploy.sh rollout 내재) |
+| Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 | 동일 — base compose `migrate` init-container 가 앱 서비스 기동 전 실행 (deploy.sh rollout 내재) |
 | Fail-fast 검증 | 약한 default 허용 | `_WEAK_VALUES` 거부 → `Settings()` 생성 시점 `ValueError` |
 | restart 정책 | `unless-stopped` | `unless-stopped` (base compose `restart:`) |
 | Logging | `LOG_FORMAT=text` (colorized·grep 친화) | `LOG_FORMAT=json` 권장 (외부 log aggregator indexing) |
@@ -157,7 +157,7 @@ def _validate_prod_web_secrets(self) -> "WebSettings":
 | `.env` 평문 | `env_file` 또는 `--env-file` | 로컬 dev (본 repo 채택) |
 | 환경변수 직접 | systemd `Environment=`·shell export | 작은 prod, 모든 OS |
 | systemd `EnvironmentFile=` | 파일 1개에 KEY=VALUE | 비-compose 운영 (엔진은 env 채널도 지원) |
-| Docker compose file-secret (compose 배포 표준) | `docker-compose.secrets.yml` 이 `./secrets/*`(권한 644 — postgres non-root 유저 호환) -> `/run/secrets/*` 마운트. app 은 `secrets_dir`, DB/MQ 는 `*_FILE` env | 단일 호스트 compose prod (유일 정석) |
+| Docker compose file-secret (compose 배포 표준) | `docker-compose.secrets.yml` 이 `./secrets/*`(권한 644 — Compose file-secret 은 Swarm 과 달리 호스트 파일 권한을 컨테이너에 그대로 반영하는데 postgres 공식 이미지가 non-root 유저로 읽어 600이면 Permission denied) -> `/run/secrets/*` 마운트. app 은 `secrets_dir`, postgres 는 `*_FILE`, rabbitmq 는 `*_FILE` 미지원이라 entrypoint wrapper 가 파일을 읽어 주입 | 단일 호스트 compose prod (유일 정석) |
 | SOPS/age + git | git 에 암호화 커밋, 운영 시 복호화 후 env 또는 file 주입 | GitOps |
 | Vault / AWS Secrets Manager / k8s External Secrets | 외부 secret manager → env 또는 file 주입 | 다중 환경·동적 회전 |
 

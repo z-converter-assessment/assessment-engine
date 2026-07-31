@@ -118,7 +118,7 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 `.github/workflows/ci.yml`의 `build` job — `uv build` + 빌드된 wheel을 fresh venv에 install + import·정적 자원 포함 검증. Docker image 정합은 dev `docker compose build` 로 확인.
 
-`.github/workflows/release.yml` — 서명·SBOM·provenance 된 멀티아치 엔진 이미지를 GHCR 로 발행. 배포는 VM 에서 `deploy.sh` 실행 — 상세는 `docs/guides/release.md`·`docs/guides/deploy.md`. 사내 폐쇄망은 `docker save/load` 로 대응.
+`.github/workflows/release.yml` — 서명·SBOM·provenance 된 멀티아치 엔진 이미지를 GHCR 로 발행. 사내 폐쇄망은 `docker save/load` 로 대응.
 
 ---
 

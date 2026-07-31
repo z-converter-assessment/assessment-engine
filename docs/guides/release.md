@@ -96,4 +96,3 @@ cosign verify ghcr.io/z-converter-assessment/assessment-engine:1.2.1 \
 ## 6. 한계
 
 - 버전 정책 — stable semver `X.Y.Z`만 지원 (prerelease/RC 미지원). prerelease 도입 시 규약 통일 별도 ADR 의무
-- 배포 매체 = docker compose 단일. wheel+venv·k8s 등 다른 매체는 미지원 — 필요 시 별도 ADR

@@ -302,7 +302,6 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 > 관련 코드: `src/assessment_engine/db/models/server_inventory.py`, `src/assessment_engine/db/repositories/collect_repository.py`
 > 관련 문서: CLAUDE.md #C1, `docs/reference/db/models.md`, `docs/reference/contracts/agent-data.md`
-> 관련 migration: `migrations/versions/e8b4d2f6a1c9_agent_id_identity.py`
 
 선택 (현행)
 - `server_inventory` UNIQUE = `agent_id` 단독. agent_id 는 agent 가 첫 실행 시 1회 생성·영구저장하는 불변 UUID — 부팅마다 NIC MAC 이 재발급되는 환경(OpenStack Windows VM)에서도 동일 agent_id 가 자연히 같은 행을 upsert 한다. 별도 재연결 로직 없음.
@@ -334,16 +333,15 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T13. 보고서 = diagnostic_jobs 통합 (job_type) + 환경 보고서 view toggle
 
-> 관련 코드: `src/assessment_engine/db/models/diagnostic_job.py`, `src/assessment_engine/web/services/diagnostic_service.py::record_report_emission`, `src/assessment_engine/web/templates/diagnostics/results.html`
+> 관련 코드: `src/assessment_engine/db/models/diagnostic_job.py`, `src/assessment_engine/web/services/diagnostic_service.py`
 > 관련 문서: CLAUDE.md #C1, `docs/reference/db/models.md`
-> 관련 migration: `migrations/versions/a1b2c3d4e5f6_diagnostic_jobs_job_type.py`
 
 선택
 - `diagnostic_jobs.job_type` 컬럼 (`customer_report`/`engineer_report`) — 보고서 발행이 본 테이블에 row 저장 (이력 보존).
 - 양식 분리:
   - server scope (`/reports/servers?ids=...`): row 단위 상세, 양식 A/B (`servers/report.html`).
   - environment scope (`/reports/environment`): high-level (KPI·USE Method 분류 도넛·Top N risk·OS 분포·view별 정성 요약, `reports/environment.html`). 전체 등록 서버 자동, `EnvironmentReportSummary` view_model + `mappers.environment_report`.
-- 두 라우터 모두 합성 직후 `record_report_emission` 호출 (best-effort, 응답 흐름 영향 없음).
+- 두 라우터 모두 `enqueue_report` 로 job 을 등록하고 즉시 `?job={id}` 로 돌려보낸다 — 스냅샷 생성은 전용 워커가 맡는다.
 - 보고서 이력 (`/reports/history`) 페이지 — customer + engineer union + view 필터 select. 서버 목록에서 진입점 지원 (선택 N대 버튼 + 환경 카드 link).
 - 환경 scope 보고서 페이지는 같은 페이지 안 view tab (고객 보고서/엔지니어 보고서). 각 view 는 `<iframe src="/reports/environment?view=...">` SSR 미리 렌더 + JS `display` toggle.
 
