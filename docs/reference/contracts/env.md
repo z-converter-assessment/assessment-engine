@@ -13,7 +13,7 @@
 | 1 | Config 을 환경변수로 분리 | `pydantic-settings` `BaseSettings`. 코드에 환경별 값 박지 않음 |
 | 2 | 같은 이미지를 모든 환경에서 사용 | `Dockerfile` 1개. 환경 차이는 환경변수·compose override·secret 채널로만 |
 | 3 | secret 과 일반 config 분리 | dev `.env` 평문 / prod 외부 인프라 자유 채널 (env·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등) |
-| 4 | Fail-fast 검증 | `config.py` `model_validator` 가 `APP_ENV=prod` 일 때 약한 default 거부 |
+| 4 | Fail-fast 검증 | 기동 시점에 값을 거부해 세운다 (6절) |
 | 5 | 비밀번호는 기본값 없음 + 뻔한 값 거부 | 미설정·빈값은 필드 제약이, `_WEAK_VALUES`(POSTGRES·RABBITMQ password·user)는 검증이 차단 — 환경 무관 |
 | 6 | secret 을 코드·이미지·git 에 박지 않음 | `.dockerignore`·`.gitignore` 에 `.env` 명시 (.env.example·.env.dev.example 카탈로그만 commit) |
 
@@ -78,21 +78,21 @@ base compose 에는 비밀번호 설정이 없다 — dev override 가 env 채�
 
 ## 4. APP_ENV 마커
 
-코드가 자기 환경을 알아야 분기 가능한 동작이 있다. 본 프로젝트는 단 한 곳에서만 분기:
+코드가 자기 환경을 알아야 분기 가능한 동작이 있다. 실제 분기는 한 곳이다.
 
 | 분기점 | 동작 |
 |--------|------|
-| `config.py` `model_validator` | `APP_ENV=prod` 일 때 약한 default 거부 (fail-fast) |
+| `web/main.py` lifespan | `dev` 면 `app.state.dev_assets` 를 세워 미들웨어가 매 요청 정적 자원 버전을 재발급 (hot reload 즉시 반영) |
 
-원칙: 코드 분기는 최소화. "환경 자체가 환경변수로 결정" 되는 게 이상이고, APP_ENV 분기는 운영 정책 변경 (검증 강도) 에만 사용. 비즈니스 로직 분기 금지.
+원칙: 코드 분기는 최소화. "환경 자체가 환경변수로 결정" 되는 게 이상이다. 비밀번호 검증은 이 값을 보지 않는다 (6절) — 환경 마커로 보안 강도를 가르지 않는다. 비즈니스 로직 분기 금지.
 
 값:
 
 | APP_ENV | 의도 |
 |---------|------|
-| `dev` | 로컬 개발. 평문 .env, 약한 default 허용 |
-| `staging` | prod 유사 환경. 현재 dev 와 동일 동작 (분리 정책 미도입) |
-| `prod` | 프로덕션. fail-fast, secret 채널 강제 |
+| `dev` | 로컬 개발. 정적 자원 캐시 무효화 활성 |
+| `staging` | prod 유사 환경. 현재 prod 와 동일 동작 (분리 정책 미도입) |
+| `prod` | 프로덕션. 정적 자원 버전 고정 |
 
 ---
 
@@ -104,13 +104,13 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 |------|--------------|---------------------|
 | 기동 방식 | `docker compose up` (base + override.yml 머지, 로컬 빌드) | base+prod.yml pull-and-run — `deploy.sh` rollout 또는 수동 `docker compose up -d` |
 | compose 이미지 | override.yml 로컬 빌드(`assessment-engine:local`) | base 의 GHCR 핀(`ENGINE_IMAGE` 또는 기본 핀) pull |
-| `APP_ENV` | `dev` | `prod` 명시 (env var 또는 EnvironmentFile) |
+| `APP_ENV` | `dev` (정적 자원 캐시 무효화) | `prod` 명시 (정적 자원 버전 고정) |
 | 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
 | 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
 | 백킹 서비스 포트 외부 노출 | OK 5432·5672·6379·15672 | NG web 만 (또는 reverse proxy 뒤) |
 | Password 주입 | `.env`(.env.dev.example 복사) 평문 | file-secret 단일(`docker-compose.prod.yml` + `./secrets/*` 644) — `/run/secrets/*` 마운트, env 노출 회피 |
 | Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 | 동일 — base compose `migrate` init-container 가 앱 서비스 기동 전 실행 (deploy.sh rollout 내재) |
-| Fail-fast 검증 | 약한 default 허용 | `_WEAK_VALUES` 거부 → `Settings()` 생성 시점 `ValueError` |
+| Fail-fast 검증 | 동일 — 미설정·빈값·`_WEAK_VALUES` 는 어느 환경에서도 `Settings()` 생성 시점 `ValueError` | 동일 |
 | restart 정책 | `unless-stopped` | `unless-stopped` (base compose `restart:`) |
 | Logging | `LOG_FORMAT=text` (colorized·grep 친화) | `LOG_FORMAT=json` 권장 (외부 log aggregator indexing) |
 | web 노출 | plain HTTP port 8000 | HTTPS 외부 ingress (nginx·envoy 등) 종단, 앱은 plain |
@@ -147,10 +147,9 @@ def _validate_web_secrets(self) -> "WebSettings":
 발동 위치 (컴포넌트별):
 - web: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password 검증
 - consumer: `ConsumerSettings` → POSTGRES·RABBITMQ password 검증
+- worker: `WorkerSettings` → 위와 동일
 
-효과:
-- prod 에서 `.env` 미주입·dev default 잔존 시 `Settings()` 호출이 즉시 `ValueError` → 컨테이너 crash (fail-fast).
-- 운영자가 secret 채널 점검 신호 즉시 수신.
+효과: 값이 없거나 뻔하면 `Settings()` 호출이 즉시 `ValueError` 를 던져 컨테이너가 뜨지 않는다. 운영자가 secret 채널 점검 신호를 즉시 받는다.
 
 ---
 
@@ -256,9 +255,19 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 
 ## 12. 전체 키 카탈로그 (`.env.example` 순서)
 
+compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose 파일이 `${...}` 로 참조하지 않아도 동작이 바뀌므로 애플리케이션 변수와 층위가 다르다.
+
 | 키 | 기본값 | 사용처 | 설명 |
 |----|--------|--------|------|
-| `APP_ENV` | `dev` | config.py / docker-compose | 환경 마커. `dev`/`staging`/`prod`. 로그 format·reload 등 동작 분기에 쓴다 |
+| `COMPOSE_FILE` | 없음 (compose 기본 규칙 = base + override) | compose CLI | 합칠 compose 파일 목록. `.env.example` 은 `docker-compose.yml:docker-compose.prod.yml` 로 dev override 를 뺀다 |
+| `COMPOSE_PROJECT_NAME` | 디렉토리명 | compose CLI | 컨테이너·네트워크·볼륨 이름 접두 |
+| `ENV_FILE` | `.env` | compose base `env_file:` | 서비스에 주입할 env 파일 경로 |
+
+애플리케이션 변수.
+
+| 키 | 기본값 | 사용처 | 설명 |
+|----|--------|--------|------|
+| `APP_ENV` | `dev` | config.py / docker-compose | 환경 마커. `dev`/`staging`/`prod`. 정적 자원 캐시 무효화만 가른다 (4절) |
 | `LOG_FORMAT` | `text` | config.py / 각 entry `setup_logging()` | 로그 출력 format. `text`(dev colorized·grep) 또는 `json`(외부 log aggregator). prod 는 `json` 권장 |
 | `ENGINE_IMAGE` | base 기본 핀 (`ghcr.io/z-converter-assessment/assessment-engine:<version>`) | compose base | 앱 서비스 이미지. config.py 미사용 — compose 전용. 미설정 시 base `docker-compose.yml` 기본값(release CI 가 태그 semver 로 핀한 GHCR 이미지). dev override.yml 은 `assessment-engine:local`(로컬 빌드)로 덮음. GHCR public — 토큰 없이 pull |
 | `PGDATA_HOST` | `postgres_data` (named volume) | compose base | postgres 영속 경로. host 절대경로 주입 시 bind mount(infra Cinder `/mnt/pgdata`), 미설정 시 named volume |
@@ -266,13 +275,13 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 | `POSTGRES_HOST` | `postgres` | config.py / dev compose | PostgreSQL 호스트 (docker-compose 서비스명). prod 는 실제 host 명시 |
 | `POSTGRES_PORT` | `5432` | config.py / dev compose | |
 | `POSTGRES_DB` | `assessment` | config.py / dev compose | |
-| `POSTGRES_USER` | `assessment` | config.py / compose | assessment 허용 — 빈값·password·admin·root·changeme 만 prod 거부 |
-| `POSTGRES_PASSWORD` | `changeme` | config.py / compose | default `changeme`(weak)라 미설정 시 prod 거부. 명시 `assessment` 는 허용. 강한 secret 권장 |
+| `POSTGRES_USER` | `assessment` | config.py / compose | assessment 허용 — 빈값·password·admin·root·changeme 는 거부 |
+| `POSTGRES_PASSWORD` | 없음 (필수) | config.py / compose | 기본값이 없어 미설정·빈값이면 기동이 멈춘다. 명시 `assessment` 는 허용. 강한 secret 권장 |
 | `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키 안 씀 — 외부 인프라가 broker 도달 host 별도 주입 |
 | `RABBITMQ_PORT` | `5672` | config.py / dev compose | |
 | `RABBITMQ_VHOST` | `assessment` | config.py / compose | 전용 vhost (무슬래시). 에이전트와 동일 값. 이름에 `/` 없어 인코딩 무영향(config.py `broker_url` 은 슬래시 포함 vhost 를 `%2F`로 자동 인코딩) |
-| `RABBITMQ_USER` | `assessment` | config.py / compose | assessment 허용 — 빈값·password·admin·root·changeme 만 prod 거부 |
-| `RABBITMQ_PASSWORD` | `changeme` | config.py / compose | default `changeme`(weak)라 미설정 시 prod 거부. 명시 `assessment` 는 허용. 강한 secret 권장 |
+| `RABBITMQ_USER` | `assessment` | config.py / compose | assessment 허용 — 빈값·password·admin·root·changeme 는 거부 |
+| `RABBITMQ_PASSWORD` | 없음 (필수) | config.py / compose | 기본값이 없어 미설정·빈값이면 기동이 멈춘다. 명시 `assessment` 는 허용. 강한 secret 권장 |
 | `RABBITMQ_MANAGEMENT_PORT` | `15672` | dev compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |
 | `RABBITMQ_EXCHANGE` | `assessment` | config.py / agent env (repo 밖) | 에이전트·consumer routing 계약. 변경 시 양쪽 동기화 |
 | `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / agent env (repo 밖) | 동일 |
@@ -295,7 +304,7 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 | `REDIS_MAXMEMORY` | `256mb` | dev compose (redis command) | Redis maxmemory cap. prod 튜닝 가능 |
 | `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | dev compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict |
 | `WEB_PORT` | `8000` | config.py / dev compose | Web UI 접속 포트 |
-| `WEB_RELOAD` | `false` | config.py / dev compose | uvicorn auto-reload. dev hot-reload 전용 (dev compose 가 `true` 주입, `./:/app` bind mount 와 짝). prod 미설정 → false (코드 변경 감시 프로세스 불필요·bind mount 없는 wheel/image 배포에 무의미) |
+| `WEB_RELOAD` | `false` | config.py / dev compose | uvicorn auto-reload. dev hot-reload 전용 (dev override 가 `true` 주입, 패키지 bind mount 와 짝). prod 미설정 → false (코드 변경 감시 프로세스 불필요·bind mount 없는 wheel/image 배포에 무의미) |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout (픽업 후 스크립트 실행 예산). 원격 host worker 가 SIGTERM/SIGKILL |
 | `INSTALL_TASK_DEADLINE_SEC` | `3600` | config.py | install task 배달/마감 창(초). engine `tasks.deadline_at` + broker `agent.tasks.<agent_id>` 큐 `x-message-ttl` 동일 창(오프라인 호스트 store-and-forward 유예). `INSTALL_TIMEOUT_SEC`(600) 와 별개 개념 |
 | `ZDM_DEFAULT_IP` | `""` (빈값) | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. 운영자가 real ZDM 좌표 주입. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
@@ -339,10 +348,10 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 
 ## 14. 안티패턴 (금지)
 
-- 코드 (`config.py`) 에 `if env == "prod"` 비즈니스 분기 도입 — 정책 분기 1개 지점만 허용
+- 코드에 `if env == "prod"` 분기 도입 — 4절 한 지점 외 금지. 보안 강도를 환경으로 가르지 않는다
 - `.env.production` / `.env.development` 같은 환경별 .env 동시 보유 — 활성 파일 모호
-- prod 에서 `volumes: ./:/app` 코드 마운트 유지 — 컨테이너 안 `.env` 노출 + 코드 변조 위험
-- 본 repo 에 prod 환경 전체를 가르는 docker compose(`docker-compose.prod.yml`) 추가 — #A0 위반(base 자체가 prod). 단 prod-safe base·file-secret overlay(`docker-compose.prod.yml`)·`secrets/` placeholder 는 의식적 편의 제공 — 실제 secret 파일은 `secrets/*` ignore(commit 금지)
+- prod 에서 코드 bind mount 유지 — 컨테이너 안 `.env` 노출 + 코드 변조 위험
+- base 를 dev 쪽으로 기울이기 — base 는 prod-safe 로 두고 dev 편의는 override 만 담는다. prod overlay(`docker-compose.prod.yml`)는 file-secret 배선만 얹는다
 - secret 을 git 저장소에 커밋 — `.dockerignore`·`.gitignore` 의 `.env` 항목 절대 제거 금지 (카탈로그 .env.example·.env.dev.example 만 commit)
 - 컨테이너 안에서 `/app/.env` 를 직접 read 하는 코드 추가 — pydantic-settings 의 `env_file` 폴백 외 직접 read 금지
 - `secrets_dir` 강제 활성화 — 디렉토리 부재 시 noisy 경고. `os.path.isdir` 분기로 None fallback 유지
@@ -353,7 +362,7 @@ agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible 
 
 1. secret 을 git 에 커밋하지 않는다 — `.env` 는 .gitignore (카탈로그 .env.example·.env.dev.example 만 commit). prod secret 은 외부 인프라의 secret 채널.
 2. dev 편의성을 prod 안전성과 거래하지 않는다 — `.env` 평문은 dev 에만, prod 는 secret 채널 강제.
-3. 약한 default 를 prod 로 흘려보내지 않는다 — `APP_ENV=prod` fail-fast 검증.
+3. 약한 값을 어느 환경으로도 흘려보내지 않는다 — 기본값 없는 필수 필드 + 뻔한 값 거부.
 4. 이미지는 환경 무관 — `Dockerfile` 1개, 차이는 환경변수·compose override·secret 주입으로만.
 5. 에이전트 secret 을 엔진 secret 과 분리 — 각자 독립적 라이프사이클.
 

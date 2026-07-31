@@ -45,7 +45,7 @@ class WebSettings(BaseSettings):
         extra="ignore",
     )
 
-    # prod 일 때 model_validator 가 약한 default 거부.
+    # 정적 자원 캐시 무효화 분기에만 쓴다 (web lifespan). 비밀번호 검증은 이 값을 보지 않는다.
     app_env: Literal["dev", "staging", "prod"] = "dev"
 
     # dev=text(colorized·grep 친화), prod=json(외부 log aggregator indexing).
@@ -170,7 +170,7 @@ class ConsumerSettings(WebSettings):
     rabbitmq_port: int = 5672
     rabbitmq_vhost: str = "assessment"  # 에이전트가 발행하는 전용 vhost (무슬래시 — 앞 슬래시 없는 이름)
     rabbitmq_user: str = "assessment"
-    # default 는 weak(changeme) — 미설정 시 prod 거부 강제 (명시 assessment 는 허용). USER 는 식별자라 default 허용.
+    # USER 는 식별자라 default 를 두지만 PASSWORD 는 두지 않는다 — 값을 주지 않으면 기동이 멈춘다.
     rabbitmq_password: SecretStr = Field(min_length=1)
     rabbitmq_exchange: str = "assessment"
     rabbitmq_routing_key_inventory: str = "server.inventory"

@@ -54,7 +54,7 @@ async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncE
     env["POSTGRES_USER"] = "test"
     env["POSTGRES_PASSWORD"] = "test"
     env["POSTGRES_DB"] = "assessment_test"
-    env["APP_ENV"] = "dev"  # prod model_validator 우회 (테스트 자격은 약한 default)
+    env["APP_ENV"] = "dev"
     subprocess.run(
         [
             sys.executable,

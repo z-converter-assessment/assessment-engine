@@ -8,27 +8,28 @@ docker-compose는 엔진 그 자체 — web·consumer·worker·postgres·rabbitm
 
 ## 파일 구조
 
-compose 2 파일 — base(prod-safe) + override(dev) 자동 머지:
+compose 3 파일 — base(prod-safe) 위에 dev override 또는 prod overlay 하나를 얹는다:
 
 ```
 docker-compose.yml          — prod-safe BASE. 앱 서비스 `build:` 없음, GHCR 이미지 핀 pull. bind mount 없음.
                               볼륨 env 바인딩(PGDATA_HOST·MQ_DATA_HOST). 배포 시 deploy.sh 가 버전 태그에서 raw fetch
 docker-compose.override.yml — dev 전용. 소스 빌드(루트 Dockerfile)·`./src` bind mount·hot reload(watchfiles). `docker compose up` 시 base 에 자동 머지(override 우선). 배포 시 미사용
+docker-compose.prod.yml       — prod overlay. file-secret 배선(`secrets:` 최상위 + 서비스 참조)만 얹는다. COMPOSE_FILE 로 명시해야 붙는다
 Dockerfile                  — 엔진 이미지 (web·consumer·worker·migrate 공용, multi-stage·non-root). base·override·CI/release·systemd·k8s 공용 단일 이미지 (dev-prod parity — dev/prod Dockerfile 분리 안 함)
 .env.example                — 배포 템플릿 (APP_ENV=prod·secret 필수). dev 검증 카탈로그는 루트 .env.dev.example
 .env.dev.example            — dev 카탈로그 (APP_ENV=dev·평문 비번·host=compose 서비스명)
 .dockerignore               — 이미지 빌드 컨텍스트 제외 경로 (docs/·tests/·.env·.git 등)
 ```
 
-compose 가 루트라 별도 `-f` 없이 base+override 자동 인식. dev 는 dev 카탈로그로, 배포는 base 단독:
+어느 조합이 붙는지는 `.env` 의 `COMPOSE_FILE` 이 정한다. 이 변수가 없으면 compose 기본 규칙이 base+override 를 합치고, `.env.example`(배포 템플릿)은 `docker-compose.yml:docker-compose.prod.yml` 을 명시해 override 를 뺀다.
 
 ```bash
-# dev (소스 트리) — .env.dev.example 카탈로그로 base+override 머지(로컬 빌드·핫리로드)
+# dev — COMPOSE_FILE 없음이라 base+override 자동 머지(로컬 빌드·핫리로드)
 cp .env.dev.example .env && docker compose up -d   # web http://localhost:8000. 코드 수정 반영은 `up --build -d`
-# 배포 — 릴리즈 base + 루트 .env.example(배포 템플릿) 채워서 base 단독
-cp .env.example .env && docker compose -f docker-compose.yml up -d   # GHCR 이미지 pull (override 제외)
 docker compose down -v
 ```
+
+배포 기동은 secret 파일 생성이 선행해야 성립한다 — 절차는 `docs/guides/deploy.md`.
 
 dev 코드 반복은 override.yml 의 `./src` bind mount + hot reload(web=uvicorn reload, consumer=watchfiles)로 컨테이너 restart 없이 반영 — 의존성(pyproject) 변경 시에만 `up --build`. prod base 는 bind mount 없음(이미지 불변성). agent 가 붙는 VM 은 본 repo 범위 밖(OpenStack 공급).
 
@@ -38,26 +39,9 @@ prod 하드닝(강 secret·외부 secret 채널·HTTPS ingress)은 base 가 강�
 
 ## Dockerfile
 
-```dockerfile
-FROM ghcr.io/astral-sh/uv:0.11.16 AS uv
+builder 에서 venv 를 만들고 runtime 으로 그 venv 만 복사하는 multi-stage 구성이다. 실제 내용은 루트 `Dockerfile` 이 정본이고, 여기서는 그 구조가 왜 그런지만 다룬다.
 
-FROM python:3.12-slim AS builder
-ENV UV_LINK_MODE=copy UV_COMPILE_BYTECODE=1 UV_PROJECT_ENVIRONMENT=/opt/venv
-WORKDIR /app
-COPY --from=uv /uv /usr/local/bin/uv
-
-COPY pyproject.toml uv.lock ./                   # 1단: 의존성만
-RUN uv sync --frozen --no-dev --no-install-project
-
-COPY src ./src                                   # 2단: 프로젝트만
-RUN uv sync --frozen --no-dev --no-editable
-
-FROM python:3.12-slim AS runtime
-ENV PYTHONUNBUFFERED=1 PATH="/opt/venv/bin:$PATH"
-COPY --from=builder --chown=app:app /opt/venv /opt/venv
-USER app
-ENTRYPOINT ["python", "-m"]
-```
+`COPY` 를 두 단으로 쪼갠 것이 핵심이다 — `pyproject.toml`·`uv.lock` 만 먼저 넣고 의존성을 설치한 뒤, 소스를 넣고 프로젝트를 설치한다. 소스만 바뀌면 1단 레이어가 캐시에 남아 의존성 재설치(60s+)를 건너뛴다.
 
 ### 단일 이미지 + command 분기
 
@@ -89,7 +73,7 @@ RUN uv sync --frozen --no-dev --no-editable         # ← project 만 추가
 
 - `uv sync`: pyproject.toml + uv.lock을 정합 검사한 후, lockfile에 고정된 트랜지티브 버전 그대로 install. `uv pip install -e .`(pyproject만 봄)와 달리 lockfile 무시 불가능 → reproducible build.
 - `--frozen`: lockfile 을 재해석하지 않고 그대로 쓴다. 빌드 시점이 언제든 같은 버전 집합이 설치된다. drift 자체를 실패로 잡는 것은 `uv lock --check` 이며 `--frozen` 은 검사하지 않는다.
-- `--no-dev`: pyproject `[dependency-groups].dev`(pytest·ruff·testcontainers) 미포함. prod 이미지 슬림화.
+- `--no-dev`: pyproject `[dependency-groups].dev` 미포함. prod 이미지 슬림화.
 - `--no-install-project`: project 자체는 skip하고 외부 deps만 install (1단 layer cache 분리용).
 - `--no-editable`: 소스를 가리키는 링크가 아니라 파일을 복사해 넣는다. 최종 이미지에 소스 트리가 없어도 동작한다. dev 는 호스트 패키지를 venv 안 같은 경로에 bind mount 해 코드 변경을 반영한다.
 - `UV_PROJECT_ENVIRONMENT=/opt/venv`: venv 안 스크립트에 절대경로 shebang 이 박혀 builder 와 runtime 이 같은 경로를 써야 한다. 작업 디렉토리(`/app`)와 분리해 둔다.
@@ -140,12 +124,13 @@ uv lock               # pyproject.toml 수동 편집 후 lockfile만 재생성
 
 | 서비스 | 호스트 포트 | 컨테이너 포트 | 용도 |
 |--------|------------|--------------|------|
-| postgres | `${POSTGRES_PORT:-5432}` | 5432 | psql 직접 접속 (디버그) |
+| postgres | `127.0.0.1:${POSTGRES_PORT:-5432}` | 5432 | psql 직접 접속 (디버그) |
+| redis | `127.0.0.1:${REDIS_PORT:-6379}` | 6379 | redis-cli 직접 접속 (디버그) |
 | rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — 외부 호스트의 에이전트가 메트릭·결과 발행 |
 | rabbitmq | `${RABBITMQ_MANAGEMENT_PORT:-15672}` | 15672 | 관리 UI |
 | web | `${WEB_PORT:-8000}` | 8000 | HTTP — 브라우저 + `/static/*` 정적 자원 |
 
-redis·consumer는 포트 미노출. 모두 docker 네트워크 내부에서만 접근.
+postgres·redis 는 loopback 에만 묶어 VM 로컬 ops 접근으로 제한한다. AMQP 5672 만 0.0.0.0 인데, 외부 호스트의 에이전트가 발행하는 통로라 노출이 필수다. consumer·worker 는 포트를 열지 않는다.
 
 ### 영속 볼륨
 
@@ -186,7 +171,7 @@ volumes: [./src/assessment_engine:/opt/venv/lib/python3.12/site-packages/assessm
 조합 효과:
 - `web`: uvicorn `reload=True`(`WEB_RELOAD=true`, override 주입)가 파일 변경 감지 -> 자동 재기동. 새로고침만으로 변경 확인.
 - `consumer`: watchfiles 래퍼 entrypoint(override)가 `.py` 변경 시 프로세스 재시작.
-- `migrate`: host `./migrations` bind 로 새 alembic revision 을 재빌드 없이 인식.
+- `migrate`: 위 마운트가 패키지 안 `migrations/` 까지 덮어 새 alembic revision 을 재빌드 없이 인식.
 - 정적 자원(`.js`/`.css`/`.html`): dev 에서 `web/main.py` 미들웨어가 매 요청 `asset_v` 를 재발급(`app.state.dev_assets`, `app_env=="dev"` 일 때만 — APP_ENV 판정은 lifespan 단일 경로 #F4)해 `?v=` URL 이 매번 바뀌고 HTML·`/static/*` 응답에 `Cache-Control: no-store` 부여 — 브라우저 disk cache·304 까지 회피. `.py` 재시작이 없는 정적 변경(ASSET_V 가 프로세스 시작 시각 고정이라 캐시에 묻히던 경로)도 새로고침만으로 반영. prod 는 본 분기 비활성(cdn·long-cache).
 
 prod (base 단독): override 미배포라 위 bind mount·reload 전부 없음 — `Dockerfile` 빌드 결과(불변 이미지)만 사용. `.dockerignore` 가 `.env` 를 이미지에서 제외하고, base 는 코드 마운트가 없어 호스트 `.env` 가 컨테이너에 노출되지 않는다 (dev override bind 는 `./src` 한정이라 루트 `.env` 미포함).
@@ -225,12 +210,7 @@ environment:
 
 ### healthcheck
 
-| 서비스 | 체크 명령 | interval | timeout | retries | start_period |
-|--------|----------|----------|---------|---------|--------------|
-| postgres | `pg_isready -U <user>` | 5s | 5s | 5 | — |
-| rabbitmq | `rabbitmq-diagnostics ping` | 10s | 5s | 5 | — |
-| redis | `redis-cli ping` | 5s | 5s | 5 | — |
-| web | `python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"` | 5s | 5s | 5 | 10s |
+명령과 주기는 `docker-compose.yml` 의 각 서비스 `healthcheck:` 가 정한다. postgres 는 `-h 127.0.0.1` 을 붙여 TCP 로 물어본다 — 초기화 중 unix socket 만 열린 구간을 healthy 로 오판하지 않기 위해서다.
 
 `web` healthcheck:
 - 명령으로 `python -c ...`를 쓰는 이유: `curl`이 python:3.12-slim 이미지에 없음. python 표준 라이브러리로 해결.
@@ -243,15 +223,15 @@ environment:
 postgres ─ healthy ─▶ migrate (alembic upgrade head, 1회 실행 후 exit)
                           │
                           ▼ service_completed_successfully
-            ┌──────┬──────┴
-            ▼      ▼
-           web   consumer
-            ▲      ▲
-   redis ───┴──────┤
+            ┌──────┬──────┴──────┐
+            ▼      ▼             ▼
+           web   consumer      worker
+            ▲      ▲             ▲
+   redis ───┴──────┼─────────────┘
 rabbitmq ──────────┘
 ```
 
-모든 환경(dev·staging·prod) Alembic 단일 진실. `migrate` 컨테이너가 schema 준비 완료를 보장한 뒤 앱 2종 기동.
+모든 환경(dev·staging·prod) Alembic 단일 진실. `migrate` 컨테이너가 schema 준비 완료를 보장한 뒤 앱 3종 기동.
 
 ### restart 정책
 
@@ -266,16 +246,17 @@ rabbitmq ──────────┘
 
 ### 코드 변경 → 컨테이너 반영 매트릭스
 
-| 변경 위치 | web | consumer | 추가 작업 |
-|-----------|-----|----------|----------|
-| Python 코드 (web/) | uvicorn auto-reload | — | 없음 |
-| Python 코드 (consumer/, db/, config.py) | uvicorn auto-reload | 미반영 | `docker compose restart consumer` |
-| 정적 자원 (web/static/) | 즉시 (브라우저 cache 주의) | — | 브라우저 강제 새로고침 |
-| Jinja2 템플릿 (web/templates/) | 즉시 | — | 없음 |
-| `pyproject.toml` (의존성) | 미반영 | 미반영 | `docker compose up --build -d` (의존성 레이어 재빌드) |
-| `Dockerfile` | 미반영 | 미반영 | `docker compose up --build -d` |
-| `docker-compose.yml` (루트) | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
-| ORM 모델 (컬럼·제약 추가) | 새 모델 로드는 reload되나 DB 스키마는 미반영 | 동일 | `alembic revision --autogenerate` → `docker compose restart migrate` → 앱 서비스 재기동. 마이그레이션 누락 시 `alembic check` 차단 |
+| 변경 위치 | web | consumer | worker | 추가 작업 |
+|-----------|-----|----------|--------|----------|
+| Python 코드 (web/) | uvicorn auto-reload | — | — | 없음 |
+| Python 코드 (consumer/) | — | watchfiles 재시작 | — | 없음 |
+| Python 코드 (worker/, db/, config.py) | uvicorn auto-reload | watchfiles 재시작 | 미반영 | `docker compose restart worker` |
+| 정적 자원 (web/static/) | 즉시 (브라우저 cache 주의) | — | — | 브라우저 강제 새로고침 |
+| Jinja2 템플릿 (web/templates/) | 즉시 | — | — | 없음 |
+| `pyproject.toml` (의존성) | 미반영 | 미반영 | 미반영 | `docker compose up --build -d` (의존성 레이어 재빌드) |
+| `Dockerfile` | 미반영 | 미반영 | 미반영 | `docker compose up --build -d` |
+| `docker-compose.yml` (루트) | 부분 | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
+| ORM 모델 (컬럼·제약 추가) | 새 모델 로드는 reload되나 DB 스키마는 미반영 | 동일 | 동일 | `alembic revision --autogenerate` → `docker compose restart migrate` → 앱 서비스 재기동. 마이그레이션 누락 시 `alembic check` 차단 |
 
 ### 디버깅 유용 명령
 

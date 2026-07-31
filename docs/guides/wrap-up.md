@@ -100,7 +100,7 @@ Self-audit 메타 인용 제외:
 - [1.7] F1 — Pydantic 모델 필드 타입이 `TYPE_CHECKING` 블록에만 있는지 0건(런타임 resolve 라 `NameError`). type checker 만족용 런타임 `assert x is not None` 0건. `# type: ignore[return-value]` 로 덮은 거짓 시그니처 0건.
 - [1.8] F2 — KST 변환이 표시 경계 4 함수(SSR `kst` · client `fmtLabel` · `fmtKst` · `initAnchor`) 외 0건. naive datetime · 인라인 KST offset 더하기 0건.
 - [1.9] F3 — 검증이 진입점(라우터 Pydantic · Consumer `model_validate_json` · `BaseSettings`) 외 위치에서 재실행 0건. `_VALID_*` frozenset·런타임 enum 멤버십 체크 0건.
-- [1.10] F4 — Service/Handler 안 구체 구현체 import 0건. `config.py` module-level instance 0건. `assessment_engine.config` 에서 `web_settings` 등 직접 import 0건.
+- [1.10] F4 — Service/Handler 안 구체 구현체 import 0건. `config.py` module-level instance 0건. `assessment_engine.config` 에서 Settings 인스턴스 import 0건.
 - [1.11] F6 — `except Exception` 광범위 catch 0건. timeout 없는 외부 호출 0건 (`asyncio.wait_for` 또는 클라이언트 timeout 옵션 의무). 영구 오류(`IntegrityError` · 4xx) 재시도 0건.
 - [1.12] F7 — `print` · stdlib `logging` · `sys.stdout.write` 혼용 0건. `logger.exception()` 은 except 블록 안에만. raw payload 로깅 0건 (식별자 + 카운트만). 신규 시그널 로그는 (레벨 · 빈도 제어 · 운영자 행동) 셋 다 명시.
 - [1.13] F8 — secret 필드 `SecretStr` 누락 0건. PII(composite_id · public_id 외 식별자 · 전체 payload · 접속 문자열) 응답·캐시·로그·예외 0건.

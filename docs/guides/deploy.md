@@ -66,7 +66,7 @@ sudo $DEPLOY_DIR/deploy.sh vX.Y.Z
 
 ```bash
 cp .env.example .env               # COMPOSE_FILE 포함(base+prod 자동 머지) · 평문 비번 없음
-mkdir -p secrets
+install -d -m 0700 secrets
 printf '%s' "$(openssl rand -base64 32)" > secrets/<항목명>   # 목록: docker-compose.prod.yml 의 secrets:
 chmod 644 secrets/*
 # ENGINE_IMAGE 로 배포 버전 핀 (미설정 시 base 기본 = __ENGINE_VERSION__ placeholder, 정확 버전 명시 권장):
@@ -74,7 +74,7 @@ echo 'ENGINE_IMAGE=ghcr.io/z-converter-assessment/assessment-engine:1.2.1' >> .e
 docker compose up -d              # base+prod pull-and-run. web http://localhost:8000
 ```
 
-GHCR public — 토큰 없이 pull. `APP_ENV=prod` 기본이라 secret 부재·weak 면 기동 거부(fail-fast). 영속 볼륨을 외부 디스크에 두려면 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(미설정 시 named volume).
+GHCR public — 토큰 없이 pull. secret 이 없거나 뻔한 값이면 환경과 무관하게 기동을 거부한다(fail-fast). 영속 볼륨을 외부 디스크에 두려면 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(미설정 시 named volume).
 
 비번은 file-secret 채널 단일 — `./secrets/*` 가 `/run/secrets/*` 로 마운트돼 secret 이 컨테이너 env(`docker inspect`)에 뜨지 않는다. 주입 경로와 권한 근거는 `docs/reference/contracts/env.md`.
 

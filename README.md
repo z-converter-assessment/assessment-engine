@@ -151,6 +151,7 @@ dev(핫리로드), `.env.example` 이면 배포용이다. 그 안의 `COMPOSE_FI
 `echo` 는 개행을 붙이므로 쓰지 않는다.
 
 ```bash
+install -d -m 0700 secrets   # 호스트 쪽 경계는 디렉토리 권한이 맡는다
 printf '%s' "$(openssl rand -base64 32)" > secrets/<항목명>
 chmod 644 secrets/*          # 컨테이너의 non-root 유저가 읽어야 한다
 ```

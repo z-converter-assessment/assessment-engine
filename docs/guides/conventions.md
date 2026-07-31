@@ -1,6 +1,6 @@
 # 본 repo 작업 규약
 
-정책: CLAUDE.md #F1·#F5. 본 문서는 본 repo 코드 작업 시 따라야 할 검증 룰 단일 진실 — IDE 정적 경고, 자동화 변환 직후 동적 검증, 서버·CI 강제를 모두 포함.
+정책: CLAUDE.md #F1·#F5. 본 문서는 본 repo 코드 작업 시 따라야 할 검증 룰 단일 진실 — 정적 검사와 편집기 설정, 자동화 변환 직후 동적 검증, 서버·CI 강제를 모두 포함.
 
 ## 1. 정적 검사 (#F1 부속)
 
@@ -35,7 +35,7 @@ Warning 처리 우선순위:
 |------|----------|
 | 보호 브랜치 직접 push·force push·삭제 | GitHub ruleset |
 | PR title Conventional Commits | `pr-title-check.yml` |
-| lint·테스트·타입 계약·마이그레이션 drift | `ci.yml`·`alembic-check.yml` (required check 목록은 `docs/guides/ci-setup.md` 3.4) |
+| lint·테스트·프론트 타입 계약·마이그레이션 drift | `ci.yml`·`alembic-check.yml` (required check 목록은 `docs/guides/ci-setup.md` 3.4) |
 
 강제 채널이 없는 규약은 사람과 리뷰가 지킨다. F7(`print`·`sys.stdout.write`)·C3(`safe_*` 미경유 redis 직접 호출)·글로벌 표기 규칙(markdown bold·비키보드 unicode)·파이썬 타입(pyright)이 여기 해당한다 — ruff select 대상이 아니라 CI 도 잡지 못한다. 자동화 변환 직후 자가 검증(#F5)과 develop PR 코드 리뷰가 유일한 그물이다.
 

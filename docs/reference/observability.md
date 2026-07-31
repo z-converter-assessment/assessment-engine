@@ -52,7 +52,7 @@ stdout 로그 출력 format 을 `LOG_FORMAT` 환경변수로 토글.
               indexed search·filter·alerting
 ```
 
-구현: `src/assessment_engine/log_config.py` 의 `setup_logging(log_format)`. 각 entry (web/consumer/worker) 가 Composition Root 에서 호출 (F4 단일 진실). `web_settings.log_format` · `consumer_settings.log_format` · `worker_settings.log_format` 모두 동일 env 읽음.
+구현: `src/assessment_engine/log_config.py` 의 `setup_logging(log_format)`. 각 entry (web/consumer/worker) 가 Composition Root 에서 호출 (F4 단일 진실). 세 컴포넌트의 Settings 가 모두 같은 env 를 읽는다.
 
 운영 권장:
 - dev: `LOG_FORMAT=text` — 사람이 직접 stream 을 보거나 grep 할 때 가독성 우선.
