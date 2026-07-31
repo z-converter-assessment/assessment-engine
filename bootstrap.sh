@@ -1,24 +1,13 @@
 #!/usr/bin/env bash
 #
-# bootstrap.sh — 배포 대상 VM 1회성 멱등 부트스트랩 (ADR 0048).
+# bootstrap.sh — 배포 대상 VM 1회성 부트스트랩 (ADR 0048). deploy.sh 가 전제하는 VM 상태를 만든다.
 #
-# deploy.sh(엔진 rollout)가 전제하는 VM 상태를 만든다:
-#   (1) docker engine + compose plugin + cosign
-#   (2) 배포 디렉토리(DEPLOY_DIR) + secrets/ + .env 템플릿
-#   (3) deploy.sh 배치
-#
-# 멱등 — 이미 된 단계는 건너뛴다. 여러 번 실행해도 안전.
-# 대상 OS: Debian/Ubuntu (apt). 다른 distro 는 docker 설치 절만 대체.
-#
-# 사용 (public repo — raw 에서 받아 실행, clone 불요):
+# 사용 (public repo — clone 없이 raw 에서 받아 실행):
 #   curl -fsSL https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main/bootstrap.sh -o bootstrap.sh
 #   sudo bash bootstrap.sh
 #
-# 선택 env:
-#   DEPLOY_DIR         배포 디렉토리 (기본 /opt/assessment-engine)
-#   ENV_TEMPLATE_URL   .env 템플릿 소스 (기본 raw main env.example)
-#   DEPLOY_SCRIPT_URL  deploy.sh 소스 (기본 raw main deploy.sh)
-#   COSIGN_VERSION     cosign 버전 (기본 latest)
+# 멱등 — 이미 끝난 단계는 건너뛰므로 deploy.sh 를 갱신할 때 다시 돌려도 된다.
+# 대상 OS 는 Debian/Ubuntu(apt). 다른 distro 는 docker 설치 절만 대체한다.
 
 set -euo pipefail
 
@@ -26,6 +15,7 @@ DEPLOY_DIR="${DEPLOY_DIR:-/opt/assessment-engine}"
 RAW_MAIN="https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main"
 ENV_TEMPLATE_URL="${ENV_TEMPLATE_URL:-${RAW_MAIN}/env.example}"
 DEPLOY_SCRIPT_URL="${DEPLOY_SCRIPT_URL:-${RAW_MAIN}/deploy.sh}"
+SECRETS_COMPOSE_URL="${SECRETS_COMPOSE_URL:-${RAW_MAIN}/docker-compose.secrets.yml}"
 COSIGN_VERSION="${COSIGN_VERSION:-latest}"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
@@ -89,13 +79,22 @@ else
   log ".env 이미 존재 — 보존"
 fi
 
-# secret 파일 안내 (강 random 생성은 운영자 책임 — 여기서 자동 생성하지 않음).
-cat <<EOF
-[bootstrap] secret 파일을 아래처럼 배치할 것 (없으면 APP_ENV=prod 기동 거부):
-  printf '%s' "\$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/postgres_password
-  printf '%s' "\$(openssl rand -base64 32)" > $DEPLOY_DIR/secrets/rabbitmq_password
-  chmod 644 $DEPLOY_DIR/secrets/*
-EOF
+# 값 생성은 운영자 책임 — 여기서 만들면 부트스트랩 로그에 비밀이 남는다.
+# 파일 목록은 docker-compose.secrets.yml 의 secrets: 항목이 정하므로 받아서 읽는다. 여기 열거하면
+# secret 이 늘 때마다 본 스크립트도 고쳐야 한다.
+SECRET_KEYS="$(curl -fsSL "$SECRETS_COMPOSE_URL" 2>/dev/null |
+  awk '/^secrets:/{inblock=1; next} inblock && /^[^[:space:]]/{inblock=0} inblock && /^  [A-Za-z_][A-Za-z0-9_]*:/{sub(/:.*/,""); gsub(/ /,""); print}')"
+
+log "secret 파일을 배치할 것 (없으면 APP_ENV=prod 기동 거부):"
+if [[ -n "$SECRET_KEYS" ]]; then
+  while read -r key; do
+    # shellcheck disable=SC2016  # 운영자가 복사해 실행할 명령문이라 여기서 전개되면 안 된다.
+    printf '  printf %%s "$(openssl rand -base64 32)" > %s/secrets/%s\n' "$DEPLOY_DIR" "$key"
+  done <<< "$SECRET_KEYS"
+  printf '  chmod 644 %s/secrets/*\n' "$DEPLOY_DIR"
+else
+  printf '  %s 의 secrets: 항목마다 같은 이름의 파일을 만들 것 (목록 조회 실패)\n' "$SECRETS_COMPOSE_URL"
+fi
 
 # ─── (3) deploy.sh 배치 (raw 에서 받아 배치) ───────────────────────────────
 log "deploy.sh 배치: $DEPLOY_DIR/deploy.sh"
