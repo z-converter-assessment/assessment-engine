@@ -37,7 +37,7 @@ class Task(Base):
 
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
     params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     # pending -> success / failure. agent 무응답 시 deadline_at 경과로 failure(timeout) 전이.
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
