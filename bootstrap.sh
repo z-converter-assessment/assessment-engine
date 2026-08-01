@@ -14,15 +14,25 @@ ENV_TEMPLATE_URL="${ENV_TEMPLATE_URL:-${RAW_MAIN}/.env.example}"
 DEPLOY_SCRIPT_URL="${DEPLOY_SCRIPT_URL:-${RAW_MAIN}/deploy.sh}"
 ROTATE_SCRIPT_URL="${ROTATE_SCRIPT_URL:-${RAW_MAIN}/rotate-secret.sh}"
 PROD_COMPOSE_URL="${PROD_COMPOSE_URL:-${RAW_MAIN}/docker-compose.prod.yml}"
-COSIGN_VERSION="${COSIGN_VERSION:-latest}"
+# 핀한 cosign 과 그 릴리즈 바이너리 sha256 — 셋을 함께 갱신한다. 여기서는 cosign 이 아직 없어 서명으로
+# 못 검증하고, 체크섬 파일도 바이너리와 같은 출처라 서버가 털리면 함께 위조된다. 그래서 값을 여기 고정한다.
+COSIGN_PINNED_VERSION="v3.1.2"
+COSIGN_SHA256_AMD64="f7622ed3cf22e55e1ae6377c080979ff77a22da9981c11df222a2e444991e7cf"
+COSIGN_SHA256_ARM64="90e7ae0b5dfd60f20816b52c012addf7fc055ebcc7bea4ce81c428ca8518c302"
+COSIGN_VERSION="${COSIGN_VERSION:-$COSIGN_PINNED_VERSION}"
 
 log() { printf '[bootstrap] %s\n' "$*"; }
 die() { printf '[bootstrap][error] %s\n' "$*" >&2; exit 1; }
 
 # 임시 파일로 받아 성공 시에만 옮긴다 — 잘린 파일이 남으면 멱등 재실행이 그것을 보존한다.
+# 5번째 인자로 sha256 을 주면 옮기기 전에 대조한다.
 fetch() {
-  local url="$1" dest="$2" mode="$3" what="$4" tmp="$2.download"
+  local url="$1" dest="$2" mode="$3" what="$4" sha="${5:-}" tmp="$2.download"
   curl -fsSL "$url" -o "$tmp" || { rm -f "$tmp"; die "받지 못했다: $what — $url"; }
+  if [[ -n "$sha" ]]; then
+    printf '%s  %s\n' "$sha" "$tmp" | sha256sum -c --status \
+      || { rm -f "$tmp"; die "체크섬 불일치: $what — $url"; }
+  fi
   chmod "$mode" "$tmp"
   mv "$tmp" "$dest"
 }
@@ -57,14 +67,16 @@ fi
 if command -v cosign >/dev/null 2>&1; then
   log "cosign 이미 설치됨 — skip"
 else
-  ARCH="$(dpkg --print-architecture)"; case "$ARCH" in amd64) CARCH=amd64;; arm64) CARCH=arm64;; *) die "unsupported arch $ARCH";; esac
-  if [[ "$COSIGN_VERSION" == "latest" ]]; then
-    COSIGN_URL="https://github.com/sigstore/cosign/releases/latest/download/cosign-linux-${CARCH}"
-  else
-    COSIGN_URL="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${CARCH}"
-  fi
+  case "$(dpkg --print-architecture)" in
+    amd64) CARCH=amd64; COSIGN_SHA="$COSIGN_SHA256_AMD64" ;;
+    arm64) CARCH=arm64; COSIGN_SHA="$COSIGN_SHA256_ARM64" ;;
+    *) die "unsupported arch $(dpkg --print-architecture)" ;;
+  esac
+  # 버전을 override 하면 위 체크섬과 짝이 안 맞으므로 대조를 건너뛴다 — 그때는 호출자가 무결성을 책임진다.
+  [[ "$COSIGN_VERSION" == "$COSIGN_PINNED_VERSION" ]] || COSIGN_SHA=""
+  COSIGN_URL="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${CARCH}"
   log "cosign 설치 ($COSIGN_URL)"
-  fetch "$COSIGN_URL" /usr/local/bin/cosign 0755 "cosign 바이너리"
+  fetch "$COSIGN_URL" /usr/local/bin/cosign 0755 "cosign 바이너리" "$COSIGN_SHA"
 fi
 
 # --- (2) 배포 디렉토리 + secret 스캐폴딩 + .env 템플릿 ---
