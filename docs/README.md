@@ -17,7 +17,7 @@
 |------|------|------|
 | `.claude/CLAUDE.md` | AI 에이전트 운영 규칙 — 불변식·금지·지도. 안 깨려면 알아야 할 것만 | 얇게·매 세션 로드 |
 | `docs/reference/` | 지금 어떻게 도나 — subsystem 동작 + `contracts/` 얼어붙은 계약 | 현재 상태 선언 |
-| `docs/guides/` | 어떻게 하나 — 작업 절차 (배포·마이그레이션·릴리즈·로컬 dev·테스트·CI·wrap-up) | 현재 상태 선언 |
+| `docs/guides/` | 어떻게 하나 — 작업 절차 | 현재 상태 선언 |
 | `docs/explanation/` | 왜 이렇게 설계했나 — 설계 한계·산출물 존재 의의 | 현재 상태 선언 |
 | `docs/decisions/` | 왜 바꿨나 — `adr/`(결정)·`rfc/`(제안) append-only 이력 | 불변 아카이브 |
 
@@ -26,7 +26,7 @@ CLAUDE.md는 결정·금지를, reference는 구현 방식을 담는다 — 둘�
 ## 지도
 
 reference/ (지금 어떻게 도나):
-- `contracts/agent-data.md` — 에이전트 메시지 데이터 계약 wire (envelope + system.* datapoint-array + inventory, 필드 카탈로그·값 의미론·OS별 차이). 기계검증 정본 = `contracts/wire.schema.json`(JSON Schema) + `contracts/wire-examples.json`(예시 6종). 얼어붙은 외부 인터페이스.
+- `contracts/agent-data.md` — 에이전트 메시지 wire 계약의 사람용 카탈로그 (envelope + system.* datapoint-array + inventory, 필드 카탈로그·값 의미론·OS별 차이). 기계검증 정본 JSON Schema 는 같은 디렉토리. 얼어붙은 외부 인터페이스.
 - `contracts/env.md` — 환경변수 계약 (키 카탈로그·secret 채널·기동 검증).
 - `contracts/assessment-api.md` — 프로비저닝 어세스먼트 API 계약 (engine -> 재해복구/마이그레이션 소비자). GET /api/assessment + POST /api/exports/inventory 응답 구조·필드 의미·단위·불변식·버전 규약 + 복잡 스토리지 VM 워크드 예시(9절). 얼어붙은 외부 인터페이스.
 - `docker.md` — 이미지·compose 구성 사양 (단일 이미지 command 분기·빌드 캐시·3파일 배치·base 서비스/포트/볼륨/기동 순서·dev override).
@@ -50,6 +50,8 @@ decisions/ (왜 바꿨나 — 라이브 문서 무의존):
 
 `temp/` — 임시·외부 공유 자료. 영구 문서·코드와 양방향 의존 0 (인용 금지).
 
+`superpowers/` — 내부 방법론 작업 자료 (감사 리포트·설계 spec). 일회성 기록이라 영구 문서·코드에서 인용 금지.
+
 ## 변경 규칙
 
 - 코드 변경 시 그 사실을 담은 문서 하나를 동시 갱신 (#F9). 여러 곳에 흩지 않는다.
@@ -58,4 +60,4 @@ decisions/ (왜 바꿨나 — 라이브 문서 무의존):
 
 ## 범위
 
-엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.sh`, VM 에서 실행)까지 (CLAUDE.md #A0). VM provisioning(IaC)은 별도 준비 VM 전제 — docker·cosign·deploy.sh 설치는 1회성 `bootstrap.sh`.
+본 저장소 범위는 `.claude/CLAUDE.md` #A0 단일 진실.

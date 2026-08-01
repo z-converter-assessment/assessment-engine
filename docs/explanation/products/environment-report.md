@@ -1,12 +1,12 @@
 # 환경 보고서 (Environment Report)
 
-본 문서는 환경 단위 (scope=environment) 산출물의 존재 의의·구현 의도·근거를 정리한다. 환경 안 모든 등록 서버를 묶어 KPI·분류 분포를 한 화면에 합성.
+본 문서는 환경 단위 (scope=environment) 산출물의 존재 의의·구현 의도·근거를 정리한다. 환경 안 모든 등록 서버를 묶어 자원 합계·이용률·분류 분포를 한 화면에 합성.
 
 서버 단위 산출물(scope=server, 선택 N대 row 단위 상세) 은 `docs/explanation/products/server-report.md` 별도.
 
 ## 산출물
 
-환경 scope 환경 보고서 — `GET /reports/environment?view=customer|engineer&time_range=14d`. 환경 전체 KPI·자원 합계·분류 분포 high-level 한 장. customer(양식 A) vs engineer(양식 B) view 분기.
+환경 scope 환경 보고서 — `GET /reports/environment?view=customer|engineer&time_range=14d`. 환경 전체 자원 합계·이용률·분류 분포 high-level 한 장. customer(양식 A) vs engineer(양식 B) view 분기.
 
 발행 흐름:
 - 발행(`POST /reports/environment/emit`)은 parent job 을 pending 으로 만들고 즉시 `?job={id}` 로 이동 — 전용 워커 프로세스가 스냅샷 생성 후 succeeded, 그때 본문 표시(생성 중엔 진행 화면 + 폴링). 발행 전 GET 은 컨트롤(보고서 양식·윈도우·앵커 select + 발행 버튼)만 노출, live preview 본문 없음. 발행된 스냅샷은 `GET /reports/environment?job={id}` 정적 렌더 (서버 scope `/reports/servers` 는 발행 전에도 live preview 본문 유지 — 환경 보고서만 컨트롤-only).
@@ -29,11 +29,11 @@
 
 질문 2: "다음에 어디부터 손대야 하는가?"
 
-분포에서 가장 시급한 카테고리(보통 under_provisioned 위험 또는 over_provisioned 비용)를 우선 검토 대상으로 명시. 운영자가 "오늘은 over-provisioned 5대 다운사이즈 검토"처럼 다음 단계 행동을 결정. 그 다음 단계는 서버 단위 산출물 (`docs/explanation/products/server-report.md`) 로 개별 서버 후보 식별.
+분포에서 가장 시급한 카테고리(보통 자원 부족 위험 또는 과다 할당 비용)를 조치 필요 호스트·효율화 검토 대상 표가 이어받는다. 운영자가 "오늘은 과다 할당 5대 다운사이즈 검토"처럼 다음 단계 행동을 결정. 그 다음 단계는 서버 단위 산출물 (`docs/explanation/products/server-report.md`) 로 개별 서버 후보 식별.
 
 질문 3: "고객사·내부 보고 시 자원 현황을 어떻게 요약하는가?"
 
-고객 미팅·내부 정기 보고에서 환경 자원 현황을 한 줄로 표현 가능 — "7일 평가 기준 평가 가능 23대 중 over-provisioned 5대·under-provisioned 2대·optimal 16대, 우선 검토는 over-provisioned 다운사이즈". customer view 보고서는 한 장 KPI·자동 요약, engineer view 는 정량 분석 추가.
+고객 미팅·내부 정기 보고에서 환경 자원 현황을 한 줄로 표현 가능 — "14일 평가 기준 등록 25대 중 과다 할당 5대·자원 부족 2대·정상 16대·표본 부족 2대". customer view 보고서는 한 장 요약, engineer view 는 정량 분석 추가.
 
 ## 산출 정보
 
@@ -41,22 +41,20 @@
 
 | 영역 | 내용 | 데이터 source |
 |------|------|--------------|
-| KPI 6개 | 대상 서버 / 온라인 / 주의 필요 / 고위험 / 평균 CPU p95 / 평균 메모리 p95 | service KPI 집계 (time_range 윈도우) |
-| 환경 구성 + 서비스 구성 (한 카드 2열) | 환경 구성(OS family Windows/Linux 분포) + 서비스 구성(카테고리별 칩 "카테고리명 + 서비스명·개수", 전 카테고리 노출 count 0 포함 #E9, "분류 미상 서버 N대" 표기). engineer 호스트 전수 나열 없음 | `overview.os_distribution` / 워크로드 카테고리 칩 |
-| 환경 총 자원 | 총 vCPU / 메모리 / 디스크 | inventory 합산 |
+| 인벤토리 카드 4개 | 등록 서버(+오프라인) / 총 vCPU / 총 메모리 / 총 디스크 | inventory 합산 |
+| OS 구성 | 환경 요약(customer)·환경 현황(engineer) 카드 안 소제목 — OS family Windows/Linux 분포(0대 포함 #E9) | `os_family_dist` |
+| 서비스 구성 (별도 카드) | 시그니처 워크로드 카테고리별 뱃지. engineer 는 카테고리별 서비스명·개수까지, customer 는 카테고리+개수만. count 0 카테고리는 미노출 | `_aggregate_service_catalog` |
 | 분류 분포 | 자원 적정성 5분류 카운트 막대 (한국어 분류명 LABEL_KO, 영어 enum 미노출) | `classify_host`(호스트별) -> `_DONUT_SEGMENT_FROM_REC` 카운트 |
-| 환경 부하 추이 (시계열) | CPU·메모리·디스크 평균 추이 차트. 보고서=발행 윈도우 정적 스냅샷 | `metric_trend` |
-| 네트워크 토폴로지 (engineer) | 정적 서브넷 요약 표 (서브넷 대역·호스트 수). 인터랙티브 Cytoscape 그래프는 화면 토폴로지 페이지(`/environment/topology`) 전용. OS(linux/windows)로만 구분 — 멀티홈 색 구분 없음 | `build_network_topology` (subnet 집계) |
 
 ### view 분기 — customer (양식 A)
 
 목적: 컨설턴트가 고객 미팅·내부 보고에 들고 가는 한 장짜리 환경 자원 요약.
 
 - 분류 어휘 = 자원 적정성 한국어 분류명(LABEL_KO) 단일 — 요약·분포·조치 표 동일, 영어 enum·평행 어휘 없음.
-- 환경 요약: 인벤토리(등록 서버·총 vCPU/메모리/디스크) + 메트릭(CPU/메모리/디스크 평균) + OS 구성(Linux/Windows, 0대 포함 #E9) metric-card 소제목 — 카드는 `.env-stat-card` 너비·높이 통일. 서비스 구성은 별도 카드("서비스 식별 (N대)"·"서비스 미식별 (M대)" 소제목). engineer 환경 현황과 동일 구조.
-- 자원 적정성 평가: 분류 분포(조치 방향) + 효율화 검토 대상(과다·유휴·종료 자원 합) + 조치 필요 호스트(자원 부족, high 만). 평가 커버리지(평가 대상/전체) 명시.
+- 환경 요약: 인벤토리(등록 서버·총 vCPU/메모리/디스크) + 메트릭(CPU/메모리/디스크 평균) + OS 구성(Linux/Windows, 0대 포함 #E9) metric-card 소제목 — 카드는 `.env-stat-card` 너비·높이 통일. 서비스 구성은 별도 카드. engineer 환경 현황과 동일 구조.
+- 자원 적정성 평가: 분류 분포(조치 방향) + 효율화 검토 대상(과다·유휴·종료 자원 합) + 조치 필요 호스트(자원 부족, high 만). 분모는 등록 서버 전수이고, 시계열 누적이 부족해 분류가 불가한 서버는 표본 부족 카테고리로 분포 안에서 드러난다.
 - 운영 신호: OS 지원 종료 카드만 (2축 정책, 디스크 capacity 는 자원 적정성 평가가 흡수).
-- 정성 요약: 분류 분포 + 우선 조치/효율화 여지 (결정론 템플릿 합성).
+- 정성 요약: 분류 분포 + 자원 부족 원인 또는 효율화 여지 (결정론 템플릿 합성, engineer 와 동일 불릿).
 - 발화 항목은 제목 + placeholder (데이터 0 이어도 노출, #E9).
 - Print 우선 — 임계값 전문은 인쇄본에 임베드하지 않는다(사이드바 "참고" 그룹 `/reference`에서 별도 확인, 보고서 본문 인쇄 분량 절약).
 
@@ -65,33 +63,39 @@
 목적: 운영자·엔지니어가 환경 단위 정량 패턴 분석 + 자원 적정성 근거 검증. customer 와 동일 어휘(LABEL_KO) + 정량 상세.
 
 - 요약: customer 와 동일 (view 무관 단일 `_env_summary_bullets`) — 등록 서버(+vCPU/메모리/디스크) / 온라인·오프라인 / 분류 분포 / 자원 부족(원인별) / OS 지원 종료.
-- 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 / OS 구성 소제목. 메트릭 = metric-card 5축(CPU·메모리·디스크·네트워크·디스크 I/O) — 실시간 '현재 자원 현황' 축과 동기, 값은 전부 보고서 윈도우 통계(CPU/메모리/디스크 = capacity-weighted avg+p95, 네트워크/디스크 I/O = per-server 윈도우 baseline 합, 단위 표기 "kB/s"/"MB/s" 관습 — 차트는 `ChartUtils.fmtThroughput` 단일 진실). 디스크 p95 는 시점별 capacity 합이 Windows 디바이스(major/minor) 인식 불완전으로 신뢰 불가라 의도 제외(repo `environment_utilization` SQL 주석 단일 진실). 인벤토리/메트릭/OS 카드 `.env-stat-card` 높이 통일. 에이전트 버전은 보고서 헤더 메타.
-- 환경 부하 추이(시계열 CPU/메모리/디스크) + 네트워크 토폴로지(정적 서브넷 요약 표) — 한 카드 2열.
+- 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 / OS 구성 소제목. 메트릭 = metric-card 6축 — 이용률 3(CPU·메모리 = capacity-weighted avg + p95 부기, 디스크 용량) + 포화 3(CPU 포화·메모리 압박·디스크 I/O 포화, 발화 호스트 수/표본). 대시보드 '자원 이용·포화' 도넛의 부분집합 — 절대 처리량(네트워크·디스크 I/O rate)은 기준선이 없어 건강 판단이 어려워 제외. 디스크 p95 는 시점별 capacity 합이 Windows 디바이스(major/minor) 인식 불완전으로 신뢰 불가라 의도 제외(repo `environment_utilization` SQL 주석 단일 진실). 인벤토리/메트릭/OS 카드 `.env-stat-card` 높이 통일. 에이전트 버전은 보고서 헤더 메타.
+- 환경 부하 추이(시계열 CPU/메모리/디스크, 발행 윈도우 정적 스냅샷) + 네트워크 토폴로지(정적 서브넷 요약 표 — 서브넷 대역·호스트 수만, 인터랙티브 Cytoscape 그래프는 화면 토폴로지 페이지 `/environment/topology` 전용) — 한 카드 2열. 둘 다 engineer 전용.
 - 자원 적정성 평가: 분류 분포(소제목 "자원 적정성 분포") + 서버별 자원 적정성(전 서버 통합 표, `action_targets_table` — 환경 자원 평가 페이지와 칼럼 동일: 호스트·사양(CPU·메모리·디스크)·분류(근본원인 병합)·권고(`recommendation_action`, 자원별 독립 처방)·네트워크 상태·디스크 I/O 상태·신뢰도). 조치 호스트 노출은 이 한 표가 단일 진실(별도 효율화 표 없음 — customer view 만 "효율화 검토 대상"/"조치 필요 호스트" 2표로 분리).
 - 세부 서버 목록: 환경 보고서는 미표시 (전수 인쇄 폭주 회피 — 조치 대상은 효율화/자원 부족 표가 담음). 선택 N대 보고서(selection)만 표시.
 - 운영 신호 = OS 지원 종료만(2축 정책) — 보고서는 전수 표시(절단 없음, 대시보드 카드 한도와 분리). 재부팅·에이전트 재시작은 selection 세부 서버 목록 표에 표시.
 - 화면 분석 우선 (인쇄 가능).
 
 분기 메커니즘:
-- 같은 endpoint·SQL·템플릿. `view` 파라미터로 `{% if view == "customer" %} ... {% elif view == "engineer" %} ... {% endif %}` 블록 토글.
-- service `get_report(view=view)` → mapper `build_report_summary_bullets(view=view)` view 전달.
+- 같은 endpoint·SQL·템플릿. `summary.view` 로 `_env_report_body.html` 의 customer/engineer 블록을 토글.
+- 갈리는 건 조치 대상 선정뿐 — `_select_top_risks(rows, view)` 가 customer 는 위험 호스트만, engineer 는 위험도 정렬 상위 10을 낸다.
+- 요약 불릿은 view 무관 단일 (`_env_summary_bullets`).
 
 ### 정성 요약 — 발행 시점 합성
 
-발행 시점에 4 항목을 계산해 요약 문장으로 합성 (결정론 템플릿).
+발행 시점에 고정 3 항목 + 조건부 2 항목을 계산해 불릿으로 합성 (결정론 템플릿, customer·engineer 동일).
 
-| 항목 | 내용 | source |
-|------|------|--------|
-| 평가 윈도우 | 14일 default (`recommendation.WINDOW_DAYS`) | AWS Compute Optimizer 기본 lookback (14일) — 7일·30일은 라우터 override |
-| 평가 커버리지 | `evaluated_servers / total_servers` — 메트릭 데이터가 분류 가능한 정도로 누적된 서버 수 | DB 시계열 집계 |
-| 분류 분포 | over_provisioned / under_provisioned / idle / optimal / insufficient_data 각 카운트 | `classify_host`(호스트별 배지) |
-| 우선 검토 권장 | 분포 중 가장 시급한 카테고리 1개 | 규칙 |
+| 항목 | 내용 | 조건 |
+|------|------|------|
+| 등록 서버 | 등록 대수 + 총 vCPU·메모리·디스크 | 항상 |
+| 온라인·오프라인 | 온라인 N대 / 오프라인 M대 | 항상 |
+| 분류 분포 | 자원 적정성 5분류 한국어 라벨(LABEL_KO)별 카운트 (표본 부족은 0이면 생략) | 항상 |
+| 자원 부족 원인 또는 효율화 여지 | 자원 부족이 있으면 원인 축별 집계, 없고 과다·유휴가 있으면 그 합 | 자원 부족 우선, 둘 다 0이면 생략 |
+| OS 지원 종료 | 지원 종료 호스트 수 | 해당 시 |
+
+조치 지시 없이 현상·진단만 담는다 — 우선순위 권고 문장은 요약이 아니라 자원 적정성 평가 표가 담당.
 
 산출 결과 예시:
 ```
-최근 7일 환경 평가 — 평가 대상 23대 (전체 25대). 분류 분포:
-over-provisioned 5대, under-provisioned 2대, idle 0대, optimal 16대.
-우선 검토 권장: over-provisioned 5대의 다운사이즈.
+등록 서버 25대 (vCPU 200 | 메모리 512.0 GB | 디스크 8000 GB)
+온라인 23대 | 오프라인 2대
+자원 적정성 분류 — 자원 부족 2 · 과다 할당 5 · 유휴 0 · 정상 16 · 표본 부족 2
+자원 부족 — 메모리 이용률 2대
+OS 지원 종료 3대
 ```
 
 ## 의사결정 근거
@@ -119,13 +123,11 @@ Windows (원칙 P2): 포화 3축 모두 perflib 실측 — CPU=Processor Queue L
 - 분류·권장은 결정론 임계값으로 충분. 자연어 요약은 결정론 템플릿으로 산출.
 - 결정 기록: `docs/decisions/adr/`.
 
-## 평가 커버리지의 의미
+## 평가 대상 범위의 표현
 
-`total_servers` vs `evaluated_servers` 는 다른 수치다.
-- `total_servers` — 인벤토리에 등록된 모든 활성 서버 수 (최근 N 시간 안에 에이전트가 살아 있었던 서버).
-- `evaluated_servers` — 그중 분류 가능한 서버 수. 시계열 데이터가 평가 윈도우 (14일) 에 비해 너무 짧은 신규 서버나 메트릭 누적이 부족한 서버는 평가 불가.
+분모는 별도 커버리지 수치가 아니라 등록 서버 전수다. 시계열 누적이 평가 윈도우(14일)에 비해 짧은 신규 서버나 메트릭 누적이 부족한 서버는 분류가 불가한데, 그 대수를 분포 밖으로 빼지 않고 표본 부족 카테고리로 분포 안에 세운다.
 
-운영자에게 보여줘야 하는 이유: 환경 보고서가 신뢰성 있게 답한 대상의 범위 명시. "23대 평가 후 분포가 이렇다"가 "25대 전체에 적용된다"는 오해 회피.
+분포 자체가 "몇 대가 아직 판단 근거 부족인지"를 드러내므로, "N대 분포가 환경 전체에 적용된다"는 오해가 별도 커버리지 문구 없이 차단된다.
 
 ## 서버 단위 산출물과의 분기
 
@@ -142,12 +144,11 @@ Windows (원칙 P2): 포화 3축 모두 perflib 실측 — CPU=Processor Queue L
 
 ## 한계
 
-1. 위험도 3단계 압축 (customer view 한정) — `recommendation` 5분류를 high/attention/normal 3단계로 압축. idle·over_provisioned 가 모두 "주의 필요" 로 묶임. 고객에게 더 세분된 행동을 제시하지 못함.
-2. 평균 활용률 KPI 는 산술 평균 — 환경 안 서버 부하 분포가 양극화 (절반 고부하·절반 저부하) 되면 평균은 misleading. p50·p95 분포 표시도 검토 후보.
-3. 워크로드 역할 무관 임계 — DB·캐시·앱서버 모두 같은 70%/80% 임계. DB 는 메모리 압박이 정상 운영일 수 있는데 "고위험" 으로 잡힐 가능성. 향후 역할별 임계 분기 시 정밀도 증가.
-4. 14일 윈도우 내 일회성 부하 — 단발 부하 (월 1회 배치 등) 가 그 윈도우 안에 들면 평상 부하로 오인. 외부 윈도우 (30일·90일)·요일/시간대 분리 미적용.
-5. 정성 요약의 표현 한정 — 결정론 템플릿이라 운영자가 추가 컨텍스트 (예: "이 서버는 신규 도입 한 달째"·"비용 절감 우선") 를 요약에 반영 불가.
-6. 인쇄 색상 — 브라우저 인쇄 시 색 처리가 브라우저별 다름. 흑백 PDF 에서 위험도 색이 비슷해 보일 수 있음. `print` CSS 에서 별도 처리.
+1. 평균 활용률은 자원 총량 가중(capacity-weighted) 단일 값 — 환경 안 서버 부하 분포가 양극화 (절반 고부하·절반 저부하) 되면 평균만으로는 misleading. 서버 간 분포 (p50·p95) 표시도 검토 후보.
+2. 워크로드 역할 무관 임계 — DB·캐시·앱서버가 같은 자원별 임계를 공유한다 (값은 `docs/reference/right-sizing.md` 4절 단일 진실). DB 는 메모리 압박이 정상 운영일 수 있는데도 자원 부족으로 잡힐 가능성. 향후 역할별 임계 분기 시 정밀도 증가.
+3. 14일 윈도우 내 일회성 부하 — 단발 부하 (월 1회 배치 등) 가 그 윈도우 안에 들면 평상 부하로 오인. 외부 윈도우 (30일·90일)·요일/시간대 분리 미적용.
+4. 정성 요약의 표현 한정 — 결정론 템플릿이라 운영자가 추가 컨텍스트 (예: "이 서버는 신규 도입 한 달째"·"비용 절감 우선") 를 요약에 반영 불가.
+5. 인쇄 색상 — 브라우저 인쇄 시 색 처리가 브라우저별 다름. 흑백 PDF 에서 위험도 색이 비슷해 보일 수 있음. `print` CSS 에서 별도 처리.
 
 ## 한계 해결 후보 (재논의 시점)
 
@@ -162,7 +163,7 @@ Windows (원칙 P2): 포화 3축 모두 perflib 실측 — CPU=Processor Queue L
 - `docs/reference/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리
 - `docs/explanation/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 스냅샷 보존
 - `src/assessment_engine/recommendation.py` — 분류 임계값·`WINDOW_DAYS`
-- `src/assessment_engine/web/services/query_service.py::get_report` — KPI 집계 + view 분기
-- `src/assessment_engine/web/services/mappers/report.py::build_report_summary_bullets` — view 분기 시그널
-- `src/assessment_engine/web/templates/reports/environment.html` — 환경 보고서 템플릿
+- `src/assessment_engine/web/services/query/report.py::ReportQueryMixin.get_environment_report` — 환경 스냅샷 조립
+- `src/assessment_engine/web/services/mappers/environment_report.py` — 환경 현황 메트릭·요약 불릿·조치 대상 선정
+- `src/assessment_engine/web/templates/reports/environment.html` (본문 `reports/_env_report_body.html`) — 환경 보고서 템플릿
 - `docs/explanation/products/server-report.md` — 서버 단위 산출물 (cross-reference)

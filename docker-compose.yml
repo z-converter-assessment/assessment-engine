@@ -1,20 +1,20 @@
-# 공통 정의 — 환경 색을 담지 않는다. dev 는 docker-compose.override.yml, prod 는 docker-compose.prod.yml 이
-# 각자 채운다. 비밀번호가 여기 없는 것도 그래서다(dev 는 env 평문, prod 는 file-secret).
-#
-# 어느 파일이 얹히는지는 명령이 아니라 .env 가 정한다.
-#   - dev : compose 가 파일명 규칙으로 override.yml 을 자동으로 합친다.
-#   - prod: .env.example 의 COMPOSE_FILE(compose 예약 변수)이 base + prod.yml 을 지정 — override 가 섞이지 않는다.
-#
-# 이미지 기본값의 __ENGINE_VERSION__ 은 치환되지 않는 placeholder 다 — 배포 버전은 .env 의 ENGINE_IMAGE 가
-# 정하고 deploy.sh 가 그 줄을 갱신한다.
-# 영속 볼륨은 PGDATA_HOST·MQ_DATA_HOST 를 주면 host bind, 없으면 named volume 이다.
-# 앱 서비스의 command 가 모듈명뿐인 것은 이미지 ENTRYPOINT 가 `python -m` 이기 때문이다(Dockerfile).
+# 절차가 아니라 원하는 최종 상태를 선언한다 — `docker compose up` 이 선언과 실제를 비교해 차이만큼만
+# 수렴시키므로 반복 실행에 대해서 멱등하다. 기동 순서도 직접 쓰지 않고 depends_on 제약으로 유도한다.
+
+# 컨테이너 로그는 기본 드라이버의 경우, 무제한으로 쌓아 장기 가동 호스트의 디스크를 채운다.
+# 로그파일 정책을 설정해 디스크를 보호한다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 x-app-base: &app-base
-  image: ${ENGINE_IMAGE:-ghcr.io/z-converter-assessment/assessment-engine:__ENGINE_VERSION__}
+  # 배포 버전 핀 — `deploy.sh vX.Y.Z` 가 .env 의 이 줄을 쓴다. 비어 있으면 파싱 단계에서 멈춘다.
+  image: ${ENGINE_IMAGE:-}
   restart: unless-stopped
+  logging: *default-logging
   env_file: ${ENV_FILE:-.env}
-  # 접속 호스트는 compose 서비스명 고정 — 나머지 앱 설정은 env_file 이 준다.
   environment:
     POSTGRES_HOST: postgres
     REDIS_HOST: redis
@@ -32,21 +32,19 @@ x-app-base: &app-base
 services:
   postgres:
     restart: unless-stopped
-    image: timescale/timescaledb-ha:pg16  # TimescaleDB
+    logging: *default-logging
+    image: timescale/timescaledb-ha:pg16
     env_file: ${ENV_FILE:-.env}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-assessment}
       POSTGRES_USER: ${POSTGRES_USER:-assessment}
     ports:
-      # 127.0.0.1 바인딩 — VM-로컬 ops 접근만(psql). 고객사 네트워크 미노출. 앱 컨테이너는 docker 네트워크로 접근.
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PUBLISH_PORT:-5432}:5432"
     volumes:
-      # timescaledb-ha 실제 PGDATA 는 /home/postgres/pgdata/data. PGDATA_HOST 주입 시 host bind(Cinder),
-      # 미주입 시 named volume(postgres_data). infra 는 PGDATA_HOST=/mnt/pgdata 주입.
       - ${PGDATA_HOST:-postgres_data}:/home/postgres/pgdata/data
     healthcheck:
       # -h 127.0.0.1 로 TCP 도달성 강제 (소켓 전용 부트스트랩 구간의 false-positive healthy 회피).
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-assessment}"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "${POSTGRES_USER:-assessment}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -54,21 +52,21 @@ services:
 
   rabbitmq:
     restart: unless-stopped
+    logging: *default-logging
     image: rabbitmq:3.13-management-alpine
     env_file: ${ENV_FILE:-.env}
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-assessment}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-assessment}
     ports:
-      # 5672 는 외부 호스트의 agent 가 broker 로 메트릭·결과를 발행하는 통로 — 노출 필수(0.0.0.0).
-      - "${RABBITMQ_PORT:-5672}:5672"
-      # 15672 관리 UI 는 ops 전용 — 127.0.0.1 바인딩(VM-로컬/SSH 터널만, 고객사 네트워크 미노출).
-      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      # agent 가 고객사 네트워크에서 발행하는 통로라 전체 인터페이스에 연다.
+      - "${RABBITMQ_PUBLISH_PORT:-5672}:5672"
+      # 관리 UI 는 운영자 전용 — 루프백만.
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PUBLISH_PORT:-15672}:15672"
     volumes:
-      # MQ_DATA_HOST 주입 시 host bind(Cinder /mnt/mqdata), 미주입 시 named volume(rabbitmq_data).
       - ${MQ_DATA_HOST:-rabbitmq_data}:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -76,14 +74,11 @@ services:
 
   redis:
     restart: unless-stopped
+    logging: *default-logging
     image: redis:7-alpine
-    command: >-
-      redis-server
-      --maxmemory ${REDIS_MAXMEMORY:-256mb}
-      --maxmemory-policy ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
+    command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-256mb}", "--maxmemory-policy", "${REDIS_MAXMEMORY_POLICY:-volatile-lru}"]
     ports:
-      # 127.0.0.1 바인딩 — Redis 무인증이라 네트워크 노출 금지(VM-로컬만). 앱 컨테이너는 docker 네트워크로 접근.
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PUBLISH_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -91,12 +86,11 @@ services:
       retries: 5
       start_period: 5s
 
-  # 마이그레이션 1회성(init-container 패턴) — postgres healthy 후 alembic upgrade head 실행 후 종료.
-  # 이미지 ENTRYPOINT(`python -m`)를 그대로 써서 `docker compose run --rm migrate alembic history` 처럼
-  # 명령만 바꿔 실행할 수 있다. 설정 경로는 이미지의 ALEMBIC_CONFIG 가 들고 있어 각 명령에 -c 를 붙이지 않는다.
   migrate:
-    image: ${ENGINE_IMAGE:-ghcr.io/z-converter-assessment/assessment-engine:__ENGINE_VERSION__}
-    command: ["alembic", "upgrade", "head"]
+    image: ${ENGINE_IMAGE:-}
+    # 설정 경로는 이미지의 ALEMBIC_CONFIG 가 들고 있어 -c 를 붙이지 않는다.
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    logging: *default-logging
     env_file: ${ENV_FILE:-.env}
     environment:
       POSTGRES_HOST: postgres
@@ -107,11 +101,11 @@ services:
 
   web:
     <<: *app-base
-    command: ["assessment_engine.web"]
+    command: ["python", "-m", "assessment_engine.web"]
     ports:
-      - "${WEB_PORT:-8000}:8000"
+      - "${WEB_PUBLISH_PORT:-8000}:${WEB_PORT:-8000}"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${WEB_PORT:-8000}/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -119,14 +113,13 @@ services:
 
   consumer:
     <<: *app-base
-    # ENTRYPOINT(python -m) + command 모듈명 -> `python -m assessment_engine.consumer`. dev hot-reload(watchfiles)는 override.yml.
-    command: ["assessment_engine.consumer"]
+    command: ["python", "-m", "assessment_engine.consumer"]
 
-  # 전용 백그라운드 워커 — 비동기 보고서 생성 + install task reaper (web=HTTP 전담에서 분리).
-  # broker 미사용(DB job-claim 만) — depends_on 은 app-base(postgres·redis·rabbitmq·migrate) 그대로. dev hot-reload 는 override.yml.
   worker:
     <<: *app-base
-    command: ["assessment_engine.worker"]
+    command: ["python", "-m", "assessment_engine.worker"]
+    # 보고서 drain timeout(report_worker_shutdown_timeout_sec, 기본 10s)보다 길어야 SIGKILL 이 정리를 자르지 않는다.
+    stop_grace_period: 20s
 
 volumes:
   postgres_data:

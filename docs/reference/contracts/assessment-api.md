@@ -138,7 +138,7 @@ identity:
       "gateway": "10.50.3.1",
       "dns": ["10.50.0.2"],
       "routes": [{ "dest": "10.60.0.0/16", "via": "10.50.3.254" }],   // default 외 static route
-      "bond_mode": null,                             // active-backup | lacp | null
+      "bond_mode": null,                             // lacp | active-backup | balance-rr | balance-xor | broadcast | balance-tlb | balance-alb | null
       "vlan_id": null,
       "speed_mbps": null
     }]
@@ -146,7 +146,7 @@ identity:
   "storage": {
     "block_devices": [{
       "id": "virtio-pci-0000:00:05.0", "id_type": "by-path",   // 안정 식별자(트리 조인 키)
-      "name": "vda", "type": "disk",                           // disk | part | lvm | raid | crypt | mpath | swap | rom | loop
+      "name": "vda", "type": "disk",                           // disk | part | lvm | raid | crypt | mpath | dynamic | volume | swap (그 외 문자열 pass-through)
       "parent": null,                                          // 부모 노드의 id (root=null). 다중 부모면 노드 반복
       "size_bytes": 32212254720,
 
@@ -234,7 +234,7 @@ fstab 재생성 범위: 엔진은 마운트 팩트(경로, fstype, 옵션, UUID,
 
 단위:
 - `vcpus`: 정수 개수.
-- `mib`: 2^20 바이트(binary MiB). ceil.
+- `mib`: 2^20 바이트(binary MiB). `current`는 관측 총량 내림, `recommended`는 올림(하향 오차 방지).
 - `gib`: 2^30 바이트(binary GiB). ceil. 소비자가 프로바이더의 십진 GB(10^9)로 변환할 때도 ceil을 유지해 하향(under) 방향 오차를 막는다.
 
 estimate_quality 의미:
@@ -263,9 +263,9 @@ action과 estimate_quality 유효 조합:
 ```
 
 - `classification`은 호스트 종합 판정이다. 정렬/표시 편의용이며, 실제 프로비저닝 결정은 sizing.axes를 소비한다.
-- `insufficient_data`는 모든 자원 축(cpu/memory/disk/disk_io/network)이 미측정일 때다. 일부 축만 측정된 부분 결손은 insufficient가 아니다 - 측정된 축으로 classification을 완결하고, 미측정 사이징 축은 sizing.axes에서 `estimate_quality: "uncertain"`으로 표기한다. 따라서 classification만 보는 소비자도, 특정 자원이 미측정임을 알려면 해당 축의 estimate_quality를 확인한다.
+- `insufficient_data`는 사이징 2축(cpu·memory)이 둘 다 미측정일 때다 - disk/disk_io/network가 측정돼 있어도 두 축이 없으면 판정 불가로 본다. 단 디스크 용량이 소진 임박(filling)이면 under_provisioned가 우선한다. cpu·memory 중 한쪽만 측정된 부분 결손은 insufficient가 아니다 - 측정된 축으로 classification을 완결하고, 미측정 사이징 축은 sizing.axes에서 `estimate_quality: "uncertain"`으로 표기한다. 특정 자원의 미측정 여부는 해당 sizing 축의 estimate_quality와 diagnostics.resources[].status로 확인한다.
 - `data_quality.sufficient`는 `confidence == "high"`일 때만 `true`다(medium/low면 `false`). `notes` 불변식: `confidence`가 `high`가 아니면 notes에 최소 하나의 하향 사유가 담긴다.
-- 비사이징 축(디스크 I/O 병목, 네트워크 혼잡)에서 비롯된 under는 sizing에 반영되지 않는다(크기로 안 풀리는 축). `classification`이 `under_provisioned`인데 sizing.axes 전 축이 `keep`이면, 원인은 diagnostics의 `advisory.disk_io_tier_hint` 또는 `network_congested`에 나타난다. 완전한 프로비저닝은 advisory도 확인한다.
+- 크기로 안 풀리는 신호는 sizing에 반영되지 않는다. `classification`이 `under_provisioned`인데 sizing.axes 전 축이 `keep`이면 원인은 디스크 용량 신호이며 diagnostics의 disk status(`filling`)로 확인한다 - inode 소진인 경우 해당 disk 축의 `note`에도 사유가 실린다. 디스크 I/O 병목과 네트워크 혼잡은 classification을 under로 만들지 않고 `advisory.disk_io_tier_hint` / `advisory.network_congested`로만 노출되므로, 완전한 프로비저닝은 classification과 무관하게 advisory를 확인한다.
 
 ### 4.6 diagnostics - 근거/힌트 (선택 소비)
 
@@ -273,7 +273,7 @@ action과 estimate_quality 유효 조합:
 
 ```json
 "diagnostics": {
-  "root_cause": "memory",                  // cpu | memory | disk | disk_io | network | null (근본원인 축)
+  "root_cause": "memory",                  // cpu | memory | disk | disk_io | null (근본원인 축)
   "root_cause_detail": "메모리 (CPU 유발)",  // 사람 읽기용 인과 설명 문자열 | null
   "resources": [{
     "axis": "cpu",                         // cpu | memory | disk | disk_io | network
@@ -295,7 +295,7 @@ action과 estimate_quality 유효 조합:
   - `disk_io`: io_bound | io_ok | unmeasured
   - `network`: congested | quality_ok | unmeasured
 - `resources`는 항상 5개 축(cpu/memory/disk/disk_io/network) 전부를 담는다(문제없는 축도 status로 포함, 문제축만 담는 sparse list 아님). 소비자는 배열 인덱스가 아니라 `axis` 키로 조회한다.
-- `utilization.eval_pct`는 판정 통계(p95). `utilization.sizing_pct`는 그 축의 사이징 통계다 - CPU는 p95(eval과 동일), 메모리는 near-peak. 비사이징 축(disk_io, network)은 둘 다 `null`.
+- `utilization`은 cpu·memory 축만 채운다 - cpu는 eval/sizing 둘 다 p95, memory는 eval=p95 / sizing=near-peak. 나머지 축(disk, disk_io, network)은 둘 다 `null`이며, 마운트별 사용률은 sizing.axes의 disk 축 `used_pct`에서 본다.
 - `saturation`은 cpu/memory/disk_io 축만 객체이고 disk(용량)/network 축은 `null`이다. 소비자는 축별로 접근한다(모든 원소에서 saturation.saturated 접근 금지).
 - `root_cause`는 근본원인 축(소문자 enum) 또는 `null`이고, `root_cause_detail`은 사람 읽기용 인과 설명이다. 사이징이 인과 억제를 하지 않으므로(5절), root_cause는 정보 제공용이며 sizing.axes는 관측된 모든 under 축을 독립적으로 담는다.
 - `advisory.disk_io_tier_hint`가 디스크 I/O 티어 권고의 단일 권위다(호스트 단위). 엔진은 디바이스별 I/O 지연을 산출하지 않으므로 per-disk 티어 힌트는 제공하지 않는다.
@@ -314,12 +314,12 @@ CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom �
 
 바닥값(floor): under인데 정확 수치를 못 내는 축은 안전한 한 단계 상향으로 채운다(recommended가 null이 되지 않게).
 - CPU 포화 주도 under(이용률은 낮으나 실행큐 적체로 목표가 현재 이하): 현재보다 한 단계 큰 vcpu, `estimate_quality: floor`.
-- 메모리 이용률 미측정 + paging/OOM 신호: 현재 위에 안전 여유를 얹은 크기, `estimate_quality: floor`(이용률 없이 신호만으로는 정확 목표 불가). 이용률이 측정된 상태에서 paging/OOM이면 현재를 초과하는 목표를 산정한다(`estimate_quality: exact`).
+- 메모리 이용률 미측정 + OOM 발생: 현재 위에 안전 여유를 얹은 크기, `estimate_quality: floor`(이용률 없이 신호만으로는 정확 목표 불가). 이용률 없이 paging 신호만 있으면 정상 하드폴트와 구분되지 않아 under로 채택하지 않는다(축은 `keep` + `uncertain`). 이용률이 측정된 상태에서 paging/OOM이면 현재를 초과하는 목표를 산정한다(`estimate_quality: exact`).
 - 크기로 안 풀리는 축은 floor를 강제하지 않는다. inode 소진은 볼륨 용량(GB) 확장으로 해결되지 않으므로(mkfs 시 고정) 사이징 축이 아니라 진단 advisory로 노출한다. 디스크 I/O 병목도 마찬가지로 크기가 아닌 티어 문제라 advisory다.
 
 인과 억제 없음: 관측된 모든 under 축을 독립적으로 사이징한다. 근본원인 분석(메모리발 CPU 등)은 diagnostics.root_cause에 설명으로만 담고 사이징 수치를 게이팅하지 않는다. 일회성 마이그레이션은 "근본원인 고치고 재평가" 루프가 없으므로, 관측된 부족은 모두 안전하게 반영한다(어느 축도 미달로 만들지 않음). 절감이 목표가 아니라 이 방향의 과다 사이징은 허용 오차다.
 
-디스크 용량(마운트별): 소진 임박을 가용 이력 전체 span의 2점(시작/종료 여유 공간) 선형 fill-rate 외삽으로 판정하고 목표 수명 크기를 산정한다. 마운트별 `recommended = max(current, ceil(목표_바이트 / 2^30))`으로 절대 현재보다 작아지지 않는다. current와 recommended가 같은 파일시스템 기준이라 단위 불일치로 인한 오축소가 없다. 원격 마운트(NFS/CIFS/SMB/9p/FUSE)는 로컬 디스크 사이징에서 제외한다.
+디스크 용량(마운트별): 소진 임박을 가용 이력 전체 span의 2점(시작/종료 여유 공간) 선형 fill-rate 외삽으로 판정하고 목표 수명 크기를 산정한다. 마운트별 `recommended = max(current, ceil(목표_바이트 / 2^30))`으로 절대 현재보다 작아지지 않는다. current와 recommended가 같은 파일시스템 기준이라 단위 불일치로 인한 오축소가 없다. 디스크 축은 가상 파일시스템(tmpfs/overlay/proc/sysfs 등)과 `/boot*` 마운트를 뺀 나머지 마운트 전부를 담는다. 원격 마운트(NFS/CIFS/9p/FUSE)를 별도로 제외하지 않으므로, 소비자는 `device_ref`가 null인 disk 축을 로컬 볼륨으로 프로비저닝하지 말고 reproduction.mounts와 대조해 원격 여부를 판별한다.
 
 디스크 I/O(호스트 단위): 응답 지연이 높으면 `advisory.disk_io_tier_hint: "high_iops"`로 빠른 볼륨 타입을 권고한다. 용량과 별개 축이라 크기(gib)를 늘리지 않는다. 엔진의 I/O 지연 신호가 호스트 단위(디바이스별 아님)라 advisory도 호스트 단위다.
 
@@ -345,7 +345,7 @@ CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom �
 
 현 에이전트가 아직 값을 안 실어 `null` (성격이 갈림):
 - reproduction.network.addresses[].origin (static/dhcp): getifaddrs 에 origin 정보 자체가 없다. 채우려면 netlink IFA_FLAGS 나 설정/리스 파싱 등 다른 경로가 필요한 구조적 한계.
-- reproduction.storage.lvm_vgs{size_bytes, free_bytes, pv_ids}: 에이전트가 이미 읽는 `/etc/lvm/backup` 에 PV·extent 수가 있어 파생 가능하나 현재 name·vg_uuid·extent_size 만 파싱한다. 같은 소스 파서 확장으로 채워질 미구현 갭.
+- reproduction.storage.lvm_vgs{size_bytes, free_bytes, pv_ids}: 엔진은 에이전트 발행값을 그대로 통과시키므로 안 실은 에이전트에서는 null(9절 예시 호스트가 그렇다). 필드별 발행 여부의 정본은 `docs/reference/contracts/agent-data.md` F4 절이다.
 - reproduction.boot.grub_install_target: 부트로더 설치 디스크 식별 미구현(항상 null). ESP 파티션의 부모 디스크 귀속으로 채울 수 있음.
 
 소비자 규약: 위 `null` 필드가 있어도 소비자는 추측하지 않고 그대로 처리한다. 예로 lvm_vgs 여유 용량이 null 이면 확장 여력 판단을 보류한다.
@@ -358,7 +358,7 @@ CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom �
 - 부팅 크리티컬 필드 null(arch, boot_firmware): 정상 리눅스 호스트에선 채워지나(6절), 인벤토리 결손 등으로 예외적으로 null 이면 소비자는 추측하지 않는다. arch가 null이면 ISA를 x86_64로 가정하지 말고 재현을 보류하며 경고를 노출한다. boot_firmware가 null이면 파티션 플래그(ESP 존재 등)로 추정하되 불확실하면 보류한다. 안전 우선 원칙을 재현 축에도 적용한다.
 - LVM/RAID/멀티패스 호스트: storage.block_devices가 계층을 트리로 표현한다. sizing.axes의 disk current 총량은 멀티패스 중복과 RAID 멤버 이중계산을 배제한 실 프로비저닝 크기다.
 - 바인드/다중 마운트 이중계상: sizing.axes의 disk 축은 마운트별 하나라, 서로 다른 마운트포인트가 같은 backing device를 공유(bind mount, 같은 볼륨 다중 마운트)하면 별개 축으로 이중 계상될 수 있다. 파일시스템 device_id가 발행되면(에이전트 수집 확장) `(server_id, device_id)`로 dedup 가능 - 현재는 device_id 부재라 마운트포인트 기준이며 소비자는 device_ref 트리 조인으로 같은 backing 여부를 식별한다.
-- 인벤토리 결손으로 base 수량(cpu 코어 수, 총 RAM)이 미상인 축: 그 축은 sizing.axes에서 생략된다(null 원소를 만들지 않아 4.4의 `max(current, recommended)` 불변식 유지). 소비자는 축 부재를 사이징 신호 없음으로 보고 reproduction/기존 인벤토리로 폴백한다. 모든 자원 축이 미측정이면 `classification: insufficient_data`.
+- 인벤토리 결손으로 base 수량(cpu 코어 수, 총 RAM)이 미상인 축: 그 축은 sizing.axes에서 생략된다(null 원소를 만들지 않아 4.4의 `max(current, recommended)` 불변식 유지). 소비자는 축 부재를 사이징 신호 없음으로 보고 reproduction/기존 인벤토리로 폴백한다. 이때의 classification 판정은 4.5절을 따른다.
 
 ## 8. export 엔드포인트 (파일 다운로드)
 
@@ -478,7 +478,7 @@ md0 은 부모(PV member)가 vdb·vdc 둘이라 `(id, parent)` 쌍으로 노드�
         ],
         "lvm_vgs": [{ "name": "datavg", "vg_uuid": "SnS55V-ed1y-yfbk-Xy3y-WQox-x5Mk-XOavBF",
                       "size_bytes": null, "free_bytes": null, "extent_size_bytes": 4194304, "pv_ids": null }]
-                    //  ^ size_bytes/free_bytes/pv_ids: /etc/lvm/backup 에 있으나 agent 미파싱(파생 가능)
+                    //  ^ size_bytes/free_bytes/pv_ids: 이 호스트 agent 가 미발행 null
       },
       "mounts": [
         { "source": "tmpfs", "target": "/run", "fstype": "tmpfs",
@@ -523,7 +523,7 @@ md0 은 부모(PV member)가 vdb·vdc 둘이라 `(id, parent)` 쌍으로 노드�
 
 읽는 법:
 - 스토리지: `mountpoint` 있는 노드가 실제 마운트(`/`·`/boot`·`/boot/efi`·`/data`·`/var/log/svc`·`/secure`). 트리는 `id` 로만 조인(`name`=dm-0/md0 등은 표시용·비유일). md0 은 다중 부모라 (id,parent) 쌍으로 2회. 총 프로비저닝 용량은 `type=disk` 노드(vda 30G + vdb 10G + vdc 10G + vdd 8G)의 `size_bytes` 합 - RAID 멤버·LVM LV·crypt 매핑 중복 배제. 레이아웃 상세(partition_table·part_type·raid_level·lvm_segtype·crypt_type·fs_uuid·mount_options 등)가 채워져 파티션/파일시스템/RAID/LVM/LUKS 조립을 그대로 복원할 수 있다.
-- 재현 완전성: os arch(x86_64)·boot_firmware(uefi)·kernel_cmdline·root_ref_type 이 채워져 이미지/부트 기반 재현이 가능하다. 아직 null 인 값들: secure_boot·rtc_utc(이 호스트에 efivars SecureBoot·/etc/adjtime 부재라 정상 null), addresses[].origin(getifaddrs 에 static/dhcp 정보 없음 - 구조적), lvm_vgs size/free/pv_ids(/etc/lvm/backup 에서 파생 가능하나 agent 미파싱), grub_install_target(agent 미구현). 소비자는 항상 null 을 처리한다.
+- 재현 완전성: os arch(x86_64)·boot_firmware(uefi)·kernel_cmdline·root_ref_type 이 채워져 이미지/부트 기반 재현이 가능하다. 아직 null 인 값들: secure_boot·rtc_utc(이 호스트에 efivars SecureBoot·/etc/adjtime 부재라 정상 null), addresses[].origin(getifaddrs 에 static/dhcp 정보 없음 - 구조적), lvm_vgs size_bytes/free_bytes/pv_ids(이 호스트 agent 미발행), grub_install_target(agent 미구현). 소비자는 항상 null 을 처리한다.
 - sizing/assessment: 방금 뜬 idle 호스트라 전 축 keep, classification idle, confidence medium(표본 부족 - 이력<30h). cpu 는 실행큐가 코어당 1.45 여도 이용률 0.8% 라 미포화로 처리(idle 을 실행큐 노이즈로 오증설하지 않는 dual-gate). 부하가 쌓이면 이용률·await 등이 채워지고 confidence 가 오른다. 마운트별 disk 축은 소진 추세가 없어 전부 keep, swap/`/boot`/`/boot/efi` 는 disk 사이징 축이 아니다.
 
 ## 10. 운영 계약

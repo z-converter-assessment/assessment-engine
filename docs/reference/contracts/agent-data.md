@@ -213,7 +213,7 @@ Windows 확장여력은 디스크크기 - 파티션합(미할당)으로 엔진�
 서비스 카테고리 분류(서비스 뱃지·워크로드 역할). USE system.* 재설계 대상 아님 — 서비스 분류 전용.
 
 - `services[]` = {unit, sub, pid(int\|null), exe(string\|null)}. 열거 불가면 null.
-- `listen_ports[]` = {proto(tcp/tcp6/udp/udp6), addr, port(int), uid(int\|null), pid(int\|null), comm(string\|null)}. 분류 우선순위 name -> comm -> port. uid Windows null / pid null=소켓액티베이션(Linux)·권한부족(Windows) / port <= 1024 well-known.
+- `listen_ports[]` = {proto(tcp/tcp6/udp/udp6), addr, port(int), uid(int\|null), pid(int\|null), comm(string\|null)}. 분류 우선순위 name -> comm -> port. uid Windows null / pid null=소켓액티베이션(Linux)·권한부족(Windows) / port 는 raw 값 전달만 (귀속·표시 판정은 엔진 파생).
 
 ---
 

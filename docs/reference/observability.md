@@ -18,8 +18,8 @@
 | 레벨 | 용도 |
 |------|------|
 | ERROR | 처리 실패 + 사용자/메시지 영향 (DB raise·DLQ·5xx) |
-| WARNING | 정상 흐름이지만 운영 시그널 (시계 invariant 위반·재시작 burst·Redis fail-open·counter reset) |
-| INFO | 상태 전이 (auto-register·schema bootstrap·consumer ready·DLQ enqueue) |
+| WARNING | 정상 흐름이지만 운영 시그널 (시계 invariant 위반·재시작 burst·Redis fail-open·DB 재시도 백오프) |
+| INFO | 상태 전이 (auto-register·consumer 기동/구독/종료·중복 메시지 skip·워커 job 전이) |
 | DEBUG | 루프 내부·메시지별 흐름 — 운영 기본 비활성 |
 
 원칙·금지·loguru 규약은 CLAUDE.md #F7.
@@ -31,7 +31,7 @@
 | PostgreSQL | fail-close | `_db_retry` 백오프 후 raise → DLQ / 5xx | ERROR |
 | RabbitMQ broker | fail-close | aio-pika 자동 재연결, persistent 메시지 | ERROR |
 | Redis | fail-open | `safe_*` 흡수 (#C3) → 다음 계층 fallback | WARNING |
-| HTTP 외부 호출 | fail-open | timeout → "unreachable" 결과 | INFO |
+| ZDM 패키지 메타 fetch (httpx) | fail-close | `ZdmPackageMetaError` → install 발행 취소, 503 | ERROR |
 
 원칙·금지·예외 타입 catch 규약은 CLAUDE.md #F6.
 
@@ -77,8 +77,8 @@ HTTP 요청 진입 시 `X-Request-ID` 헤더 read 또는 신규 UUID 생성 → 
 
 ```
 HTTP 요청 → middleware
-              ├─ X-Request-ID 헤더 read (없으면 uuid4 생성)
-              └─ contextvars.set(request_id)
+              |- X-Request-ID 헤더 read (없으면 uuid4 생성)
+              +- contextvars.set(request_id)
                     v
          라우터 → service → repo
                     v
@@ -131,5 +131,4 @@ handler → service → repo → loguru
 - CLAUDE.md #F6 — 외부 의존 fail-open/close 결정 매트릭스
 - CLAUDE.md #F4 — Composition Root 패턴 (middleware 등록 위치)
 - `docs/reference/contracts/env.md` "전체 키 카탈로그" — `LOG_FORMAT` env
-- `/metrics` 엔드포인트 외부 노출 안 함 — Prometheus 스크레이핑 미채택(외부 관측 스택 부재), 로그(loguru) 단일 관측 채널
 - ADR (도입 시 신규) — 분산 trace 채택 사유

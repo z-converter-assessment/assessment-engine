@@ -5,17 +5,22 @@
 ## 데이터 흐름
 
 ```
-Browser → Router → deps.get_service → QueryService
-                                          v
-                          ┌───────────────┼───────────────┐
-                          ▼               ▼               ▼
-                       Redis cache    Repository       PUB/SUB
-                                          v
-                                   OutboundDTO (raw)
-                                          v
-                                   mapper → ViewModel
-                                          v
-                                   Template / JSON
+Browser -> Router -> deps.get_service -> QueryService
+                                              |
+                                     +--------+--------+
+                                     v                 v
+                                Redis cache        Repository
+                                                       |
+                                                       v
+                                               OutboundDTO (raw)
+                                                       |
+                                                       v
+                                               mapper -> ViewModel
+                                                       |
+                                                       v
+                                               Template / JSON
+
+Browser -> Router -> deps.get_task_service -> TaskService -> broker_channel (task.install)
 ```
 
 - DTO - ORM 분리 — 변환은 repository 책임
@@ -30,13 +35,13 @@ Browser → Router → deps.get_service → QueryService
 | 헬퍼 | 반환 | 주입 인자 |
 |------|------|-----------|
 | `get_service(db, redis)` | `QueryService` | `BaseQueryRepository` (QueryRepository) + redis |
-| `get_task_service(db, redis)` | `TaskService` | query_repo + session_factory + `BaseCollectRepository` factory + redis |
-| `get_diagnostic_service(db)` | `DiagnosticService` (web 이 진단 발행·조회를 단일 진입점으로 쓰는 facade — 보고서 발행·이력) | query_repo + session_factory + `BaseDiagnosticRepository` factory |
+| `get_task_service(request, db, redis)` | `TaskService` | query_repo + session_factory + `BaseCollectRepository` factory + broker_channel + zdm_resolver + redis |
+| `get_diagnostic_service()` | `DiagnosticService` (web 이 진단 발행·조회를 단일 진입점으로 쓰는 facade — 보고서 발행 enqueue·이력·워커 lifecycle) | session_factory + `BaseDiagnosticRepository` factory |
 | `resolve_internal_id(server_id, service)` | `int` | path UUID → 정수 PK + 422/404 자동 |
 
 설계 결정:
 - `query_repo`는 request-scoped(`get_db`) — 한 요청 안 다중 read에 동일 트랜잭션
-- `collect_repo`·`diagnostic_repo`는 별도 트랜잭션 필요라 `session_factory` + factory 패턴 — service가 트랜잭션 경계 자체 관리. 서버별 독립 commit(task INSERT 실패 1건이 다른 서버 commit에 영향 X)
+- `collect_repo`·`diagnostic_repo`는 별도 트랜잭션 필요라 `session_factory` + factory 패턴 — service가 트랜잭션 경계 자체 관리. 서버별 독립 commit(task INSERT 실패 1건이 다른 서버 commit에 영향 X). `DiagnosticService`는 request-scoped 세션 미의존이라 워커가 DI 없이 동일 인스턴스 구성 가능
 - `broker_channel`은 lifespan에서 `app.state.broker_channel`에 저장한 영속 channel 재사용 — `TaskService`(install task 발행)가 받아 매 발행마다 connection open/close 안 함 (오버헤드 0). `DiagnosticService`는 보고서를 DB(`diagnostic_jobs`)로 발행·생성(전용 워커 프로세스)이라 broker 미사용
 - 라우터는 `Depends(get_*_service)` 주입만. 구체 import 금지.
 

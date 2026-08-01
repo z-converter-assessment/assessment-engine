@@ -15,8 +15,8 @@
 | 디렉토리 | 목적 (Diátaxis) | 성격 |
 |----------|----------------|------|
 | `docs/README.md` | 문서 관리 계약 (4원칙) + 지도 단일 진실 | 영구·갱신 |
-| `docs/reference/` | 지금 어떻게 도나 — subsystem 동작·docker 구성 + `contracts/`(agent-data·env 얼어붙은 계약) | 현재 상태 선언 |
-| `docs/guides/` | 어떻게 하나 — 작업 절차 (deploy·migrate·release·local-dev·testing·ci-setup·wrap-up·conventions·dependencies) | 현재 상태 선언 |
+| `docs/reference/` | 지금 어떻게 도나 — subsystem 동작·docker 구성 + `contracts/` 얼어붙은 계약 | 현재 상태 선언 |
+| `docs/guides/` | 어떻게 하나 — 작업 절차 | 현재 상태 선언 |
 | `docs/explanation/` | 왜 이렇게 설계했나 — 한계(`tradeoffs.md`)·산출물 의의(`products/`) | 현재 상태 선언 |
 | `docs/decisions/` | 왜 바꿨나 — `adr/`(결정)·`rfc/`(제안) append-only 이력 | 불변 아카이브 |
 
@@ -28,7 +28,7 @@
 
 > 오리엔테이션 포인터. 커맨드 절차 상세는 `docs/guides/` 단일 진실 — 본 파일은 복제하지 않는다 (#F12).
 
-프로세스 (단일 이미지, `ENTRYPOINT ["python","-m"]` — compose command 는 모듈명):
+프로세스 (단일 이미지 — 어느 컴포넌트를 띄울지는 compose `command` 가 정한다):
 - `assessment_engine.web` — FastAPI SSR+JSON 표현 계층 (E)
 - `assessment_engine.consumer` — aio-pika MQ 소비·수집 (D)
 - `assessment_engine.worker` — 보고서 생성 + install reaper (F11)
@@ -49,7 +49,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 
 ## A0. 범위
 
-본 repo는 엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.sh`, 배포 대상 VM 에서 실행)까지 다룬다. VM provisioning(IaC — VM 생성·OS 설정)은 별도 준비 VM 전제. docker·cosign·deploy.sh 설치는 1회성 `bootstrap.sh`.
+본 repo는 엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.sh`, 배포 대상 VM 에서 실행)까지 다룬다. VM provisioning(IaC — VM 생성·OS 설정)은 별도 준비 VM 전제. docker·cosign 설치와 운영 스크립트(`deploy.sh`·`rotate-secret.sh`) 배치는 1회성 `bootstrap.sh`.
 
 본 절 결정:
 - compose = 공통 base + dev override(소스 빌드·bind mount, 파일명으로 자동 머지) + prod overlay(file-secret). dev = base+override, prod = base+prod.yml — 어느 쪽이 붙는지는 `.env` 의 `COMPOSE_FILE` 이 정한다. base 는 환경 색을 담지 않는다. Dockerfile 은 dev/prod 분리 안 함 (parity — dev 편의는 override bind mount 로만). prod 비번 = file-secret 채널 단일 (`SecretStr`). 파일 구조·서비스 카탈로그 상세 = `docs/reference/docker.md`.
@@ -58,7 +58,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
   - 설정 검증 — 비밀번호 미설정·빈값·뻔한 값·채널 충돌을 기동 시점에 거부 (`docs/reference/contracts/env.md` 6절). 환경으로 강도를 가르지 않고, secret 주입 방식과 무관하게 결과만 검증
   - CI 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR). 배포는 VM 에서 `deploy.sh` 실행 (시퀀스는 `docs/guides/deploy.md` 3절). GitHub Actions runner 미사용(public repo 에 self-hosted runner 안티패턴 회피) — 내부망 VM 이 outbound 로 이미지 pull
-- VM provisioning 코드(`*.tf`·Ansible playbook·VM 생성·OS 설정)는 본 repo에 두지 않는다 — 배포 대상 VM 은 provisioning 완료 상태를 전제. 엔진 rollout(`deploy.sh`)·VM 부트스트랩(`bootstrap.sh`)은 범위 안. 단일 호스트 compose 수동 기동도 지원.
+- VM provisioning 코드(`*.tf`·Ansible playbook·VM 생성·OS 설정)는 본 repo에 두지 않는다 — 배포 대상 VM 은 provisioning 완료 상태를 전제. 엔진 rollout(`deploy.sh`)·비밀번호 교체(`rotate-secret.sh`)·VM 부트스트랩(`bootstrap.sh`)은 범위 안. 단일 호스트 compose 수동 기동도 지원.
 
 ---
 
@@ -87,7 +87,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 8테이블 자�
 - 시계열 metric 7테이블 자연키 UNIQUE 보존 의무 — 누락 시 #D2 멱등성 2단 방어 깨짐. 모델 변경 시 검증 필수.
 - `server_metrics` 만 `boot_time` + `agent_started_at` 컬럼 보존 — 자식 시계열은 미보유(rate 차트 reset 은 `GREATEST(delta,0)`, 보고서 cagg 는 `counter_agg` 가 값-감소 기준 흡수). counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
-- `server_inventory` 식별 분리: `id bigint PK` (FK 대상) / `agent_id UUID UNIQUE` (agent 매칭·식별·라우팅 단일 키 — 첫 실행 시 생성·영구저장한 불변 UUID) / `composite_id varchar(64)` (SHA-256 composite hash, 감사·표시용 nullable — 식별·라우팅 미사용) / `machine_id varchar(64)` (raw machine-id 표시 전용, nullable) / `public_id UUID UNIQUE` (URL 노출) / `hostname` display (UNIQUE X). 시계열 5 테이블 FK = `server_id bigint`. MQ queue `agent.tasks.{agent_id}` / routing key `task.install.{agent_id}`.
+- `server_inventory` 식별 분리: `id` PK (FK 대상) / `agent_id` (agent 매칭·식별·라우팅 단일 키 — 첫 실행 시 생성·영구저장한 불변 UUID) / `composite_id`·`machine_id` (감사·표시 전용 nullable — 식별·라우팅 미사용) / `public_id` (URL 노출) / `hostname` display (UNIQUE X). 시계열 8테이블이 `server_id` FK 로 붙는다. 컬럼 타입·제약 표는 `docs/reference/db/models.md`. MQ queue `agent.tasks.{agent_id}` / routing key `task.install.{agent_id}`.
 - 식별키 agent_id 불변: agent_id 는 첫 실행 시 1회 생성·영구저장하는 불변 UUID — 부팅마다 NIC MAC 이 재발급되는 환경(OpenStack Windows VM)에서도 동일 agent_id 가 자연히 같은 행을 upsert 한다. 별도 호스트 재연결 로직 없음. composite_id/machine_id 는 clone collision 진단용 감사 컬럼.
 - `diagnostic_jobs.job_type` (`customer_report`/`engineer_report` 둘만) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. customer/engineer 모두 비동기 생성 (pending -> 워커 claim·running -> succeeded/failed). status·progress_stage·started_at·error_message + active partial UNIQUE 가 비동기 상태머신.
 - 보고서 = 발행 시점 정적 스냅샷 (재계산 0, 이력 동적변화 0). 비동기 생성 — emit 이 parent job pending enqueue 후 즉시 `?job={id}` 반환, 전용 워커 프로세스(`worker/report_worker.py`)가 job 을 claim 해 스냅샷 ViewModel 생성·`result` JSONB 저장 (생성 불가 시 failed). 더블클릭은 active UNIQUE 로 기존 job 합류. GET `?job={id}` = succeeded 면 정적 렌더, pending/running 이면 `report-poll.js` 폴링.
@@ -227,8 +227,8 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 서비스 카테고리 분류(`classify`)·포트 매핑(`matched_ports`)·카테고리 집합 사전계산(`compute_service_categories`)은 도메인 모듈 `assessment_engine/service_classifier.py`(web·consumer 공용 — `recommendation.py` 동급 도메인, web 역의존 0). `MatchedPort` 도 본 모듈 정의(web view_model 이 re-export). ingest(consumer)가 inventory upsert 시 `compute_service_categories` 로 카테고리 집합을 산출해 `server_inventory.service_categories`(text[]) 에 저장하고, 모든 read 경로(목록·상세·리포트·필터)가 저장값 소비. 매퍼가 호출해 `ServiceItem`에 채움. 템플릿은 `service_badge_class` 필터로 category → CSS 클래스 변환만(P3).
 
 본 절 결정:
-- 카테고리 규약 단일 진실 = `SERVICE_CATALOG`(`CategoryDef`). 분류 키워드·포트·드롭다운(`SERVICE_CATEGORIES`)·뱃지 CSS(`BADGE_CLASS_BY_CATEGORY`)·템플릿 범례가 모두 본 카탈로그 파생 — 서비스 추가는 카탈로그 1곳만 수정. 분산 정의(옛 `_PATTERNS`/`SERVICE_PORTS`/`_BADGE_CLASSES`) 부활 금지.
-- `classify(unit, listen_ports=None)` 다중 신호 우선순위 = name -> comm -> port (정밀도 순). comm/port 는 `_attributed_ports`(comm~name 또는 name well-known 포트) 귀속 포트에만 적용 — per-unit(services 탭) multi-service 오분류 방지.
+- 카테고리 규약 단일 진실 = `SERVICE_CATALOG`(`CategoryDef`). 분류 키워드·포트·드롭다운·뱃지 CSS·템플릿 범례가 모두 본 카탈로그 파생 — 서비스 추가는 카탈로그 1곳만 수정. 분산 정의 부활 금지.
+- 서비스 분류는 이름·comm·포트 다중 신호를 정밀도 순으로 쓰고, 포트 신호는 해당 unit 에 귀속된 포트에만 적용 — 호스트 전체 포트로 unit 을 분류하지 않는다(services 탭 multi-service 오분류 방지).
 - 호스트 카테고리 집합 = ingest 사전계산 `service_categories` — 모든 read 경로(목록·상세·리포트·필터)가 이 저장값 소비 (화면 간 재계산·불일치 0). 특징 워크로드만(baseline OS 기본 서비스 제외), 상세는 live classify 로 전부. 카운트 경로는 `workload_category_counter` (동일 분류). `single_instance`(container) = 호스트당 1.
 - 본 `classify`(서비스 카테고리)와 `recommendation.classify`(USE Method right-sizing) 혼용 금지 — 다른 함수.
 
@@ -291,7 +291,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 
 원칙: Service/Handler는 추상 인터페이스(`Base*Repository`)만 의존. 구체 구현체·`Settings()` 인스턴스는 Composition Root에서만.
 
-`Settings()` 인스턴스 단일 진실 위치 — 전부 첫 호출에서 만든다(`lru_cache`). import 만으로 설정을 읽으면 비밀번호를 필수 필드로 둘 수 없다:
+`Settings()` 인스턴스 단일 진실 위치 — import 시점이 아니라 사용 시점에 만든다(alembic 진입점 `migrations/env.py` 만 module-level). import 만으로 설정을 읽으면 비밀번호를 필수 필드로 둘 수 없다:
 - `src/assessment_engine/web/settings.py` — `get_web_settings()` (WebSettings) + `get_diagnostic_settings()` (DiagnosticSettings, web 이 task.install 발행 위해 broker 사용)
 - `src/assessment_engine/consumer/settings.py` — `get_consumer_settings()` (ConsumerSettings)
 - `src/assessment_engine/worker/settings.py` — `get_worker_settings()` (WorkerSettings, 전용 백그라운드 워커 — 보고서 생성·install reaper)
@@ -388,9 +388,9 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 원칙: 보고서·대시보드·차트 모두 같은 평가 윈도우·시계열 옵션 카탈로그 참조 — 화면별 의미 분기 방지.
 
 본 절 결정:
-- right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (현재 14 — AWS Compute Optimizer 기본 lookback, 계층3). 보고서 라우터·서버 목록 분류·환경 개요 자원 적정성 카드·환경 자원 평가 페이지·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select) 모두 본 상수/동일 값 참조 — 분류는 화면 간 14일 단일(#E3, 화면별 의미 분기 0). 변경 시 `_thresholds_reference.html` 표제도 동기화.
-- 윈도우 2분리 기준 (목적별, 임의값 0): (1) 분류·신뢰도·이용률·포화 입력 = 14일 창 — p95·burst·steal·coverage·history_hours + 환경 개요 이용률·포화 도넛 6개 전부 이 창(#E3 화면 간 정합, 분류와 한 창 통일). (2) 용량 runway = 가용 이력 전체 — 누적 신호라 길수록 정확, `report_aggregate` mount_span 이 하한 없이 `bucket <= :end` 로 실제 span 기반 산출(#C5 하한 술어 의식적 예외, tradeoffs T18). 앵커 = 라이브 now / 보고서 발행 시점. 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 15m, 평가 윈도우 무관). 실시간 현황 페이지(attention)는 순간 스냅샷(창 무관).
-- 다운사이즈 처방 이력 게이트 = 창 대비 관측 비율(`RS_DOWNSIZE_MIN_SUFFICIENCY`=0.7, `sample_sufficiency`) — 절대 시간 아님(WINDOW_DAYS 바뀌어도 문턱 불변, 미세 갭 흡수). 통계 정밀도 절대 바닥은 `RS_CONFIDENCE_MIN_HOURS`=30h(하드 컷 아닌 신뢰도 하향 트리거).
+- right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (수치·근거는 `docs/reference/right-sizing-thresholds.md`). 보고서 라우터·서버 목록 분류·환경 개요 자원 적정성 카드·환경 자원 평가 페이지·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select) 모두 본 상수/동일 값 참조 — 분류는 화면 간 한 창 단일(#E3, 화면별 의미 분기 0). 변경 시 `_thresholds_reference.html` 표제도 동기화.
+- 윈도우 2분리 기준 (목적별, 임의값 0): (1) 분류·신뢰도·이용률·포화 입력 = 평가 윈도우 창 — p95·burst·steal·coverage·history_hours + 환경 개요 이용률·포화 도넛 전부 이 창(#E3 화면 간 정합, 분류와 한 창 통일). (2) 용량 runway = 가용 이력 전체 — 누적 신호라 길수록 정확, `report_aggregate` mount_span 이 하한 없이 `bucket <= :end` 로 실제 span 기반 산출(#C5 하한 술어 의식적 예외, tradeoffs T18). 앵커 = 라이브 now / 보고서 발행 시점. 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 15m, 평가 윈도우 무관). 실시간 현황 페이지(attention)는 순간 스냅샷(창 무관).
+- 다운사이즈 처방 이력 게이트 = 창 대비 관측 비율(`RS_DOWNSIZE_MIN_SUFFICIENCY`, `sample_sufficiency`) — 절대 시간 아님(WINDOW_DAYS 바뀌어도 문턱 불변, 미세 갭 흡수). 통계 정밀도 절대 바닥은 `RS_CONFIDENCE_MIN_HOURS`(하드 컷 아닌 신뢰도 하향 트리거).
 - 환경 부하 추이(보고서 SSR 정적 차트) bucket 은 `AUTO_BUCKET[range]` 동적 — 발행 time_range 기준(예: 7d -> 3h, 24h -> 30m). 윈도우 변경 시 집계 단위 자동 추종 — 하드코딩 금지.
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - range -> 자동 bucket 매핑(`AUTO_BUCKET`)은 backend `types.AUTO_BUCKET` 와 frontend `chart-utils.js` 두 곳 — 값 동기화 의무 (range별 적정 분해력 단일 의미). 신규 TimeRange 도입 시 두 곳 동시 신설. SSR 정적 차트(환경 부하 추이)는 backend 매핑, 동적 fetch 차트는 frontend 매핑 적용 — 둘이 어긋나면 같은 range 가 화면별 다른 bucket.
@@ -413,7 +413,7 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 - `os._exit()` — graceful shutdown 우회.
 - `message.process()` 컨텍스트 밖 await — ACK/NACK 둘 다 안 됨.
 
-상세: `docs/reference/consumer.md` "Disposability" 절.
+consumer 측 상세: `docs/reference/consumer.md` "Disposability" 절.
 
 ---
 
@@ -422,7 +422,7 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 원칙: 영구 문서(`docs/reference/`·`docs/guides/`·`docs/explanation/`·루트 `README.md`)와 코드 주석은 현재 상태만 선언적으로 기술한다. 변경 시 과거 흔적(폐기된 도구·용어·구조·경위)을 제거하고 현황으로 덮는다 — "이전엔 X 였다"·"Y 에서 전환" 회고형 서술 0.
 
 본 절 결정:
-- 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함) — 예: dev libvirt 파이프라인·ZDM mock 제거 후 `libvirt`(도메인 가상망 용례 제외)·`virsh`·`dev-up`·`dev-down`·`win-server-01`·`dev_zdm_mock`·`host.docker.internal` 잔존 0.
+- 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함).
 - 예외 — `docs/decisions/adr/` (결정 변경 = 새 ADR + 이전 `Superseded by`, 역사 기록 보존 — ADR 불변 규약) · `docs/explanation/tradeoffs.md` (의식적 한계·확장 트리거).
 
 주석 규약 (일반 컨벤션):

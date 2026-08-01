@@ -40,7 +40,7 @@ docker-compose에 `migrate` 서비스가 정의되어 있다. 동작:
 1. postgres 컨테이너 `healthy` 대기
 2. `alembic upgrade head` 1회 실행
 3. 종료 (restart 안 함)
-4. web/consumer가 `migrate` 종료 후에만 기동 (`depends_on: service_completed_successfully`)
+4. web·consumer·worker 가 `migrate` 종료 후에만 기동 (`depends_on: service_completed_successfully`)
 
 즉 `docker compose up` 한 번이면 schema가 항상 최신. 환경(dev/staging/prod) 무관 — 같은 컨테이너·같은 절차.
 

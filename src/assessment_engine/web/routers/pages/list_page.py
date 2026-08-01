@@ -5,7 +5,7 @@ URL 명사 분리: 환경 단위(개요·자원평가·실시간·성능·토폴
 """
 
 from datetime import UTC, datetime
-from urllib.parse import quote, unquote
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 
@@ -16,6 +16,7 @@ from assessment_engine.db.repositories.query.types import (
 )
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import get_service
+from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.services.mappers.shared import (
     DIAGNOSTIC_RANGE_LABEL_KR,
     DISTRO_FILTER_OPTIONS,
@@ -37,7 +38,7 @@ _LIST_FETCH_LIMIT = 10_000
 @environment_router.get("/metrics")
 async def environment_metrics(
     request: Request,
-    back: str | None = Query(None),
+    back: BackUrl = None,
     ids: str | None = Query(None, description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경."),
     service: QueryService = Depends(get_service),
 ):
@@ -56,7 +57,7 @@ async def environment_metrics(
             "active_nav": "performance",
             "window_days": recommendation.WINDOW_DAYS,
             "generated_at": datetime.now(UTC),
-            "back_url": unquote(back) if back else "/",
+            "back_url": safe_back(back, "/"),
             "self_back": quote(path, safe=""),
             "selection_ids": selection_ids,
             "selection_count": len(valid_pids),
@@ -68,7 +69,7 @@ async def environment_metrics(
 @environment_router.get("/realtime")
 async def environment_realtime(
     request: Request,
-    back: str | None = Query(None),
+    back: BackUrl = None,
     fragment: str | None = Query(None),
     ids: str | None = Query(None, description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경."),
     service: QueryService = Depends(get_service),
@@ -99,7 +100,7 @@ async def environment_realtime(
         context={
             "realtime": realtime,
             "generated_at": now,
-            "back_url": unquote(back) if back else "/",
+            "back_url": safe_back(back, "/"),
             "self_back": self_back,
             "selection_ids": selection_ids,
             "selection_count": len(valid_pids),
@@ -120,7 +121,7 @@ async def _resolve_selection_pids(service: QueryService, ids: str | None) -> lis
 @environment_router.get("/topology")
 async def topology(
     request: Request,
-    back: str | None = Query(None),
+    back: BackUrl = None,
     service: QueryService = Depends(get_service),
 ):
     """네트워크 토폴로지 전용 — L3 subnet 공동소속 그래프. 환경 단위 `/environment` 그룹.
@@ -133,7 +134,7 @@ async def topology(
         context={
             "topology": topo,
             "generated_at": datetime.now(UTC),
-            "back_url": unquote(back) if back else "/",
+            "back_url": safe_back(back, "/"),
             "self_back": quote("/environment/topology", safe=""),
             "active_nav": "topology",
         },
@@ -146,7 +147,7 @@ async def assessment(
     time_range: TimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
     anchor_at: datetime | None = Query(None),
     fragment: str | None = Query(None),
-    back: str | None = Query(None),
+    back: BackUrl = None,
     service: QueryService = Depends(get_service),
 ):
     """환경 자원 평가 — 14일 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
@@ -165,7 +166,7 @@ async def assessment(
     if fragment == "result":
         return templates.TemplateResponse(request=request, name="servers/_assessment_result.html", context=ctx)
     ctx["active_nav"] = "assessment"
-    ctx["back_url"] = unquote(back) if back else "/"
+    ctx["back_url"] = safe_back(back, "/")
     return templates.TemplateResponse(request=request, name="servers/assessment.html", context=ctx)
 
 
@@ -247,6 +248,6 @@ async def servers_list(
             },
             "active_nav": "list",
             # 자식 link (detail / 진단 이력 등) 의 back chain — 본 page URL (filter 상태 보존).
-            "self_back": quote(f"{request.url.path}?{request.url.query}", safe=""),
+            "self_back": self_back(request),
         },
     )

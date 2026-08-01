@@ -48,5 +48,6 @@ LABEL org.opencontainers.image.title="ZConverter Cloud Assessment Engine" \
       org.opencontainers.image.licenses="Proprietary" \
       org.opencontainers.image.vendor="ZConverter"
 
-# 기본 컴포넌트를 두지 않는다 — CMD 누락이 조용히 web 을 띄우는 것보다 즉시 실패가 낫다.
-ENTRYPOINT ["python", "-m"]
+# 어느 컴포넌트를 띄울지는 compose 의 command 가 전부 정한다. 빈 CMD 는 베이스 이미지가 물려주는
+# python REPL 을 지워, 명령 없이 실행하면 기동하는 대신 거부되게 한다.
+CMD []

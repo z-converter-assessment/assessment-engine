@@ -7,29 +7,16 @@ storage/network 는 별도 service 메서드라 분리.
 (static-assets.md "네비게이션 규약" 절 단일 진실).
 """
 
-from urllib.parse import quote
-
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import get_service, resolve_internal_id
+from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.templating import templates
 
 server_detail_router = APIRouter(prefix="/servers")
-
-
-def _safe_back(back: str | None, fallback: str) -> str:
-    """back Query 검증 — relative path (/) 만 허용. protocol-relative (//) reject. 미명시 fallback."""
-    if back and back.startswith("/") and not back.startswith("//"):
-        return back
-    return fallback
-
-
-def _self_back(request: Request) -> str:
-    """본 페이지 URL — 자식 link 의 back chain 전달용 (URL-encoded)."""
-    return quote(f"{request.url.path}?{request.url.query}", safe="")
 
 
 async def _render_server_tab(
@@ -62,8 +49,8 @@ async def _render_server_tab(
             "server": server,
             "period": period,
             "resource_period": resource_period,
-            "back_url": _safe_back(back, f"/servers/{server_id}"),
-            "self_back": _self_back(request),
+            "back_url": safe_back(back, f"/servers/{server_id}"),
+            "self_back": self_back(request),
             # services.html 범례 단일 진실 — service_classifier 카탈로그 파생.
             "service_categories": SERVICE_CATEGORIES,
         },
@@ -74,7 +61,7 @@ async def _render_server_tab(
 async def get_server(
     request: Request,
     server_id: str,
-    back: str | None = Query(None, description="← 이전 link referrer. 미명시 시 / (환경 개요)"),
+    back: BackUrl = None,
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
@@ -95,8 +82,8 @@ async def get_server(
             "stability": stability,
             "period": period,
             "recent_tasks": recent_tasks,
-            "back_url": _safe_back(back, "/"),
-            "self_back": _self_back(request),
+            "back_url": safe_back(back, "/"),
+            "self_back": self_back(request),
             "zdm_defaults": {
                 "ip": get_web_settings().zdm_default_ip,
                 "user": get_web_settings().zdm_default_user,
@@ -109,7 +96,7 @@ async def get_server(
 async def get_cpu(
     request: Request,
     server_id: str,
-    back: str | None = Query(None),
+    back: BackUrl = None,
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
@@ -123,7 +110,7 @@ async def get_cpu(
 async def get_memory(
     request: Request,
     server_id: str,
-    back: str | None = Query(None),
+    back: BackUrl = None,
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
@@ -137,7 +124,7 @@ async def get_memory(
 async def get_services(
     request: Request,
     server_id: str,
-    back: str | None = Query(None),
+    back: BackUrl = None,
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
@@ -150,7 +137,7 @@ async def get_services(
 async def get_metrics(
     request: Request,
     server_id: str,
-    back: str | None = Query(None),
+    back: BackUrl = None,
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
@@ -166,7 +153,7 @@ async def get_metrics(
 async def get_storage(
     request: Request,
     server_id: str,
-    back: str | None = Query(None),
+    back: BackUrl = None,
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
@@ -184,8 +171,8 @@ async def get_storage(
             "storage": result,
             "period": period,
             "resource_period": resource_period,
-            "back_url": _safe_back(back, f"/servers/{server_id}"),
-            "self_back": _self_back(request),
+            "back_url": safe_back(back, f"/servers/{server_id}"),
+            "self_back": self_back(request),
         },
     )
 
@@ -194,7 +181,7 @@ async def get_storage(
 async def get_network(
     request: Request,
     server_id: str,
-    back: str | None = Query(None),
+    back: BackUrl = None,
     internal_id: int = Depends(resolve_internal_id),
     service: QueryService = Depends(get_service),
 ):
@@ -212,7 +199,7 @@ async def get_network(
             "network": result,
             "period": period,
             "resource_period": resource_period,
-            "back_url": _safe_back(back, f"/servers/{server_id}"),
-            "self_back": _self_back(request),
+            "back_url": safe_back(back, f"/servers/{server_id}"),
+            "self_back": self_back(request),
         },
     )
