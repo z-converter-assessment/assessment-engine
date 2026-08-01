@@ -17,6 +17,7 @@ from assessment_engine.db.repositories.query.types import (
     TimeRange,
 )
 from assessment_engine.web.deps import get_diagnostic_service
+from assessment_engine.web.routers._back import safe_back
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
 from assessment_engine.web.services.mappers.api_reference import build_api_reference
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
@@ -51,7 +52,7 @@ async def environment_report(
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """환경 단위 보고서 — job 있으면 정적 스냅샷, 없으면 발행 전 컨트롤(본문은 발행해야 생성)."""
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
+    back_url = safe_back(back, "/")
     self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 
     if job:
@@ -188,7 +189,7 @@ async def history(
     # 본 이력 페이지 URL — 진입한 보고서의 "이전" 버튼이 돌아올 위치 (back chain).
     history_back = quote(f"{request.url.path}?{request.url.query}", safe="")
     items = [to_report_history_item(r, history_back) for r in records]
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
+    back_url = safe_back(back, "/")
     context = {
         "active_nav": "history",
         "items": items,
@@ -236,7 +237,7 @@ async def right_sizing_thresholds(
     `recommendation` 모듈 단일 진실의 분류·USE 축·입력·임계·근거 표 + 출처 설명.
     보고서·진단 양쪽이 참조하는 reference 자료 — 본 페이지에서만 한 번 정의 (T13).
     """
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
+    back_url = safe_back(back, "/")
     return templates.TemplateResponse(
         request=request,
         name="reports/right_sizing_thresholds.html",

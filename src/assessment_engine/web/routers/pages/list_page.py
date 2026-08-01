@@ -5,7 +5,7 @@ URL 명사 분리: 환경 단위(개요·자원평가·실시간·성능·토폴
 """
 
 from datetime import UTC, datetime
-from urllib.parse import quote, unquote
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
 
@@ -16,6 +16,7 @@ from assessment_engine.db.repositories.query.types import (
 )
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import get_service
+from assessment_engine.web.routers._back import safe_back
 from assessment_engine.web.services.mappers.shared import (
     DIAGNOSTIC_RANGE_LABEL_KR,
     DISTRO_FILTER_OPTIONS,
@@ -56,7 +57,7 @@ async def environment_metrics(
             "active_nav": "performance",
             "window_days": recommendation.WINDOW_DAYS,
             "generated_at": datetime.now(UTC),
-            "back_url": unquote(back) if back else "/",
+            "back_url": safe_back(back, "/"),
             "self_back": quote(path, safe=""),
             "selection_ids": selection_ids,
             "selection_count": len(valid_pids),
@@ -99,7 +100,7 @@ async def environment_realtime(
         context={
             "realtime": realtime,
             "generated_at": now,
-            "back_url": unquote(back) if back else "/",
+            "back_url": safe_back(back, "/"),
             "self_back": self_back,
             "selection_ids": selection_ids,
             "selection_count": len(valid_pids),
@@ -133,7 +134,7 @@ async def topology(
         context={
             "topology": topo,
             "generated_at": datetime.now(UTC),
-            "back_url": unquote(back) if back else "/",
+            "back_url": safe_back(back, "/"),
             "self_back": quote("/environment/topology", safe=""),
             "active_nav": "topology",
         },
@@ -165,7 +166,7 @@ async def assessment(
     if fragment == "result":
         return templates.TemplateResponse(request=request, name="servers/_assessment_result.html", context=ctx)
     ctx["active_nav"] = "assessment"
-    ctx["back_url"] = unquote(back) if back else "/"
+    ctx["back_url"] = safe_back(back, "/")
     return templates.TemplateResponse(request=request, name="servers/assessment.html", context=ctx)
 
 
