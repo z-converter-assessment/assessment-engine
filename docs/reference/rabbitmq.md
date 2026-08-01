@@ -28,6 +28,11 @@ vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도�
 | prefetch_count | 10 |
 | 메시지 delivery_mode | `persistent` (2) — 모든 발행 측 설정 |
 
+`prefetch_count` 10 근거:
+- `global=false`(consumer 단위 상한) + 큐 4개를 한 채널에서 소비 -> 프로세스 미ack 배달 상한 = 10 X 4 = 40.
+- 배달 하나가 핸들러 task 하나라 종료 시 drain 이 기다리는 in-flight 상한도 40 — 올리면 종료 예산 안에 못 끝낼 수 있다 (drain 절차는 `docs/reference/consumer.md` "Disposability" 절).
+- DB 재시도에 걸린 메시지는 재시도 창 동안 자기 슬롯을 점유한다 (창 길이는 같은 문서 "DB 재시도 정책" 절).
+
 ### 큐 정책
 
 | 큐 | exchange | binding routing key | 발행 주체 | DLQ | TTL | x-max-length |

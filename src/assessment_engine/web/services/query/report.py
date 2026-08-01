@@ -415,7 +415,7 @@ class ReportQueryMixin(_ReportMixinBase):
         """CPU 실행 큐·메모리 페이징·디스크 I/O 포화 이진(0/1) 시계열 — 개별 서버 보고서(engineer) 전용.
 
         trend(이용률)와 동일 윈도우·bucket 정책. 서버 1대 스코프 고정(server_ids 필수) — 환경/선택 스코프는
-        해당 화면에 노출 지점이 없어 미도입(실사용 시점 확장, #F9).
+        해당 화면에 노출 지점이 없어 미도입(실사용 시점 확장).
         """
         bucket = cast(BucketSize, AUTO_BUCKET.get(time_range, "1h"))
         trend_start = end_dt - TIME_RANGE_TD[time_range]

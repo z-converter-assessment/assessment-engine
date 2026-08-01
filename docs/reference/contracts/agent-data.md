@@ -263,10 +263,10 @@ swapless Linux 는 direction=out 상시 0(실측) -> PSI/commit 이 포화 커�
 | disk.io_time | t | s | device | U축 = %util(busy 분율) |
 | disk.operation_time | t | s | device, direction | S축 = await(Δoperation_time/Δoperations) |
 | disk.pending_operations | g | operations | device | S축 보조 = queue |
-| disk.errors | t | errors | device, kind, class, (member) | E축 |
+| disk.errors | t | errors | device, kind, (class), (member) | E축 |
 
 Linux 소스: diskstats(sectors*512 -> By, io_ticks/time_reading ms->s, in_flight). Windows: perflib(Disk Read/Write Bytes/sec, Avg. Disk sec/Read·Write, Current Disk Queue Length, query_time - %Idle Time).
-`disk.errors` 는 단일 counter + attr 로 통합: `{kind: mdraid, class: member_errors|degraded, member: vdf}`, `{kind: btrfs, class: corruption}`, `{kind: ext4, class: errors_count}`, Windows `{kind: eventlog}`. 정상 시 0.
+`disk.errors` 는 단일 counter + attr 로 통합 (`class`·`member` 는 선택 attr): `{kind: mdraid, class: member_errors|degraded, member: vdf}`, `{kind: btrfs, class: corruption}`, `{kind: ext4, class: errors_count}`, Windows `{kind: eventlog}`. 정상 시 0.
 
 ### G5. system.filesystem (opt, per mount)
 

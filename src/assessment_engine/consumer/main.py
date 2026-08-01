@@ -48,17 +48,36 @@ class _QueueBinding:
     max_len: int | None
 
 
+async def _run_logged(handler: _Handler, message: AbstractIncomingMessage) -> None:
+    """핸들러 예외를 loguru 로 회수한다.
+
+    aio-pika 는 콜백을 task 로 띄우고 결과를 아무도 회수하지 않아, 여기서 잡지 않으면 asyncio 기본
+    핸들러가 stdlib logging 으로 평문 traceback 을 낸다 — LOG_FORMAT=json 계약이 깨진다 (F7). ack/nack
+    은 핸들러 안 `message.process` 컨텍스트가 이미 끝냈으므로 삼켜도 배달 처리에 영향이 없다.
+    타입을 좁히지 않는 유일한 자리 — 미리 알 수 없는 예외를 회수하는 것이 이 wrapper 의 목적이다.
+    """
+    try:
+        await handler(message)
+    except Exception:
+        logger.exception(
+            "handler failed routing_key={} message_id={} delivery_tag={}",
+            message.routing_key,
+            message.message_id,
+            message.delivery_tag,
+        )
+
+
 def _track_inflight(handler: _Handler, inflight: set[asyncio.Task[Any]]) -> _Handler:
     """핸들러 실행 task 를 등록한다 — 종료 시 기다릴 대상 (`_drain`)."""
 
     async def _run(message: AbstractIncomingMessage) -> None:
         task = asyncio.current_task()
         if task is None:  # aio-pika 는 콜백을 task 로 띄운다. 아니면 추적할 대상이 없다.
-            await handler(message)
+            await _run_logged(handler, message)
             return
         inflight.add(task)
         try:
-            await handler(message)
+            await _run_logged(handler, message)
         finally:
             inflight.discard(task)
 

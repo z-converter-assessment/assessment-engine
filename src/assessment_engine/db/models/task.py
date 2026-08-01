@@ -47,7 +47,7 @@ class Task(Base):
     # task 종료 시각 — result 메시지 값 그대로 저장 (DB now() 미사용).
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    # 결과 보고 메시지의 부가 필드. failure_reason enum은 consumer Pydantic Literal 단일 검증 (F3).
+    # 결과 보고 메시지의 부가 필드. failure_reason 은 wire 계약상 자유 문자열이라 값 집합을 컬럼으로 좁히지 않는다.
     failure_reason: Mapped[str | None] = mapped_column(String(32))
     exit_code: Mapped[int | None] = mapped_column(SmallInteger)
     # install.sh 를 종료시킨 시그널 번호 (WIFSIGNALED). exit_code 와 상호배타 (정상종료=exit_code / 시그널=signal_no).

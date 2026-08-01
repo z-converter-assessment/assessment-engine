@@ -192,7 +192,7 @@ _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
 # 물리 NIC 위 bridge/virtual 을 각각 시계열로 발행하므로, 무필터 SUM 은 물리 disk I/O 에 그 위 논리볼륨 I/O(디스크
 # 통과분)를 더해 이중·삼중집계된다. inventory 로 판정: block_device type=='disk' / net_interface kind in
 # (physical, bond_master) 만 포함. 판정은 시계열 device_id/iface_id = inventory (id_type):(id) 재구성 조인.
-# fail-closed: inventory 에 물리로 확인된 device_id/iface_id 만 포함 — 알려진 것만 인정(#F9 참고). Windows
+# fail-closed: inventory 에 물리로 확인된 device_id/iface_id 만 포함 — 알려진 것만 인정. Windows
 # agent 가 인벤토리엔 없는 합성/숨김 항목(디스크 id_type=aggregate 집계 pseudo-device, 인터페이스 id_type=name
 # "if7/if8/if9" 숨김 어댑터)을 시계열에는 그대로 발행하므로, fail-open(매칭 안 되면 유지)이면 이들이 물리
 # 디바이스로 오인 통과한다. 신규 미동기화 디바이스가 다음 인벤토리 수집 전까지 잠시 누락되는 트레이드오프보다

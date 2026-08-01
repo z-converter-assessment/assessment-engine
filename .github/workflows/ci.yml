@@ -42,6 +42,11 @@ jobs:
       - name: ruff check
         run: uv run ruff check .
 
+      # tests 는 픽스처가 dict 리터럴을 넘기는 방식 탓에 위반이 남아 있어 범위 밖이다.
+      # 편집기는 pyproject 의 include 대로 전체를 보고, 게이트만 src 로 좁힌다.
+      - name: pyright (src)
+        run: uv run pyright src
+
       - name: hadolint Dockerfile
         uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
         with:

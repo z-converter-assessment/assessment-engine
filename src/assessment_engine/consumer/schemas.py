@@ -66,7 +66,7 @@ class Datapoint(BaseModel):
 class Metric(BaseModel):
     model_config = ConfigDict(extra="ignore")
     type: Literal["counter", "gauge"]
-    unit: str = Field(min_length=1, max_length=32)
+    unit: str = Field(max_length=32)
     points: list[Datapoint] = Field(default_factory=list)
 
 
@@ -103,8 +103,8 @@ class BlockDeviceInfo(BaseModel):
     """정규화 평면 DAG 노드. parent=부모 id(root=null), id/id_type=안정키(E절). 복수 부모면 노드 반복."""
 
     model_config = ConfigDict(extra="ignore")
-    name: str = Field(min_length=1, max_length=128)
-    type: str = Field(min_length=1, max_length=32)  # disk/part/lvm/crypt/raid/mpath/dynamic/volume/swap
+    name: str = Field(max_length=128)
+    type: str = Field(max_length=32)  # disk/part/lvm/crypt/raid/mpath/dynamic/volume/swap
     size_bytes: int | None = Field(default=None, ge=0)
     fstype: str | None = Field(default=None, max_length=64)
     mountpoint: str | None = Field(default=None, max_length=255)
@@ -164,7 +164,7 @@ class NetInterfaceInfo(BaseModel):
     """안정키 id=MAC + 다중 IP addresses[]. name 은 표시용."""
 
     model_config = ConfigDict(extra="ignore")
-    name: str = Field(min_length=1, max_length=256)
+    name: str = Field(max_length=256)
     id: str | None = Field(default=None, max_length=64)
     id_type: str | None = Field(default=None, max_length=16)
     kind: str | None = Field(default=None, max_length=32)
@@ -189,7 +189,7 @@ class NetInterfaceInfo(BaseModel):
 
 class LvmVgInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    name: str = Field(min_length=1, max_length=128)
+    name: str = Field(max_length=128)
     size_bytes: int | None = Field(default=None, ge=0)
     free_bytes: int | None = Field(default=None, ge=0)  # 확장 여력(3계층째)
     data_percent: float | None = Field(default=None, ge=0)
@@ -203,7 +203,7 @@ class LvmVgInfo(BaseModel):
 class InventoryServiceInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
     unit: str = Field(min_length=1, max_length=255)
-    sub: str = Field(min_length=1, max_length=64)
+    sub: str = Field(max_length=64)
     pid: int | None = Field(default=None, ge=0)
     exe: str | None = Field(default=None, max_length=255)
 
@@ -211,7 +211,7 @@ class InventoryServiceInfo(BaseModel):
 class InventoryListenPortInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
     proto: Literal["tcp", "tcp6", "udp", "udp6"]
-    addr: str = Field(min_length=1, max_length=64)
+    addr: str = Field(max_length=64)
     # wire minimum:0 permissive superset 유지(#B).
     port: int = Field(ge=0, le=65535)
     uid: int | None = Field(default=None, ge=0)  # Windows null
@@ -249,7 +249,7 @@ class InventoryInput(MessageBase):
     os_codename: str | None = Field(default=None, max_length=64)
     kernel_version: str | None = Field(default=None, max_length=64)
     cpu_model: str | None = Field(default=None, max_length=255)
-    cpu_cores: int | None = Field(default=None, gt=0)
+    cpu_cores: int | None = Field(default=None, ge=0)
     mem_total_bytes: int | None = Field(default=None, ge=0)  # 단위 By(bytes)
     ip_external: list[str] | None = None
 

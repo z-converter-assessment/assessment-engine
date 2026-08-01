@@ -56,13 +56,18 @@ def _format_db_err(e: DBAPIError) -> str:
     return f"sa={sa_cls} orig={orig_cls}"
 
 
-def _sanitize_loc_part(part: object) -> str:
-    """경로 한 조각을 로그 안전 문자열로. 인쇄 가능 문자만 남기고 길이를 자른다.
+def _sanitize_log_text(value: str, limit: int) -> str:
+    """에이전트가 정한 문자열을 로그 안전하게. 인쇄 가능 문자만 남기고 길이를 자른다.
 
-    metric 명·device id 처럼 에이전트가 정한 dict 키가 경로에 실리므로, 개행이 섞이면 로그 줄이 위조된다.
+    개행이 섞이면 로그 줄이 위조되고, 길이 상한이 없는 필드는 레코드 하나를 임의 크기로 부풀린다.
     """
-    text = "".join(ch for ch in str(part) if ch.isprintable())
-    return text if len(text) <= _VALIDATION_LOC_MAX else text[:_VALIDATION_LOC_MAX] + "~"
+    text = "".join(ch for ch in value if ch.isprintable())
+    return text if len(text) <= limit else text[:limit] + "~"
+
+
+def _sanitize_loc_part(part: object) -> str:
+    """검증 오류 경로 한 조각 — metric 명·device id 처럼 에이전트가 정한 dict 키가 실린다."""
+    return _sanitize_log_text(str(part), _VALIDATION_LOC_MAX)
 
 
 def _format_validation_err(e: ValidationError, limit: int = _VALIDATION_ERR_LIMIT) -> str:
@@ -147,6 +152,26 @@ async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:
     return True if result is None else result
 
 
+def _tz_naive_time_fields(data: MessageBase) -> list[str]:
+    """tz 표기가 없는 시각 필드 이름. wire 는 offset 을 강제하지 않아 aware/naive 가 섞여 올 수 있다."""
+    return [
+        name
+        for name, value in (
+            ("boot_time", data.boot_time),
+            ("agent_started_at", data.agent_started_at),
+            ("collected_at", data.collected_at),
+        )
+        if value is not None and value.tzinfo is None
+    ]
+
+
+async def _time_warn_allowed(redis: Redis, agent_id: UUID) -> bool:
+    """쿨다운 창이 비어 있으면 True. Redis 장애 시 fail-open (매번 출력) — F7 빈도 제어."""
+    key = get_consumer_settings().redis_key_time_invariant_warned.format(agent_id)
+    result = await safe_set_nx(redis, key, "1", get_consumer_settings().redis_ttl_time_invariant_warned)
+    return result is not False
+
+
 async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
     """시계·systemd 시작 순서 invariant 검증. warning 로그만, 처리는 그대로 진행.
 
@@ -156,15 +181,24 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
 
     F7: 같은 서버 지속 시 매 메시지 warning 방지 위해 1h 쿨다운. Redis 장애 시 fail-open (매번 출력).
     boot_time·agent_started_at 은 판독 불가 시 null (계약 값 의미론) — null 축은 해당 순서 검증을 건너뛴다.
+    tz 표기가 섞이면 순서 비교 자체가 불가능해 검증을 건너뛰고 그 사실만 warning 으로 남긴다.
     """
     if data.agent_started_at is None:
         return  # 발행 기동시각 미상 — 순서 검증 불가 (task.result 등)
+    naive_fields = _tz_naive_time_fields(data)
+    if naive_fields:
+        # aware/naive 비교는 TypeError — 관측 전용 helper 가 메시지를 nack 시키지 않도록 여기서 끊는다.
+        if await _time_warn_allowed(redis, data.agent_id):
+            logger.warning(
+                "time fields tz-naive, invariant check skipped agent_id={} fields={}",
+                data.agent_id,
+                ",".join(naive_fields),
+            )
+        return
     boot_ok = data.boot_time is None or data.boot_time <= data.agent_started_at
     if boot_ok and data.agent_started_at <= data.collected_at:
         return
-    cooldown_key = get_consumer_settings().redis_key_time_invariant_warned.format(data.agent_id)
-    set_result = await safe_set_nx(redis, cooldown_key, "1", get_consumer_settings().redis_ttl_time_invariant_warned)
-    if set_result is False:
+    if not await _time_warn_allowed(redis, data.agent_id):
         return  # 쿨다운 윈도우 안
     if data.boot_time is not None and data.boot_time > data.agent_started_at:
         logger.warning(

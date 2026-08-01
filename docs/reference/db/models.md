@@ -32,7 +32,7 @@
 | `server_filesystem` | `(server_id, mountpoint, collected_at)` |
 | `server_cpu_core` | `(server_id, core_id, collected_at)` |
 | `server_pressure` | `(server_id, resource, scope, collected_at)` |
-| `server_disk_error` | `(server_id, device_id, error_kind, error_class, member, collected_at)` — `member` NOT NULL('') 로 NULL 미포함 멱등키 |
+| `server_disk_error` | `(server_id, device_id, error_kind, error_class, member, collected_at)` — `error_class`·`member` NOT NULL('') 로 NULL 미포함 멱등키. wire 에 해당 attr 이 없는 point(Windows `{kind: eventlog}` 등)도 `''` 로 저장 |
 | `server_inventory_history` | `(server_id, collected_at)` |
 
 ## envelope 메타 (boot_time — counter reset 정밀 식별)
