@@ -1,6 +1,7 @@
 """서버 조회 mixin — 식별자 해석·목록·상세·스토리지·네트워크·수집상태."""
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, cast
 
 from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
@@ -17,7 +18,7 @@ from assessment_engine.web.services.mappers.server import (
 )
 from assessment_engine.web.services.mappers.shared import lookup_os_eol
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.metric import CollectionStatusItem, PeriodAssessment
 from assessment_engine.web.view_models.server import (
     NetworkDetailResponse,
@@ -27,13 +28,16 @@ from assessment_engine.web.view_models.server import (
     StorageDetailResponse,
 )
 
+if TYPE_CHECKING:
+    from assessment_engine.web.services.query._base import _TaskSibling
+
 # 서버 세부 운영 신호 전구간 — 재부팅·에이전트 재시작을 window 제한 없이 전체 수집 기간 카운트(약 100년).
 _DETAIL_ALL_TIME_DAYS = 36500
 
 
 class ServerQueryMixin(_BaseQueryServiceMixin):
     async def resolve_server_id(self, public_id: str) -> int | None:
-        cache_key = web_settings.redis_key_cache_resolve.format(public_id)
+        cache_key = get_web_settings().redis_key_cache_resolve.format(public_id)
         cached = await safe_get(self.redis, cache_key)
         if cached:
             return int(cached)
@@ -55,7 +59,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         return await self.repo.list_all_server_public_ids()
 
     async def _is_online(self, server_id: int) -> bool:
-        flag = await safe_get(self.redis, web_settings.redis_key_online.format(server_id))
+        flag = await safe_get(self.redis, get_web_settings().redis_key_online.format(server_id))
         return flag is not None
 
     async def list_servers(
@@ -72,7 +76,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         dtos = await self.repo.list_servers(page, limit, search)
         if not dtos:
             return []
-        keys = [web_settings.redis_key_online.format(dto.id) for dto in dtos]
+        keys = [get_web_settings().redis_key_online.format(dto.id) for dto in dtos]
         online_flags = await safe_mget(self.redis, keys)
 
         # USE Method 분류 — 보고서·right-sizing과 동일 윈도우·입력(net 포함).
@@ -87,7 +91,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         await self._inject_net_baseline(raws_period, page_server_ids, recommendation.WINDOW_DAYS, now)
         raws_by_id: dict[int, object] = {r.server_id: r for r in raws_period}
 
-        last_tasks = await self.latest_tasks_by_servers(page_server_ids)
+        last_tasks = await cast("_TaskSibling", self).latest_tasks_by_servers(page_server_ids)
 
         # 운영 이벤트 — 전체 기간 에러 발생 호스트 집합(벌크 1회, N+1 회피). since=epoch 전기간은 환경 개요
         # 운영 이벤트 카드(fleet_error_summary 를 epoch 호출)와 동일 창 — 개요-목록 정합(#F10 화면 간 의미 단일).
@@ -96,7 +100,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         items: list[ServerListItem] = []
         if online_flags is None:
             # Redis 장애 fallback: last_seen_at 기반 판정 (TTL 임계와 동일)
-            threshold = datetime.now(UTC) - timedelta(seconds=web_settings.redis_ttl_online)
+            threshold = datetime.now(UTC) - timedelta(seconds=get_web_settings().redis_ttl_online)
             for dto in dtos:
                 item = to_server_list_item(dto, raws_by_id.get(dto.id), today=now.date(), error_hosts=error_hosts)
                 item.is_online = dto.last_seen_at is not None and dto.last_seen_at > threshold
@@ -128,7 +132,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         return items
 
     async def get_server(self, server_id: int) -> ServerDetailResponse | None:
-        cache_key = web_settings.redis_key_cache_inventory.format(server_id)
+        cache_key = get_web_settings().redis_key_cache_inventory.format(server_id)
         cached = await safe_get(self.redis, cache_key)
         if cached:
             return server_detail_from_json(cached)
@@ -137,7 +141,9 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         if not dto:
             return None
         result = to_server_detail(dto)
-        await safe_set(self.redis, cache_key, server_detail_to_json(result), ex=web_settings.redis_ttl_cache_detail)
+        await safe_set(
+            self.redis, cache_key, server_detail_to_json(result), ex=get_web_settings().redis_ttl_cache_detail
+        )
         return result
 
     async def get_server_stability(

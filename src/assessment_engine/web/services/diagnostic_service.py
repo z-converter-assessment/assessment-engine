@@ -31,6 +31,12 @@ from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-expor
     build_report_result,
 )
 
+_ENQUEUE_MAX_ATTEMPTS = 2
+
+
+class ReportEnqueueError(Exception):
+    """활성 job 과 충돌했는데 회수할 job 도 없다 — 재시도 소진."""
+
 
 def _build_input_params(
     view: str, scope: str, server_public_ids: list[str], time_range: str, anchor_at: datetime
@@ -169,29 +175,36 @@ class DiagnosticService:
 
         같은 input 활성 충돌(더블클릭) 시 기존 active job_id 회수 — 같은 `?job={id}` 로 합류(C2 멱등).
         anchor_at 은 호출 라우터가 _normalize_anchor 로 확정한 값 — 워커가 발행 윈도우 재현에 사용.
+        재시도를 소진하면 ReportEnqueueError.
         """
         job_type = f"{view}_report"
         input_params = _build_input_params(view, scope, server_public_ids, time_range, anchor_at)
         input_hash = _compute_hash(scope, input_params)
-        async with self.session_factory() as session:
-            repo = self.diagnostic_repo_factory(session)
-            new_id = await repo.enqueue(
-                DiagnosticJobCreate(
-                    scope=scope,
-                    job_type=job_type,
-                    input_params=input_params,
-                    input_hash=input_hash,
-                    requested_by=requested_by,
+        # INSERT 가 충돌로 비고 회수 SELECT 까지 비는 경우는 둘이다 — 두 문장 사이에서 그 job 이 끝났거나,
+        # 동시 INSERT 가 아직 커밋 전이라 READ COMMITTED SELECT 에 안 보이거나. 앞의 경우는 다시 INSERT 하면
+        # 자리를 잡고, 뒤의 경우는 재시도가 상대의 커밋을 만나 회수로 이어진다.
+        for _ in range(_ENQUEUE_MAX_ATTEMPTS):
+            async with self.session_factory() as session:
+                repo = self.diagnostic_repo_factory(session)
+                new_id = await repo.enqueue(
+                    DiagnosticJobCreate(
+                        scope=scope,
+                        job_type=job_type,
+                        input_params=input_params,
+                        input_hash=input_hash,
+                        requested_by=requested_by,
+                    )
                 )
-            )
-            if new_id is None:
+                if new_id is not None:
+                    await session.commit()
+                    logger.info("report enqueued view={} scope={} job_id={} status=pending", view, scope, new_id)
+                    return new_id
                 active_id = await repo.get_active_by_hash(scope, input_hash, job_type)
                 await session.rollback()
+            if active_id is not None:
                 logger.info("report enqueue active conflict view={} scope={} hash={}", view, scope, input_hash[:12])
                 return active_id
-            await session.commit()
-        logger.info("report enqueued view={} scope={} job_id={} status=pending", view, scope, new_id)
-        return new_id
+        raise ReportEnqueueError(f"enqueue conflict unresolved scope={scope} job_type={job_type}")
 
     async def claim_pending(self) -> DiagnosticJobRecord | None:
         """pending job 1건 원자적 claim(running 마킹 커밋) — 워커 루프용. 없으면 None.

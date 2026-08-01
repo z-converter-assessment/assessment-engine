@@ -2,17 +2,41 @@ import os
 from typing import Literal
 from urllib.parse import quote
 
-from pydantic import SecretStr, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # 외부 인프라가 secret을 어떻게 주입하든(systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등)
 # pydantic-settings는 env 우선·secrets_dir fallback 둘 다 지원. secrets_dir은 디렉토리가 존재할 때만 활성.
-# 본 repo는 secret 채널 자체를 강제하지 않음(CLAUDE.md #A0) — _validate_prod_*가 결과(weak default 거부)만 검증.
+# 본 repo는 secret 채널 자체를 강제하지 않음(CLAUDE.md #A0) — 결과만 검증한다.
 _SECRETS_DIR = os.environ.get("SECRETS_DIR", "/run/secrets")
 _SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
 
-# prod 기동 거부할 약한 값 (USER·PASSWORD 공용). "assessment"(dev default)는 허용 — 빈값·뻔한 값만 차단.
-_WEAK_VALUES = frozenset({"", "password", "admin", "root", "changeme"})
+# 거부할 뻔한 값 (USER·PASSWORD 공용). 미설정·빈값은 필드 제약(min_length)이 먼저 잡는다.
+# "assessment"(dev 카탈로그 값)는 허용 — 뻔한 값만 차단한다.
+_WEAK_VALUES = frozenset({"password", "admin", "root", "changeme"})
+
+
+def _reject_env_shadowing_secret(field: str) -> None:
+    """secret 파일과 같은 이름의 환경변수가 함께 있으면 거부한다.
+
+    우선순위상 환경변수가 이겨서 파일 채널이 조용히 무력화된다 — 노출 회피를 의도했는데 값이
+    컨테이너 env 에 그대로 뜬다. 실패도 경고도 없어 운영자가 알아채지 못한다.
+
+    컨테이너는 compose `env_file` 이 값을 환경변수로 주입하므로 이 검사에 걸린다. 호스트에서
+    pydantic 이 `.env` 를 직접 읽는 경로는 환경변수를 거치지 않아 여기서 잡히지 않는다.
+    secret 디렉토리가 없으면(dev) 충돌 자체가 성립하지 않아 그대로 통과한다.
+    """
+    if _SECRETS_DIR is None:
+        return
+    # pydantic-settings 는 기본이 case_sensitive=False 라 소문자 env 도 secret 파일을 이긴다.
+    if not any(key.lower() == field for key in os.environ):
+        return
+    if os.path.isfile(os.path.join(_SECRETS_DIR, field)):
+        raise ValueError(
+            f"{field.upper()} is set in the environment while {_SECRETS_DIR}/{field} exists. "
+            "The environment value takes precedence, so the secret file is ignored and the value "
+            "is exposed in the container env. Remove it from .env (and OS env) to use the file channel."
+        )
 
 
 class WebSettings(BaseSettings):
@@ -24,7 +48,7 @@ class WebSettings(BaseSettings):
         extra="ignore",
     )
 
-    # prod 일 때 model_validator 가 약한 default 거부.
+    # 정적 자원 캐시 무효화 분기에만 쓴다 (web lifespan). 비밀번호 검증은 이 값을 보지 않는다.
     app_env: Literal["dev", "staging", "prod"] = "dev"
 
     # dev=text(colorized·grep 친화), prod=json(외부 log aggregator indexing).
@@ -32,9 +56,11 @@ class WebSettings(BaseSettings):
 
     postgres_host: str = "postgres"
     postgres_db: str = "assessment"
-    postgres_user: str = "assessment"
-    # default 는 weak(changeme) — 미설정 시 prod 거부 강제 (명시 assessment 는 허용).
-    postgres_password: SecretStr = SecretStr("changeme")
+    postgres_user: str = Field(default="assessment", min_length=1)
+    # 기본값을 두지 않는다 — 미설정이 조용히 통과하면 그것을 거르는 검사가 또 필요해진다.
+    # 값은 env·secret 파일에서 오지만 pyright 는 dataclass_transform 시그니처만 보고 인자 누락으로
+    # 읽는다. 그래서 인스턴스화 지점에 `# pyright: ignore[reportCallIssue]` 가 붙어 있다.
+    postgres_password: SecretStr = Field(min_length=1)
     postgres_port: int = 5432
     web_port: int = 8000
     # uvicorn auto-reload — dev hot-reload 전용, prod False. 루트 docker-compose.yml 이 WEB_RELOAD 주입.
@@ -69,7 +95,7 @@ class WebSettings(BaseSettings):
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}"
 
     # 에이전트 재시작 alert 임계값 (1h 슬라이딩 윈도우 내 횟수). consumer 부가 시그널 + web 신호 카드 공통.
-    # 운영 alert 튜닝 노브 — env 카탈로그 미수록(env.example·env.md), 필요 시 env override.
+    # 운영 alert 튜닝 노브 — env 카탈로그 미수록(.env.example·env.md), 필요 시 env override.
     agent_restart_alert_threshold: int = 3
 
     # ZDM 서버 기본 좌표 — install 모달 default (POST body 누락 시 fallback, 운영자 override 가능).
@@ -110,18 +136,17 @@ class WebSettings(BaseSettings):
         return f"redis://{self.redis_host}:{self.redis_port}"
 
     @model_validator(mode="after")
-    def _validate_prod_web_secrets(self) -> "WebSettings":
-        if self.app_env != "prod":
-            return self
-        # 외부 인프라가 secret을 어떻게 주입하든(env·secrets_dir·EnvironmentFile·Vault 등) 결과만 검증.
-        # 채널 자체는 본 repo 책임 밖 (CLAUDE.md #A0). weak default 통과 차단이 핵심.
+    def _validate_web_secrets(self) -> "WebSettings":
+        # 환경으로 강도를 가르지 않는다 — dev 카탈로그도 뻔한 값을 쓰지 않으므로 같은 기준이 통한다.
+        # 채널 자체는 본 repo 책임 밖(CLAUDE.md #A0). 결과만 본다.
+        _reject_env_shadowing_secret("postgres_password")
         if self.postgres_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
-                "POSTGRES_PASSWORD is unset or uses a dev default in prod. "
+                "POSTGRES_PASSWORD uses an obvious value. "
                 "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
             )
         if self.postgres_user in _WEAK_VALUES:
-            raise ValueError("POSTGRES_USER must not be a weak value (empty/password/admin/root/changeme) in prod.")
+            raise ValueError("POSTGRES_USER must not be an obvious value (password/admin/root/changeme).")
         return self
 
 
@@ -149,9 +174,9 @@ class ConsumerSettings(WebSettings):
     rabbitmq_host: str = "rabbitmq"
     rabbitmq_port: int = 5672
     rabbitmq_vhost: str = "assessment"  # 에이전트가 발행하는 전용 vhost (무슬래시 — 앞 슬래시 없는 이름)
-    rabbitmq_user: str = "assessment"
-    # default 는 weak(changeme) — 미설정 시 prod 거부 강제 (명시 assessment 는 허용). USER 는 식별자라 default 허용.
-    rabbitmq_password: SecretStr = SecretStr("changeme")
+    rabbitmq_user: str = Field(default="assessment", min_length=1)
+    # USER 는 식별자라 default 를 두지만 PASSWORD 는 두지 않는다 — 값을 주지 않으면 기동이 멈춘다.
+    rabbitmq_password: SecretStr = Field(min_length=1)
     rabbitmq_exchange: str = "assessment"
     rabbitmq_routing_key_inventory: str = "server.inventory"
     rabbitmq_routing_key_metrics: str = "server.metrics"
@@ -167,19 +192,12 @@ class ConsumerSettings(WebSettings):
     rabbitmq_routing_key_task_result: str = "task.result"
     rabbitmq_queue_worker_result: str = "worker.result"
 
-    # task.result 성공 보정 정책 (assessment_engine.task_policy). 매칭 키 -> 성공으로 취급할 추가 exit code 목록.
-    # status=failure + failure_reason=script_failed + 매칭 키 일치 + exit_code 포함일 때만 success 로 보정.
-    # 키 규약 (os_family 로 분기, task_policy.effective_task_result):
-    #   - Windows: os_version = CurrentBuildNumber (예 "20348"). 메시지에서 발행.
-    #   - Linux:   "os_id:major" (예 "rocky:9"). task.result 가 os 미발행이라 엔진이 inventory 에서 조회.
-    # 기본값:
-    #   - Windows(family-level "windows" 키): ZConverter installer 가 설치 성공임에도 exit 2 로 종료(전
-    #     세대 공통 동작). 빌드번호별 키를 일일이 유지하는 건 취약(예 2008R2=7601 누락)하므로 family 한 키로
-    #     일괄. 설치 성공 검증 = 해당 호스트 services 에 ZConCloudAgent(RUNNING) 등장으로 확인됨.
-    #     (특정 빌드만 다르게 두려면 CurrentBuildNumber 키를 추가 — effective_task_result 가 빌드 키를 우선 매칭.)
-    #   - rocky/almalinux/ol/centos major 9(EL9): installer 가 새 systemd start-limit 로 exit 3 을 내나
-    #     설치·ZDM 등록은 성공 (rhel9 는 미해당이라 제외, centos-stream8 은 centos8 과 os_id 구분 불가라 보류).
-    # env(JSON)로 override — 예: '{"windows":[2],"rocky:9":[3]}'.
+    # task.result 성공 보정 폴백 allowlist — 매칭 키 -> 성공으로 취급할 추가 exit code 목록.
+    # 소비처는 task_policy.effective_task_result, 키 규약·판정 조건·기본값 근거는
+    # docs/reference/contracts/env.md TASK_INSTALL_SUCCESS_EXIT_CODES 단일 진실.
+    # 기본 키 선택: Windows 는 빌드번호별 키를 유지하면 누락에 취약해(예 2008R2=7601) family 한 키로 둔다.
+    # 설치 성공은 해당 호스트 services 의 ZConCloudAgent(RUNNING) 등장으로 확인된다. EL9 는 rhel9 가
+    # 미해당이라 제외하고, centos-stream8 은 centos8 과 os_id 구분이 안 돼 보류한다.
     task_install_success_exit_codes: dict[str, list[int]] = {
         "windows": [2],
         "rocky:9": [3],
@@ -210,16 +228,15 @@ class ConsumerSettings(WebSettings):
         return f"{self.rabbitmq_task_install_key_prefix}.{agent_id}"
 
     @model_validator(mode="after")
-    def _validate_prod_consumer_secrets(self) -> "ConsumerSettings":
-        if self.app_env != "prod":
-            return self
+    def _validate_consumer_secrets(self) -> "ConsumerSettings":
+        _reject_env_shadowing_secret("rabbitmq_password")
         if self.rabbitmq_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
-                "RABBITMQ_PASSWORD is unset or uses a dev default in prod. "
+                "RABBITMQ_PASSWORD uses an obvious value. "
                 "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
             )
         if self.rabbitmq_user in _WEAK_VALUES:
-            raise ValueError("RABBITMQ_USER must not be a weak value (empty/password/admin/root/changeme) in prod.")
+            raise ValueError("RABBITMQ_USER must not be an obvious value (password/admin/root/changeme).")
         return self
 
 

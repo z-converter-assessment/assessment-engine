@@ -4,7 +4,7 @@
 
 고객사 네트워크 내에 엔진이 설치되고, 각 호스트의 C 기반 에이전트가 인벤토리·메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, web 이 수집 데이터를 규칙 기반으로 분석해 호스트별 자원 적정성(right-sizing, USE Method)과 운영 신호를 진단하고 보고서·대시보드로 제공한다. 운영자는 web UI 의 모니터링 화면·보고서·JSON Export·원격 설치 task 를 활용해 자원 재배치·용량 의사결정을 진행한다.
 
-본 repo 는 엔진 애플리케이션, docker compose 배포(prod base · dev override 핫리로드), 엔진 rollout(`deploy.sh` — VM 에서 실행), VM 부트스트랩(`bootstrap.sh` — docker·cosign·deploy.sh 설치)으로 구성된다.
+본 repo 는 엔진 애플리케이션, docker compose 배포(prod base · dev override 핫리로드), 배포 대상 VM 에서 실행하는 운영 스크립트 3종(`bootstrap.sh` 1회성 구성 · `deploy.sh` rollout · `rotate-secret.sh` 비밀번호 교체)으로 구성된다.
 
 ---
 
@@ -36,7 +36,7 @@
  |  - task.result -> Task UPDATE |  |  - fail-open on RedisError    |
  +--------------+----------------+  +--------------+----------------+
                 v                                  |
- +-------------------------------+                 |  SUBSCRIBE
+ +-------------------------------+                 |  GET/SET (cache-aside)
  |  TimescaleDB                  |                 |
  |  - 7 metric timeseries tables |                 |
  |  - server_inventory + history |                 |
@@ -67,6 +67,31 @@
 
 ---
 
+## 루트 구성
+
+저장소 루트에 평평하게 놓인 파일들이다. 대부분 도구가 루트에서 찾기 때문에 다른 곳으로 옮길 수 없다.
+
+| 파일 | 무엇 | 왜 루트인가 |
+|------|------|------------|
+| `pyproject.toml` · `uv.lock` | 파이썬 의존성·빌드·lint 설정 | uv 와 빌드 백엔드가 프로젝트 루트로 인식 |
+| `package.json` · `pnpm-lock.yaml` · `tsconfig.json` | 표현계층 타입 계약 도구 (dev·CI 전용, 번들·빌드 아님) | 검사 대상이 `src/` 안 정적 JS 라 도구와 대상을 갈라놓을 이유가 없다 |
+| `Dockerfile` | 엔진 이미지 (web·consumer·worker·migrate 공용) | 빌드 컨텍스트가 루트 |
+| `docker-compose.yml` | prod-safe base | compose 가 루트에서 자동 인식 |
+| `docker-compose.override.yml` | dev 전용 (로컬 빌드·bind mount·핫리로드) | base 와 자동 머지 |
+| `docker-compose.prod.yml` | prod file-secret overlay | 위와 같음 |
+| `.env.example` · `.env.dev.example` | 배포·dev 환경변수 템플릿 | `cp` 해서 `.env` 로 쓰는 진입점 |
+| `bootstrap.sh` | 배포 VM 1회성 구성 | raw URL 로 받는 파일이라 경로가 운영 절차에 고정 |
+| `deploy.sh` | 엔진 rollout | 위와 같음 |
+| `rotate-secret.sh` | DB·broker 계정 비밀번호 교체 | 위와 같음 |
+| `README.md` | 본 문서 | GitHub 이 루트에서 렌더 |
+| `.gitignore` · `.dockerignore` · `.claudeignore` | 각 도구의 제외 목록 | 도구가 컨텍스트 루트에서 읽음 |
+
+프론트엔드 설정이 섞여 보이지만 별도 프로젝트가 아니다. 번들러도 빌드 산출물도 없고, FastAPI 가 내보내는 OpenAPI 에서 TS 타입을 생성해 `tsc --checkJs` 로 클라이언트 JS 를 검사하는 용도다. 서빙되는 JS 는 빌드를 거치지 않고 `src/assessment_engine/web/static/` 에서 그대로 나간다.
+
+각 파일의 상세는 `docs/reference/docker.md`(compose·Dockerfile), `docs/guides/deploy.md`(배포 스크립트), `docs/reference/contracts/env.md`(환경변수), `docs/reference/web/type-contract.md`(타입 계약)가 갖는다.
+
+---
+
 ## 스택
 
 | 영역 | 기술 |
@@ -74,27 +99,25 @@
 | 애플리케이션 | Python 3.12 · FastAPI · pydantic · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx |
 | DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 |
 | Schema 관리 | Alembic 단일 진실 |
-| 진단 | 규칙 기반 right-sizing (USE Method, `recommendation.py` — web 인라인 계산) |
+| 진단 | 규칙 기반 right-sizing (USE Method, 도메인 모듈 `recommendation.py` — web·repository 공용) |
 | 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
-| 패키징 | uv + hatchling. CI 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
+| 패키징 | uv (빌드 백엔드 `uv_build`). CI 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
 | 정적 자원 | Chart.js · Cytoscape.js (네트워크 토폴로지) — 둘 다 vendored (`static/js/vendor/`, 내부망 offline) · 외부 `.js` + `defer` |
 
 ---
 
 ## CI 파이프라인
 
-- git flow — `feature/*`·`fix/*` → `develop` PR(squash) → `develop` → `main` PR(merge) → `main`에 `v*` tag push → release(이미지 발행) → VM에서 `deploy.sh vX.Y.Z` 실행.
-- 버전은 git tag 단일 진실 (hatch-vcs가 빌드 시 derive) — repo에 버전 미저장, bump 커밋 없음. branch protection + Conventional Commits PR title 강제.
+- git flow — `feature/*`·`fix/*` → `develop` PR(squash) → `develop` → `main` PR(merge) → release(이미지 발행) → VM에서 `deploy.sh vX.Y.Z` 실행.
+- 버전은 `pyproject.toml` 의 `version` 단일 진실 — 릴리즈 절차는 `docs/guides/release.md`. 브랜치·태그 보호와 required check 는 GitHub ruleset (`docs/guides/ci-setup.md`).
 
-| workflow | trigger | 검증·작업 |
-|----------|---------|------|
-| `pr-title-check.yml` | main PR opened·edited·synchronize·reopened | PR title이 Conventional Commits 형식 (`feat:`·`fix:`·`docs:` 등) 강제 |
-| `ci.yml` | main PR | lint(ruff+hadolint) → test-unit·frontend typecheck·wheel build(병렬) → test-integration |
-| `alembic-check.yml` | main PR | ORM·migrations 라운드트립 정합 |
-| `codeql.yml` | main PR | CodeQL SAST (SQL injection·secret leak·XSS 정적 분석, Security 탭 alert) |
-| `release.yml` | `main`에 tag `v*` push · workflow_dispatch | 멀티아치 엔진 이미지 빌드(버전=tag, hatch-vcs) → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
-
-develop PR·push 는 CI 게이트가 없다 — develop 는 통합 브랜치로 게이트 없이 받고, 검증은 develop→main PR 에서 1회로 통일한다.
+| workflow | 검증·작업 |
+|----------|------|
+| `pr-title-check.yml` | PR title 형식(Conventional Commits) + AI 메타데이터 부재 |
+| `ci.yml` | lint(ruff+hadolint) · 단위 테스트 · 프론트 타입 계약 · wheel build · 통합 테스트 |
+| `alembic-check.yml` | ORM·migrations 라운드트립 정합 |
+| `codeql.yml` | CodeQL SAST (Security 탭 alert) |
+| `release.yml` | `main` push 시 멀티아치 엔진 이미지 빌드 → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
 
 CI(코드 quality + 이미지 발행)는 GitHub Actions가 담당한다. 배포(rollout)는 GitHub Actions가 아니라 배포 대상 VM에서 `deploy.sh vX.Y.Z` 를 실행한다 — 내부망 outbound-only VM이라 밖에서 push하지 않고 VM이 이미지를 pull한다(아래 배포 절).
 
@@ -102,13 +125,27 @@ CI(코드 quality + 이미지 발행)는 GitHub Actions가 담당한다. 배포(
 
 ## 배포 산출물
 
-semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포 매체는 docker compose 단일.
+릴리즈가 내놓는 것은 GHCR 이미지 하나다 — cosign 서명·SBOM·provenance 가 이미지 attestation 으로 붙고, Alembic migrations 도 그 안에 동봉된다. 태그 체계·검증 명령은 `docs/guides/release.md`.
 
-| 산출물 | 위치 |
-|--------|------|
-| Docker image (multi-arch `amd64,arm64`) | GHCR `ghcr.io/z-converter-assessment/assessment-engine:0.1.0`+`:0.1`+`:0`+`:latest` (semver tag `v0.1.0` -> 이미지 태그는 `v` 없는 `0.1.0`) |
-| cosign 서명 + SBOM (SPDX) + SLSA provenance | 이미지 attestation (별도 파일 아님) — `cosign verify ghcr.io/z-converter-assessment/assessment-engine:0.1.0` 로 검증 |
-| Alembic migrations·`_alembic.ini` | 이미지 동봉 (`hatch.force-include`) — base compose migrate init-container 가 기동 전 자동 실행 |
+---
+
+## 환경변수와 비밀번호
+
+설정은 `.env` 하나로 들어간다. 어느 템플릿을 복사했는지가 환경을 정한다 — `.env.dev.example` 이면
+dev(핫리로드), `.env.example` 이면 배포용이다. 그 안의 `COMPOSE_FILE` 이 어떤 compose 파일을 합칠지도 정한다.
+
+비밀번호에는 기본값이 없다. 미설정·뻔한 값·채널 중복은 환경과 무관하게 기동 시점에 거부된다.
+주입 경로는 둘인데 환경에 따라 다르다.
+
+| | 채널 | 값을 만드는 주체 |
+|---|------|----------------|
+| dev | `.env` 평문 (`POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`) | 템플릿에 이미 값이 들어 있다 — 그대로 쓴다 |
+| 배포 | `secrets/*` 파일 -> 컨테이너 `/run/secrets/*` | `bootstrap.sh` 가 없는 것만 생성 |
+
+비밀번호를 바꿀 때는 `rotate-secret.sh` 를 쓴다 — secret 파일만 갈아끼우면 서버 계정 쪽은 그대로라 접속이 끊긴다.
+
+키 카탈로그·채널 우선순위·기동 검증 기준은 `docs/reference/contracts/env.md`, secret 파일 생성과 교체 절차는
+`docs/guides/deploy.md` 2·4·5절이 갖는다.
 
 ---
 
@@ -117,20 +154,13 @@ semver tag `v*` push 시 릴리즈가 내놓는 산출물. 배포 매체는 dock
 dev = base + `docker-compose.override.yml` 핫리로드. 코드 수정이 컨테이너 restart 없이 반영된다.
 
 ```bash
-cp env.dev.example .env
+cp .env.dev.example .env
 docker compose up -d      # web http://localhost:8000
-docker compose down -v    # 종료 (데이터 삭제)
+docker compose down       # 종료 (볼륨 보존)
 ```
 
-IDE 자동완성·테스트 (compose 만 띄울 땐 불필요. 전제 `uv` 0.4+):
-
-```bash
-uv sync --group dev               # .venv 생성 + dev 그룹(pytest·ruff·types)
-uv run pytest tests/unit/         # 단위
-uv run pytest tests/integration/  # 통합 (testcontainers)
-uv run ruff check .               # lint
-uv run alembic check              # ORM·migrations 정합
-```
+코드 반영·의존성 관리는 `docs/guides/local-dev.md`, 호스트 venv 준비와 테스트 실행은 `docs/guides/testing.md`,
+lint 는 `docs/guides/conventions.md`, ORM·migrations 정합 확인은 `docs/guides/migrate.md` 가 갖는다.
 
 ---
 
@@ -148,59 +178,8 @@ uv run alembic check              # ORM·migrations 정합
 
 ## 배포 (prod)
 
-배포 대상은 내부망 운영 VM 한 대다. 최초 1회 서버 구성으로 빈 VM에서 엔진이 실행될 때까지 세팅한 뒤, 이후 배포는 새 태그 발행 + `deploy.sh` 실행만 반복한다.
+배포 대상은 내부망 운영 VM 한 대다. 빈 VM 을 `bootstrap.sh` 로 1회 구성하면 docker·cosign 이 설치되고 나머지 운영 스크립트도 함께 배치된다. 이후 배포는 버전을 올려 `main` 에 머지하고 VM 에서 `deploy.sh vX.Y.Z` 를 실행하는 두 단계를 반복한다.
 
-### 최초 서버 구성 (빈 VM에서 엔진 실행까지)
+`deploy.sh` 는 공급망 검증부터 health gate 까지를 한 번에 수행하고 실패하면 직전 정상 이미지로 되돌린다. 되돌리기도 이전 버전으로 같은 명령을 실행하면 된다. 단계별 상세는 `docs/guides/deploy.md` 3절.
 
-Debian/Ubuntu VM(GitHub로 outbound HTTPS 가능)에서 순서대로 진행한다.
-
-1. 부트스트랩 — docker engine·compose·cosign·디렉토리·`deploy.sh`를 구성한다. `bootstrap.sh`를 받아 실행(public repo — clone 불요):
-   ```bash
-   curl -fsSL https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main/bootstrap.sh -o bootstrap.sh
-   sudo bash bootstrap.sh
-   ```
-   실행 후 `/opt/assessment-engine/`에 `.env`(env.example 템플릿)·`secrets/`·`deploy.sh`가 놓인다.
-
-2. secret 파일 배치 (강 random, 권한 644 — postgres 공식 이미지가 non-root 유저로 읽으므로 600이면 Permission denied 로 기동 실패):
-   ```bash
-   cd /opt/assessment-engine
-   printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
-   printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-   chmod 644 secrets/*
-   ```
-   랜덤이어도 잃어버리지 않는다 — 값은 `secrets/` 파일에 저장돼 앱이 자동으로 읽고, 필요 시 `sudo cat secrets/<name>`으로 확인한다(psql·RabbitMQ 관리 UI 등). 웹 포털은 무인증이라 별도 로그인이 없다. 단 `rabbitmq_password`는 외부 agent가 broker 발행에 쓰는 값이라 agent 설정에도 동일하게 넣어야 한다(불일치 시 agent 인증 실패로 데이터 미수집).
-
-3. `/opt/assessment-engine/.env` 운영값을 채운다 — `POSTGRES_USER`·`RABBITMQ_USER`(변경 권장)·`ZDM_DEFAULT_IP` 등 환경에 맞게. 비번은 위 secret 파일 채널이라 `.env`에 넣지 않는다.
-
-4. 이미지 발행 — `main`에 `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml`이 이미지를 빌드·서명해 GHCR에 발행한다 (배포할 이미지가 있어야 함).
-
-5. 배포 — VM에서:
-   ```bash
-   sudo /opt/assessment-engine/deploy.sh vX.Y.Z
-   ```
-   cosign verify → 그 태그의 compose fetch → pull → migration(init-container) → up → `/health` 확인이 진행되고, 실패 시 직전 정상 이미지로 자동 rollback. 엔진이 여기서 처음 뜬다.
-
-### 이후 배포
-
-새 버전을 올릴 때 두 단계만 반복한다:
-1. `main`에 새 태그 push → `release.yml`이 이미지 발행.
-2. VM에서 `sudo /opt/assessment-engine/deploy.sh vX.Y.Z`.
-
-되돌리기도 이전 버전으로 `deploy.sh v<이전>` 을 실행하면 된다.
-
-### 단일 호스트 수동 기동 (deploy.sh 없이)
-
-평가·runner 미구성 시. prod = base + `docker-compose.secrets.yml`(file-secret). 비번을 `./secrets/*` 파일로 주입 — 컨테이너 env에 안 뜬다.
-
-```bash
-cp env.example .env                         # COMPOSE_FILE 포함(base+secrets) · 평문 비번 없음
-
-mkdir -p secrets                            # 비번 파일 (강 random, 권한 644 — non-root 컨테이너 유저 호환)
-printf '%s' "$(openssl rand -base64 32)" > secrets/postgres_password
-printf '%s' "$(openssl rand -base64 32)" > secrets/rabbitmq_password
-chmod 644 secrets/*
-
-docker compose up -d                        # base+secrets pull-and-run. web http://localhost:8000
-```
-
-`APP_ENV=prod` 라 secret 부재·weak 면 기동 거부(fail-fast). GHCR public — 토큰 없이 pull. 외부 디스크 볼륨은 `PGDATA_HOST`/`MQ_DATA_HOST` 주입(선택).
+절차·secret 배치·단일 호스트 수동 기동은 `docs/guides/deploy.md` 가 단일 진실이다.

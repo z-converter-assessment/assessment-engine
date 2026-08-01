@@ -28,6 +28,11 @@ vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도�
 | prefetch_count | 10 |
 | 메시지 delivery_mode | `persistent` (2) — 모든 발행 측 설정 |
 
+`prefetch_count` 10 근거:
+- `global=false`(consumer 단위 상한) + 큐 4개를 한 채널에서 소비 -> 프로세스 미ack 배달 상한 = 10 X 4 = 40.
+- 배달 하나가 핸들러 task 하나라 종료 시 drain 이 기다리는 in-flight 상한도 40 — 올리면 종료 예산 안에 못 끝낼 수 있다 (drain 절차는 `docs/reference/consumer.md` "Disposability" 절).
+- DB 재시도에 걸린 메시지는 재시도 창 동안 자기 슬롯을 점유한다 (창 길이는 같은 문서 "DB 재시도 정책" 절).
+
 ### 큐 정책
 
 | 큐 | exchange | binding routing key | 발행 주체 | DLQ | TTL | x-max-length |
@@ -36,7 +41,7 @@ vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도�
 | `server.metrics` | `assessment` | `server.metrics` | 원격 호스트 | `server.metrics.dead` | 72h | 1,000,000 |
 | `server.error` | `assessment` | `server.error` | 원격 호스트 | `server.error.dead` | 300s | 없음 |
 | `worker.result` | `assessment.tasks` | `task.result` | 원격 호스트 | `worker.result.dead` | 24h | 100,000 |
-| `agent.tasks.<agent_id>` | `assessment.tasks` | `task.install.<agent_id>` | 엔진 (web) | (없음) | 1h (`x-message-ttl=3600000`) | 100 (`x-overflow=reject-publish`) |
+| `agent.tasks.<agent_id>` | `assessment.tasks` | `task.install.<agent_id>` | 엔진 (web) | (없음) | `install_task_deadline_sec` (기본 3600s) | `_TASK_QUEUE_MAX_LEN` (100) + `x-overflow=reject-publish` |
 
 `server.metrics` 정책 근거:
 - 72h TTL: 1분 주기 발행 + consumer/DB 단기 장애(최대 3일) 내 회복 시 누적 메시지 정상 처리.
@@ -54,25 +59,25 @@ vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도�
 `agent.tasks.<agent_id>` 정책 근거:
 - 머신별 전용 큐 — `task.install.<agent_id>` routing key 로 정확히 해당 머신만 배달.
 - 엔진이 task 발행 시점에 동적 declare (수신 측은 declare 권한 없음 가정). idempotent.
-- 1h TTL: 머신이 그 사이 consume 못 하면 만료 (해당 머신 오프라인). DLX 없음 — 만료 메시지는 drop, 운영자는 task 상태로 인지.
-- max-length 100 + `x-overflow=reject-publish`: 버퍼 폭주 차단. publish 시 publisher 측이 error 인지 (best-effort 운영 시그널).
+- `x-message-ttl` = `install_task_deadline_sec` — 엔진 `tasks.deadline_at` 과 같은 창 (CLAUDE.md #F10). 머신이 그 사이 consume 못 하면 만료 (해당 머신 오프라인). DLX 없음 — 만료 메시지는 drop 되고, 대응하는 task 의 상태 전이는 `docs/explanation/products/install-task.md`.
+- max-length + `x-overflow=reject-publish`: 버퍼 폭주 차단. publish 시 publisher 측이 error 인지 (best-effort 운영 시그널).
 - prod 에서 DLX 정책 보강은 별도 ADR.
 
 ### DLQ 라우팅 트리거
 
 다음 중 하나 발생 시 메시지가 자동으로 DLX로 routing되어 `*.dead` 큐에 쌓임:
 - consumer 측 NAK (requeue=False) — 파싱 실패·DB 영구 장애 등
-- 큐 TTL 만료 — metrics 72h, error 300s
+- 큐 TTL 만료 — 위 큐 정책 표의 TTL 컬럼
 - `x-max-length` 초과 — oldest 메시지부터
 
 ### 큐 인자 변경 절차
 
-위 표의 TTL·max-length 등을 변경하면 broker가 기존 큐 재선언을 PRECONDITION_FAILED로 reject. consumer 재기동 전에 broker 측 큐 정의를 비워야 한다.
+위 표의 TTL·max-length 등을 변경하면 broker가 기존 큐 재선언을 PRECONDITION_FAILED로 reject. dev·prod 공통으로 변경 대상 큐를 명시 삭제한 뒤 consumer 를 재기동하면 새 인자로 declare 된다.
 
-| 환경 | 절차 |
-|------|------|
-| dev | rabbitmq 컨테이너에 영속 볼륨 없음 → `docker compose up -d --force-recreate rabbitmq`만으로 큐 정의 소실. 이후 consumer 재기동 시 새 인자로 declare |
-| prod | `rabbitmqadmin delete queue name=server.metrics` (변경 대상 큐) 후 consumer 재기동. rabbitmq_data 영속 볼륨 사용 시 큐 메타가 디스크에 남아 있으므로 명시적 삭제 필수 |
+```bash
+docker compose exec rabbitmq rabbitmqctl -p assessment delete_queue server.metrics
+docker compose restart consumer
+```
 
 ---
 
@@ -152,6 +157,6 @@ dev → production 시 #3 "분기 유지" 항목을 적용:
 
 - `docs/reference/consumer.md` — 위 토폴로지를 코드(aio-pika)로 어떻게 declare·subscribe하는지 / 핸들러 / 멱등성 / DB 재시도
 - `docs/reference/contracts/agent-data.md` — 에이전트 측 publish 동작 / publisher confirm / retry
-- `docs/guides/local-dev.md` — RabbitMQ 컨테이너 정의 / 헬스체크 / 환경변수
+- `docs/reference/docker.md` — RabbitMQ 컨테이너 정의 / 포트 / 볼륨
 - `docs/reference/contracts/env.md` — `RABBITMQ_*` 환경변수 키 목록
 - `docs/explanation/tradeoffs.md` T7 — 에이전트 broker 자동 재연결 (이미 구현됨)

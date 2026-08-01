@@ -13,7 +13,6 @@ model: opus
 
 - 본 에이전트: cross-repo drift만 (engine schemas.py / agent C source / payload-schema.md 3축). 외부 레포 접근 필수.
 - code-reviewer 위임: 엔진 내부 일관성 (ORM 컬럼 / Inbound DTO / 매퍼 / cache_serializer / 템플릿·JS 체인). 외부 레포 안 봄.
-- Hook 위임: F1 future annotations 차단.
 
 호출 트리거: 사용자 명시 요청 시에만 ("스키마 일관성 확인" 등). 메인 자동 위임 제안 없음.
 
@@ -25,7 +24,7 @@ model: opus
 | 2 | `assessment-engine/src/assessment_engine/consumer/schemas.py` | 엔진 Pydantic 검증 계약 |
 | 3 | `assessment-agent/src/collect.c` + `assessment-agent/src/main.c` (외부 레포) | 에이전트 발행 측 실제 코드 |
 
-`assessment-agent` 레포는 일반적으로 `/Users/whdcks/PycharmProjects/assessment-agent/` (또는 형제 디렉토리)에 위치. `ls ../assessment-agent` 같이 상대로 찾기.
+`assessment-agent` 레포는 일반적으로 `/Users/whdcksdbwls/PycharmProjects/assessment-agent/` (또는 형제 디렉토리)에 위치. `ls ../assessment-agent` 같이 상대로 찾기.
 
 ## 검사 영역
 
@@ -82,7 +81,7 @@ model: opus
 
 ## 단위 규약 검사
 
-- 메모리 = `kb` / 디스크·네트워크 = `bytes` (docs/architecture/agent.md 데이터 형식 절)
+- 메모리 = `kb` / 디스크·네트워크 = `bytes` (docs/reference/contracts/agent-data.md)
 - counter 누적값 (delta·% 계산은 엔진 책임)
 - ISO 8601 UTC 명시 (KST 변환 금지 — F2)
 
@@ -110,7 +109,7 @@ model: opus
 |...|...|...|...|
 
 ## Info (참고)
-- 엔진이 받지만 사용 안 하는 필드 (의도된 미사용 카탈로그 — agent.md "엔진이 받지만 사용하지 않는 필드" 절 참조)
+- 엔진이 받지만 사용 안 하는 필드 (의도된 미사용 카탈로그 — `docs/reference/contracts/agent-data.md` 참조)
 
 ## 일치 확인
 - 핵심 필드들 모두 일치 시 한 줄 요약

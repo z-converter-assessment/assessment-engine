@@ -1,14 +1,11 @@
-"""시스템 계약 버전 단일 진실 — 엔진 레포 기준 통일 버전.
+"""계약 버전 상수. 형식과 게이트 규칙은 docs/reference/contracts/ 가 기준.
 
-네 계약이 모두 이 버전 문자열을 단다:
-- wire (agent -> engine 메시지): consumer/schemas.py schema_version. 에이전트도 "1.0" emit.
-- assessment API (engine -> DR): GET /api/assessment 응답 contract_version.
-- export (engine -> 운영자): POST /api/exports/inventory 파일 = assessment envelope 이라 동일.
-- task.install (engine -> agent 특권 명령): 페이로드 schema_version. 에이전트가 실행 전 major 게이트.
-
-형식은 "major.minor"(예 "1.0"). 게이트는 major(점 앞 정수)만 — 소비자/게이트는 major 만 비교해 같으면 수용
-(minor 무관), 다르면 거부. minor(.0/.1/...)는 additive 변경 추적용(필드/enum/사이징축 추가) — 게이트에 영향
-없고 소비자는 무시. 구조 파괴 변경만 major 범프 — 엔진+에이전트+DR 동시 flag-day.
+상대별로 나눈다 — 에이전트는 고객사 내부망에 분산돼 동시 전환이 불가능하고, 외부 시스템은 평가 API
+응답만 본다. 한 값을 공유하면 한쪽 사정으로 오른 번호가 다른 쪽에 거짓 신호가 된다.
 """
 
-CONTRACT_VERSION = "1.0"
+# wire 메시지(agent -> engine) + task.install(engine -> agent). 결과 보고가 명령과 짝이라 함께 움직인다.
+AGENT_CONTRACT_VERSION = "1.0"
+
+# 평가 API 응답 + 그 구조를 그대로 쓰는 export.
+API_CONTRACT_VERSION = "1.0"

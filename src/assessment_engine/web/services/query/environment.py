@@ -2,6 +2,7 @@
 
 from collections import Counter
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, cast
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import FleetErrorRaw, SaturationRaw
@@ -18,7 +19,7 @@ from assessment_engine.web.services.mappers.right_sizing_api import build_right_
 from assessment_engine.web.services.mappers.shared import _DONUT_SEGMENT_FROM_REC
 from assessment_engine.web.services.mappers.topology import build_network_topology
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import (
     CapacityWarningItem,
     EnvironmentAssessment,
@@ -27,6 +28,9 @@ from assessment_engine.web.view_models.attention import (
 )
 from assessment_engine.web.view_models.metric import FleetStatus, HostSearchItem
 from assessment_engine.web.view_models.topology import NetworkTopology
+
+if TYPE_CHECKING:
+    from assessment_engine.web.services.query._base import _MetricSibling
 
 
 class EnvironmentQueryMixin(_BaseQueryServiceMixin):
@@ -102,7 +106,11 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         if not server_ids:
             return EnvironmentAssessment(overview=_empty_overview())
         details = await self.repo.get_servers(server_ids)
-        raws_period = await self.repo.report_aggregate(server_ids, period_days=period_days, end=end)
+        raws_period = await self.repo.report_aggregate(
+            server_ids,
+            period_days=period_days,
+            end=end,
+        )
         await self._inject_net_baseline(raws_period, server_ids, period_days, end)
         util = await self.repo.environment_utilization(period_days=period_days, end=end)
         online_by_id = await self._online_map(server_ids, details, end)
@@ -139,7 +147,11 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         raws: list = []
         online_by_id: dict[int, bool] = {}
         if matched_ids:
-            raws = await self.repo.report_aggregate(matched_ids, period_days=window_days, end=end)
+            raws = await self.repo.report_aggregate(
+                matched_ids,
+                period_days=window_days,
+                end=end,
+            )
             await self._inject_net_baseline(raws, matched_ids, window_days, end)
             online_by_id = await self._online_map(matched_ids, matched_details, end)
         servers = [
@@ -239,7 +251,11 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         mounts_by_id: dict = {}
         link_speeds: dict[int, dict[str, int]] = {}
         if matched_ids:
-            raws = await self.repo.report_aggregate(matched_ids, period_days=window_days, end=end)
+            raws = await self.repo.report_aggregate(
+                matched_ids,
+                period_days=window_days,
+                end=end,
+            )
             await self._inject_net_baseline(raws, matched_ids, window_days, end)
             online_by_id = await self._online_map(matched_ids, matched_details, end)
             mounts_by_id = await self.repo.report_mount_capacity_batch(matched_ids, end)
@@ -269,9 +285,10 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         online = 신선 데이터 서버 수(차트의 '그 시점 발행 서버' 기준과 동일 정렬). sample_size/total 표기.
         """
         detail_by_id = {d.id: d for d in details}
-        fresh_threshold = now - timedelta(seconds=web_settings.redis_ttl_online)
+        fresh_threshold = now - timedelta(seconds=get_web_settings().redis_ttl_online)
         # 실시간 포화 원자료(CPU 실행큐·디스크 queue/await·메모리 paging) — 신선 표본 1쿼리 벌크(전용 경량 쿼리).
         sat_map = await self.repo.latest_saturation(server_ids, fresh_threshold)
+        metric_sibling = cast("_MetricSibling", self)
         online = 0
         snapshots: list[dict] = []
         last_collected = None
@@ -281,7 +298,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                 continue
             # 포화 원자료 = 벌크 sat_map 재사용(B4) — get_latest_metric 에 주입해 per-server 재조회 생략.
             sat = sat_map.get(sid) or SaturationRaw()
-            m = await self.get_latest_metric(sid, saturation=sat)
+            m = await metric_sibling.get_latest_metric(sid, saturation=sat)
             if not m or not m.collected_at or m.collected_at < fresh_threshold:
                 continue  # 데이터 없음/stale = 오프라인 (통일: 데이터 신선도가 곧 온라인)
             online += 1

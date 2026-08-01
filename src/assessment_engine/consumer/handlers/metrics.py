@@ -13,12 +13,13 @@ from assessment_engine.cache.redis import safe_delete, safe_set
 from assessment_engine.consumer.handlers._common import (
     _check_idempotent,
     _db_retry,
+    _format_validation_err,
     _log_time_invariants,
     _track_agent_restart,
 )
 from assessment_engine.consumer.mappers import build_placeholder_inventory, to_metric_create
 from assessment_engine.consumer.schemas import MetricsInput
-from assessment_engine.consumer.settings import consumer_settings
+from assessment_engine.consumer.settings import get_consumer_settings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
 
 
@@ -32,8 +33,11 @@ def make_metrics_handler(
             try:
                 data = MetricsInput.model_validate_json(message.body)
             except ValidationError as e:
-                logger.error("metrics parse error count={}", len(e.errors()))
-                raise
+                detail = _format_validation_err(e)
+                logger.error("metrics parse error {}", detail)
+                # 핸들러 밖으로 빠져나간 예외는 asyncio 가 전문을 출력한다 — 실패 필드의 입력값을
+                # 문자열에 싣는 원본 대신, nack 에 필요한 만큼만 담은 예외로 바꿔 던진다.
+                raise ValueError(f"metrics validation failed: {detail}") from None
 
             if not await _check_idempotent(redis, data.message_id):
                 logger.info("metrics duplicate skipped message_id={}", data.message_id)
@@ -61,9 +65,9 @@ def make_metrics_handler(
                     data.agent_id,
                 )
 
-            online_key = consumer_settings.redis_key_online.format(resolved_server_id)
-            cache_key = consumer_settings.redis_key_cache_metrics.format(resolved_server_id)
-            await safe_set(redis, online_key, "1", ex=consumer_settings.redis_ttl_online)
+            online_key = get_consumer_settings().redis_key_online.format(resolved_server_id)
+            cache_key = get_consumer_settings().redis_key_cache_metrics.format(resolved_server_id)
+            await safe_set(redis, online_key, "1", ex=get_consumer_settings().redis_ttl_online)
             await safe_delete(redis, cache_key)
             await _track_agent_restart(redis, resolved_server_id, str(data.agent_id), data.agent_started_at)
 

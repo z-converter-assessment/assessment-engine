@@ -1,30 +1,25 @@
-# 루트 docker-compose.yml — prod-safe base. 빌드 없는 pull-and-run prod compose (GHCR 이미지 pull).
-# prod = base + docker-compose.secrets.yml(file-secret, ADR 0046). dev = base + docker-compose.override.yml(핫리로드).
-# env.example 의 COMPOSE_FILE 이 prod 에서 base+secrets 자동 머지(override 미혼입). dev 는 env.dev.example(COMPOSE_FILE 없음)이라 base+override 자동.
-# 릴리즈는 base+secrets 첨부(override 미포함).
-#
-#   - 배포(prod): 릴리즈 첨부 base + env.example 받아 secret·ENGINE_IMAGE·PGDATA_HOST 주입 후 GHCR pull.
-#   - dev: override.yml 이 로컬 빌드·bind mount·hot reload. 검증 카탈로그는 루트 env.dev.example.
-#
-# 이미지: GHCR 정확 버전 핀. __ENGINE_VERSION__ 은 release CI 가 태그 semver 로 치환 — 소스에서 base 단독 기동 시 ENGINE_IMAGE 주입.
-# 환경변수: env_file = ${ENV_FILE:-.env} (배포=env.example, dev=env.dev.example 를 .env 로 복사). secret 은 OS env > .env > changeme 보간.
-# 영속 볼륨: PGDATA_HOST·MQ_DATA_HOST 주입 시 host bind(Cinder 등), 미주입 시 named volume.
-# ENTRYPOINT(`python -m`, Dockerfile)라 앱 command 는 모듈명만. migrate 는 wheel 내 _alembic.ini 동적 해석($$ = compose escape).
+# 절차가 아니라 원하는 최종 상태를 선언한다 — `docker compose up` 이 선언과 실제를 비교해 차이만큼만
+# 수렴시키므로 반복 실행에 대해서 멱등하다. 기동 순서도 직접 쓰지 않고 depends_on 제약으로 유도한다.
+
+# 컨테이너 로그는 기본 드라이버의 경우, 무제한으로 쌓아 장기 가동 호스트의 디스크를 채운다.
+# 로그파일 정책을 설정해 디스크를 보호한다.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
 
 x-app-base: &app-base
-  image: ${ENGINE_IMAGE:-ghcr.io/z-converter-assessment/assessment-engine:__ENGINE_VERSION__}
+  # 배포 버전 핀 — `deploy.sh vX.Y.Z` 가 .env 의 이 줄을 쓴다. 비어 있으면 파싱 단계에서 멈춘다.
+  image: ${ENGINE_IMAGE:-}
   restart: unless-stopped
+  logging: *default-logging
   env_file: ${ENV_FILE:-.env}
-  environment: &app-env
-    APP_ENV: ${APP_ENV:-prod}
+  environment:
     POSTGRES_HOST: postgres
     REDIS_HOST: redis
     RABBITMQ_HOST: rabbitmq
-    # secret — 호스트 OS env 있으면 우선(override) > compose 가 읽는 .env > changeme(미설정 = prod 거부).
-    # env_file 만으론 호스트 OS env override 가 안 돼(컨테이너에 .env 값 고정) 보간으로 명시. DB 컨테이너와 동일 소스라 항상 일치.
-    POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
-    RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-changeme}
-  depends_on: &app-depends
+  depends_on:
     postgres:
       condition: service_healthy
     redis:
@@ -37,22 +32,19 @@ x-app-base: &app-base
 services:
   postgres:
     restart: unless-stopped
-    image: timescale/timescaledb-ha:pg16  # TimescaleDB
+    logging: *default-logging
+    image: timescale/timescaledb-ha:pg16
     env_file: ${ENV_FILE:-.env}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-assessment}
       POSTGRES_USER: ${POSTGRES_USER:-assessment}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
     ports:
-      # 127.0.0.1 바인딩 — VM-로컬 ops 접근만(psql). 고객사 네트워크 미노출. 앱 컨테이너는 docker 네트워크로 접근.
-      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+      - "127.0.0.1:${POSTGRES_PUBLISH_PORT:-5432}:5432"
     volumes:
-      # timescaledb-ha 실제 PGDATA 는 /home/postgres/pgdata/data. PGDATA_HOST 주입 시 host bind(Cinder),
-      # 미주입 시 named volume(postgres_data). infra 는 PGDATA_HOST=/mnt/pgdata 주입.
       - ${PGDATA_HOST:-postgres_data}:/home/postgres/pgdata/data
     healthcheck:
       # -h 127.0.0.1 로 TCP 도달성 강제 (소켓 전용 부트스트랩 구간의 false-positive healthy 회피).
-      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U ${POSTGRES_USER:-assessment}"]
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "${POSTGRES_USER:-assessment}"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -60,22 +52,21 @@ services:
 
   rabbitmq:
     restart: unless-stopped
+    logging: *default-logging
     image: rabbitmq:3.13-management-alpine
     env_file: ${ENV_FILE:-.env}
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-assessment}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-assessment}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
     ports:
-      # 5672 는 외부 호스트의 agent 가 broker 로 메트릭·결과를 발행하는 통로 — 노출 필수(0.0.0.0).
-      - "${RABBITMQ_PORT:-5672}:5672"
-      # 15672 관리 UI 는 ops 전용 — 127.0.0.1 바인딩(VM-로컬/SSH 터널만, 고객사 네트워크 미노출).
-      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}:15672"
+      # agent 가 고객사 네트워크에서 발행하는 통로라 전체 인터페이스에 연다.
+      - "${RABBITMQ_PUBLISH_PORT:-5672}:5672"
+      # 관리 UI 는 운영자 전용 — 루프백만.
+      - "127.0.0.1:${RABBITMQ_MANAGEMENT_PUBLISH_PORT:-15672}:15672"
     volumes:
-      # MQ_DATA_HOST 주입 시 host bind(Cinder /mnt/mqdata), 미주입 시 named volume(rabbitmq_data).
       - ${MQ_DATA_HOST:-rabbitmq_data}:/var/lib/rabbitmq
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      test: ["CMD", "rabbitmq-diagnostics", "check_port_connectivity"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -83,14 +74,11 @@ services:
 
   redis:
     restart: unless-stopped
+    logging: *default-logging
     image: redis:7-alpine
-    command: >-
-      redis-server
-      --maxmemory ${REDIS_MAXMEMORY:-256mb}
-      --maxmemory-policy ${REDIS_MAXMEMORY_POLICY:-volatile-lru}
+    command: ["redis-server", "--maxmemory", "${REDIS_MAXMEMORY:-256mb}", "--maxmemory-policy", "${REDIS_MAXMEMORY_POLICY:-volatile-lru}"]
     ports:
-      # 127.0.0.1 바인딩 — Redis 무인증이라 네트워크 노출 금지(VM-로컬만). 앱 컨테이너는 docker 네트워크로 접근.
-      - "127.0.0.1:${REDIS_PORT:-6379}:6379"
+      - "127.0.0.1:${REDIS_PUBLISH_PORT:-6379}:6379"
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -98,18 +86,13 @@ services:
       retries: 5
       start_period: 5s
 
-  # 마이그레이션 1회성(init-container 패턴) — postgres healthy 후 alembic upgrade head 실행 후 종료.
-  # prod 이미지는 wheel install 이라 alembic.ini 가 패키지 안 `_alembic.ini`. 경로를 동적 해석해 실행.
-  # ENTRYPOINT 가 `python -m` 이라 entrypoint 를 sh 로 override. dev 의 migrations bind mount 는 override.yml.
   migrate:
-    image: ${ENGINE_IMAGE:-ghcr.io/z-converter-assessment/assessment-engine:__ENGINE_VERSION__}
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - |
-        python -m alembic -c "$$(python -c 'from importlib.resources import files; print(files("assessment_engine") / "_alembic.ini")')" upgrade head
+    image: ${ENGINE_IMAGE:-}
+    # 설정 경로는 이미지의 ALEMBIC_CONFIG 가 들고 있어 -c 를 붙이지 않는다.
+    command: ["python", "-m", "alembic", "upgrade", "head"]
+    logging: *default-logging
     env_file: ${ENV_FILE:-.env}
     environment:
-      APP_ENV: ${APP_ENV:-prod}
       POSTGRES_HOST: postgres
     depends_on:
       postgres:
@@ -118,15 +101,11 @@ services:
 
   web:
     <<: *app-base
-    command: ["assessment_engine.web"]
-    environment:
-      <<: *app-env
-      # prod 기본 false (bind mount 없는 이미지 배포에선 auto-reload 무의미). dev 는 override.yml 이 true.
-      WEB_RELOAD: ${WEB_RELOAD:-false}
+    command: ["python", "-m", "assessment_engine.web"]
     ports:
-      - "${WEB_PORT:-8000}:8000"
+      - "${WEB_PUBLISH_PORT:-8000}:${WEB_PORT:-8000}"
     healthcheck:
-      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\""]
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:${WEB_PORT:-8000}/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -134,14 +113,13 @@ services:
 
   consumer:
     <<: *app-base
-    # ENTRYPOINT(python -m) + command 모듈명 -> `python -m assessment_engine.consumer`. dev hot-reload(watchfiles)는 override.yml.
-    command: ["assessment_engine.consumer"]
+    command: ["python", "-m", "assessment_engine.consumer"]
 
-  # 전용 백그라운드 워커 — 비동기 보고서 생성 + install task reaper (web=HTTP 전담에서 분리).
-  # broker 미사용(DB job-claim 만) — depends_on 은 app-base(postgres·redis·rabbitmq·migrate) 그대로. dev hot-reload 는 override.yml.
   worker:
     <<: *app-base
-    command: ["assessment_engine.worker"]
+    command: ["python", "-m", "assessment_engine.worker"]
+    # 보고서 drain timeout(report_worker_shutdown_timeout_sec, 기본 10s)보다 길어야 SIGKILL 이 정리를 자르지 않는다.
+    stop_grace_period: 20s
 
 volumes:
   postgres_data:

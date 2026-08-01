@@ -2,19 +2,23 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Protocol, cast
 
 from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget
 from assessment_engine.db.dtos.outbound import (
     CpuBreakdownRaw,
+    FleetErrorRaw,
     MemoryBreakdownRaw,
     ReportRowRaw,
+    ServerDetail,
 )
 from assessment_engine.db.repositories.query.types import (
     AUTO_BUCKET,
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     DIAGNOSTIC_RANGE_DAYS,
     TIME_RANGE_TD,
+    BucketSize,
     TimeRange,
 )
 from assessment_engine.web.services.device_filters import disk_total_bytes
@@ -46,14 +50,48 @@ from assessment_engine.web.services.mappers.shared import ReportView
 from assessment_engine.web.services.metrics_calculator import build_error_signals
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview, _filter_attention
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
-from assessment_engine.web.settings import web_settings
+from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import (
     AttentionSignals,
     EnvironmentOverview,
 )
 from assessment_engine.web.view_models.environment_report import EnvironmentReportSummary
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
-from assessment_engine.web.view_models.server import ServerDetailResponse
+
+if TYPE_CHECKING:
+
+    class _CrossDomainCalls(Protocol):
+        """본 mixin 이 self 로 호출하는 타 도메인 mixin(environment·attention) 메서드 계약.
+
+        QueryService 가 6 mixin 을 multiple inheritance 로 결합할 때 MRO 로 해결되는 호출이라
+        본 mixin 자신에는 정의가 없다 — 계약만 선언하고 구현은 각 도메인 mixin 이 갖는다.
+        """
+
+        def _assemble_overview(
+            self,
+            details,
+            util,
+            raws_period,
+            online_by_id: dict[int, bool],
+            full_under: bool = ...,
+            error_summary: FleetErrorRaw | None = ...,
+        ) -> EnvironmentOverview: ...
+
+        async def get_attention_signals(
+            self,
+            disk_threshold_pct: float = ...,
+            gap_minutes: int = ...,
+            gap_recent_hours: int = ...,
+            limit_each: int | None = ...,
+            days_until_full_threshold: int = ...,
+            end: datetime | None = ...,
+            raws: list | None = ...,
+        ) -> AttentionSignals: ...
+
+    class _ReportMixinBase(_BaseQueryServiceMixin, _CrossDomainCalls): ...
+
+else:
+    _ReportMixinBase = _BaseQueryServiceMixin
 
 
 @dataclass
@@ -65,12 +103,12 @@ class _ChildPrefetch:
     """
 
     raw: ReportRowRaw
-    detail: ServerDetailResponse
+    detail: ServerDetail
     mem_raw: MemoryBreakdownRaw
     cpu_raw: CpuBreakdownRaw
 
 
-class ReportQueryMixin(_BaseQueryServiceMixin):
+class ReportQueryMixin(_ReportMixinBase):
     async def get_environment_report(
         self,
         time_range: TimeRange = DIAGNOSTIC_DEFAULT_TIME_RANGE,
@@ -103,7 +141,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             overview = _empty_overview()
             base = ReportSummary(
                 rows=[],
-                period_days=int(period_days),
+                period_days=period_days,
                 total=0,
                 online=0,
                 risk_attention=0,
@@ -239,11 +277,11 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
 
 
         # overview — 단일 서버 자원량. is_online 은 Redis online TTL (fail-open) 기반.
-        flag = await safe_get(self.redis, web_settings.redis_key_online.format(detail.id))
+        flag = await safe_get(self.redis, get_web_settings().redis_key_online.format(detail.id))
         if flag is not None:
             is_online = flag == "1"
         else:
-            threshold = end_dt - timedelta(seconds=web_settings.redis_ttl_online)
+            threshold = end_dt - timedelta(seconds=get_web_settings().redis_ttl_online)
             is_online = bool(detail.last_seen_at and detail.last_seen_at > threshold)
 
         # P2 단일 진실 — units helper 경유 (mapper·service 공통 단위 산식).
@@ -298,7 +336,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             )
 
             # 스토리지 레이아웃 트리 — storage.html 과 동일 단일 진실(build_storage_tree). 현재 스냅샷 기준
-            # (마운트별 세부 사용량·usage_pct 는 트리 리프 노드가 겸함 — 별도 마운트 표 폐기).
+            # (마운트별 세부 사용량·usage_pct 는 트리 리프 노드가 겸한다).
             storage_dto = await self.repo.get_storage(server_id)
             if storage_dto is not None:
                 summary.storage_tree = build_storage_tree(
@@ -345,7 +383,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             sid = sid_map.get(pid)
             raw = raws_by_id.get(sid) if sid is not None else None
             detail = details_by_id.get(sid) if sid is not None else None
-            if raw is None or detail is None:
+            if sid is None or raw is None or detail is None:
                 results.append((pid, None))
                 continue
             prefetch = _ChildPrefetch(
@@ -366,7 +404,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
 
         server_ids=None 이면 전체 환경(env 보고서), 주어지면 선택 N대/1대 한정(selection·single). 버킷 정책 동일.
         """
-        bucket = AUTO_BUCKET.get(time_range, "1h")
+        bucket = cast(BucketSize, AUTO_BUCKET.get(time_range, "1h"))
         trend_start = end_dt - TIME_RANGE_TD[time_range]
         cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bucket, server_ids)
         mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bucket, server_ids)
@@ -377,9 +415,9 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         """CPU 실행 큐·메모리 페이징·디스크 I/O 포화 이진(0/1) 시계열 — 개별 서버 보고서(engineer) 전용.
 
         trend(이용률)와 동일 윈도우·bucket 정책. 서버 1대 스코프 고정(server_ids 필수) — 환경/선택 스코프는
-        해당 화면에 노출 지점이 없어 미도입(실사용 시점 확장, #F9).
+        해당 화면에 노출 지점이 없어 미도입(실사용 시점 확장).
         """
-        bucket = AUTO_BUCKET.get(time_range, "1h")
+        bucket = cast(BucketSize, AUTO_BUCKET.get(time_range, "1h"))
         trend_start = end_dt - TIME_RANGE_TD[time_range]
         cpu_series = await self.repo.metric_trend("cpu.saturation", trend_start, end_dt, bucket, server_ids)
         mem_series = await self.repo.metric_trend("mem.paging_pressure", trend_start, end_dt, bucket, server_ids)
@@ -394,11 +432,31 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         유휴 분류 정합(세부 행·under·도넛 동일 입력). worst_mount used%·용량 임박(구동 마운트·runway)은
         report_aggregate 단일 산출 (별도 mount_worst 쿼리 폐기).
         """
-        raws = await self.repo.report_aggregate(server_ids, period_days, end_dt)
-        uptime_stats = await self.repo.report_uptime_stats(server_ids, period_days, end_dt)
-        agent_restart_stats = await self.repo.report_agent_restart_stats(server_ids, period_days, end_dt)
-        disk_io = await self.repo.report_disk_io_baseline(server_ids, period_days, end_dt)
-        net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end_dt)
+        raws = await self.repo.report_aggregate(
+            server_ids,
+            period_days,
+            end_dt,
+        )
+        uptime_stats = await self.repo.report_uptime_stats(
+            server_ids,
+            period_days,
+            end_dt,
+        )
+        agent_restart_stats = await self.repo.report_agent_restart_stats(
+            server_ids,
+            period_days,
+            end_dt,
+        )
+        disk_io = await self.repo.report_disk_io_baseline(
+            server_ids,
+            period_days,
+            end_dt,
+        )
+        net_io = await self.repo.report_net_io_baseline(
+            server_ids,
+            period_days,
+            end_dt,
+        )
         for raw in raws:
             raw.reboot_count = uptime_stats.get(raw.server_id, 0)
             raw.agent_restart_count = agent_restart_stats.get(raw.server_id, 0)
@@ -445,9 +503,9 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         if raws is None:
             raws = await self._assemble_report_raws(server_ids, period_days, end_dt)
 
-        online_keys = [web_settings.redis_key_online.format(r.server_id) for r in raws]
+        online_keys = [get_web_settings().redis_key_online.format(r.server_id) for r in raws]
         flags = await safe_mget(self.redis, online_keys)
-        threshold = end_dt - timedelta(seconds=web_settings.redis_ttl_online)
+        threshold = end_dt - timedelta(seconds=get_web_settings().redis_ttl_online)
         window_start = end_dt - timedelta(days=period_days)
 
         items: list[ReportRowItem] = []

@@ -11,7 +11,7 @@ reproduction 은 인벤토리(os 서술자·boot·nonblock_mounts 컬럼 + block
 from __future__ import annotations
 
 from assessment_engine import recommendation
-from assessment_engine.contract import CONTRACT_VERSION
+from assessment_engine.contract import API_CONTRACT_VERSION
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     build_host_confidence_notes,
@@ -77,8 +77,9 @@ def _repro_interface(i: dict, link_speeds: dict[str, int] | None = None) -> dict
     # speed_mbps null(Windows NT5.2/virtio 는 inventory 미발행) 시 metrics link.speed(bit/s)로 폴백 — reproduction
     # 정확도(agent 확정 규약). iface 안정 id 로 매칭. link.speed 도 null(virtio)이면 그대로 null.
     speed = i.get("speed_mbps")
-    if speed is None and link_speeds:
-        bps = link_speeds.get(i.get("id"))
+    iface_id = i.get("id")
+    if speed is None and link_speeds and isinstance(iface_id, str):
+        bps = link_speeds.get(iface_id)
         if bps:
             speed = int(bps // 1_000_000)  # bit/s -> Mbps
     return {
@@ -310,7 +311,7 @@ def build_assessment_envelope(
     """
     servers = result["servers"]
     return {
-        "contract_version": CONTRACT_VERSION,
+        "contract_version": API_CONTRACT_VERSION,
         "generated_at": generated_at,
         "window": {
             "days": window_days,

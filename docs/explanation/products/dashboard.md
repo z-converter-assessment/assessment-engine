@@ -46,7 +46,7 @@
 
 ### 영역 4: 자원 이용·포화 도넛
 
-- 이용률 3(CPU·메모리·디스크 capacity-weighted 14일 평균, 색 분기 60·80% UI badge 임계) + 포화 4(CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡 호스트 수 / 표본)
+- 이용률 3(CPU·메모리·디스크 capacity-weighted 14일 평균, 게이지 단색 — 채움 길이로만 정도 표현) + 포화 4(CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡 호스트 수 / 표본)
 - 전부 `recommendation.WINDOW_DAYS`(14일) 창 — 분류와 한 창 통일(#E3). 포화는 dual-gate(CPU·메모리 신호 AND 이용률) 판정 호스트 수
 - 순간 스냅샷 아닌 윈도우 통계 (실시간 순간값은 `/environment/realtime`)
 
@@ -62,7 +62,7 @@
 
 ## 서버 목록 (`/servers`)
 
-검색·필터 + 선택 N대 액션. page 기반 pagination, 기본 20대 표시 후 전체보기/접기.
+검색·필터 + 선택 N대 액션. 전체 로드 후 client-side clip — 기본 20행 표시 후 전체보기/접기(서버사이드 pagination 미적용).
 
 ### 서버 테이블 (행별)
 
@@ -74,18 +74,20 @@
 - 자원 적정성 컬럼 — `classify_host` 배지(`under_provisioned`/`over_provisioned`/`idle`/`optimal`/`insufficient_data`), under_provisioned 만 빨강 강조
 - 운영 이벤트 컬럼 — 수집 전체 기간 에러 이벤트(OOM kill·MCE·메모리 손상·네트워크/디스크 에러) 발생 유무만(문제 있음/이상 없음), 발생 시점·건수는 서버 상세에서 확인
 - ZDM Install 컬럼 — 최근 install task badge(success/failure/pending) + 클릭 시 modal 로 stdout/stderr/failure_reason 디버깅. modal 본문은 server fragment endpoint (`GET /api/tasks/{id}/detail`) HTML 반환 (P3 정공)
-- 기본 표시 20대 후 "전체보기"(CLIP 초과 행 노출)/"접기" 토글 — 필터 비활성 상태에서만 적용
-- 필터(별도 행으로 분리): search(hostname) / is_online (전체·온라인·오프라인) / service (web/db/cache/mq/container/monitor/remote/file/mail/infra) / os_id (distro) / classification (자원 적정성 5분류) — 검색 버튼 없음, dropdown/checkbox 변경 즉시 client-side filter + URL 갱신
-- pagination: page=1 default, limit=20 (max 100)
+- 기본 표시 20행 후 "전체보기"(CLIP 초과 행 노출)/"접기" 토글 — 필터 비활성 상태에서만 적용
+- 필터: 선택 액션 버튼과 같은 툴바 행에 놓인 통합 텍스트 입력 1개 — 행의 상태·워크로드·Hostname·OS·OS 지원 종료·자원 적정성을 합친 문자열에 부분일치. 검색 버튼 없이 입력 즉시 client-side hide/show, "초기화" 링크로 해제
+- 딥링크용 query 파라미터: `search`·`is_online`·`service`·`os_distro`·`classification`·`os_eol` — 서버사이드 필터로 진입 시 적용(화면 안 필터 UI 는 통합 입력 하나)
 
 답: "어떤 서버가 어떤 상태인가? 어떤 행동을 권장받나?"
 
 ### 행동 버튼 (selection-driven)
 
 list에서 N대 선택 → 다음 액션 활성화:
+- 실시간 현황 (선택 N대 스코프로 `/environment/realtime` 진입)
+- 성능 추이 (선택 N대 스코프로 `/environment/metrics` 진입)
 - 고객 보고서 (양식 A 발행)
 - 엔지니어 보고서 (양식 B 발행)
-- JSON Export (자동화 도구 입력)
+- Export (JSON, 자동화 도구 입력)
 - Install (zconverter task 발행)
 
 답: "선택한 N대에 어떤 다음 단계를 진행할 것인가?"
@@ -133,8 +135,8 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 ## 의사결정 근거
 
 활용률 임계 신호:
-- UI badge "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분
-- 서버 badge 임계(`_USAGE_WARN_PCT`·`_USAGE_DANGER_PCT`)와 환경 평균 임계(`_UTIL_LOW_PCT`·`_UTIL_HIGH_PCT`)는 별 도메인 — 값은 `web/services/mappers/shared.py` 단일 진실, 대시보드는 표현만
+- 색 분기를 갖는 건 서버 badge 뿐 — "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분. 임계 상수(`_USAGE_WARN_PCT`·`_USAGE_DANGER_PCT`)는 `web/services/mappers/shared.py` 단일 진실, 대시보드는 표현만
+- 환경 평균 이용률 게이지는 단색 — 색으로 임계 의미를 주지 않고 채움 길이가 정도를 전달 (색 상수는 `web/services/mappers/shared.py`)
 
 대시보드 평가 윈도우 14일:
 - `recommendation.WINDOW_DAYS`(14일) 단일 진실 (CLAUDE.md #F10) — 분류·평균 활용률·포화 도넛 전부 한 창 통일(#E3 화면 간 정합)
@@ -153,7 +155,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 
 ## 한계
 
-1. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/explanation/products/environment-report.md` 한계 #2와 동일 패턴).
+1. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/explanation/products/environment-report.md` 한계와 동일 패턴).
 2. 행별 권장 단일 라벨 — recommendation 분류 1개만 표시. 다중 신호(예: CPU 정상 + 메모리 부족)는 우선순위 평가 후 1개만.
 3. 실시간 현황은 30초 polling 갱신 — server push(SSE/WebSocket) 미도입. 주기 사이 변화는 다음 fetch까지 미반영.
 

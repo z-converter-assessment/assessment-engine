@@ -26,6 +26,7 @@ from assessment_engine.web.services.mappers.shared import (
     OS_FAMILY_LABEL_KO,
     RISK_LEVEL_ORDER,
     ReportView,
+    SaturationAxisDisplay,
     build_host_confidence_notes,
     lookup_os_eol,
     resolve_os_eol,
@@ -424,7 +425,7 @@ def _confidence_rows(stats: recommendation.ResourceStats) -> list[PeriodSignalRo
 
 
 def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
-    """CPU 상세 탭 "신뢰도" 카드 — U/S 2축 헤드라인 수치를 얼마나 믿을지 보완하는 원신호, 성격별 2그룹(#F9 완전
+    """CPU 상세 탭 "신뢰도" 카드 — U/S 2축 헤드라인 수치를 얼마나 믿을지 보완하는 원신호, 성격별 2그룹(#E9 완전
     노출). 대등한 두 독립 축이 아니라 전부 "신뢰도" 우산 아래 성격 구분 — 부하 신호도 사이징/근본원인 판정
     게이트(코어별 최대=단일스레드 보호, D-state=IO발 로드 오귀속 방지)라 결국 U/S 수치 해석 맥락이다.
 
@@ -464,7 +465,7 @@ def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
 
 
 def _mem_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
-    """메모리 상세 탭 "신뢰도" 카드 — CPU와 동일 개념(U/S 헤드라인 보완 원신호, 성격별 2그룹, #F9 완전 노출).
+    """메모리 상세 탭 "신뢰도" 카드 — CPU와 동일 개념(U/S 헤드라인 보완 원신호, 성격별 2그룹, #E9 완전 노출).
 
     "부하 신호" = near-peak 사용률(버킷별 max 의 p95, 비탄력 피크 사이징 기준 — assess_memory 사이징에 이미
     쓰이나 지금까지 화면에 미노출이던 값, 임계 없는 정보성). "통계 신뢰도" = CPU와 동일 host-level 입력
@@ -479,7 +480,7 @@ def _mem_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
 
 def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
     """스토리지 상세 탭 "신뢰도" 카드 — CPU/메모리와 동일 개념. 스토리지는 용량(disk_capacity)+I/O(disk_io)
-    두 축 통합이라 "부하 신호"에 양쪽 원신호를 함께 담는다(#F9 완전 노출).
+    두 축 통합이라 "부하 신호"에 양쪽 원신호를 함께 담는다(#E9 완전 노출).
 
     "부하 신호" = 용량 소진 잔여일수(bytes·inode, RS_DISK_RUNWAY_DAYS 미만이면 임박)·inode 사용률(정적 가드
     RS_DISK_STATIC_GUARD_PCT, byte 사용률과 대칭)·IOPS 활동량(baseline, 임계 없는 정보성 — 유휴 device 구분용)·
@@ -532,7 +533,7 @@ def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExt
 
 
 def _network_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
-    """네트워크 상세 탭 "신뢰도" 카드 — CPU/메모리/스토리지와 동일 개념(#F9 완전 노출).
+    """네트워크 상세 탭 "신뢰도" 카드 — CPU/메모리/스토리지와 동일 개념(#E9 완전 노출).
 
     "부하 신호" = 트래픽 baseline(net_avg_kbytes_per_s, 임계 없는 정보성) — assess_network 의 저트래픽 게이트
     (RS_NET_MIN_TRAFFIC_KBPS 미만이면 재전송·드롭 비율을 혼잡 판정에서 억제)가 왜 발동했는지 근거로 유용.
@@ -561,7 +562,7 @@ def build_period_assessment(
     disk_worst_mount — 스토리지 "사용률" 행이 worst-mount 산식(마운트 中 최댓값)임을 값에 병기하는 마운트 이름.
     ResourceStats 에는 안 둠(도메인 모델에 표시 전용 str 필드 추가 회피) — 호출부(get_period_assessment)가
     ReportRowRaw.disk_capacity_worst_mount 를 직접 전달. 실시간 카드 도넛(disk_usage_pct, 전체 마운트 가중평균)
-    과 다른 산식이라는 걸 화면에서 바로 알 수 있게 함(#F9 "의도된 차이" 명시 요청 반영).
+    과 다른 산식이라는 걸 화면에서 바로 알 수 있게 함(#E9 "의도된 차이" 명시 요청 반영).
     """
     rec = recommendation
     axes = saturation_axis_displays(stats)  # [cpu, mem, disk]
@@ -578,7 +579,7 @@ def build_period_assessment(
     # d.threshold 는 saturation_axis_displays 원문(">= 1"·"> 20ms"·"발생 시") — 다른 화면(단일 보고서 포화 축
     # 표·참고자료 임계값)과 공유하는 표시 단일 진실이라 그 원본은 불변. 이 카드만 이용률 컬럼과 같은 "임계 X" 어투
     # 통일 — 부등호(>=·>)는 "임계"라는 말 자체가 이상(以上) 의미를 담아 중복이라 제거하고 숫자만 접두.
-    def _s(label: str, d: object) -> PeriodSignalRow:
+    def _s(label: str, d: SaturationAxisDisplay) -> PeriodSignalRow:
         raw = d.threshold
         if raw.startswith("발생"):
             thr = raw
@@ -597,7 +598,7 @@ def build_period_assessment(
     cpu_u = [_u("P95 사용률", stats.cpu_p95_pct, rec.RS_CPU_UNDER_PCT)]
     mem_u = [_u("P95 사용률", stats.mem_p95_pct, rec.RS_MEM_UNDER_PCT)]
     # 스토리지 "사용률"만 다른 자원(P95 host 집계)과 달리 worst-mount 산식(가장 채워진 마운트 1개) — 실시간
-    # 도넛(전체 마운트 가중평균)과 값이 다를 수 있어 라벨·값에 worst-mount 임을 명시(#F9 의도된 차이 표기).
+    # 도넛(전체 마운트 가중평균)과 값이 다를 수 있어 라벨·값에 worst-mount 임을 명시(#E9 의도된 차이 표기).
     disk_util_val = stats.disk_used_pct
     disk_util_value = _pct_str(disk_util_val)
     if disk_util_val is not None and disk_worst_mount:
@@ -693,12 +694,12 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
     return recommendation.ResourceStats(
         cpu_p95_pct=raw.cpu_p95_pct,
         cpu_peak_pct=raw.cpu_peak_pct,
-        # load average 축 폐기(Gate0) -> Linux CPU 포화는 procs_running_p95, Windows 는 cpu_run_queue_p95 로 판정.
+        # CPU 포화는 실행 큐로 판정한다 — Linux procs_running_p95, Windows cpu_run_queue_p95.
         cpu_load_15m_max=None,
         cpu_cores=raw.cpu_cores,
         mem_p95_pct=raw.mem_p95_pct,
         mem_near_peak_pct=raw.mem_near_peak_pct,
-        # 스왑 점유(swap_used) 축 폐기(Gate0) -> 메모리 포화는 mem_swap_paging(paging_major refault sustained) 로 판정.
+        # 필드명은 점유량이지만 싣는 값은 페이징 신호다 — 메모리 포화를 swap 점유가 아니라 refault 지속으로 본다.
         swap_used=raw.mem_swap_paging,
         disk_used_pct=raw.worst_mount_used_pct,
         iowait_p95_pct=raw.iowait_p95_pct,
@@ -708,11 +709,11 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         # Windows CPU saturation — Processor Queue Length p95 / Memory 는 Pages Input/sec rate p95 (os-aware 소비).
         cpu_run_queue_p95=raw.cpu_run_queue_p95,
         mem_pages_input_rate_p95=raw.mem_pages_input_rate_p95,
-        # ─── ADR 0052 신 모델(rollup_host) 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ───
+        # ─── rollup_host 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ───
         # 가장 바쁜 코어 p95 — 단일스레드 병목 판정(RS_CPU_PERCORE_HOLD). Windows·구 agent 는 None(graceful skip).
         cpu_percore_p95_max=raw.cpu_percore_p95_max,
         procs_blocked_p95=raw.procs_blocked_p95,
-        # Linux CPU 포화 신호(load 대체) + OOM 메모리 증거 — cpu_saturated·assess_memory os-aware 소비.
+        # Linux CPU 포화 신호 + OOM 메모리 증거 — cpu_saturated·assess_memory os-aware 소비.
         procs_running_p95=raw.procs_running_p95,
         oom_occurred=raw.oom_occurred,
         mem_swap_paging=raw.mem_swap_paging,
@@ -795,7 +796,7 @@ def to_report_row_item(
     info = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
     os_eol, os_eol_status = ("", "unknown") if info is None else (info.eol_iso, info.status)
     stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
-    # 신 모델 rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생(화면 간 정합, ADR 0052 Phase D).
+    # rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생한다 (화면 간 분류 정합).
     host = recommendation.rollup_host(stats)
     # 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). assess_network status 를 라벨로.
     net_status_label = _NET_STATUS_LABEL.get(host.resources["network"].status, "미측정")

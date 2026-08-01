@@ -60,7 +60,7 @@ def build_network_topology(hosts, online_by_id: dict[int, bool] | None = None) -
     """
     # subnet CIDR -> [_Member]. 한 호스트가 같은 서브넷에 여러 IP 면 멤버십 1회만.
     subnet_members: dict[str, list[_Member]] = defaultdict(list)
-    host_id: dict[str, int] = {}  # public_id -> 내부 id (온라인 조회 online_by_id 키)
+    host_id: dict[str, int | None] = {}  # public_id -> 내부 id (온라인 조회 online_by_id 키)
     host_meta: dict[str, tuple[str, str]] = {}  # public_id -> (hostname, os_family)
     host_roles: dict[str, list[str]] = {}  # public_id -> 주요 워크로드 카테고리(시그니처만, 환경 개요 도넛·서버 목록 뱃지와 동일 기준)
     host_ifaces: dict[str, list[dict]] = {}  # public_id -> 물리 인터페이스 요약 dict (그래프 노드 툴팁 JSON)
@@ -221,6 +221,7 @@ def build_network_topology(hosts, online_by_id: dict[int, bool] | None = None) -
         for pid in surviving[net_key]:
             hostname, os_family = host_meta[pid]
             m = members.get(pid)
+            hid = host_id.get(pid)
             hosts_list.append(
                 SubnetHost(
                     hostname=hostname,
@@ -231,7 +232,7 @@ def build_network_topology(hosts, online_by_id: dict[int, bool] | None = None) -
                     origin=m.origin if m else None,
                     mtu=m.mtu if m else None,
                     speed_mbps=m.speed_mbps if m else None,
-                    is_online=bool(online_by_id and online_by_id.get(host_id.get(pid))),
+                    is_online=bool(online_by_id and hid is not None and online_by_id.get(hid)),
                     multi_homed=host_subnet_count[pid] >= 2,
                 )
             )

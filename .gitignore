@@ -1,8 +1,12 @@
 # 시크릿
 .env
-secrets/*
-!secrets/.gitkeep
-!secrets/README.md
+.env.*
+# 템플릿은 커밋한다 — 위 패턴에 걸리므로 되돌린다.
+!.env.example
+!.env.dev.example
+*.pem
+*.key
+secrets/
 
 # 빌드 산출물
 dist/
@@ -15,22 +19,23 @@ __pycache__/
 .venv/
 *.egg-info/
 
-# macOS
+# OS
 .DS_Store
+Thumbs.db
+
+# merge 잔여물
+*.orig
+*.rej
 
 # 테스트 / 빌드 캐시
 .pytest_cache/
 .ruff_cache/
-.mypy_cache/
 .coverage
 coverage*.xml
 htmlcov/
 
 # 런타임 로그
 *.log
-
-# 인프라 상태
-.vagrant/
 
 # 에디터 (JetBrains 통째 무시 / VS Code는 공용 규칙만 화이트리스트)
 .idea/

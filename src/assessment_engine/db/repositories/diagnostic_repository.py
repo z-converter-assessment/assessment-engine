@@ -1,6 +1,7 @@
 from datetime import timedelta
+from typing import Any, cast
 
-from sqlalchemy import delete, func, or_, select, text, update
+from sqlalchemy import CursorResult, Result, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -119,8 +120,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
             )
             .values(status="pending", started_at=None, progress_stage="requeued")
         )
-        result = await self.session.execute(stmt)
-        return result.rowcount or 0
+        return _affected_rows(await self.session.execute(stmt))
 
     async def list_recent(
         self,
@@ -156,8 +156,16 @@ class DiagnosticRepository(BaseDiagnosticRepository):
 
     async def delete_retention(self, older_than_days: int) -> int:
         stmt = delete(DiagnosticJob).where(DiagnosticJob.finished_at < func.now() - timedelta(days=older_than_days))
-        result = await self.session.execute(stmt)
-        return result.rowcount or 0
+        return _affected_rows(await self.session.execute(stmt))
+
+
+def _affected_rows(result: Result[Any]) -> int:
+    """UPDATE/DELETE 영향 행 수.
+
+    `session.execute` 는 정적으로 `Result` 를 돌려주지만 DML 은 런타임에 `rowcount` 를 가진
+    `CursorResult` 라 좁혀서 읽는다.
+    """
+    return cast("CursorResult[Any]", result).rowcount or 0
 
 
 def _row_to_diagnostic_record(row: DiagnosticJob) -> DiagnosticJobRecord:

@@ -12,7 +12,7 @@ import pytest
 
 from assessment_engine.consumer.handlers import _common
 from assessment_engine.consumer.handlers._common import _check_idempotent, _track_agent_restart
-from assessment_engine.consumer.settings import consumer_settings
+from assessment_engine.consumer.settings import get_consumer_settings
 
 pytestmark = pytest.mark.asyncio
 
@@ -73,7 +73,7 @@ async def test_track_restart_same_start_no_incr_no_alert():
 async def test_track_restart_changed_below_threshold_no_alert():
     """분기4a: 직전 != 현재(재시작) but count < threshold → INCR 하되 alert 없음."""
     redis = AsyncMock()
-    below = consumer_settings.agent_restart_alert_threshold - 1
+    below = get_consumer_settings().agent_restart_alert_threshold - 1
     with (
         patch.object(_common, "safe_get", AsyncMock(return_value="2026-04-30T23:00:00+00:00")),
         patch.object(_common, "safe_incr_with_ttl", AsyncMock(return_value=below)) as mincr,
@@ -89,7 +89,7 @@ async def test_track_restart_changed_below_threshold_no_alert():
 async def test_track_restart_changed_at_threshold_alerts():
     """분기4b: 직전 != 현재 + count >= threshold → warning(crash loop alert)."""
     redis = AsyncMock()
-    at = consumer_settings.agent_restart_alert_threshold
+    at = get_consumer_settings().agent_restart_alert_threshold
     with (
         patch.object(_common, "safe_get", AsyncMock(return_value="2026-04-30T23:00:00+00:00")),
         patch.object(_common, "safe_incr_with_ttl", AsyncMock(return_value=at)) as mincr,
@@ -130,7 +130,7 @@ async def test_check_idempotent_first_returns_true():
         result = await _check_idempotent(redis, _MSG_ID)
     assert result is True
     # message_id.hex 로 키 포맷
-    assert msnx.await_args.args[1] == consumer_settings.redis_key_idempotent.format(_MSG_ID.hex)
+    assert msnx.await_args.args[1] == get_consumer_settings().redis_key_idempotent.format(_MSG_ID.hex)
 
 
 async def test_check_idempotent_duplicate_returns_false():

@@ -1,12 +1,8 @@
-"""테스트 데이터 빌더 (wire). factory_boy 같은 무거운 라이브러리 대신 단순 함수.
+"""wire 계약 형태의 테스트 데이터 빌더.
 
-본 프로젝트 규모(단일 도메인·dataclass DTO)에는 함수 빌더가 정석:
-- 명시적인 default
-- 파라미터로 일부 필드만 override
-- factory_boy의 SubFactory/LazyAttribute 같은 추상화는 과도
-
-단위 canonical (v2): 시간 s(float), 크기 By(int). device 축 = 안정 id 문자열(이름 아님).
-시계열 device_id/iface_id = inventory (id_type):(id) 재구성값 — 기본값은 물리 필터·조인에 정합.
+단위는 wire 규약을 따른다 — 시간 s(float), 크기 By(int). device 축은 이름이 아니라 안정 id
+문자열이고, 시계열 `device_id`/`iface_id` 는 inventory 의 `(id_type):(id)` 를 재구성한 값이다.
+기본값을 그 규약에 맞춰 뒀으므로 물리 device 필터와 per-device 조인이 그대로 성립한다.
 """
 
 from datetime import UTC, datetime
@@ -37,19 +33,15 @@ _IFACE_ID = f"mac:{_MAC}"  # server_net_io iface_id
 
 
 def agent_id_for(label: str) -> str:
-    """테스트 편의 — 라벨(구 composite_id)을 deterministic agent_id(UUID)로 파생.
-
-    식별키가 agent_id(UUID) 라, 테스트가 composite_id 라벨로 서버를 구분하던 관습을 유지하면서
-    서버마다 고유한 agent_id 를 얻는다. find_server_id 등 식별 API 는 본 헬퍼로 파생한 값을 쓴다.
-    """
+    """라벨에서 결정적 agent_id 를 만든다 — 같은 라벨이면 같은 UUID."""
     return str(uuid5(NAMESPACE_DNS, label))
 
 
 def make_inventory(
     *,
-    agent_id: str | None = None,  # 미지정 시 composite_id 라벨 파생 (서버마다 고유 — 식별키는 agent_id)
+    agent_id: str | None = None,  # 미지정 시 composite_id 를 라벨 삼아 파생
     composite_id: str | None = "test-composite-id-0001",
-    # 미지정 시 composite_id 파생 (서버마다 고유, clone collision 진단용 감사 컬럼). 명시 None 은 보존.
+    # `__DERIVE__` 면 composite_id 에서 파생한다. 명시 None 은 그대로 둔다(미보유 호스트 재현).
     machine_id: str | None = "__DERIVE__",
     hostname: str = "test-host-01",
     agent_version: str = "1.0.0",
@@ -75,10 +67,10 @@ def make_inventory(
     boot: dict | None = None,
     nonblock_mounts: list[dict] | None = None,
 ) -> ServerInventoryCreate:
-    """기본값은 placeholder가 아닌 '정상' inventory — 미지정 시 실제와 유사한 v2 값.
+    """기본값은 placeholder 가 아니라 정상 수집된 inventory 다.
 
-    기본 block_devices = 물리 디스크(type=disk) + 루트 파티션(type=part, mountpoint=/). 물리 필터·
-    per-mount 조인에 정합. swap 은 v1 컬럼이 아니라 block_devices type=swap 노드로 표현.
+    `block_devices` 기본값은 물리 디스크(type=disk) + 루트 파티션(type=part, mountpoint=/) 이라
+    물리 필터와 per-mount 조인이 성립한다. swap 은 별도 컬럼이 아니라 type=swap 노드로 표현한다.
     """
     if agent_id is None:
         agent_id = agent_id_for(composite_id or "none")
@@ -177,7 +169,7 @@ def make_metrics(
     filesystems: list[FilesystemEntry] | None = None,
     cpu_per_core: list[CpuCoreEntry] | None = None,
 ) -> ServerMetricCreate:
-    """raw 누적값 (v2). 시간 흐름 시뮬은 호출자가 collected_at + 누적 카운터 증가로."""
+    """카운터는 누적 raw 값이다 — 시간 흐름은 호출자가 collected_at 과 값을 함께 올려 만든다."""
     return ServerMetricCreate(
         collected_at=collected_at,
         boot_time=boot_time,
@@ -272,10 +264,10 @@ def make_task_result_payload(
     message_id: str = "550e8400-e29b-41d4-a716-446655440099",
     schema_version: str = "1.0",
 ) -> dict:
-    """task.result wire JSON 빌더 — TaskResultInput.model_validate_json 검증용.
+    """task.result wire JSON — `TaskResultInput.model_validate_json` 에 그대로 넣는다.
 
-    Default 는 success 경로. failure 시 status='failure' + failure_reason 지정.
-    boot_time / agent_started_at default None — agent worker 가 항상 null 발행.
+    `boot_time`·`agent_started_at` 기본값이 None 인 것은 발행 측 worker 가 수집 캐시와 분리돼
+    있어 이 메시지에서만 항상 null 이기 때문이다.
     """
     return {
         "schema_version": schema_version,

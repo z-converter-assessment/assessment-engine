@@ -1,6 +1,6 @@
 # 설계 트레이드오프
 
-의식적 설계 선택과 그로 인한 한계 카탈로그 (T1-T18). 단순성·운영 비용·scope 기준 결정 — 버그 아님.
+의식적 설계 선택과 그로 인한 한계 카탈로그. 단순성·운영 비용·scope 기준 결정 — 버그 아님.
 
 각 항목 형식: 선택 / 대안 / 트레이드오프 / 언제 다시 봐야 하는가.
 
@@ -10,19 +10,19 @@
 - 각 항목은 현재 상태만 선언한다 — 의도된 한계와 그 근거를 기술하고, 결정에 이르게 된 이력 서사는 담지 않는다.
 - 결정 자체의 아카이브 record 는 `docs/decisions/adr/` 에 별도 보존. 각 항목 헤더의 "관련 문서" 줄이 cross-link.
 
-새 항목 추가 시: 본 파일 다음 T 번호 + 항목 작성.
+새 항목 추가 시: 본 파일 다음 T 번호 + 항목 작성. 삭제된 번호는 재사용하지 않는다.
 
 ---
 
 ## T1. 멱등성: at-most-once + 2단 방어 (fail-open 1단)
 
-> 관련 코드: `src/assessment_engine/consumer/handlers/` `_check_idempotent`, `src/assessment_engine/cache/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_repository.py` `insert_metric`
+> 관련 코드: `src/assessment_engine/consumer/handlers/` `_check_idempotent`, `src/assessment_engine/cache/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_repository.py` `record_metrics`
 >
-> 관련 문서: CLAUDE.md #D2, 결정 아카이브 `docs/decisions/adr/`
+> 관련 문서: CLAUDE.md #D2 · #C1, 결정 아카이브 `docs/decisions/adr/`
 
 선택
 1. Redis `SET idempotent:{message_id} 1 EX 86400 NX` (DB 커밋 이전). fail-open — Redis 장애 시 처리 진행.
-2. 시계열 4개 테이블에 `(server_id, [dim,] collected_at)` UNIQUE + `pg_insert.on_conflict_do_nothing`. Redis 장애·evict로 1단이 깨져도 2단이 silent no-op으로 흡수.
+2. 시계열 metric 7테이블에 `(server_id, [dim,] collected_at)` UNIQUE + `pg_insert.on_conflict_do_nothing`. Redis 장애·evict로 1단이 깨져도 2단이 silent no-op으로 흡수.
 
 대안
 - at-least-once + outbox 패턴: DB 커밋과 message ack를 동일 트랜잭션에 묶고, ack 실패 시 outbox 테이블에서 재처리. 메시지 유실 0건 보장.
@@ -38,7 +38,7 @@
 - 1분 주기 metrics는 1건 유실의 시각화 영향이 작음 (다음 사이클에서 회복).
 - inventory는 에이전트 재시작 시 재발행 (one-shot 보장이 약하지만 운영상 충분).
 - B2B 내부 포털이라 통계 정확성보다 간결한 운영을 우선.
-- fail-open은 2단(DB UNIQUE)의 흡수력에 명시적으로 의존 — 시계열 4개 테이블 UNIQUE 제약이 정상 동작해야 함.
+- fail-open은 2단(DB UNIQUE)의 흡수력에 명시적으로 의존 — 시계열 metric 7테이블 UNIQUE 제약이 정상 동작해야 함.
 
 언제 다시 봐야 하는가
 - exactly-once 보장이 계약상 필요해질 때 (감사 로그·과금 연동 등).
@@ -49,7 +49,7 @@
 
 ## T2. 캐시 일관성: cache-aside (write-around)
 
-> 관련 코드: `src/assessment_engine/web/services/query_service.py` `get_latest_metric`, `src/assessment_engine/consumer/handlers/` metrics handler
+> 관련 코드: `src/assessment_engine/web/services/query/metric.py` `get_latest_metric`, `src/assessment_engine/consumer/handlers/` metrics handler
 > 관련 문서: CLAUDE.md #D1
 
 선택
@@ -75,21 +75,20 @@
 
 ---
 
-## T3. 시계열 무한 누적
+## T3. 시계열 raw 무한 누적 (retention 정책 없음)
 
 > 관련 코드: `src/assessment_engine/db/models/server_metrics.py`, `src/assessment_engine/db/models/server_disk_io.py` 등
-> 관련 문서: CLAUDE.md #C1
+> 관련 문서: CLAUDE.md #C1 · #C5
 
 선택
-- TimescaleDB hypertable에 raw 메트릭을 그대로 누적. retention/aggregation 정책 없음.
+- TimescaleDB hypertable 의 raw 메트릭을 무기한 보존. 무거운 집계는 5분 버킷 continuous aggregate 가 흡수하고(#C5), 만료 정책만 두지 않는다.
 
 대안
 - retention policy: `add_retention_policy('server_metrics', INTERVAL '90 days')`로 오래된 청크 자동 drop.
-- continuous aggregate: 분 단위 raw + 시간/일 단위 aggregate를 미리 계산해두고 차트가 aggregate 조회.
 
 트레이드오프
 - 얻은 것: 가장 단순한 운영. 모든 raw 데이터를 영구 보존해 사후 분석 자유도 높음.
-- 포기한 것: 디스크 사용량 무한 증가. 30일 차트가 raw 30일 데이터를 매번 time_bucket로 집계 — 데이터 양 증가에 따라 응답 느려짐.
+- 포기한 것: 디스크 사용량 무한 증가. 차트(`metric_trend`, 동적 버킷)는 목적상 raw 조회라 range 가 길수록 스캔량 증가.
 
 왜 받아들였나
 - 소규모 dev 환경 서버 수와 1분 주기에서는 1개월 데이터가 ~130k행/서버. 운영 부담 미미.
@@ -98,17 +97,13 @@
 언제 다시 봐야 하는가
 - 등록 서버가 100대 이상으로 증가할 때.
 - 30일 차트 응답 시간이 200ms를 초과할 때.
-- -> continuous aggregate (분->시간->일 계층) + 90일 retention.
-
----
-
-## T4. (해소) DEV 스키마 관리 — 현행은 Alembic 단일 (guides/migrate.md)
+- -> 90일 retention policy 도입.
 
 ---
 
 ## T5. 실시간 메트릭 전달: 30초 polling
 
-> 관련 코드: `src/assessment_engine/web/services/query_service.py` `get_latest_metric`, `src/assessment_engine/web/static/js/pages/detail.js`, `chart-utils.js` `initAutoRefresh` (4탭 공용)
+> 관련 코드: `src/assessment_engine/web/services/query/metric.py` `get_latest_metric`, `src/assessment_engine/web/static/js/pages/detail.js`, `chart-utils.js` `initAutoRefresh` (4탭 공용)
 
 현황
 - 서버 상세 실시간 메트릭과 4탭(cpu/memory/storage/network) 현재 상태는 브라우저 30초 polling(`setInterval`)으로 `/metrics/latest` 를 재요청한다. Redis PUB/SUB(`metrics.events`) 푸시·SSE EventSource 메커니즘은 사용하지 않는다.
@@ -132,8 +127,8 @@
 
 ## T6. 클라이언트 차트 JS는 P3 명시 예외 (P4)
 
-> 관련 코드: `src/assessment_engine/web/templates/servers/*.html` `<script>` 블록, `src/assessment_engine/web/static/js/chart-utils.js`
-> 관련 문서: CLAUDE.md #E1 P4
+> 관련 코드: `src/assessment_engine/web/static/js/pages/`, `src/assessment_engine/web/static/js/chart-utils.js`
+> 관련 문서: CLAUDE.md #E1 P4, `docs/reference/web/static-assets.md`
 
 선택
 - 차트 JS에 그리드 계산·라벨 포매팅·Chart.js 옵션 조립 등의 연산을 허용 (P3 위반).
@@ -144,14 +139,14 @@
 - WebComponent + 프레임워크: Vue/React로 컴포넌트화하고 stale 응답을 컴포넌트 lifecycle로 관리.
 
 트레이드오프
-- 얻은 것: range 토글·anchor 변경에 즉시 반응 (서버 라운드트립 0). Chart.js 4.4.3 한 번의 CDN script load만으로 동작 — 빌드 도구 불필요.
+- 얻은 것: range 토글·anchor 변경에 즉시 반응 (서버 라운드트립 0). Chart.js UMD 빌드를 `static/js/vendor/` 에 vendoring 해 정적 서빙하므로 번들러·외부 CDN 없이 동작 (차트 쓰는 페이지가 개별 로드).
 - 포기한 것: 차트 JS가 P3 우회로가 될 가능성 — 임계값 분류·통계 재계산 같은 비즈니스 로직이 슬며시 들어올 수 있다. 5개 규약 누락 시 race condition·404 오인 등 미묘한 버그.
 
 왜 받아들였나
 - 동적 인터랙션이 필요한 차트가 ~10개. 서버 사이드 이미지 차트는 인터랙션 비용 큼.
 - 프레임워크는 빌드/배포 파이프라인 도입 비용이 본 포털 규모와 맞지 않음.
 
-P4 5 의무 규약(a~e) 적용 위치: 5개 차트 페이지(cpu/memory/storage/network/performance) inline `<script>` 본문은 `static/js/pages/{name}.js` 외부 .js로 격리. 페이지 .html은 Jinja2 변수 정의(`SERVER_ID`, `CPU_CORES`) + `defer` 로드만. 공통 유틸은 `static/js/chart-utils.js` (T9 추출).
+P4 5 의무 규약(a~e) 적용 위치: 차트 페이지 JS 본문은 `static/js/pages/` 아래 외부 .js. 페이지 .html은 Jinja2 변수 정의(`SERVER_ID`, `CPU_CORES`) + `defer` 로드만. 파일 카탈로그는 `docs/reference/web/static-assets.md` 단일 진실.
 
 ---
 
@@ -181,14 +176,14 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 > 관련 코드: `src/assessment_engine/db/repositories/query/server.py` `list_servers`
 
 선택
-- `select(ServerInventory.id, .public_id, .composite_id, ...)`로 11개 컬럼만 명시 SELECT. `mounts`/`listen_ports`/`kernel_version`/`boot_time`/`swap_total_kb`/`agent_version`/`last_seen_at`/`ip_internal`/`os_codename`/`cpu_model` 제외.
+- `select(ServerInventory.<컬럼>)`로 목록 화면이 쓰는 컬럼만 명시 SELECT — 큰 JSONB(`services`·`listen_ports`·`net_interfaces`) 제외. 서비스 뱃지는 ingest 사전계산 `service_categories`(text[]) 소비라 `services` JSONB 역직렬화가 필요 없다. 정확한 컬럼 목록은 코드가 단일 진실.
 
 대안
 - `select(ServerInventory)` 풀로우 SELECT.
 - ORM lazy loading + 필요한 속성만 접근.
 
 트레이드오프
-- 얻은 것: 페이로드 축소 — 큰 JSONB 컬럼(`mounts`, `listen_ports`)을 페이지당 N개 행에서 직렬화하지 않음.
+- 얻은 것: 페이로드 축소 — 큰 JSONB 컬럼(`services`, `listen_ports`, `net_interfaces`)을 페이지당 N개 행에서 직렬화하지 않음.
 - 포기한 것: 컬럼 추가 시 list 화면에 노출하려면 SELECT 목록을 함께 갱신 (DRY 위반 작은 케이스).
 
 왜 받아들였나
@@ -201,36 +196,33 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ---
 
-## T9. 차트 공통 JS — 인라인 중복 제거 (chart-utils.js 추출)
+## T9. 차트 공통 JS — 전역 `ChartUtils` 단일 로드 (모듈 시스템 없음)
 
-> 관련 코드: `src/assessment_engine/web/static/js/chart-utils.js`, `src/assessment_engine/web/main.py` `StaticFiles` 마운트, `src/assessment_engine/web/templates/servers/*.html`
+> 관련 코드: `src/assessment_engine/web/static/js/chart-utils.js`, `src/assessment_engine/web/main.py` `StaticFiles` 마운트, `src/assessment_engine/web/static/js/pages/`
 
 선택
-- 5개 차트 템플릿에 흩어진 공통 정의(`fmtKst` / `bindToggle` / `COLORS` / `AUTO_BUCKET` / `BUCKET_MS` / `makeBucketGrid` / `joinToGrid` / `fmtLabel` / `getAnchorEnd` / `initAnchor`)를 `/static/js/chart-utils.js`로 추출. `base.html`에서 단일 로드 -> 전역 `ChartUtils` IIFE 객체 노출.
-- 각 템플릿은 상단에서 `const { ... } = ChartUtils;`로 destructure.
+- 차트 페이지 공통 정의(시각 포매터·버킷 그리드·색·range 토글 등)는 `/static/js/chart-utils.js` 한 곳. `base.html`에서 단일 로드 -> 전역 `ChartUtils` IIFE 객체 노출. API 카탈로그는 `docs/reference/web/static-assets.md` 단일 진실.
+- 각 페이지 .js 는 상단에서 `const { ... } = ChartUtils;`로 destructure.
 
 대안
-- 인라인 유지: 각 템플릿이 자기 사본을 가짐. 빌드 도구 불필요, 한 파일만 보면 모든 로직 파악.
+- 페이지별 사본: 각 페이지 .js 가 공통 정의를 자기 안에 둠. 빌드 도구 불필요, 한 파일만 보면 모든 로직 파악.
 - 번들러 도입 (Vite/esbuild + ESM): import/export로 모듈화. 트리쉐이킹·타입체크 가능.
 - WebComponent: 차트를 컴포넌트로 분리하고 props/이벤트로 인터랙션.
 
 트레이드오프
-- 얻은 것: 중복 정의가 한 곳으로 — 시그니처 변경 시 5곳 수정 -> 1곳 수정. 템플릿 평균 200~500 라인이던 인라인 `<script>`가 200~300 라인으로 감소 (차트 데이터셋 빌드 로직만 남음).
-- 포기한 것: 모듈 시스템(import/export) 없음. `ChartUtils.X` 또는 destructure 형태로만 노출. 의존 그래프가 명시적이지 않음. 타입체크 없음 (TS 도입 X).
+- 얻은 것: 공통 정의가 한 곳 — 시그니처 변경이 1곳 수정으로 끝난다. 페이지 .js 에는 차트 데이터셋 빌드 로직만 남는다.
+- 포기한 것: 모듈 시스템(import/export) 없음. `ChartUtils.X` 또는 destructure 형태로만 노출. 의존 그래프가 명시적이지 않음.
 
 왜 받아들였나
 - 본 포털은 번들러 운영 비용(node_modules·빌드 스텝·소스맵·CI 변경) 대비 이득 작음.
 - IIFE + 단일 로드는 브라우저 캐싱 친화적이고 디버깅이 단순.
 
-외부화 형태:
-- 5개 페이지 inline `<script>` 본문은 `src/assessment_engine/web/static/js/pages/{cpu,memory,storage,network,performance}.js`.
-- 페이지 .html은 Jinja2 변수만 정의(`SERVER_ID`, `CPU_CORES`) + 외부 .js `defer` 로드.
-- 정적 자원: `chart-utils.js` + 5개 페이지 .js. node 의존성 0 — node syntax check만으로 회귀 격리.
+정적 자원 형태 (외부화 배치 자체는 T6):
+- 번들 없이 브라우저가 파일을 그대로 받는다 — 빌드 산출물 0. node 는 dev/CI 전용(타입 계약 검사·codegen)이라 런타임 의존이 아니다. 타입 계약 메커니즘은 `docs/reference/web/type-contract.md` 단일 진실.
 
 언제 다시 봐야 하는가
-- TS 타입체크 또는 ESLint 정적 검증 필요성이 명확해질 때.
-- -> 의존 최소: `tsc --checkJs --noEmit` (빌드 산출 없음, JSDoc 주석으로 타입) 또는 `eslint --rule no-undef` (npm 1개).
-- 빌드 도입은 Vite/esbuild — `app.mount("/static", ...)`을 `dist/`로 변경.
+- 모듈 그래프가 커져 전역 `ChartUtils` 노출로 의존을 못 따라갈 때.
+- -> Vite/esbuild 번들 도입 — `app.mount("/static", ...)`을 `dist/`로 변경.
 
 ---
 
@@ -240,7 +232,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 > 관련 문서: CLAUDE.md #E1 P2 · #E3, `docs/reference/web/view-models.md`
 
 선택
-- `ListenPortItem.is_well_known` (port <= 1024 boolean)
+- `ListenPortItem.is_significant` (port < 49152 boolean — 동적 포트 제외)
 - `ServerDetailResponse.sorted_services` / `sorted_listen_ports` (mapper 정렬 결과)
 - `MountUsageItem.badge_class` / `bar_color` (임계값 -> CSS 클래스/hex)
 - `MemSnapshot.cached_pct` / `buffers_pct` (stacked-bar 누적 비율)
@@ -248,11 +240,11 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 -> 이 파생 필드를 모두 mapper에서 미리 계산해 ViewModel에 둠. 템플릿/JS는 read-only.
 
 대안
-- 클라이언트 재계산: 템플릿이 `{% if p.port <= 1024 %}` / `| sort` / 임계값 `{% if pct >= 90 %}`, JS가 `mem.cached_kb / total * 100`. ViewModel은 raw에 가깝게 유지.
+- 클라이언트 재계산: 템플릿이 `{% if p.port < 49152 %}` / `| sort` / 임계값 `{% if pct >= 90 %}`, JS가 `mem.cached_kb / total * 100`. ViewModel은 raw에 가깝게 유지.
 
 트레이드오프
 - 얻은 것: P2·P3 정합 — 템플릿/JS는 표시만. 임계값/정렬 규칙 변경 시 mapper 한 곳만 수정. 캐시된 ViewModel과 SSR 직후 ViewModel이 항상 동일한 표현 결과를 만듦.
-- 포기한 것: ViewModel 필드 수 증가(`ServerDetailResponse`만 +5필드). dataclass 필드 순서 제약(`non-default follows default`)으로 default factory 필드를 끝으로 모아야 함. 캐시 직렬화 페이로드 미세 증가.
+- 포기한 것: ViewModel 필드 수 증가 — `ServerDetailResponse` 는 raw 필드 위에 mapper 파생 필드가 덧붙는다. dataclass 필드 순서 제약(`non-default follows default`)으로 default factory 필드를 끝으로 모아야 함. 캐시 직렬화 페이로드 미세 증가.
 
 왜 받아들였나
 - 임계값 변경(예: 90 -> 85)이 발생할 때 클라이언트·서버 분산이면 한쪽 누락 가능성 큼. 본 포털은 임계값 정책이 향후 조정 가능성 있음.
@@ -263,13 +255,13 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ---
 
-## T11. 단일 Redis 인스턴스 — 캐시·멱등성·PubSub 한 통합 (fail-open)
+## T11. 단일 Redis 인스턴스 — 모든 용도 한 통합 (fail-open)
 
-> 관련 코드: `src/assessment_engine/cache/redis.py` `safe_*` helper, `src/assessment_engine/consumer/handlers/`, `src/assessment_engine/web/services/query_service.py`
+> 관련 코드: `src/assessment_engine/cache/redis.py` `safe_*` helper, `src/assessment_engine/consumer/handlers/`, `src/assessment_engine/web/services/query/`
 > 관련 문서: `docs/reference/redis.md`, 결정 아카이브 `docs/decisions/adr/`
 
 선택
-- 한 Redis 인스턴스에서 4가지 역할 동시 처리: 캐시 / 온라인 TTL / 멱등성 / public_id 해석.
+- 한 Redis 인스턴스가 캐시·온라인 TTL·멱등성·시그널 쿨다운을 모두 담는다 (용도별 키·TTL 카탈로그는 `docs/reference/redis.md`).
 - eviction 정책 `volatile-lru` (TTL 있는 키만 evict 대상).
 - 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper 경유 — fail-open 정책.
 - list 화면 online 표시는 `last_seen_at` 컬럼 fallback 보유.
@@ -302,7 +294,6 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 > 관련 코드: `src/assessment_engine/db/models/server_inventory.py`, `src/assessment_engine/db/repositories/collect_repository.py`
 > 관련 문서: CLAUDE.md #C1, `docs/reference/db/models.md`, `docs/reference/contracts/agent-data.md`
-> 관련 migration: `migrations/versions/e8b4d2f6a1c9_agent_id_identity.py`
 
 선택 (현행)
 - `server_inventory` UNIQUE = `agent_id` 단독. agent_id 는 agent 가 첫 실행 시 1회 생성·영구저장하는 불변 UUID — 부팅마다 NIC MAC 이 재발급되는 환경(OpenStack Windows VM)에서도 동일 agent_id 가 자연히 같은 행을 upsert 한다. 별도 재연결 로직 없음.
@@ -332,45 +323,38 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ---
 
-## T13. 보고서 = diagnostic_jobs 통합 (job_type) + 환경 보고서 view toggle
+## T13. 보고서 = diagnostic_jobs 통합 (job_type)
 
-> 관련 코드: `src/assessment_engine/db/models/diagnostic_job.py`, `src/assessment_engine/web/services/diagnostic_service.py::record_report_emission`, `src/assessment_engine/web/templates/diagnostics/results.html`
+> 관련 코드: `src/assessment_engine/db/models/diagnostic_job.py`, `src/assessment_engine/web/services/diagnostic_service.py`
 > 관련 문서: CLAUDE.md #C1, `docs/reference/db/models.md`
-> 관련 migration: `migrations/versions/a1b2c3d4e5f6_diagnostic_jobs_job_type.py`
 
 선택
 - `diagnostic_jobs.job_type` 컬럼 (`customer_report`/`engineer_report`) — 보고서 발행이 본 테이블에 row 저장 (이력 보존).
 - 양식 분리:
   - server scope (`/reports/servers?ids=...`): row 단위 상세, 양식 A/B (`servers/report.html`).
   - environment scope (`/reports/environment`): high-level (KPI·USE Method 분류 도넛·Top N risk·OS 분포·view별 정성 요약, `reports/environment.html`). 전체 등록 서버 자동, `EnvironmentReportSummary` view_model + `mappers.environment_report`.
-- 두 라우터 모두 합성 직후 `record_report_emission` 호출 (best-effort, 응답 흐름 영향 없음).
+- 두 라우터 모두 `enqueue_report` 로 job 을 등록하고 즉시 `?job={id}` 로 돌려보낸다 — 스냅샷 생성은 전용 워커가 맡는다.
 - 보고서 이력 (`/reports/history`) 페이지 — customer + engineer union + view 필터 select. 서버 목록에서 진입점 지원 (선택 N대 버튼 + 환경 카드 link).
-- 환경 scope 보고서 페이지는 같은 페이지 안 view tab (고객 보고서/엔지니어 보고서). 각 view 는 `<iframe src="/reports/environment?view=...">` SSR 미리 렌더 + JS `display` toggle.
+- view(고객/엔지니어)는 발행 시점에 고정된다 — 스냅샷 1건이 view 1개를 담고, 다른 view 는 별도 발행이다.
 
 대안
 - 보고서를 별도 테이블 `report_jobs` 로 분리 — 모델 명확하나 두 테이블 간 통합 표시 SQL union 복잡. job_type 단일 분기로 충분.
-- view toggle 을 AJAX lazy fetch — 첫 로드 가벼우나 새 API + client JS 필요. iframe SSR 미리 렌더가 단순.
-- 보고서 본문 (HTML) 을 `result` JSONB 에 snapshot 저장 — DB 비대화 + 양식 변경 시 옛 snapshot 불일치. 현재는 메타만 저장하고 보기 시 재합성 (data 변경 시 결과 달라지는 한계 수용).
 
 트레이드오프
 - 얻은 것:
   - 보고서 발행 이력 단일 페이지에서 통합 추적.
-  - 같은 페이지에서 고객/엔지니어 보고서 즉시 비교 (toggle).
   - 모델 통합 — 보고서별 별도 service·테이블 신설 없이 기존 diagnostic_jobs 재사용.
 - 포기한 것:
-  - 매 보고서 GET 마다 row INSERT (active UNIQUE 통과 후 즉시 succeeded) — 같은 입력 N회 조회 시 N row 생성. retention 90일로 sizing 자체는 OK 이나 dedup view 또는 view_count 증분 모델은 미적용.
-  - 환경 진단 결과 페이지 매 로드 시 iframe 2개 동시 fetch — 보고서 페이지 자체가 무거우면 (server N대 SQL 5x2) 첫 표시 늦음. 캐시는 미적용.
-  - `result` JSONB 에 양식 HTML snapshot 미저장 — 옛 보고서 재조회 시 raw data 변경 영향. snapshot 의도면 별도 결정.
+  - 발행 1회가 row 1건(N대 선택은 parent 1 + child N) — 같은 입력 더블클릭은 active partial UNIQUE 로 기존 job 에 합류하나, 시각·view 를 바꿔 반복 발행하면 이력 row 가 선형 증가. `delete_retention` 은 리포지토리에 있으나 호출하는 실행 경로가 없어 오래된 row 가 그대로 남는다.
+  - 양식(템플릿) 변경 시 옛 스냅샷은 발행 당시 구조 그대로라 현행 양식과 어긋날 수 있다. 스냅샷에 양식 버전 태깅은 미적용.
 
 왜 받아들였나
-- 보고서 발행은 운영자가 명시 액션 (선택 N대 -> 보고서 버튼) — 매 발행은 의미 있는 이벤트라 row 1개 기록 OK.
-- 환경 진단 결과 페이지 부담은 운영자가 명시 진입 시점만 — list page 같은 hot path 아님.
-- snapshot 미적용은 보고서 자체가 시계열 raw -> 양식 합성이라 data drift 자연스러움. 정확한 시점 snapshot 필요 시 별도 PDF export 기능으로 분리.
+- 보고서 발행은 운영자가 명시 액션 (선택 N대 -> 보고서 버튼) — 매 발행이 의미 있는 이벤트라 이력 row 로 남겨도 OK.
+- 스냅샷 보존이 목적이라 재조회는 raw data 변경과 무관하게 발행 시점을 그대로 재현.
 
 언제 다시 봐야 하는가
-- 보고서 row 가 운영에서 폭증 (운영자가 N회 새로고침) 시 -> dedup 또는 view_count 증분 모델.
-- 환경 진단 결과 페이지 첫 표시 느림 운영자 불만 시 -> 보고서 페이지 server-side 캐시 또는 lazy fetch 전환.
-- 보고서 snapshot 필요 운영 요구 시 -> `result` JSONB 에 합성 결과 저장 + size 모니터링.
+- 이력 row 가 폭증하면 -> worker 에 retention purge tick 추가(`delete_retention` 주기 호출).
+- 양식 변경으로 옛 스냅샷과 현행 템플릿 불일치가 문제가 되면 -> 스냅샷에 양식 버전 태깅.
 
 ## T14. Windows saturation 임계 근거 비대칭 + perflib 의존
 
@@ -390,25 +374,25 @@ right-sizing 분류는 USE Method 의 Utilization + Saturation 두 축을 본다
 - Windows 메모리 페이징 오탐/누락이 관측되면 -> 실측 분포로 `WIN_PAGES_INPUT_SATURATION` 재보정 (현재 20 pages-input/sec, Microsoft '체감 저하' 관례).
 - perflib 미발행이 특정 Windows 환경에서 상시화되면 -> agent 측 수집 경로 점검 (엔진은 미관측으로 정직 처리, 신호원 자체는 agent repo 이슈).
 
-## T15. 서비스 분류 — services <-> listen_ports join key 부재 (호스트 union 으로 보완)
+## T15. 서비스 분류 — pid 부재 유닛의 per-unit 귀속 한계 (호스트 union 으로 보완)
 
-agent 메시지의 `services[]`(unit·sub)와 `listen_ports[]`(proto·port·comm·pid) 사이에 신뢰할 join key 가 없다 — services 가 pid/exe 를 발행하지 않아 "이 service unit 이 그 포트를 연다"를 확정할 수 없다. Windows agent 는 `EnumServicesStatusExW(SC_ENUM_PROCESS_INFO)` 가 `dwProcessId` 를 쥐고도 안 싣고(엔진이 못 바꾸는 제약), Linux 는 `systemctl list-units` 파싱이라 pid 없음. 그래서 per-unit 분류(`classify`)는 comm/port 를 `comm~name` 귀속될 때만 쓸 수 있고, 이름이 comm 과 무관한 opaque 서비스를 per-unit 으론 못 잡는다.
+agent 는 `services[]` 에 pid/exe 를, `listen_ports[]` 에 pid/comm 을 싣는다. 양쪽에 pid 가 있으면 `_attributed_ports` 가 동일 pid 소켓만 귀속해 per-unit 분류(`classify`)가 확정된다. pid 가 null 인 구간(소켓 액티베이션 리스너·비-systemd 열거·권한 부족 Windows 포트)에서만 `comm~name` substring -> name well-known 포트 순 fallback 이라, 이름이 comm 과 무관한 opaque 서비스를 그 구간에서 per-unit 으론 못 잡는다.
 
-agent 불변 전제의 최선 — 호스트 워크로드 union:
+pid 부재 구간 보완 — 호스트 워크로드 union:
 - 뱃지/role/환경분포는 per-unit 분류에 의존하지 않고, `detect_listen_categories(listen_ports)` 로 listen 소켓을 직접 분류(comm/port)해 services 이름 분류와 합집합(`workload_category_counter`)한다. listen 소켓의 comm·port 는 깨끗·안정 식별자라 opaque 이름을 우회 — `MSSQL$무엇` 이든 1433/`sqlservr` 로 db 탐지.
 
 - 포기한 것(union 후 잔존):
   - listen 안 하거나 localhost-only 바인드 워크로드 + opaque 이름 = 두 소스 모두 못 잡아 미상. (listen 하는 워크로드는 union 으로 거의 구제됨.)
-  - per-unit services 탭의 행별 카테고리는 여전히 이름 기반 best-effort — opaque unit 은 그 행에서 unknown (호스트 뱃지는 union 으로 db 표시되어도). 행 단위 정확 귀속은 pid join 부재로 불가.
+  - pid 미발행 유닛에 한해 services 탭의 행별 카테고리가 이름 기반 best-effort — opaque unit 은 그 행에서 unknown (호스트 뱃지는 union 으로 db 표시되어도).
 
-  호스트 union 은 ingest 시 1회 계산(`compute_service_categories`)해 `server_inventory.service_categories`(text[])에 저장 — 목록·상세·리포트·필터가 동일 저장값 소비라 화면 간 카테고리 집합 비대칭 0(목록은 listen_ports 재로드·행별 재분류 없이 경량 유지, #E7). 남는 한계는 위 per-unit 행 단위 귀속뿐.
+  호스트 union 은 ingest 시 1회 계산(`compute_service_categories`)해 `server_inventory.service_categories`(text[])에 저장 — 목록·상세·리포트·필터가 동일 저장값 소비라 화면 간 카테고리 집합 비대칭 0(목록은 listen_ports 재로드·행별 재분류 없이 경량 유지, #E7). 남는 한계는 위 pid 미발행 유닛의 행 단위 귀속뿐.
 
 왜 받아들였나
 - per-unit 귀속 게이트를 풀어 임의 listen 포트를 아무 unknown service 에 붙이면 multi-service 호스트(nginx:80 + opaque:1433)에서 오분류 — 그래서 per-unit 은 보수적으로 두고, 호스트 레벨에서만 union 으로 보충(set 합집합이라 오분류 아닌 "탐지 누락 보완").
 - 분류 산출물(뱃지·role)은 본질적으로 "이 호스트가 무슨 워크로드를 도느냐" 의 근사 — listen 이 그 질문의 직접 증거다.
 
 언제 다시 봐야 하는가
-- agent 가 `services[]` 에 main pid 또는 exe basename 을 실어주면 -> listen_ports 와 pid join 으로 per-unit 정확 귀속, 행 단위까지 정확. union 보완 불필요.
+- pid null 구간이 좁혀지면(소켓 액티베이션 리스너의 소유자 해석 등) -> `comm~name` fallback 휴리스틱 제거.
 
 ## T16. 비동기 보고서 발행 — 전용 워커 job-claim (DB 상태머신)
 
@@ -416,12 +400,13 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 - 보고서 발행은 비동기다: emit 은 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환, 전용 워커 프로세스(`assessment_engine.worker`)가 job 을 claim 해 생성한다. consumer 큐 워커가 아니라 전용 워커 + DB 상태머신 방식.
 
 왜 consumer 큐 워커가 아니라 전용 워커 프로세스인가
-- 보고서 생성 코드(query_service report 메서드 + mappers·view_models·serializer, 약 4900+ LOC)가 web/services 강결합. consumer(F4 BaseCollectRepository 만)로 위임하면 web 표시계층 절반을 web 비의존 패키지로 승격하는 대공사 + 양방향 의존. 워크로드가 DB 집계 I/O(수초)라 큐 분리 효용도 낮다. 전용 워커는 web/services 를 그대로 재사용(단일 이미지)하면서 별도 프로세스로만 뗀다 — 추출 0.
+- 보고서 생성 코드(query_service report 메서드 + mappers·view_models·serializer)가 web/services 강결합. consumer(F4 BaseCollectRepository 만)로 위임하면 web 표시계층 절반을 web 비의존 패키지로 승격하는 대공사 + 양방향 의존. 워크로드가 DB 집계 I/O(수초)라 큐 분리 효용도 낮다. 전용 워커는 web/services 를 그대로 재사용(단일 이미지)하면서 별도 프로세스로만 뗀다 — 추출 0.
 - 메모리 task 방식은 in-flight 손실 위험으로 기각 — job 상태를 DB 에 두고 stale 복구로 그 손실을 무효화한다(FOR UPDATE SKIP LOCKED 로 멀티노드 분산까지).
 
 포기한 것 / 한계
 - 워커가 web/services(application 계층)를 import 하는 패키지 의존은 단일 이미지 전제에 묶인다 — web/services 를 중립 패키지로 추출하려면 별도 ADR(현재 불필요, 런타임 무해).
-- 크래시/타임아웃으로 parent 가 running 잔류 -> stale 복구 후 재처리 시, 이전 run 에서 이미 succeeded 로 만든 child(단일 보고서)가 orphan 으로 이력에 중복될 수 있다. 데이터 정합성 허점은 아님 — parent succeeded 시 `child_jobs` 는 최신 유효분을 가리키고, orphan child 는 retention 으로 정리. child 멱등(같은 input_hash succeeded 재사용)·재처리 전 cleanup 은 드문 크래시 경로라 미구현.
+- 크래시/타임아웃으로 parent 가 running 잔류 -> stale 복구 후 재처리 시, 이전 run 에서 이미 succeeded 로 만든 child(단일 보고서)가 orphan 으로 이력에 중복될 수 있다. 데이터 정합성 허점은 아님 — parent succeeded 시 `child_jobs` 는 최신 유효분을 가리킨다. 다만 orphan child 는 자동 정리 경로가 없어 이력에 남고, child 멱등(같은 input_hash succeeded 재사용)·재처리 전 cleanup 은 드문 크래시 경로라 미구현.
+- child fan-out 은 raws·breakdown·details 를 배치 1회 조회하나 trend·online 조회는 서버별로 남는다 — cpu/mem/disk 가 다른 테이블이라 단일 SQL 불가, 서버별 시계열이라 배치 불가.
 
 왜 받아들였나
 - 발행 응답을 즉시(job_id)로 만들어 N 증가에도 사용자 응답 시간 일정 — 가장 큰 요구(발행 느림) 해소. 생성은 백그라운드.
@@ -429,8 +414,7 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 
 언제 다시 봐야 하는가
 - 생성 처리량이 부족하면 -> worker replica 를 늘려 수평 확장(SKIP LOCKED 로 중복 claim 안전, web 과 독립 스케일).
-- orphan child 중복이 운영 이슈로 부상하면 -> child 멱등(get_latest_succeeded_by_hash 재사용) 또는 parent 재처리 전 이전 child cleanup.
-- A2(aggregate/net 중복 제거)·A3(breakdown 배치)·A5(fan-out prefetch 배치)는 적용 완료 — child fan-out 의 raws·breakdown·details 를 배치 1회 조회(`build_child_prefetched_reports` -> `get_single_server_report(prefetch=)`). A4(trend)만 보류: cpu/mem/disk 가 다른 테이블이라 단일 SQL 불가, 서버별 시계열이라 배치 불가, gather 는 QueryService composition root 대수술 + 커넥션 3배 + B 백그라운드라 응답 ROI 0. trend·online redis 는 서버별 잔존.
+- orphan child 중복이 운영 이슈로 부상하면 -> child 멱등(같은 input_hash 의 succeeded child 재사용 조회를 신설) 또는 parent 재처리 전 이전 child cleanup.
 
 ## T17. install 배달 창 단일 정합 — deadline == 큐 TTL
 
@@ -454,14 +438,14 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 ## T18. 용량 runway 전체 이력 집계 — cagg 하한 술어 예외
 
 무엇을
-- `report_aggregate` 의 mount_span CTE 는 `server_mount_usage_5m` cagg 를 `WHERE server_id = ANY(:sids) AND bucket <= :end` 로 조회한다 — 다른 CTE(분류·포화·품질)가 전부 `bucket >= :start`(14일 창) 인 것과 달리 하한 술어가 없다. 용량 runway(바이트·inode 소진 일수)는 실제 관측 span 전체의 fill_rate 로 산출하기 때문이다(#C5 partition pruning 하한 술어 원칙의 의식적 예외).
+- `report_aggregate` 의 mount_span CTE 는 `server_filesystem_5m` cagg 를 `WHERE server_id = ANY(:sids) AND bucket <= :end` 로 조회한다 — 다른 CTE(분류·포화·품질)가 전부 `bucket >= :start`(14일 창) 인 것과 달리 하한 술어가 없다. 용량 runway(바이트·inode 소진 일수)는 실제 관측 span 전체의 fill_rate 로 산출하기 때문이다(#C5 partition pruning 하한 술어 원칙의 의식적 예외).
 
 왜 전체 이력인가
-- CPU·메모리 이용률은 변동 신호라 최근 14일 대표 부하로 p95 를 뽑는다(오래된 데이터는 지금을 대변 못 함). 반면 디스크 용량은 누적 신호라 채워지는 속도(추세)가 곧 모델이고, 데이터가 길수록 기울기가 정확하다. 14일 창으로 자르면 완만히 차는 볼륨의 runway 를 과소·과대 추정한다. 그래서 runway 만 분류 창과 분리해 전체 이력을 쓴다(윈도우 3분리 기준, #F10).
+- CPU·메모리 이용률은 변동 신호라 최근 14일 대표 부하로 p95 를 뽑는다(오래된 데이터는 지금을 대변 못 함). 반면 디스크 용량은 누적 신호라 채워지는 속도(추세)가 곧 모델이고, 데이터가 길수록 기울기가 정확하다. 14일 창으로 자르면 완만히 차는 볼륨의 runway 를 과소·과대 추정한다. 그래서 runway 만 분류 창과 분리해 전체 이력을 쓴다(윈도우 2분리 기준, #F10).
 
 포기한 것 / 한계
 - 하한 없는 조회라 해당 서버의 데이터 볼륨 마운트 전 chunk 를 스캔한다 — cagg 보존 기간이 길어질수록 스캔량이 unbounded 로 증가. 현재는 5분 버킷·데이터 볼륨 한정이라 규모가 작아 수용하나, cagg retention 이 수개월+로 늘면 runway 조회 비용이 선형 증가한다.
-- cagg 재생성(마이그레이션) 직후엔 materialized 청크가 비어 real-time aggregation(raw hypertable)에 의존하는데, raw `server_mount_usage` 보존 기간이 필요 이력보다 짧으면 오래된 endpoint 를 잃어 runway 가 짧은 span 으로 근사된다(continuous aggregate 패턴 내, 운영 관찰 대상).
+- cagg 재생성(마이그레이션) 직후엔 materialized 청크가 비어 real-time aggregation(raw hypertable)에 의존하는데, raw `server_filesystem` 보존 기간이 필요 이력보다 짧으면 오래된 endpoint 를 잃어 runway 가 짧은 span 으로 근사된다(continuous aggregate 패턴 내, 운영 관찰 대상).
 - 2점(first/last) 선형 fill_rate 라 비단조(정리 후 급락·계절 변동)에 약하다. 강건 추정(Theil-Sen)은 SQL O(n^2) 비용으로 미채택 — 완만·단조 증가 가정에서만 신뢰(#E3 report mapper 소비, 신뢰도 축이 짧은 이력을 흡수).
 
 왜 받아들였나
@@ -514,3 +498,26 @@ agent 불변 전제의 최선 — 호스트 워크로드 union:
 언제 다시 봐야 하는가
 - 화면 간 네트워크 판정 불일치가 실제 운영 혼선을 부르면 -> `SaturationRaw` 에 net traffic 필드 추가 후 실시간 net 축을 `net_signal_active` 경유로 교체(저트래픽 억제 + strict `>` 통일).
 - disk await 경계를 정합하려면 -> index 소비 게이트를 `> 1.0` 으로 좁히거나 `disk_io_saturated` 를 `>=` 로 통일(docstring "동일 로직" 선언과 일치).
+
+## T21. 계약 예시가 에이전트 실제 발행과 일치하는지 확인할 채널 없음
+
+> 관련 문서: `docs/reference/contracts/agent-data.md`, `docs/reference/contracts/wire-examples.json`
+
+무엇을
+- wire 계약의 정본은 넷이다 — 계약 문서의 필드 표, JSON Schema, 인바운드 Pydantic 모델, 에이전트 C 소스. 앞의 셋은 저장소 안에 있어 CI 가 서로 대조한다(예시가 스키마를 만족하는지, 스키마가 허용한 값을 Pydantic 이 수용하는지).
+- 네 번째인 에이전트 C 소스는 다른 저장소에 있고, 그것이 실제로 발행하는 메시지와 저장소의 예시 파일이 여전히 같은지 확인하는 자동 채널이 없다. 예시는 사람이 쓴 것이고, 에이전트가 필드를 바꿔도 여기서는 아무 신호가 나지 않는다.
+
+왜 이대로 두나
+- 실 환경 메시지를 캡처하려면 고객사 내부망에 배포된 에이전트가 필요하다. 개발 환경에는 그 에이전트가 없고, 합성 발행기를 만들면 그것 자체가 계약의 네 번째 정본이 되어 같은 문제를 한 겹 늘린다.
+- 인바운드 모델이 모르는 필드를 통과시키므로(`extra=ignore`) 에이전트가 필드를 추가하는 방향의 드리프트는 메시지를 죽이지 않는다. 위험한 것은 기존 필드의 값 종류가 바뀌는 경우인데, 그건 계약 버전(major)을 올려야 하는 변경이라 통보 경로가 따로 있다.
+
+포기한 것 / 한계
+- 예시 파일이 낡아도 CI 는 통과한다. 세 정본끼리 정합하기만 하면 되고, 그 셋이 함께 현실과 어긋날 수 있다.
+- 에이전트가 계약 버전을 올리지 않고 값 종류를 바꾸면(minor 로 잘못 판단하거나 실수로) 그 필드를 쓰는 축이 조용히 유실된다. 매퍼가 값 타입 차이를 흡수하도록 고쳐 이 실패 모드의 폭은 줄였으나, 흡수 범위 밖의 변경은 여전히 드러나지 않는다.
+
+왜 받아들였나
+- 배포 비대칭이 이 시스템의 전제다. 에이전트가 고객사마다 다른 버전으로 떠 있어 "현재 에이전트 버전" 이라는 단일 기준 자체가 없다.
+
+언제 다시 봐야 하는가
+- 에이전트 저장소와 CI 를 연동할 수 있게 되면 -> C 소스에서 발행 필드 목록을 추출해 예시·스키마와 대조하는 게이트 추가.
+- 실 환경에서 원인 불명의 축 유실이 관측되면 -> 그 시점에 메시지를 캡처해 예시 파일을 갱신하고, 같은 유형을 잡는 경계 fixture 를 추가.

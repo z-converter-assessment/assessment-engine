@@ -4,7 +4,7 @@
 
 ## 본 프로젝트의 Alembic
 
-ORM(`Base.metadata`)과 DB schema의 diff를 `migrations/versions/*.py` revision 파일로 기록하고 `alembic upgrade head` 한 줄로 누적 적용한다. DB의 `alembic_version` 테이블이 적용 revision id를 보관 — 환경마다 자기 상태를 알아 누락 revision만 자동 실행.
+ORM(`Base.metadata`)과 DB schema의 diff를 `src/assessment_engine/migrations/versions/*.py` revision 파일로 기록하고 `alembic upgrade head` 한 줄로 누적 적용한다. DB의 `alembic_version` 테이블이 적용 revision id를 보관 — 환경마다 자기 상태를 알아 누락 revision만 자동 실행.
 
 핵심 용어 (본 문서에서 사용)
 
@@ -15,13 +15,22 @@ ORM(`Base.metadata`)과 DB schema의 diff를 `migrations/versions/*.py` revision
 | autogenerate | ORM vs DB schema diff -> revision 파일 자동 생성. `create_hypertable` 등 확장은 수동 보강 의무 |
 | `alembic_version` 테이블 | DB 자동 생성. 현재 revision id 저장 |
 
+패키지 안에 두어 별도 포장 설정 없이 이미지에 동봉된다. `_alembic.ini` 의 `script_location` 이 자기 위치 기준 상대경로라 두 파일이 같은 디렉토리에 있어야 한다.
+
 ```
-migrations/
-├── env.py                ← Base.metadata + asyncpg 비동기 패턴 + web_settings.database_url 주입
-├── script.py.mako        ← 신규 revision 템플릿
-├── versions/             ← 마이그레이션 파일 (revision id 순 자동 생성)
-└── README
-alembic.ini               ← 설정 (sqlalchemy.url은 env.py가 런타임 주입)
+src/assessment_engine/
+├── _alembic.ini          ← 설정 (sqlalchemy.url은 env.py가 런타임 주입)
+└── migrations/
+    ├── env.py            ← Base.metadata + asyncpg 비동기 패턴 + WebSettings().database_url 주입
+    ├── script.py.mako    ← 신규 revision 템플릿
+    ├── versions/         ← 마이그레이션 파일 (revision id 순 자동 생성)
+    └── README
+```
+
+호스트에서 직접 실행할 때는 설정 경로를 환경변수로 준다. 컨테이너는 이미지가 `ALEMBIC_CONFIG` 를 들고 있어 그냥 `alembic <명령>` 으로 쓴다 — compose 없이 `docker run` 해도 성립한다.
+
+```bash
+export ALEMBIC_CONFIG=src/assessment_engine/_alembic.ini
 ```
 
 ## 자동 적용 — migrate 컨테이너
@@ -31,7 +40,7 @@ docker-compose에 `migrate` 서비스가 정의되어 있다. 동작:
 1. postgres 컨테이너 `healthy` 대기
 2. `alembic upgrade head` 1회 실행
 3. 종료 (restart 안 함)
-4. web/consumer가 `migrate` 종료 후에만 기동 (`depends_on: service_completed_successfully`)
+4. web·consumer·worker 가 `migrate` 종료 후에만 기동 (`depends_on: service_completed_successfully`)
 
 즉 `docker compose up` 한 번이면 schema가 항상 최신. 환경(dev/staging/prod) 무관 — 같은 컨테이너·같은 절차.
 
@@ -39,7 +48,7 @@ docker-compose에 `migrate` 서비스가 정의되어 있다. 동작:
 
 ## DB URL 주입
 
-`alembic.ini`의 `sqlalchemy.url`은 비어있음. `migrations/env.py`가 `web_settings.database_url`로 런타임 주입 — `.env` / Docker secrets 등 동일 환경변수 정책 활용. migrate 컨테이너는 `POSTGRES_HOST=postgres` 환경변수 자동 주입.
+`_alembic.ini`의 `sqlalchemy.url`은 비어있음. `src/assessment_engine/migrations/env.py`가 `WebSettings().database_url`로 런타임 주입 — `.env` / Docker secrets 등 동일 환경변수 정책 활용. migrate 컨테이너는 `POSTGRES_HOST=postgres` 환경변수 자동 주입.
 
 호스트에서 직접 alembic 실행 시 `POSTGRES_HOST` env 명시 필요 (default `postgres`는 docker-compose 서비스명):
 
@@ -76,7 +85,7 @@ DB가 이미 띄워진 상태에서:
 docker compose run --rm migrate alembic revision --autogenerate -m "add boot_time to server_metrics"
 ```
 
-`migrations/versions/<id>_add_boot_time_*.py` 파일 자동 생성. ORM과 DB schema 차이만큼 `upgrade()`·`downgrade()` 본문이 채워진다.
+`src/assessment_engine/migrations/versions/<id>_add_boot_time_*.py` 파일 자동 생성. ORM과 DB schema 차이만큼 `upgrade()`·`downgrade()` 본문이 채워진다.
 
 ### 3. 수동 보강 (autogenerate 미지원 영역)
 
@@ -118,7 +127,7 @@ ORM 모델과 현재 DB schema에 차이가 있으면 exit 1. 차이가 있다�
 마이그레이션 파일 + 모델 변경을 한 커밋으로 (CLAUDE.md #C4 의무).
 
 ```bash
-git add src/assessment_engine/db/models/ migrations/versions/
+git add src/assessment_engine/db/models/ src/assessment_engine/migrations/versions/
 git commit -m "..."
 ```
 
@@ -129,24 +138,23 @@ git commit -m "..."
 | 환경 | 적용 시점 | 자동 여부 |
 |------|----------|----------|
 | dev (`docker compose up`) | up 시점에 migrate 컨테이너 자동 실행 | 자동 |
-| prod (compose) | base compose `migrate` init-container 가 web/consumer 기동 전 `alembic upgrade head` 실행 (deploy.sh rollout 내재, 이미지 안 `_alembic.ini`+`migrations/`) | 자동 |
+| prod (compose) | base compose `migrate` init-container 가 앱 서비스(web·consumer·worker) 기동 전 `alembic upgrade head` 실행 (deploy.sh rollout 내재, 이미지 안 `_alembic.ini`+`migrations/`) | 자동 |
 | 테스트 (`pytest`) | testcontainers fixture가 alembic upgrade subprocess 실행 (`tests/conftest.py`) | 자동 |
 
 prod에 큰 변경(데이터 손실 가능 DROP·대량 행 ALTER) 적용 전 — 배포 환경 이미지 컨테이너에서:
 
 ```bash
-# 이미지 컨테이너 안에서 (예시)
-ALEMBIC_INI=$(python -c 'from importlib.resources import files; print(files("assessment_engine") / "_alembic.ini")')
+# 이미지가 ALEMBIC_CONFIG 를 갖고 있어 경로 지정 없이 실행된다.
 
 # history 확인 — 어디까지 가는지
-python -m alembic -c "$ALEMBIC_INI" history
+docker compose run --rm migrate alembic history
 
 # offline SQL 추출 — 실행될 DDL 미리 검토
-python -m alembic -c "$ALEMBIC_INI" upgrade head --sql > /tmp/migration.sql
+docker compose run --rm migrate alembic upgrade head --sql > /tmp/migration.sql
 cat /tmp/migration.sql
 
 # 검토 OK면 적용
-python -m alembic -c "$ALEMBIC_INI" upgrade head
+docker compose run --rm migrate alembic upgrade head
 ```
 
 ## DEV·PROD 동일 책임 매트릭스
@@ -162,7 +170,7 @@ python -m alembic -c "$ALEMBIC_INI" upgrade head
 
 ## Backward compatibility — 무중단 deploy 시 schema 변경 단계 (#C4)
 
-본 프로젝트 현재 dev `down -v` 흔하고 prod도 init container 패턴이라 한 번에 적용되지만, 컨테이너 rolling restart 도입(예: blue-green / 오랫동안 실행되는 worker가 옛 schema 가정으로 INSERT 시도) 시 backward compatibility 단계 적용 의무. CLAUDE.md #C4 정책의 운영 절차.
+prod rollout 은 init container 패턴이라 스키마가 한 번에 적용되지만, backward compatibility 는 지금도 의무다 — `deploy.sh` 의 rollback 이 이미 마이그레이션된 스키마 위에 직전 이미지를 올리므로 구버전 코드가 새 스키마에서 동작해야 복구가 성립한다. rolling restart·blue-green 을 도입하면 그 위에 동시 실행 구간이 더해진다. CLAUDE.md #C4 정책의 운영 절차.
 
 ### Column 추가
 
@@ -213,4 +221,4 @@ op.add_column("server_metrics", sa.Column("new_field", sa.Integer(), nullable=Fa
 | `Target database is not up to date` | migrate가 적용 안 된 상태에서 alembic 명령 호출 | `alembic upgrade head` 먼저 |
 | `Can't locate revision identified by '<id>'` | git pull 후 마이그레이션 파일 누락 | `git pull` 다시, 마이그레이션 디렉토리 확인 |
 | `alembic check` 실패 | 모델 변경 후 마이그레이션 안 만듦 | autogenerate로 revision 생성 후 commit |
-| autogenerate가 hypertable index를 매번 drop 처리 | `{table}_collected_at_idx`는 TimescaleDB 자동 생성 객체 | `migrations/env.py:_include_object`가 이미 필터링 — 본 패턴 외 새로운 자동 생성 객체는 본 함수에 추가 |
+| autogenerate가 hypertable index를 매번 drop 처리 | `{table}_collected_at_idx`는 TimescaleDB 자동 생성 객체 | `src/assessment_engine/migrations/env.py:_include_object`가 이미 필터링 — 본 패턴 외 새로운 자동 생성 객체는 본 함수에 추가 |

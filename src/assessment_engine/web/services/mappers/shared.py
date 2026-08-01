@@ -158,7 +158,7 @@ def spec_display_line(cpu_cores: int | None, mem_total_bytes: int | None, block_
     실무정석: 값은 2진(GiB, 2^30)이되 라벨은 "GB"(free -h·df -h·클라우드 콘솔 관습) — OS·RAM·OpenStack
     프로비저닝이 2진 기준이라 30GiB 디스크가 "30GB"로 떨어져 딱 맞음. 각 값 부재는 "—".
     """
-    disk_bytes = disk_total_bytes(block_devices)
+    disk_bytes = disk_total_bytes(block_devices or [])
     # 메모리 = RAM 계열 bytes_to_gib(1dp, 카탈로그 단일진실 — 인라인 나눗셈 대신 함수 경유로 base 변경 시 한 곳).
     # 디스크 = bytes_to_gb(카탈로그). compact 표는 정수 표기(.0f)라 두 함수의 소수 자릿수는 포맷이 덮음.
     mem_gib = bytes_to_gib(mem_total_bytes)
@@ -301,7 +301,7 @@ DIAGNOSTIC_RANGE_LABEL_KR: dict[str, str] = {
 # 정적 JSON 을 모듈 로드 시 1회 읽음. 런타임 외부 의존 0 (폐쇄 내부망 #A0). 갱신 = 스냅샷 재실행 + commit.
 # 신뢰성: endoflife.date 는 벤더 공식 문서 기반 + 분기 검토 (ADR 0031). 미등록 OS 는 침묵 (의식적 한계).
 _EOL_CATALOG_PATH = Path(__file__).parent / "os_eol_catalog.json"
-_EOL_CATALOG: dict = json.loads(_EOL_CATALOG_PATH.read_text(encoding="utf-8"))
+_EOL_CATALOG: dict[str, list[dict]] = json.loads(_EOL_CATALOG_PATH.read_text(encoding="utf-8"))
 
 # agent os_id(/etc/os-release ID) -> endoflife product slug. 대부분 동일, 예외만 명시.
 # 미등록 os_id 는 None (EOL 판정 불가 침묵). windows 는 build 기반이라 본 dict 밖 별도 분기.

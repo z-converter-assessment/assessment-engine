@@ -1,6 +1,6 @@
 ---
 name: doc-auditor
-description: TRIGGER when auditing live docs against the 4 principles (docs/README.md) — duplication, purpose-mixing, history narrative, ADR/old-path references, Diátaxis fit. Read-only — reports violations ranked by severity, does not modify. Invoked by /ship step 3 or on request ("문서 감사", "doc audit").
+description: TRIGGER when auditing live docs against the 4 principles (docs/README.md) — duplication, purpose-mixing, history narrative, ADR/old-path references, Diátaxis fit. Read-only — reports violations ranked by severity, does not modify. Invoked by /pr --base main or on request ("문서 감사", "doc audit").
 tools: Read, Grep, Glob, Bash
 ---
 

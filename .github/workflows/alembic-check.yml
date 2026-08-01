@@ -1,13 +1,11 @@
 name: alembic-check
 
-# ORM 모델 변경 + 마이그레이션 누락 자동 검출.
-# 운영 정책 단일 진실: CLAUDE.md #C4 + docs/operations/alembic.md.
+# ORM 모델을 고치고 마이그레이션을 안 만든 경우를 검출한다. 절차는 docs/guides/migrate.md.
 
 on:
-  # main PR 에서만 — ORM-migration drift 는 develop->main PR 단일 게이트에서 차단. paths 조건 없이 항상
-  # 발화(required status check 가 paths skip 으로 N/A 되어 머지 block 되는 함정 회피). alembic check(~10s) 경량.
+  # paths 조건 없이 항상 발화 — required status check 가 paths skip 으로 N/A 되어 머지가 막히는 함정 회피.
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 permissions:
   contents: read
@@ -23,7 +21,7 @@ jobs:
 
     services:
       postgres:
-        # ADR 0024: pgvector extension 의무 — timescaledb-ha 변형 (TimescaleDB + pgvector + postgis all-in-one).
+        # 운영과 같은 이미지 — TimescaleDB·pgvector·postgis 를 한 이미지에 담은 변형이다.
         image: timescale/timescaledb-ha:pg16
         env:
           POSTGRES_DB: assessment_ci
@@ -39,6 +37,7 @@ jobs:
 
     env:
       APP_ENV: dev
+      ALEMBIC_CONFIG: src/assessment_engine/_alembic.ini
       POSTGRES_HOST: localhost
       POSTGRES_PORT: '5432'
       POSTGRES_DB: assessment_ci
@@ -57,8 +56,6 @@ jobs:
       - name: Install uv
         run: pip install uv
 
-      # `uv sync --frozen` — uv.lock 의존성 트리 그대로 install. lockfile/pyproject drift 시 fail
-      # → CI에서 lockfile 신선도까지 보장. `--group dev`로 pytest·ruff·testcontainers 포함.
       - name: Install project
         run: uv sync --frozen --group dev
 

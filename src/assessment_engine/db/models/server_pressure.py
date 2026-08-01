@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
+from sqlalchemy import BigInteger, DateTime, Float, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from assessment_engine.db.models.base import Base
@@ -20,7 +20,7 @@ class ServerPressure(Base):
         UniqueConstraint("server_id", "resource", "scope", "collected_at", name="uq_server_pressure_sid_res_scope_ts"),
     )
 
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
     resource: Mapped[str] = mapped_column(String(16), nullable=False)  # cpu|memory|io

@@ -1,20 +1,7 @@
 # Redis 전략
 
-정책: CLAUDE.md #C3. 캐시·온라인 TTL·멱등성의 3가지 역할을 한 인스턴스로 처리.
+정책: CLAUDE.md #C3. 캐시·온라인 TTL·멱등성·부가 시그널 상태의 4가지 역할을 한 인스턴스로 처리.
 키 패턴은 `WebSettings` 단일 정의(`src/assessment_engine/config.py`). `ConsumerSettings`는 `WebSettings` 상속 — consumer/web 동일 네임스페이스.
-
-```
-src/assessment_engine/cache/
-└── redis.py        — ConnectionPool 싱글턴 + get_redis()
-
-src/assessment_engine/config.py
-                    — redis_key_*, redis_ttl_*
-
-src/assessment_engine/consumer/handlers/
-                    — _check_idempotent, online SET, cache DEL
-src/assessment_engine/web/services/query_service.py
-                    — cache GET/SET, mget(online)
-```
 
 ---
 
@@ -25,22 +12,25 @@ src/assessment_engine/web/services/query_service.py
 | public_id 조회 | `cache:resolve:{public_id}` | 없음 (불변) | — |
 | 인벤토리 캐시 | `cache:inventory:{server_id}` | 300s | consumer가 새 inventory 저장 시 즉시 DELETE |
 | 메트릭 캐시 | `cache:metrics:{server_id}` | 60s | consumer가 새 metrics 저장 시 즉시 DELETE |
+| ZDM 패키지 sha256 | `cache:zdm_package:sha256:{host}:{etag}` | 6h | ETag(없으면 Last-Modified) 변경 = 키 변경 |
 | 멱등성 | `idempotent:{message_id}` | 24h | TTL 만료만 |
 | 온라인 TTL | `online:{server_id}` | 300s | consumer가 inventory·metrics 양쪽에서 매번 갱신 |
-| 인증 토큰 | `token:{token}` | 1h | TTL 만료만 |
+| 시계 invariant 경고 쿨다운 | `time_invariant_warned:{agent_id}` | 1h | TTL 만료만 |
 | 직전 agent_started_at | `last_agent_start:{server_id}` | 24h | metrics 처리 시 매번 SET (직전 값과 비교 → 재시작 감지) |
 | 재시작 카운터 (1h 슬라이딩) | `agent_restarts:{server_id}` | 1h | `_track_agent_restart`가 변경 감지 시 INCR + EXPIRE reset (마지막 INCR 후 1h 유지) |
 
 ### TTL 값 근거
 
-- `online:{server_id}` 300s — 오프라인 판단 임계. 운영 신호 "통신 끊김"(gap_minutes 5분, `redis_ttl_online` = `config.py`)과 단일 진실 — 5분간 inventory·metrics 어느 쪽도 없으면 오프라인. Redis 장애 시 web 은 `last_seen_at > now()-300s` 로 동일 임계 판정(`query_service._assemble_list_items` fallback).
+- `online:{server_id}` 300s — 오프라인 판단 임계. 운영 신호 "통신 끊김"(gap_minutes 5분, `redis_ttl_online` = `config.py`)과 단일 진실 — 5분간 inventory·metrics 어느 쪽도 없으면 오프라인. Redis 장애 시 web 은 같은 `redis_ttl_online` 값을 임계로 `last_seen_at` 을 비교한다(`web/services/query/server.py:list_servers` 의 `online_flags is None` 분기).
 - `cache:metrics:{server_id}` 60s — metrics 주기와 동일. consumer DELETE가 없어도 1주기 후 자연 갱신.
 - `cache:inventory:{server_id}` 300s — inventory 변경 빈도가 낮음. consumer DELETE가 즉시 반영.
+- `cache:zdm_package:sha256:{host}:{etag}` 6h — 패키지 교체 빈도가 낮고 무효화는 ETag 가 키로 흡수. miss면 GET stream 으로 sha256 재계산.
 - `idempotent:{message_id}` 24h — message_id는 UUID v4이므로 24h 동안 unique 보장. broker 재전송 윈도우 충분히 커버.
+- `time_invariant_warned:{agent_id}` 1h — 시계 invariant warning 쿨다운 (같은 호스트가 매 메시지 warning 을 내지 않게). evict 시 다음 위반에서 1회 더 출력.
 - `last_agent_start:{server_id}` 24h — 직전 비교용 캐시. evict 시 다음 메시지에서 재시작 감지 1회 누락만 — 다음 정상 sample에서 회복.
 - `agent_restarts:{server_id}` 1h — 슬라이딩 윈도우 (마지막 INCR 후 1h). `agent_restart_alert_threshold` (기본 3) 도달 시 warning 로그.
 
-원격 작업 명령 전달은 별도 큐 모델 채택으로 broker 가 메시지 보유 (Redis 캐시 없음). DB `tasks` + broker `agent.tasks.<agent_id>` 큐가 단일 진실.
+원격 작업 명령 전달 자체는 Redis 를 거치지 않는다 — 별도 큐 모델 채택으로 broker 가 메시지를 보유하고, DB `tasks` + broker `agent.tasks.<agent_id>` 큐가 단일 진실. 발행 직전 ZDM 패키지 sha256 조회만 위 캐시를 쓴다.
 
 ---
 
@@ -82,13 +72,14 @@ web의 `get_latest_metric`이 cache MISS 후 DB query를 마쳤지만 SET을 수
 
 ### N+1 회피 — `mget`
 
-서버 목록 페이지가 N개 서버의 온라인 상태를 조회할 때, N번 직렬 `EXISTS online:{id}` 대신 `redis.mget([online:{id} for ...])` 한 번으로.
+서버 목록 페이지가 N개 서버의 온라인 상태를 조회할 때, N번 직렬 `EXISTS online:{id}` 대신 `safe_mget(online:{id} ...)` 한 번으로.
 
 ```python
-# web/services/query_service.py:list_servers
-keys = [web_settings.redis_key_online.format(dto.id) for dto in dtos]
-online_flags = await self.redis.mget(keys)
-for dto, flag in zip(dtos, online_flags):
+# web/services/query/server.py:list_servers
+keys = [get_web_settings().redis_key_online.format(dto.id) for dto in dtos]
+online_flags = await safe_mget(self.redis, keys)  # 장애 시 None -> last_seen_at fallback
+# mget 은 키 개수만큼 반환 — dtos 와 길이 일치
+for dto, flag in zip(dtos, online_flags, strict=True):
     item = to_server_list_item(dto)
     item.is_online = flag is not None
 ```
@@ -119,10 +110,13 @@ cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_ser
 ```python
 _pool: ConnectionPool | None = None
 
-def get_pool() -> ConnectionPool:
-    if _pool is None:
-        _pool = ConnectionPool.from_url(web_settings.redis_url, decode_responses=True)
-    return _pool
+def get_pool() -> ConnectionPool:      # 첫 호출에서 만든다 — import 만으로 설정을 요구하지 않는다
+    global _pool
+    pool = _pool
+    if pool is None:
+        pool = ConnectionPool.from_url(WebSettings().redis_url, decode_responses=True, ...)
+        _pool = pool
+    return pool
 
 def get_redis() -> Redis:
     return Redis(connection_pool=get_pool())
@@ -138,19 +132,18 @@ async def close_pool() -> None: ...
 `src/assessment_engine/web/deps.py:get_service`가 `Depends(get_redis)`로 주입받아 `QueryService`에 전달.
 `src/assessment_engine/web/main.py` lifespan 종료 시 `close_pool()` 호출.
 
-### consumer 측 — 직접 호출
+### consumer·worker 측 — 직접 호출
 
-`src/assessment_engine/consumer/main.py`가 `get_redis()`를 직접 호출해 핸들러 팩토리에 전달. lifespan 종료 시 `close_pool()`.
+`src/assessment_engine/consumer/main.py`가 `get_redis()`를 직접 호출해 핸들러 팩토리에 전달.
+`src/assessment_engine/worker/main.py`는 job 마다 만드는 `QueryService`에 `get_redis()`를 주입.
+둘 다 `main()`의 `finally`에서 `close_pool()`.
 
 ---
 
 ## 설정·운영
 
 ### eviction
-`maxmemory 256mb`, `volatile-lru` 정책. TTL 있는 키만 evict 대상. 멱등성 키도 TTL 있어 evict 가능 (T1 트레이드오프 일부).
-
-### 키 패턴 정의 위치
-모든 키 패턴(`redis_key_online`, `redis_key_cache_*`, `redis_key_idempotent`)은 `WebSettings`에 정의. `ConsumerSettings`는 `WebSettings`를 상속하므로 동일 키 사용. `query_service.py`는 `web_settings`를 직접 참조 — consumer/web 모두 같은 키 네임스페이스.
+기본 정책은 TTL 있는 키만 evict 대상으로 삼는다 — TTL 없는 `cache:resolve:{public_id}`(불변 매핑)는 남는다. 멱등성 키도 TTL 이 있어 evict 가능 (T1 트레이드오프 일부). 상한·정책 값은 `REDIS_MAXMEMORY`·`REDIS_MAXMEMORY_POLICY` 로 열려 있고 값 카탈로그는 `docs/reference/contracts/env.md`.
 
 ### Redis 장애 시 동작 — fail-open
 
@@ -164,8 +157,9 @@ async def close_pool() -> None: ...
 | 캐시 SET | TTL 적용 | silent skip (다음 요청도 MISS) |
 | 멱등성 1단 (`_check_idempotent`) | SET NX | True 반환 → 처리 진행 → DB UNIQUE(2단)이 중복 흡수 |
 | consumer cache DELETE / online SET | 정상 호출 | 로그만, 메시지 처리 정상 진행 |
-| list mget (`list_servers`) | 1회 mget | `last_seen_at > now() - 300s` fallback (TTL 임계와 동일) |
+| list mget (`list_servers`) | 1회 mget | `last_seen_at` fallback (`redis_ttl_online` 임계와 동일) |
 | 실시간 메트릭 polling (`get_latest_metric`) | 캐시 hit/miss | DB 직접 조회 (응답 정상, 느려질 뿐) |
+| ZDM 패키지 sha256 (`HttpZdmPackageResolver`) | ETag 키 hit 시 재계산 생략 | 매 발행마다 GET stream 재계산 (install 발행은 정상) |
 
 약화되는 보장:
 - 멱등성 1단: 평시 1회 RTT 차단 → 장애 시 매번 DB INSERT 시도 + UNIQUE 충돌 흡수. 트래픽 규모에서 영향 미미.

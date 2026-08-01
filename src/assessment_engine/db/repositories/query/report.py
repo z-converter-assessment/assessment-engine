@@ -32,7 +32,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     async def report_aggregate(
         self,
         server_ids: list[int],
-        period_days: int,
+        period_days: float,
         end: datetime,
     ) -> list[ReportRowRaw]:
         """N서버 x period_days 통계 → ReportRowRaw list. role/recommendation 등 표시 파생은 service에서.
@@ -359,7 +359,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             for r in result.all()
         ]
 
-    async def report_uptime_stats(self, server_ids: list[int], period_days: int, end: datetime) -> dict[int, int]:
+    async def report_uptime_stats(self, server_ids: list[int], period_days: float, end: datetime) -> dict[int, int]:
         """period 안 boot_time DISTINCT count - 1 (=재부팅 횟수). 현재 boot_time 포함이라 -1."""
         start = end - timedelta(days=period_days)
         sql = text("""
@@ -371,7 +371,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
         return {r.server_id: int(r.reboot_count) for r in result.all()}
 
-    async def report_agent_restart_stats(self, server_ids: list[int], period_days: int, end: datetime) -> dict[int, int]:
+    async def report_agent_restart_stats(self, server_ids: list[int], period_days: float, end: datetime) -> dict[int, int]:
         """period 안 agent_started_at DISTINCT count - 1 (=재시작 횟수). report_uptime_stats 와 동일 산식 (#F10)."""
         start = end - timedelta(days=period_days)
         sql = text("""
@@ -398,7 +398,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         return {r.server_id: int(r.restart_count) for r in result.all()}
 
     async def report_disk_io_baseline(
-        self, server_ids: list[int], period_days: int, end: datetime
+        self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, DiskIoBaselineRaw]:
         """server_id -> DiskIoBaselineRaw (iops·throughput baseline + p95/peak). baseline=SUM(delta)/SUM(dt).
 
@@ -452,7 +452,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         }
 
     async def report_net_io_baseline(
-        self, server_ids: list[int], period_days: int, end: datetime
+        self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, NetIoBaselineRaw]:
         """server_id -> NetIoBaselineRaw (rx·tx baseline + p95/peak). baseline = SUM/SUM."""
         start = end - timedelta(days=period_days)
@@ -523,7 +523,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 FROM cpu_valid GROUP BY bucket HAVING SUM(d_total) > 0
             ),
             mem_per_ts AS (
-                -- B3: capacity-weighted mem% per bucket 를 cagg byte gauge 에서 (raw server_metrics 스캔 대체).
+                -- capacity-weighted mem% per bucket 을 cagg byte gauge 에서 낸다 (raw hypertable 스캔 회피).
                 SELECT SUM(mem_limit_avg - mem_available_avg) / NULLIF(SUM(mem_limit_avg), 0) * 100 AS v
                 FROM server_metrics_5m
                 WHERE bucket >= :start AND bucket <= :end{sid}
@@ -650,7 +650,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     ) -> dict[int, MemoryBreakdownRaw]:
         """`report_memory_breakdown` 배치 — GROUP BY server_id. v2 By gauge 비율."""
         start = end - timedelta(days=period_days)
-        # B3: memory_breakdown 를 cagg 에서 (raw server_metrics 스캔 대체). used=mem_pct_avg,
+        # cagg 에서 낸다 (raw hypertable 스캔 회피). used=mem_pct_avg,
         # available=complement, cached/buffered=cagg pct gauge. mem_pct_avg 규약과 동형(버킷 avg -> 창 avg).
         sql = text("""
             SELECT server_id,

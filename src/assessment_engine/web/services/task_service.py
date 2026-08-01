@@ -29,11 +29,11 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
-from assessment_engine.contract import CONTRACT_VERSION
+from assessment_engine.contract import AGENT_CONTRACT_VERSION
 from assessment_engine.db.dtos.inbound import TaskCreate
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
-from assessment_engine.web.settings import diagnostic_settings, web_settings
+from assessment_engine.web.settings import get_diagnostic_settings, get_web_settings
 
 _TASK_TYPE_INSTALL = "zconverter_install"
 # engine task deadline_at 과 broker 큐 x-message-ttl 을 단일 창(install_task_deadline_sec)으로 정합 —
@@ -50,9 +50,9 @@ def _resolve_install_dispatch(os_family: str) -> tuple[str, str, str | None]:
     그 외 = TaskNotConfigured raise (운영자 알림 — agent 미지원).
     """
     if os_family == "linux":
-        return (web_settings.zdm_package_path, "shell", web_settings.zdm_package_script)
+        return (get_web_settings().zdm_package_path, "shell", get_web_settings().zdm_package_script)
     if os_family == "windows":
-        return (web_settings.zdm_package_path_windows, "direct_exec", None)
+        return (get_web_settings().zdm_package_path_windows, "direct_exec", None)
     raise TaskNotConfigured(f"unsupported os_family={os_family!r}")
 
 
@@ -90,6 +90,7 @@ class BaseZdmPackageResolver(Protocol):
         package_path = OS 별 path (caller 가 os_family 보고 결정). cache key 는 ETag 기반이라
         path 별 자동 분리.
         """
+        ...
 
 
 class HttpZdmPackageResolver:
@@ -120,7 +121,7 @@ class HttpZdmPackageResolver:
         # ETag 우선, 없으면 Last-Modified fallback. 둘 다 없으면 cache 키 안정성 깨지지만
         # 그 경우라도 매 publish 마다 fresh GET 으로 sha256 산출 → 동작은 정확.
         etag = head_resp.headers.get("ETag") or head_resp.headers.get("Last-Modified") or ""
-        cache_key = web_settings.redis_key_zdm_package_sha256.format(zdm_host, etag) if etag else ""
+        cache_key = get_web_settings().redis_key_zdm_package_sha256.format(zdm_host, etag) if etag else ""
 
         # 2. cache hit?
         if cache_key:
@@ -156,7 +157,7 @@ class HttpZdmPackageResolver:
 
         # 4. cache set (fail-open — Redis 장애 시 다음 publish 에서 다시 계산)
         if cache_key:
-            await safe_set(self.redis, cache_key, sha256_hex, ex=web_settings.redis_ttl_zdm_package_sha256)
+            await safe_set(self.redis, cache_key, sha256_hex, ex=get_web_settings().redis_ttl_zdm_package_sha256)
 
         return sha256_hex, size_bytes
 
@@ -226,7 +227,7 @@ class TaskService:
             )
         # deadline_at = 배달/마감 단일 창(install_task_deadline_sec) — broker 큐 x-message-ttl 과 동일 값이라
         # 엔진 timeout 선언 시점 == broker 미배달 메시지 만료 시점. 경과분은 emit 경로 expire + reaper 가 terminal 전이.
-        deadline_at = datetime.now(UTC) + timedelta(seconds=web_settings.install_task_deadline_sec)
+        deadline_at = datetime.now(UTC) + timedelta(seconds=get_web_settings().install_task_deadline_sec)
 
         # 발행 시점 online 여부 — advisory(차단 아님). 오프라인은 그대로 큐 적재(store-and-forward), 운영자에게만 알림.
         online_by_id = await self._online_targets(server_ids)
@@ -252,7 +253,7 @@ class TaskService:
                         "ZDM 패키지 정보를 가져오지 못해 발행을 취소했습니다. ZDM 서버 연결을 확인하세요."
                     ) from e
 
-        exchange = await self.broker_channel.get_exchange(diagnostic_settings.rabbitmq_task_exchange)
+        exchange = await self.broker_channel.get_exchange(get_diagnostic_settings().rabbitmq_task_exchange)
 
         created: list[TaskCreated] = []
         for public_id in target_public_ids:
@@ -333,7 +334,7 @@ class TaskService:
         """
         if not server_ids:
             return {}
-        keys = [web_settings.redis_key_online.format(sid) for sid in server_ids]
+        keys = [get_web_settings().redis_key_online.format(sid) for sid in server_ids]
         flags = await safe_mget(self.redis, keys)
         if flags is None:
             return {sid: True for sid in server_ids}
@@ -344,19 +345,19 @@ class TaskService:
 
         worker 측은 declare 권한이 없어 engine 이 책임진다.
         """
-        queue_name = diagnostic_settings.agent_task_queue(agent_id)
-        routing_key = diagnostic_settings.task_install_routing_key(agent_id)
+        queue_name = get_diagnostic_settings().agent_task_queue(agent_id)
+        routing_key = get_diagnostic_settings().task_install_routing_key(agent_id)
         queue = await self.broker_channel.declare_queue(
             queue_name,
             durable=True,
             arguments={
                 # deadline_at 과 동일 창 = 큐 x-message-ttl. 엔진 timeout 과 미배달 만료 시점 정합.
-                "x-message-ttl": web_settings.install_task_deadline_sec * 1000,
+                "x-message-ttl": get_web_settings().install_task_deadline_sec * 1000,
                 "x-max-length": _TASK_QUEUE_MAX_LEN,
                 "x-overflow": "reject-publish",
             },
         )
-        exchange = await self.broker_channel.get_exchange(diagnostic_settings.rabbitmq_task_exchange)
+        exchange = await self.broker_channel.get_exchange(get_diagnostic_settings().rabbitmq_task_exchange)
         await queue.bind(exchange, routing_key=routing_key)
 
     async def _publish_install(
@@ -375,9 +376,9 @@ class TaskService:
         download_url = f"http://{zdm_host}{package_path}"
         payload = {
             "message_type": "task.install",
-            # 통일 계약 버전(engine 레포 기준, contract.CONTRACT_VERSION). 특권 실행 경로라 에이전트가 실행 전
-            # major 게이트 — 모르는 major/부재 시 다운로드/실행 전 거부(unsupported_contract_version).
-            "schema_version": CONTRACT_VERSION,
+            # 특권 실행 경로라 에이전트가 실행 전 major 게이트 — 모르는 major/부재 시 다운로드·실행 전
+            # 거부(unsupported_contract_version).
+            "schema_version": AGENT_CONTRACT_VERSION,
             "task_id": task_id,
             "agent_id": agent_id,
             "issued_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
@@ -390,7 +391,7 @@ class TaskService:
                 "type": install_type,
                 "script": install_script,  # shell 이면 archive 안 path, direct_exec/msi 면 null
                 "args": ["-s", zdm_host, "-u", zdm_user],
-                "timeout_sec": web_settings.install_timeout_sec,
+                "timeout_sec": get_web_settings().install_timeout_sec,
             },
         }
         message = aio_pika.Message(
@@ -399,7 +400,7 @@ class TaskService:
             content_type="application/json",
             message_id=str(uuid.uuid4()),
         )
-        routing_key = diagnostic_settings.task_install_routing_key(agent_id)
+        routing_key = get_diagnostic_settings().task_install_routing_key(agent_id)
         await exchange.publish(message, routing_key=routing_key)
 
 

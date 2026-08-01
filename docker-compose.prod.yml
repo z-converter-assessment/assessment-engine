@@ -1,0 +1,44 @@
+# prod overlay — base 에 얹어 쓴다.
+# 하는 일은 비밀번호 주입 채널을 파일로 바꾸는 것 하나다.
+# env 로 넣으면 docker inspect 와 compose config 에 그대로 드러난다.
+# 파일명이 pydantic 필드명과 같아야 앱의 secrets_dir 가 자동으로 매핑한다.
+# 파일 생성·권한은 bootstrap.sh, 채널 규약은 docs/reference/contracts/env.md.
+
+secrets:
+  postgres_password:
+    file: ./secrets/postgres_password
+  rabbitmq_password:
+    file: ./secrets/rabbitmq_password
+
+services:
+  web:
+    secrets:
+      - postgres_password
+      - rabbitmq_password
+
+  consumer:
+    secrets:
+      - postgres_password
+      - rabbitmq_password
+
+  # DB job-claim 만 하고 broker 를 쓰지 않아 postgres 비번만 받는다.
+  worker:
+    secrets:
+      - postgres_password
+
+  migrate:
+    secrets:
+      - postgres_password
+
+  postgres:
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+
+  rabbitmq:
+    # rabbitmq:3.13 은 _FILE 변수를 폐기해 파일 경로를 못 받는다. 이미지 entrypoint 가 값을 읽기 전에
+    # 환경변수를 채워야 해서 그 앞에 끼어든다. export·$()·exec 이 셸 문법이라 sh 를 거친다.
+    entrypoint: ["/bin/sh", "-c", "export RABBITMQ_DEFAULT_PASS=\"$(cat /run/secrets/rabbitmq_password)\"; exec docker-entrypoint.sh rabbitmq-server"]
+    secrets:
+      - rabbitmq_password

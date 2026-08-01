@@ -25,10 +25,16 @@ def _points(ns: Namespace | None, metric: str) -> list[Datapoint]:
     return m.points if m else []
 
 
+def _attr_key(v: object) -> str | None:
+    """attr 값 비교 키 — 계약이 문자열과 숫자를 모두 허용하므로 문자열로 맞춘다. None 은 키 부재를 뜻해 보존."""
+    return None if v is None else str(v)
+
+
 def _match(pts: list[Datapoint], **attrs: object) -> float | None:
     """attr 전부 일치하는 첫 point value. None 값 attr = 그 키 부재 요구(get None). 없으면 None."""
+    want = {k: _attr_key(v) for k, v in attrs.items()}
     for p in pts:
-        if all(p.attr.get(k) == v for k, v in attrs.items()):
+        if all(_attr_key(p.attr.get(k)) == v for k, v in want.items()):
             return p.value
     return None
 
@@ -45,16 +51,28 @@ def _int(v: float | None) -> int | None:
 
 def _state_sum(pts: list[Datapoint], state: str) -> float | None:
     """cpu.time 을 attr.cpu 전 코어 합산(host 집계). 실측 하나라도 있으면 합, 전부 None 이면 None."""
-    vals = [p.value for p in pts if p.attr.get("state") == state and p.value is not None]
+    vals = [p.value for p in pts if _attr_key(p.attr.get("state")) == state and p.value is not None]
     return sum(vals) if vals else None
+
+
+def _attr_of(pts_lists: list[list[Datapoint]], key: str, **attrs: object) -> str | None:
+    """attr 전부 일치하는 point 중 key 가 채워진 첫 값. 같은 축이라도 point 마다 attr 은 sparse(계약 G5)."""
+    want = {k: _attr_key(v) for k, v in attrs.items()}
+    for pts in pts_lists:
+        for p in pts:
+            if all(_attr_key(p.attr.get(k)) == v for k, v in want.items()):
+                found = _attr_key(p.attr.get(key))
+                if found is not None:
+                    return found
+    return None
 
 
 def _distinct(pts_lists: list[list[Datapoint]], key: str) -> list[str]:
     seen: dict[str, None] = {}
     for pts in pts_lists:
         for p in pts:
-            v = p.attr.get(key)
-            if isinstance(v, str):
+            v = _attr_key(p.attr.get(key))
+            if v is not None:
                 seen.setdefault(v, None)
     return list(seen)
 
@@ -140,17 +158,16 @@ def _build_disk_io(disk_ns: Namespace | None) -> list[DiskIoEntry]:
 def _build_disk_errors(disk_ns: Namespace | None) -> list[DiskErrorEntry]:
     out: list[DiskErrorEntry] = []
     for p in _points(disk_ns, "disk.errors"):
-        kind, klass = p.attr.get("kind"), p.attr.get("class")
-        if not isinstance(kind, str) or not isinstance(klass, str):
+        kind = _attr_key(p.attr.get("kind"))
+        if kind is None:
             continue
-        dev = p.attr.get("device")
-        member = p.attr.get("member")
+        # class 는 kind 별 선택 attr(Windows eventlog 는 부재). NK 컬럼이라 NULL 대신 "" (member 정규화는 repo).
         out.append(
             DiskErrorEntry(
-                device_id=str(dev) if dev is not None else "",
+                device_id=_attr_key(p.attr.get("device")) or "",
                 error_kind=kind,
-                error_class=klass,
-                member=str(member) if isinstance(member, str) else None,
+                error_class=_attr_key(p.attr.get("class")) or "",
+                member=_attr_key(p.attr.get("member")),
                 count=_int(p.value),
             )
         )
@@ -184,13 +201,11 @@ def _build_filesystems(fs_ns: Namespace | None) -> list[FilesystemEntry]:
     mounts = _distinct([usage, inodes], "mountpoint")
     out: list[FilesystemEntry] = []
     for mp in mounts:
-        dev = next((p.attr.get("device") for p in usage if p.attr.get("mountpoint") == mp), None)
-        ftype = next((p.attr.get("type") for p in usage if p.attr.get("mountpoint") == mp), None)
         out.append(
             FilesystemEntry(
                 mountpoint=mp,
-                device_id=str(dev) if isinstance(dev, str) else None,
-                fstype=str(ftype) if isinstance(ftype, str) else None,
+                device_id=_attr_of([usage, inodes], "device", mountpoint=mp),
+                fstype=_attr_of([usage], "type", mountpoint=mp),
                 used_bytes=_int(_match(usage, mountpoint=mp, state="used")),
                 free_bytes=_int(_match(usage, mountpoint=mp, state="free")),
                 inodes_used=_int(_match(inodes, mountpoint=mp, state="used")),
@@ -227,9 +242,9 @@ def _build_pressure(pr_ns: Namespace | None) -> list[PressureEntry]:
     keys: dict[tuple[str, str], None] = {}
     for pts in (ratio, time):
         for p in pts:
-            r, s = p.attr.get("resource"), p.attr.get("scope")
-            if isinstance(r, str) and isinstance(s, str):
-                keys.setdefault((r, s), None)
+            r, sc = _attr_key(p.attr.get("resource")), _attr_key(p.attr.get("scope"))
+            if r is not None and sc is not None:
+                keys.setdefault((r, sc), None)
     return [
         PressureEntry(
             resource=r,
@@ -299,6 +314,10 @@ def _vg_layout(v) -> dict:
 
 
 def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
+    # 분류 입력 = 저장 dict 그대로. read 경로가 저장된 services·listen_ports 로 live classify 하므로
+    # 여기서 키를 줄이면(특히 listen_ports.pid) pid join 이 끊겨 같은 호스트가 화면마다 다른 카테고리가 된다.
+    services = _svc_dicts(data)
+    listen_ports = _lp_dicts(data)
     return ServerInventoryCreate(
         agent_id=str(data.agent_id),
         composite_id=data.composite_id,
@@ -361,12 +380,9 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
             for v in data.lvm_vgs
         ],
         ip_external=data.ip_external,
-        services=_svc_dicts(data),
-        listen_ports=_lp_dicts(data),
-        service_categories=compute_service_categories(
-            [{"unit": s.unit, "sub": s.sub, "pid": s.pid} for s in data.services] if data.services else None,
-            [{"proto": p.proto, "port": p.port, "comm": p.comm} for p in data.listen_ports],
-        ),
+        services=services,
+        listen_ports=listen_ports,
+        service_categories=compute_service_categories(services, listen_ports),
         arch=data.arch,
         bits=data.bits,
         boot_firmware=data.boot_firmware,

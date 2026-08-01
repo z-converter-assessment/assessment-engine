@@ -1,59 +1,37 @@
-# docker-compose.override.yml — dev 전용. `docker compose up` 시 base 에 자동 머지(override 우선).
-# 소스 로컬 빌드 + ./src bind mount + hot reload (base 의 GHCR 이미지 핀을 dev 빌드로 덮음).
-# 릴리즈는 base 만 첨부하므로 배포엔 본 파일이 없다. base 단독 기동: `docker compose -f docker-compose.yml up`.
-#
-# YAML 앵커는 파일 스코프라 base 의 *app-base 를 못 써 dev 공통(build·image·volumes)을 *dev-app 으로 재정의.
-# 환경변수·command·depends_on 등 나머지는 base 에서 머지.
+# dev overlay — 파일명 규칙으로 compose 가 base 에 자동으로 얹는다.
+# 앵커는 파일 스코프라 base 의 *app-base 를 여기서 못 쓴다 — dev 공통을 *dev-app 으로 다시 묶었다.
 
 x-dev-app: &dev-app
+  # build 가 있으면 아래 image 는 pull 주소가 아니라 빌드 결과에 붙일 이미지 이름이다 — 로컬에 없으면 빌드한다.
   build:
     context: .
     dockerfile: Dockerfile
-    args:
-      # hatch-vcs 버전 주입 — .git 이 build context 제외라 host 가 구한 값 전달.
-      APP_VERSION: ${APP_VERSION:-0.0.0}
-  # dev 로컬 빌드 태그 — base 의 GHCR 핀을 덮어 GHCR pull 없이 로컬 이미지 사용.
-  image: ${ENGINE_IMAGE:-assessment-engine:local}
-  # host src 를 컨테이너 site-packages 에 bind mount — 코드 수정이 컨테이너 restart 만으로 반영(의존성 변경 시에만 재빌드).
+  image: assessment-engine:local
+  # 호스트 소스를 컨테이너 가상환경에 겹쳐 코드 수정이 재빌드 없이 반영된다 (의존성 변경 시에만 재빌드).
   volumes:
-    - ./src/assessment_engine:/usr/local/lib/python3.12/site-packages/assessment_engine
+    - ./src/assessment_engine:/opt/venv/lib/python3.12/site-packages/assessment_engine
 
 services:
+  # rabbitmq 는 RABBITMQ_DEFAULT_PASS 를 읽는데 .env 의 키는 RABBITMQ_PASSWORD 라 이름을 맞춰준다.
+  rabbitmq:
+    environment:
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
+
   web:
     <<: *dev-app
     environment:
-      # base 의 APP_ENV fallback(prod)을 dev 로 덮음 (cross-file deep merge).
-      APP_ENV: ${APP_ENV:-dev}
-      # dev hot-reload — uvicorn auto-reload (reload_dirs=bind mount 패키지, web/__main__.py).
+      # uvicorn auto-reload 스위치 — 감시 경로는 web 엔트리가 bind mount 패키지로 잡는다.
       WEB_RELOAD: ${WEB_RELOAD:-true}
 
+  # uvicorn 이 없는 프로세스라 watchfiles 래퍼로 재시작한다. 첫 인자가 재실행할 명령, 나머지가 감시 경로다.
   consumer:
     <<: *dev-app
-    environment:
-      APP_ENV: ${APP_ENV:-dev}
-    # dev hot-reload — bind mount 패키지 .py 변경 시 watchfiles 가 프로세스 재시작 (web uvicorn reload 와 짝).
-    # consumer 는 uvicorn 이 아니라 watchfiles 래퍼로 reload (base 의 entrypoint=python -m override).
-    entrypoint: ["watchfiles", "--filter", "python"]
-    command: ["python -m assessment_engine.consumer", "/usr/local/lib/python3.12/site-packages/assessment_engine"]
+    command: ["watchfiles", "--filter", "python", "python -m assessment_engine.consumer", "/opt/venv/lib/python3.12/site-packages/assessment_engine"]
 
   worker:
     <<: *dev-app
-    environment:
-      APP_ENV: ${APP_ENV:-dev}
-    # dev hot-reload — consumer 와 동일 watchfiles 래퍼(uvicorn 아님).
-    entrypoint: ["watchfiles", "--filter", "python"]
-    command: ["python -m assessment_engine.worker", "/usr/local/lib/python3.12/site-packages/assessment_engine"]
+    command: ["watchfiles", "--filter", "python", "python -m assessment_engine.worker", "/opt/venv/lib/python3.12/site-packages/assessment_engine"]
 
-  # 마이그레이션 — base 의 alembic entrypoint·command 유지. dev 는 build + host migrations bind mount 만 더함
-  # (새 revision 을 재빌드 없이 인식).
+  # base 의 alembic command 는 그대로 두고 build 와 bind mount 만 더한다 (새 revision 을 재빌드 없이 인식).
   migrate:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        APP_VERSION: ${APP_VERSION:-0.0.0}
-    image: ${ENGINE_IMAGE:-assessment-engine:local}
-    environment:
-      APP_ENV: ${APP_ENV:-dev}
-    volumes:
-      - ./migrations:/usr/local/lib/python3.12/site-packages/assessment_engine/migrations
+    <<: *dev-app

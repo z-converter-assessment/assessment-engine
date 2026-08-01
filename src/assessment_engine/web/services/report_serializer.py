@@ -267,13 +267,13 @@ def _attention_row_from_dict(d: dict) -> AttentionRow:
 
 def _capacity_warning_from_dict(d: dict) -> CapacityWarningItem:
     data = dict(d)
-    # active_causes 는 list[str] — 스칼라라 별도 복원 불요. metrics(구 필드, ADR 0056 이전 스냅샷)는
-    # _drop_unknown_fields 가 걸러낸다 — CapacityMetric 자체도 폐기.
+    # active_causes 는 list[str] — 스칼라라 별도 복원 불요. 지금 dataclass 에 없는 필드를 들고 있는 과거
+    # 스냅샷은 _drop_unknown_fields 가 걸러낸다.
     return _build(CapacityWarningItem, data)
 
 
 def _action_targets_from_dict(d: dict) -> ActionTargets:
     data = dict(d)
-    # hosts = CapacityWarningItem list. metric_labels(구 필드)는 _drop_unknown_fields 가 걸러낸다.
+    # hosts = CapacityWarningItem list. 지금 dataclass 에 없는 키는 _drop_unknown_fields 가 걸러낸다.
     data["hosts"] = [_capacity_warning_from_dict(c) for c in data.get("hosts") or []]
     return _build(ActionTargets, data)

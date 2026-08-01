@@ -9,29 +9,40 @@ from ipaddress import ip_address, ip_interface
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+
+from assessment_engine.contract import AGENT_CONTRACT_VERSION
+
+_CONTRACT_MAJOR = AGENT_CONTRACT_VERSION.split(".", 1)[0]
 
 
 class MessageBase(BaseModel):
     # 계약 진화 (#B) — extra=ignore 로 agent 신규 필드 통과·무시. 자식 상속.
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
-    # 통일 계약 버전(engine 레포 기준, contract.CONTRACT_VERSION). 형식 major.minor, 게이트는 major. 현재 "1.0".
-    # wire/assessment/export/task.install 4계약 공통 단일 값 — 에이전트도 "1.0" emit.
-    schema_version: Literal["1.0"]
+    # 에이전트 계약 버전(contract.AGENT_CONTRACT_VERSION). 형식 major.minor.
+    schema_version: str = Field(pattern=r"^\d+\.\d+$")
     # agent_id — 호스트 식별 단일 키(불변 UUID). DB UNIQUE·MQ 라우팅. task.result 한정 nullable(task_id 매칭).
     agent_id: UUID
     message_id: UUID
-    collected_at: datetime
+    collected_at: AwareDatetime
     # composite_id — SHA-256 감사·표시용(식별 미사용). "" -> None 정규화.
     composite_id: str | None = Field(default=None, max_length=64)
     machine_id: str | None = Field(default=None, max_length=64)
     agent_version: str | None = Field(default=None, min_length=1, max_length=32)
     # boot_time — 부팅 시각(판독 불가 시 null). counter reset 게이트.
-    boot_time: datetime | None = None
+    boot_time: AwareDatetime | None = None
     # agent_started_at — 발행 프로세스 기동 시각. task.result 만 항상 null.
-    agent_started_at: datetime | None = None
+    agent_started_at: AwareDatetime | None = None
     os_family: Literal["linux", "windows"]
+
+    @field_validator("schema_version")
+    @classmethod
+    def _gate_major(cls, v: str) -> str:
+        # minor 는 additive 변경 추적용이라 수신을 막지 않는다 — 규약은 contracts/agent-data.md.
+        if v.split(".", 1)[0] != _CONTRACT_MAJOR:
+            raise ValueError(f"schema_version major mismatch: {v} (engine speaks {_CONTRACT_MAJOR}.x)")
+        return v
 
     @field_validator("composite_id", mode="before")
     @classmethod
@@ -55,7 +66,7 @@ class Datapoint(BaseModel):
 class Metric(BaseModel):
     model_config = ConfigDict(extra="ignore")
     type: Literal["counter", "gauge"]
-    unit: str = Field(min_length=1, max_length=32)
+    unit: str = Field(max_length=32)
     points: list[Datapoint] = Field(default_factory=list)
 
 
@@ -92,8 +103,8 @@ class BlockDeviceInfo(BaseModel):
     """정규화 평면 DAG 노드. parent=부모 id(root=null), id/id_type=안정키(E절). 복수 부모면 노드 반복."""
 
     model_config = ConfigDict(extra="ignore")
-    name: str = Field(min_length=1, max_length=128)
-    type: str = Field(min_length=1, max_length=32)  # disk/part/lvm/crypt/raid/mpath/dynamic/volume/swap
+    name: str = Field(max_length=128)
+    type: str = Field(max_length=32)  # disk/part/lvm/crypt/raid/mpath/dynamic/volume/swap
     size_bytes: int | None = Field(default=None, ge=0)
     fstype: str | None = Field(default=None, max_length=64)
     mountpoint: str | None = Field(default=None, max_length=255)
@@ -153,7 +164,7 @@ class NetInterfaceInfo(BaseModel):
     """안정키 id=MAC + 다중 IP addresses[]. name 은 표시용."""
 
     model_config = ConfigDict(extra="ignore")
-    name: str = Field(min_length=1, max_length=256)
+    name: str = Field(max_length=256)
     id: str | None = Field(default=None, max_length=64)
     id_type: str | None = Field(default=None, max_length=16)
     kind: str | None = Field(default=None, max_length=32)
@@ -178,7 +189,7 @@ class NetInterfaceInfo(BaseModel):
 
 class LvmVgInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    name: str = Field(min_length=1, max_length=128)
+    name: str = Field(max_length=128)
     size_bytes: int | None = Field(default=None, ge=0)
     free_bytes: int | None = Field(default=None, ge=0)  # 확장 여력(3계층째)
     data_percent: float | None = Field(default=None, ge=0)
@@ -192,7 +203,7 @@ class LvmVgInfo(BaseModel):
 class InventoryServiceInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
     unit: str = Field(min_length=1, max_length=255)
-    sub: str = Field(min_length=1, max_length=64)
+    sub: str = Field(max_length=64)
     pid: int | None = Field(default=None, ge=0)
     exe: str | None = Field(default=None, max_length=255)
 
@@ -200,7 +211,7 @@ class InventoryServiceInfo(BaseModel):
 class InventoryListenPortInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
     proto: Literal["tcp", "tcp6", "udp", "udp6"]
-    addr: str = Field(min_length=1, max_length=64)
+    addr: str = Field(max_length=64)
     # wire minimum:0 permissive superset 유지(#B).
     port: int = Field(ge=0, le=65535)
     uid: int | None = Field(default=None, ge=0)  # Windows null
@@ -238,7 +249,7 @@ class InventoryInput(MessageBase):
     os_codename: str | None = Field(default=None, max_length=64)
     kernel_version: str | None = Field(default=None, max_length=64)
     cpu_model: str | None = Field(default=None, max_length=255)
-    cpu_cores: int | None = Field(default=None, gt=0)
+    cpu_cores: int | None = Field(default=None, ge=0)
     mem_total_bytes: int | None = Field(default=None, ge=0)  # 단위 By(bytes)
     ip_external: list[str] | None = None
 
@@ -267,7 +278,9 @@ class InventoryInput(MessageBase):
         if v is None:
             return v
         if not isinstance(v, (list, tuple)):
-            raise TypeError(f"expected list of IP strings, got {type(v).__name__}")
+            # ValueError 만 ValidationError 로 수렴한다 — TypeError 는 model_validate_json 밖으로 새어
+            # 핸들러의 검증 실패 로그를 건너뛴다.
+            raise ValueError(f"expected list of IP strings, got {type(v).__name__}")
         for item in v:
             ip_interface(str(item))
         return v
