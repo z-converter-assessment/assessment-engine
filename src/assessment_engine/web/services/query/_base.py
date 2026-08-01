@@ -6,6 +6,7 @@ repo 계층 `query/_base.py` `_BaseQueryMixin` 과 동형.
 """
 
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING, Protocol
 
 from redis.asyncio import Redis
 
@@ -13,6 +14,21 @@ from assessment_engine.cache.redis import safe_mget
 from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import AttentionSignals, EnvironmentOverview
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import SaturationRaw
+    from assessment_engine.web.view_models.metric import MetricDashboard
+    from assessment_engine.web.view_models.task import TaskSummaryItem
+
+    # 도메인 mixin 이 self 로 부르는 형제 mixin 메서드의 타입 계약. 결합은 QueryService 가 하므로 mixin 단독
+    # 클래스에는 선언이 없다 — 호출 지점에서 본 Protocol 로 좁혀 계약을 명시한다(런타임 정의 0).
+    class _MetricSibling(Protocol):
+        async def get_latest_metric(
+            self, server_id: int, saturation: SaturationRaw | None = None
+        ) -> MetricDashboard | None: ...
+
+    class _TaskSibling(Protocol):
+        async def latest_tasks_by_servers(self, server_ids: list[int]) -> dict[int, TaskSummaryItem]: ...
 
 
 class _BaseQueryServiceMixin:
@@ -41,7 +57,12 @@ class _BaseQueryServiceMixin:
         baseline 이 채워져 있어야 한다. 미주입(net None) 시 유휴 판정이 구조적으로 빠져
         get_report(세부행)와 분류가 어긋난다 (#E3 build_resource_stats 단일 진실).
         """
-        net_io = await self.repo.report_net_io_baseline(server_ids, period_days, end)
+        # period_days 는 15m 창(=0.0104일)까지 내려가는 float 이고 repo 는 timedelta(days=)로 그대로 받는다.
+        net_io = await self.repo.report_net_io_baseline(
+            server_ids,
+            period_days,
+            end,
+        )
         for raw in raws:
             net_bl = net_io.get(raw.server_id)
             if net_bl is not None:

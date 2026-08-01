@@ -96,20 +96,35 @@ Self-audit 메타 인용 제외:
 - [1.5] 죽은 코드 0건 — unused import · unreachable branch · 호출처 없는 public 함수. `ruff` · IDE inspection 통과.
 - [1.6] 명명 · 매직 넘버. 약식 접미사(`_data` · `_temp` · `_v2` · `_new` · `_old` · `_fix`) 0건. 임계·시간·크기·HTTP status 는 명명 상수 또는 enum(`Literal` · `IntEnum`). 단 0/1/-1 · `LIMIT 1` 같은 자명한 경우 예외.
 
-명문 규약 매핑 (9):
-- [1.7] F1 — Pydantic 모델 필드 타입이 `TYPE_CHECKING` 블록에만 있는지 0건(런타임 resolve 라 `NameError`). type checker 만족용 런타임 `assert x is not None` 0건. `# type: ignore[return-value]` 로 덮은 거짓 시그니처 0건.
-- [1.8] F2 — KST 변환이 표시 경계 4 함수(SSR `kst` · client `fmtLabel` · `fmtKst` · `initAnchor`) 외 0건. naive datetime · 인라인 KST offset 더하기 0건.
-- [1.9] F3 — 검증이 진입점(라우터 Pydantic · Consumer `model_validate_json` · `BaseSettings`) 외 위치에서 재실행 0건. `_VALID_*` frozenset·런타임 enum 멤버십 체크 0건.
-- [1.10] F4 — Service/Handler 안 구체 구현체 import 0건. `config.py` module-level instance 0건. `assessment_engine.config` 에서 Settings 인스턴스 import 0건.
-- [1.11] F6 — `except Exception` 광범위 catch 0건. timeout 없는 외부 호출 0건 (`asyncio.wait_for` 또는 클라이언트 timeout 옵션 의무). 영구 오류(`IntegrityError` · 4xx) 재시도 0건.
-- [1.12] F7 — `print` · stdlib `logging` · `sys.stdout.write` 혼용 0건. `logger.exception()` 은 except 블록 안에만. raw payload 로깅 0건 (식별자 + 카운트만). 신규 시그널 로그는 (레벨 · 빈도 제어 · 운영자 행동) 셋 다 명시.
-- [1.13] F8 — secret 필드 `SecretStr` 누락 0건. PII(composite_id · public_id 외 식별자 · 전체 payload · 접속 문자열) 응답·캐시·로그·예외 0건.
-- [1.14] F10 · F11 — 평가 윈도우는 `recommendation.WINDOW_DAYS` 단일 참조. 새 TimeRange/BucketSize 는 backend Literal · SQL dispatch · `chart-utils.js` · UI 토글 4곳 동시 갱신. `signal.signal(SIGTERM, ...)` 직접 핸들러 · `os._exit()` · `message.process()` 컨텍스트 밖 await 0건.
-- [1.15] #B · #C5 · #E1 — Pydantic Input `extra=ignore` 유지. hypertable 조회 `WHERE collected_at >= ?` 누락 0건. f-string SQL 사용자 입력 삽입 0건. Repository raw 단위 외 변환 0건(P1). mapper → ViewModel 외 위치 percent·delta·임계 분류 0건(P2). 템플릿 계산(`+`·`*`·`length`·`sort`·`selectattr`) 0건(P3). 차트 JS 5 의무 규약 위반 0건(P4).
+명문 규약 매핑 (1):
+- [1.7] 규약 조항별 검사. 금지 내용은 `.claude/CLAUDE.md` 가 갖고 여기는 확인 방법만 둔다.
+  패턴은 `--type py` 로 한정하고, 검출된 줄이 주석·docstring 인지 실제 코드인지 눈으로 가른다.
+  worker 루프의 `except Exception` 처럼 규약이 예외를 인정한 자리는 근거가 인접 주석에 있다.
+
+| 조항 | 검사 |
+|------|------|
+| F1 타입 | `rg 'type: ignore\[return-value\]' src/` · Pydantic 필드 타입이 `TYPE_CHECKING` 블록에만 선언됐는지 · 검사기 만족용 `assert x is not None` |
+| F2 시간대 | `rg 'datetime\.now\(\)' src/` 에서 tz 인자 없는 것 · `rg '9 ?\* ?60 ?\* ?60' src/` 인라인 KST offset |
+| F3 검증 | `rg '_VALID_' src/` · 진입점 밖 `model_validate` 재실행 |
+| F4 DI | `rg 'Settings\(\)' src/` 가 #F4 6 위치에만 · Service/Handler 안 구체 구현체 import |
+| F6 실패 | `rg 'except Exception' src/` · timeout 인자 없는 외부 호출 · 영구 오류 재시도 |
+| F7 로깅 | `rg '\bprint\(|sys\.stdout\.write|^import logging' src/` · except 밖 `logger.exception()` · payload 로깅 |
+| F8 시크릿 | 신규 비밀 필드의 `SecretStr` · 응답·캐시·로그·예외의 PII |
+| F10 F11 | 평가 윈도우가 `recommendation.WINDOW_DAYS` 단일 참조 · 새 TimeRange 는 4곳 동시 갱신 · `rg 'signal\.signal|os\._exit' src/` |
+| B C5 E1 | `rg 'extra="(forbid|allow)"' src/` · hypertable 조회의 `collected_at` 술어 · 템플릿 계산(`+`·`*`·`length`·`sort`·`selectattr`) · 차트 JS 5 의무 규약 |
+
+주석 (1):
+- [1.8] 이번 브랜치가 건드린 파일의 주석만 본다. 전수 검토는 하지 않는다 — 판단이 필요해 자동화가 안 되고,
+  손대지 않은 파일의 주석은 그 파일을 고칠 때 함께 본다.
+  - 코드를 옮겨 적은 주석(시그니처·자명한 동작) 제거. 남길 것은 why 뿐이다.
+  - 정책·규약 서술을 주석에 복제하지 않는다. 문서 위치만 가리킨다.
+  - 회고형 서술("이전엔"·"~에서 전환"·"(v2)"·"구 X") 0건.
+  - 규약 절 번호(`#F8` 등)는 그 절이 왜 여기 적용되는지 자명하지 않을 때만 남긴다.
+  - 주석 처리된 코드 0건.
 
 중복 — 데이터 흐름 (2):
-- [1.16] 같은 데이터 흐름이 두 경로로 (ViewModel 파생 필드가 mapper·template 둘 다 계산 / 같은 집계가 service A·B 각자 계산). #E1 P1~P4 정공 위치 단일.
-- [1.17] 같은 외부 호출이 두 위치에서 (같은 HTTP endpoint 를 service A·B 각자 호출 / 같은 Redis 키를 두 곳에서 set). 단일 client·helper 의무.
+- [1.9] 같은 데이터 흐름이 두 경로로 (ViewModel 파생 필드가 mapper·template 둘 다 계산 / 같은 집계가 service A·B 각자 계산). #E1 P1~P4 정공 위치 단일.
+- [1.10] 같은 외부 호출이 두 위치에서 (같은 HTTP endpoint 를 service A·B 각자 호출 / 같은 Redis 키를 두 곳에서 set). 단일 client·helper 의무.
 
 도구:
 - code-reviewer 에이전트 1회 발동 (CLAUDE.md F-policy 매핑 자동). Error 즉시 수정 / Warning 사용자 결정 위임 / Info 보고만.

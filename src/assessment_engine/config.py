@@ -192,19 +192,12 @@ class ConsumerSettings(WebSettings):
     rabbitmq_routing_key_task_result: str = "task.result"
     rabbitmq_queue_worker_result: str = "worker.result"
 
-    # task.result 성공 보정 정책 (assessment_engine.task_policy). 매칭 키 -> 성공으로 취급할 추가 exit code 목록.
-    # status=failure + failure_reason=script_failed + 매칭 키 일치 + exit_code 포함일 때만 success 로 보정.
-    # 키 규약 (os_family 로 분기, task_policy.effective_task_result):
-    #   - Windows: os_version = CurrentBuildNumber (예 "20348"). 메시지에서 발행.
-    #   - Linux:   "os_id:major" (예 "rocky:9"). task.result 가 os 미발행이라 엔진이 inventory 에서 조회.
-    # 기본값:
-    #   - Windows(family-level "windows" 키): ZConverter installer 가 설치 성공임에도 exit 2 로 종료(전
-    #     세대 공통 동작). 빌드번호별 키를 일일이 유지하는 건 취약(예 2008R2=7601 누락)하므로 family 한 키로
-    #     일괄. 설치 성공 검증 = 해당 호스트 services 에 ZConCloudAgent(RUNNING) 등장으로 확인됨.
-    #     (특정 빌드만 다르게 두려면 CurrentBuildNumber 키를 추가 — effective_task_result 가 빌드 키를 우선 매칭.)
-    #   - rocky/almalinux/ol/centos major 9(EL9): installer 가 새 systemd start-limit 로 exit 3 을 내나
-    #     설치·ZDM 등록은 성공 (rhel9 는 미해당이라 제외, centos-stream8 은 centos8 과 os_id 구분 불가라 보류).
-    # env(JSON)로 override — 예: '{"windows":[2],"rocky:9":[3]}'.
+    # task.result 성공 보정 폴백 allowlist — 매칭 키 -> 성공으로 취급할 추가 exit code 목록.
+    # 소비처는 task_policy.effective_task_result, 키 규약·판정 조건·기본값 근거는
+    # docs/reference/contracts/env.md TASK_INSTALL_SUCCESS_EXIT_CODES 단일 진실.
+    # 기본 키 선택: Windows 는 빌드번호별 키를 유지하면 누락에 취약해(예 2008R2=7601) family 한 키로 둔다.
+    # 설치 성공은 해당 호스트 services 의 ZConCloudAgent(RUNNING) 등장으로 확인된다. EL9 는 rhel9 가
+    # 미해당이라 제외하고, centos-stream8 은 centos8 과 os_id 구분이 안 돼 보류한다.
     task_install_success_exit_codes: dict[str, list[int]] = {
         "windows": [2],
         "rocky:9": [3],

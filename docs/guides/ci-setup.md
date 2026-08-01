@@ -84,11 +84,20 @@ tag 는 `release.yml` 이 `pyproject.toml` 의 version 에서 파생 생성하�
 | `wheel build` | `ci.yml` | 미발화 | 의무 |
 | `pytest (integration)` | `ci.yml` | 미발화 | 의무 |
 
+`ruff + hadolint` 잡은 이름과 달리 pyright(`src` 범위)도 함께 돌린다 — check 이름이 바뀌면 required 재등록이 필요하므로 잡을 나누지 않았다.
+
 develop 5개, main 7개다. UI 검색 결과에 워크플로 이름이 접두로 붙어 보일 수 있으니(`ci / pytest (unit)`) 검색해서 나오는 항목을 그대로 고른다.
 
 `pr title + metadata` 는 Conventional Commits 형식과 AI 메타데이터 부재를 함께 본다.
 
 `wheel build` 와 `pytest (integration)` 은 job 의 `if` 조건으로 main PR 에서만 실행된다. paths 조건은 어느 워크플로에도 없다 — paths 로 skip 된 required check 가 N/A 로 남아 머지를 막는 함정을 피한다.
+
+### 3.5. 미등록 상태
+
+저장소 설정은 UI 에서만 바꿀 수 있어 코드로 강제되지 않는다. 아래 둘이 아직 반영되지 않았다.
+
+- ruleset 3종 등록과 required status check 재등록. check 이름이 `conventional commits` 에서 `pr title + metadata` 로 바뀌었으므로 옛 이름으로 등록된 항목은 영원히 대기 상태가 된다.
+- tag ruleset 에 `Restrict creations` 를 켤 때 bypass 에 Actions 를 등록할 수 있는지 UI 에서 확인. 등록 없이 켜면 `release.yml` 이 tag push 단계에서 실패한다.
 
 ## 4. Repository Settings
 

@@ -410,7 +410,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                            COALESCE(array_agg(DISTINCT kc) FILTER (WHERE d > 0), ARRAY[]::text[]) AS kinds,
                            MAX(last_at) FILTER (WHERE d > 0) AS last_at
                     FROM (
-                        SELECT error_kind || '/' || error_class AS kc,
+                        SELECT error_kind || CASE WHEN error_class = '' THEN '' ELSE '/' || error_class END AS kc,
                                MAX(count) - MIN(count) AS d, MAX(collected_at) AS last_at
                         FROM server_disk_error
                         WHERE server_id = :sid AND collected_at >= :since

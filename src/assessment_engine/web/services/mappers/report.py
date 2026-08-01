@@ -26,6 +26,7 @@ from assessment_engine.web.services.mappers.shared import (
     OS_FAMILY_LABEL_KO,
     RISK_LEVEL_ORDER,
     ReportView,
+    SaturationAxisDisplay,
     build_host_confidence_notes,
     lookup_os_eol,
     resolve_os_eol,
@@ -424,7 +425,7 @@ def _confidence_rows(stats: recommendation.ResourceStats) -> list[PeriodSignalRo
 
 
 def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
-    """CPU 상세 탭 "신뢰도" 카드 — U/S 2축 헤드라인 수치를 얼마나 믿을지 보완하는 원신호, 성격별 2그룹(#F9 완전
+    """CPU 상세 탭 "신뢰도" 카드 — U/S 2축 헤드라인 수치를 얼마나 믿을지 보완하는 원신호, 성격별 2그룹(#E9 완전
     노출). 대등한 두 독립 축이 아니라 전부 "신뢰도" 우산 아래 성격 구분 — 부하 신호도 사이징/근본원인 판정
     게이트(코어별 최대=단일스레드 보호, D-state=IO발 로드 오귀속 방지)라 결국 U/S 수치 해석 맥락이다.
 
@@ -464,7 +465,7 @@ def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
 
 
 def _mem_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
-    """메모리 상세 탭 "신뢰도" 카드 — CPU와 동일 개념(U/S 헤드라인 보완 원신호, 성격별 2그룹, #F9 완전 노출).
+    """메모리 상세 탭 "신뢰도" 카드 — CPU와 동일 개념(U/S 헤드라인 보완 원신호, 성격별 2그룹, #E9 완전 노출).
 
     "부하 신호" = near-peak 사용률(버킷별 max 의 p95, 비탄력 피크 사이징 기준 — assess_memory 사이징에 이미
     쓰이나 지금까지 화면에 미노출이던 값, 임계 없는 정보성). "통계 신뢰도" = CPU와 동일 host-level 입력
@@ -479,7 +480,7 @@ def _mem_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
 
 def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
     """스토리지 상세 탭 "신뢰도" 카드 — CPU/메모리와 동일 개념. 스토리지는 용량(disk_capacity)+I/O(disk_io)
-    두 축 통합이라 "부하 신호"에 양쪽 원신호를 함께 담는다(#F9 완전 노출).
+    두 축 통합이라 "부하 신호"에 양쪽 원신호를 함께 담는다(#E9 완전 노출).
 
     "부하 신호" = 용량 소진 잔여일수(bytes·inode, RS_DISK_RUNWAY_DAYS 미만이면 임박)·inode 사용률(정적 가드
     RS_DISK_STATIC_GUARD_PCT, byte 사용률과 대칭)·IOPS 활동량(baseline, 임계 없는 정보성 — 유휴 device 구분용)·
@@ -532,7 +533,7 @@ def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExt
 
 
 def _network_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
-    """네트워크 상세 탭 "신뢰도" 카드 — CPU/메모리/스토리지와 동일 개념(#F9 완전 노출).
+    """네트워크 상세 탭 "신뢰도" 카드 — CPU/메모리/스토리지와 동일 개념(#E9 완전 노출).
 
     "부하 신호" = 트래픽 baseline(net_avg_kbytes_per_s, 임계 없는 정보성) — assess_network 의 저트래픽 게이트
     (RS_NET_MIN_TRAFFIC_KBPS 미만이면 재전송·드롭 비율을 혼잡 판정에서 억제)가 왜 발동했는지 근거로 유용.
@@ -561,7 +562,7 @@ def build_period_assessment(
     disk_worst_mount — 스토리지 "사용률" 행이 worst-mount 산식(마운트 中 최댓값)임을 값에 병기하는 마운트 이름.
     ResourceStats 에는 안 둠(도메인 모델에 표시 전용 str 필드 추가 회피) — 호출부(get_period_assessment)가
     ReportRowRaw.disk_capacity_worst_mount 를 직접 전달. 실시간 카드 도넛(disk_usage_pct, 전체 마운트 가중평균)
-    과 다른 산식이라는 걸 화면에서 바로 알 수 있게 함(#F9 "의도된 차이" 명시 요청 반영).
+    과 다른 산식이라는 걸 화면에서 바로 알 수 있게 함(#E9 "의도된 차이" 명시 요청 반영).
     """
     rec = recommendation
     axes = saturation_axis_displays(stats)  # [cpu, mem, disk]
@@ -578,7 +579,7 @@ def build_period_assessment(
     # d.threshold 는 saturation_axis_displays 원문(">= 1"·"> 20ms"·"발생 시") — 다른 화면(단일 보고서 포화 축
     # 표·참고자료 임계값)과 공유하는 표시 단일 진실이라 그 원본은 불변. 이 카드만 이용률 컬럼과 같은 "임계 X" 어투
     # 통일 — 부등호(>=·>)는 "임계"라는 말 자체가 이상(以上) 의미를 담아 중복이라 제거하고 숫자만 접두.
-    def _s(label: str, d: object) -> PeriodSignalRow:
+    def _s(label: str, d: SaturationAxisDisplay) -> PeriodSignalRow:
         raw = d.threshold
         if raw.startswith("발생"):
             thr = raw
@@ -597,7 +598,7 @@ def build_period_assessment(
     cpu_u = [_u("P95 사용률", stats.cpu_p95_pct, rec.RS_CPU_UNDER_PCT)]
     mem_u = [_u("P95 사용률", stats.mem_p95_pct, rec.RS_MEM_UNDER_PCT)]
     # 스토리지 "사용률"만 다른 자원(P95 host 집계)과 달리 worst-mount 산식(가장 채워진 마운트 1개) — 실시간
-    # 도넛(전체 마운트 가중평균)과 값이 다를 수 있어 라벨·값에 worst-mount 임을 명시(#F9 의도된 차이 표기).
+    # 도넛(전체 마운트 가중평균)과 값이 다를 수 있어 라벨·값에 worst-mount 임을 명시(#E9 의도된 차이 표기).
     disk_util_val = stats.disk_used_pct
     disk_util_value = _pct_str(disk_util_val)
     if disk_util_val is not None and disk_worst_mount:

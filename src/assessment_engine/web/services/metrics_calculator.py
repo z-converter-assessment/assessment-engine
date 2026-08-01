@@ -134,8 +134,11 @@ def _physical_dev_names(nodes: list[dict] | None, keep: Callable[[dict], bool]) 
         if not keep(n):
             continue
         name = n.get("name")
-        display = name or _composite_dev_id(n)
-        if cid := _composite_dev_id(n):
+        cid = _composite_dev_id(n)
+        display: str | None = name or cid
+        if display is None:
+            continue  # 이름·조인키 둘 다 없어 등록할 키가 없다
+        if cid:
             result[cid] = display
         if name:
             result[f"name:{name}"] = display

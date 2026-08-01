@@ -96,3 +96,4 @@ cosign verify ghcr.io/z-converter-assessment/assessment-engine:1.2.1 \
 ## 6. 한계
 
 - 버전 정책 — stable semver `X.Y.Z`만 지원 (prerelease/RC 미지원). prerelease 도입 시 규약 통일 별도 ADR 의무
+- 서명 대상은 이미지뿐 — `deploy.sh` 가 같은 tag 에서 받는 compose 파일에는 서명이 없다. compose 무결성은 raw HTTPS 와 `v*` tag 불변(ruleset — `docs/guides/ci-setup.md` 3.3)에 기댄다

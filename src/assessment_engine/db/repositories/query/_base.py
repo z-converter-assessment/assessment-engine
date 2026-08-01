@@ -4,6 +4,7 @@
 QueryRepository facade 가 multiple inheritance 로 5 concrete 결합 시 본 mixin __init__ 한 번만 호출.
 """
 
+from collections.abc import Sequence
 from typing import Any
 
 from sqlalchemy import text
@@ -28,7 +29,7 @@ class _BaseQueryMixin:
         dim_col: str,
         server_id: int,
         n: int,
-    ) -> list[Any]:
+    ) -> Sequence[Any]:
         """{table}에서 (server_id 한정) {dim_col}별 최신 n행 반환. n=1: DISTINCT ON, n>=2: ROW_NUMBER.
 
         table·dim_col 은 ORM 정적 attribute 로 whitelisted — SQL 직접 포맷 (C5 예외 — dispatch whitelist).

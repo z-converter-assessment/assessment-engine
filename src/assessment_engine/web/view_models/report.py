@@ -175,7 +175,7 @@ class ReportSummary:
     """get_report 응답 — 행 list + KPI 집계 (KPI도 service 책임)."""
 
     rows: list[ReportRowItem]
-    period_days: int
+    period_days: float
     total: int
     online: int
     risk_attention: int  # 주의 필요 — over_provisioned·idle 합산

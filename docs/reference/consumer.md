@@ -68,7 +68,7 @@ aio-pika async context manager. 블록 정상 종료 → ack, 예외 발생 → 
 
 ### DB 재시도 정책
 
-3회 시도 (`attempt 0/1/2`), `2 ** (attempt + 1)` full jitter 백오프. attempt 0 실패 → [0,2s] sleep → 1, 1 실패 → [0,4s] sleep → 2, 2 실패 → 즉시 raise(sleep 없음). 재시도 대상은 일시 장애 — connection(`OperationalError`·`InterfaceError` 타입) + deadlock(SQLSTATE `40P01`, asyncpg 가 `OperationalError` 아닌 base `DBAPIError` 로 래핑해 타입 아닌 sqlstate 로 판별 `_is_retryable_db_exc`; 동시 신규서버 insert 시 hypertable chunk 생성 레이스로 발생, victim rollback 후 재시도 흡수). `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6). full jitter 는 동시 재연결 쏠림(thundering herd) 방지. 재시도 창은 큐 TTL 안에 들어가 단기 DB 장애 회복을 커버한다(값은 `docs/reference/rabbitmq.md` 큐 정책 표). error 핸들러는 DB 접근이 없어 해당 큐 TTL 과 무관.
+3회 시도 (`attempt 0/1/2`), `2 ** (attempt + 1)` full jitter 백오프. attempt 0 실패 → [0,2s] sleep → 1, 1 실패 → [0,4s] sleep → 2, 2 실패 → 즉시 raise(sleep 없음). 재시도 대상은 일시 장애 — `_is_retryable_db_exc` 가 예외 타입(`OperationalError`·`InterfaceError`)과 SQLSTATE 두 축 중 하나만 걸려도 재시도로 판정한다. SQLSTATE 축은 class `08`(connection exception) 전 코드 + `40001` serialization_failure + `40P01` deadlock_detected + `57P01`·`57P02`·`57P03`(서버 종료·크래시 복구·기동 중). 타입만으로 가르지 못하는 이유는 asyncpg dialect 의 예외 번역표에 sqlalchemy `OperationalError` 로 가는 항목이 없어 커넥션 유실·서버 재기동·deadlock 이 base `DBAPIError` 로만 래핑되기 때문. asyncpg 의 connect·command timeout 은 `asyncio.TimeoutError` 로 올라와 `DBAPIError` 에 감싸이지 않으므로 별도 분기가 같은 백오프를 탄다. deadlock 은 동시 신규서버 insert 시 hypertable chunk 생성 레이스로 발생하며 victim rollback 후 재시도가 흡수한다. `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6). full jitter 는 동시 재연결 쏠림(thundering herd) 방지. 재시도 창은 큐 TTL 안에 들어가 단기 DB 장애 회복을 커버한다(값은 `docs/reference/rabbitmq.md` 큐 정책 표). error 핸들러는 DB 접근이 없어 해당 큐 TTL 과 무관.
 
 ---
 
@@ -80,7 +80,7 @@ aio-pika async context manager. 블록 정상 종료 → ack, 예외 발생 → 
 
 핵심 동작 요약:
 - 기동 시 collect·task 두 계열의 exchange 와 각 DLX(`{exchange}.dlx`) 4개를 한 루프에서 declare → 큐별로 `{queue}.dead` 선언·DLX 바인딩 → 본 큐 선언(`x-dead-letter-exchange`/`x-dead-letter-routing-key` + 옵셔널 `x-message-ttl`/`x-max-length`) → exchange 바인딩 → consume 시작.
-- prefetch_count 10 (`channel.set_qos`).
+- prefetch_count 는 `channel.set_qos` 로 설정 (값·근거는 `docs/reference/rabbitmq.md` 정의 표).
 - TTL/max-length 값은 `src/assessment_engine/consumer/main.py` 상단 명명 상수.
 
 ### aio-pika
@@ -130,13 +130,13 @@ handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (�
 
 ### Disposability — SIGTERM 흐름 (#F11)
 
-종료 신호(SIGTERM/SIGINT)는 `loop.add_signal_handler` 로 받아 `stop_event` 를 set 하고, `main()` 의 `async with conn, conn.channel()` 이 unwind 하며 채널·커넥션을 닫아 in-flight 소비를 drain 한다. `finally` 에서 Redis pool close.
+종료 신호(SIGTERM/SIGINT)는 `loop.add_signal_handler` 로 받아 `stop_event` 를 set 한다. 이후 순서는 `_drain` 이 consumer 별 `queue.cancel(tag)`(basic.cancel)로 신규 배달을 끊고 → in-flight 핸들러가 ack/nack 를 마칠 때까지 기다린 뒤 → `async with conn, conn.channel()` unwind 로 채널·커넥션 close → `finally` 로 Redis pool close. cancel 호출과 대기가 같은 예산 `_SHUTDOWN_DRAIN_SEC`(`main.py` 상단 명명 상수)을 나눠 쓰며, 예산은 docker `stop_grace_period` 안에서 끝나야 SIGKILL 이 drain 을 자르지 않는다. 채널 close 가 진행 중 consumer task 에 CancelledError 를 던지므로 cancel·대기가 close 보다 앞선다.
 
 진행 중 메시지는 `async with message.process(requeue=False)` 컨텍스트가 보장 — 다음 둘 중 하나:
 - 정상 종료 → broker ACK → 메시지 사라짐
 - 예외 raise → broker NACK + DLX 라우팅 → DLQ로 이동
 
-따라서 메시지 손실 0이 코드 패턴의 자연 결과. 신규 핸들러 추가 시 본 컨텍스트 안에서 모든 await 완료를 보장하면 됨 — `signal.signal()` 또는 `os._exit()` 같은 우회 호출 금지 (#F11).
+메시지 손실 0 은 drain 이 예산 안에서 끝났을 때의 보장이다. 예산을 넘기면 `drain timeout inflight=N` warning 을 남기고 미완 메시지는 unack 로 남아 broker 가 재전송하는데, 커밋 직전에 잘린 메시지면 그 재전송이 멱등성 1단(#D2)에 중복으로 걸려 조용히 드롭될 수 있다 (`docs/explanation/tradeoffs.md` T1 범위). 신규 핸들러 추가 시 본 컨텍스트 안에서 모든 await 완료를 보장하면 됨 — `signal.signal()` 또는 `os._exit()` 같은 우회 호출 금지 (#F11).
 
 ---
 
@@ -156,5 +156,5 @@ docker compose restart consumer       # 의존성 변경 등 dev watchfiles 가 
 |------|------|
 | 메시지 처리 안 됨 | broker queue declare 실패 — 로그에 `consuming queue=...` 라인 확인 |
 | 같은 메시지 반복 처리 | timeout nack 후 재전송 — `_db_retry` 총 sleep 최대 [0,6s] + 최대 3회 DB call |
-| Pydantic ValidationError | 에이전트 새 필드 + 스키마 미반영. `extra=ignore`로 통과 또는 schema 추가 |
+| `<메시지 타입> parse error count=N <필드경로>=<오류종류>` 로그 | 검증 실패 — 4 핸들러가 원본 `ValidationError` 대신 필드 경로·오류 종류만 담은 `ValueError` 로 정제 후 nack → DLQ. 새 필드는 `extra=ignore` 로 통과하므로 실린 필드의 타입·제약 위반 또는 스키마가 계약보다 좁은 경우 |
 | DLQ 누적 | 영구 오류. 위 DLQ peek 명령으로 확인 — 큐 이름은 `{queue}.dead` 실명 지정 (와일드카드 불가) |

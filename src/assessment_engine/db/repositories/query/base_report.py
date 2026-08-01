@@ -19,7 +19,7 @@ class BaseReportQueryRepository(ABC):
     async def report_aggregate(
         self,
         server_ids: list[int],
-        period_days: int,
+        period_days: float,
         end: datetime,
     ) -> list[ReportRowRaw]: ...
 
@@ -27,7 +27,7 @@ class BaseReportQueryRepository(ABC):
     async def report_uptime_stats(
         self,
         server_ids: list[int],
-        period_days: int,
+        period_days: float,
         end: datetime,
     ) -> dict[int, int]:
         """server_id -> period 안 boot_time 변경(재부팅) 횟수."""
@@ -36,7 +36,7 @@ class BaseReportQueryRepository(ABC):
     async def report_agent_restart_stats(
         self,
         server_ids: list[int],
-        period_days: int,
+        period_days: float,
         end: datetime,
     ) -> dict[int, int]:
         """server_id -> period 안 agent_started_at 변경(에이전트 재시작) 횟수.
@@ -52,7 +52,7 @@ class BaseReportQueryRepository(ABC):
     async def report_disk_io_baseline(
         self,
         server_ids: list[int],
-        period_days: int,
+        period_days: float,
         end: datetime,
     ) -> dict[int, DiskIoBaselineRaw]:
         """server_id -> DiskIoBaselineRaw (iops·throughput baseline + p95/peak)."""
@@ -61,7 +61,7 @@ class BaseReportQueryRepository(ABC):
     async def report_net_io_baseline(
         self,
         server_ids: list[int],
-        period_days: int,
+        period_days: float,
         end: datetime,
     ) -> dict[int, NetIoBaselineRaw]:
         """server_id -> NetIoBaselineRaw (rx·tx baseline + p95/peak)."""

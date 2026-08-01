@@ -93,7 +93,9 @@ base 는 환경 색을 담지 않는다. prod 하드닝(강 secret·외부 secre
 | rabbitmq | `127.0.0.1:${RABBITMQ_MANAGEMENT_PUBLISH_PORT:-15672}` | 15672 | 관리 UI (SSH 터널) |
 | web | `${WEB_PUBLISH_PORT:-8000}` | `${WEB_PORT:-8000}` | HTTP — 브라우저 + `/static/*` 정적 자원 |
 
-AMQP 5672 만 0.0.0.0 이다 — 외부 호스트의 에이전트가 발행하는 통로라 노출이 필수다. 나머지는 loopback 에 묶어 VM 로컬 ops 접근으로 제한한다. consumer·worker 는 포트를 열지 않는다. 바인딩은 base 가 정하므로 dev·prod 가 같다.
+web 8000 과 AMQP 5672 만 0.0.0.0 이다 — 브라우저가 붙는 통로와 외부 호스트의 에이전트가 발행하는 통로라 노출이 필수다. 나머지는 loopback 에 묶어 VM 로컬 ops 접근으로 제한한다. consumer·worker 는 포트를 열지 않는다. 바인딩은 base 가 정하므로 dev·prod 가 같다.
+
+노출 범위를 정하는 것은 이 바인딩 주소다 — 호스트 방화벽의 INPUT 규칙은 퍼블리시된 포트에 닿지 못한다(주소 변환을 거친 패킷이 FORWARD 로 빠진다). loopback 에 묶인 셋은 운영자 접근 전용이며, 앱과 인프라 사이 연결은 compose 네트워크 안에서 서비스명으로 이뤄져 퍼블리싱을 거치지 않는다.
 
 호스트 퍼블리시 포트(`*_PUBLISH_PORT`)와 컨테이너 안 listen 포트(`WEB_PORT`)는 키를 갈라 둔다 — 앱이 듣는 포트를 건드리지 않고 호스트 노출 포트만 옮길 수 있다.
 

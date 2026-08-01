@@ -52,11 +52,11 @@ sudo $DEPLOY_DIR/deploy.sh vX.Y.Z
 1. 선행 조건 확인 — `docker`·`cosign`·`flock` 존재와 `$DEPLOY_DIR/.env` 존재. version 형식 가드(`vX.Y.Z`) 후 이미지 태그 산출 (`...:X.Y.Z`).
 2. 배포 락 — `flock` 으로 동시 실행을 막는다. 두 배포가 겹치면 `.env` 의 핀과 `.last-good` 이 서로를 덮어 rollback 대상이 뒤섞인다.
 3. cosign verify — 이미지가 이 repo `release.yml`(GitHub OIDC)에서 서명됐는지 검증. 미통과 시 중단.
-4. 배포 tag 의 compose 파일을 raw 에서 fetch (이미지-compose 토폴로지 버전 일치).
+4. 배포 tag 의 compose 파일 둘(base·prod overlay)을 raw 에서 fetch 하고 교체 전 사본을 남긴다 (이미지-compose 토폴로지 버전 일치). dev override 는 받지 않는다.
 5. capture-before-swap — `.env` 의 현재 `ENGINE_IMAGE`(직전 정상)를 `.last-good` 으로 보존 후 새 버전으로 핀.
 6. `docker compose pull` -> `up -d`. base compose 의 migrate init-container 가 앱 서비스 기동 전 `alembic upgrade head` 를 실행한다(depends_on) — 절차는 `docs/guides/migrate.md`.
 7. health gate — compose 가 정의한 서비스가 모두 정상인지와 호스트에서 web `/health` 200 이 나오는지를 함께 확인한다(재시도 횟수·간격은 `HEALTH_RETRIES`·`HEALTH_INTERVAL`). 정상 기준은 restart 정책으로 가른다 — compose 가 재시작하지 않겠다고 선언한 서비스(`migrate`)만 종료 코드 0 이 완료를 뜻하고, 나머지는 running 이며 healthcheck 가 있으면 healthy 여야 한다.
-8. 실패 시 rollback — 서비스 상태를 출력한 뒤 `.last-good` 이미지로 되돌려 재기동하고 health 를 재확인한다. 되돌아가는 것은 이미지뿐이라 적용된 마이그레이션은 남는다 — 구버전이 새 스키마에서 동작해야 성립한다. `.last-good` 없으면(최초 배포) 자동 rollback 불가.
+8. 실패 시 rollback — 서비스 상태를 출력한 뒤 `.last-good` 이미지와 직전 compose 사본으로 되돌려 재기동하고 health 를 재확인한다. 적용된 마이그레이션은 남는다 — 구버전이 새 스키마에서 동작해야 성립한다. `.last-good` 없으면(최초 배포) 자동 rollback 불가.
 
 되돌리기: 이전 버전으로 `deploy.sh v<이전>` 재실행.
 

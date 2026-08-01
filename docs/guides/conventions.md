@@ -9,9 +9,9 @@
 | 도구 | 대상 | 설정 | 실행 |
 |------|------|------|------|
 | ruff | lint (E·F·I·B·UP) | `[tool.ruff]` | `uv run ruff check .` |
-| pyright | 타입 | `[tool.pyright]` | `uv run pyright` |
+| pyright | 타입 | `[tool.pyright]` | `uv run pyright` (게이트는 `uv run pyright src`) |
 
-ruff 는 CI(`ci.yml`)가 PR 마다 `ruff check` 를 돌린다 — 포맷은 게이트가 아니다. pyright 는 게이트가 없다 — 저장소 전체가 아직 통과하지 못한다. 통과 못 하는 검사를 required 로 걸면 늘 빨간 CI 이고, 통과하도록 rule 을 끄면 아무것도 잡지 못한다. 잔여 위반을 줄인 뒤 건다.
+ruff 는 CI(`ci.yml`)가 PR 마다 `ruff check` 를 돌린다 — 포맷은 게이트가 아니다. pyright 는 `src` 만 게이트다. `tests` 는 픽스처가 dict 리터럴을 넘기고 반환에 `| None` 이 붙은 함수 결과를 바로 쓰는 방식 탓에 위반이 남아 있어 범위 밖이다. 편집기는 `[tool.pyright].include` 대로 전체를 보므로 테스트 코드도 실시간 검사는 받는다.
 
 저장소가 공유하는 편집기 설정은 `.vscode/` 두 파일이다. `settings.json` 은 워크스페이스 우선순위로 개인 설정을 덮으므로 팀이 통일해야 할 것만 담는다 (ruff 포맷터·저장 시 포맷·import 정렬·pytest 활성화). `extensions.json` 은 추천일 뿐 강제가 아니며, 이 저장소에 검사 대상이 있는 확장만 올린다.
 
@@ -37,7 +37,7 @@ Warning 처리 우선순위:
 | PR title Conventional Commits | `pr-title-check.yml` |
 | lint·테스트·프론트 타입 계약·마이그레이션 drift | `ci.yml`·`alembic-check.yml` (required check 목록은 `docs/guides/ci-setup.md` 3.4) |
 
-강제 채널이 없는 규약은 사람과 리뷰가 지킨다. F7(`print`·`sys.stdout.write`)·C3(`safe_*` 미경유 redis 직접 호출)·글로벌 표기 규칙(markdown bold·비키보드 unicode)·파이썬 타입(pyright)이 여기 해당한다 — ruff select 대상이 아니라 CI 도 잡지 못한다. 자동화 변환 직후 자가 검증(#F5)과 develop PR 코드 리뷰가 유일한 그물이다.
+강제 채널이 없는 규약은 사람과 리뷰가 지킨다. F7(`print`·`sys.stdout.write`)·C3(`safe_*` 미경유 redis 직접 호출)·글로벌 표기 규칙(markdown bold·비키보드 unicode)이 여기 해당한다 — ruff select 대상이 아니라 CI 도 잡지 못한다. 자동화 변환 직후 자가 검증(#F5)과 develop PR 코드 리뷰가 유일한 그물이다.
 
 설정 카탈로그는 `docs/guides/ci-setup.md`.
 

@@ -11,7 +11,7 @@
 | `ServerNetIo` | `server_net_io` | BigInteger + collected_at | hypertable | per interface I/O 누적 카운터 (rx/tx bytes·packets·drops·errors) |
 | `ServerFilesystem` | `server_filesystem` | BigInteger + collected_at | hypertable | per mount 시점 용량·inode (used/free/total·inode) |
 | `ServerCpuCore` | `server_cpu_core` | BigInteger + collected_at | hypertable | per core CPU 시간 s 카운터 (단일스레드 병목 감지) |
-| `ServerPressure` | `server_pressure` | Integer + collected_at | hypertable | PSI 압박 (resource·scope별, Linux 4.20+) |
+| `ServerPressure` | `server_pressure` | BigInteger + collected_at | hypertable | PSI 압박 (resource·scope별, Linux 4.20+) |
 | `ServerDiskError` | `server_disk_error` | BigInteger + collected_at | hypertable | 디스크·스토리지 오류 카운터 (error_kind·error_class·member별) |
 | `Task` | `tasks` | BigInteger | 단일 행 (audit log) | 원격 작업 명령 + 실행 이력 |
 | `DiagnosticJob` | `diagnostic_jobs` | UUID | 일반 테이블 (hypertable 아님) | 보고서 발행 스냅샷·이력. `job_type` 으로 분류 (`customer_report`/`engineer_report`). active UNIQUE = `(scope, input_hash, job_type)`. UUID PK는 URL 노출용 (#E4) |
@@ -32,7 +32,7 @@
 | `server_filesystem` | `(server_id, mountpoint, collected_at)` |
 | `server_cpu_core` | `(server_id, core_id, collected_at)` |
 | `server_pressure` | `(server_id, resource, scope, collected_at)` |
-| `server_disk_error` | `(server_id, device_id, error_kind, error_class, member, collected_at)` — `member` NOT NULL('') 로 NULL 미포함 멱등키 |
+| `server_disk_error` | `(server_id, device_id, error_kind, error_class, member, collected_at)` — `error_class`·`member` NOT NULL('') 로 NULL 미포함 멱등키. wire 에 해당 attr 이 없는 point(Windows `{kind: eventlog}` 등)도 `''` 로 저장 |
 | `server_inventory_history` | `(server_id, collected_at)` |
 
 ## envelope 메타 (boot_time — counter reset 정밀 식별)

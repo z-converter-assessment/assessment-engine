@@ -98,6 +98,7 @@ def _disk_resource(raw, stats, host) -> dict:
     io = host.resources["disk_io"]
     # 현재 배정 디스크 총량 — block_devices type=disk size_bytes 합(disk_total_bytes 단일 산식, 양 OS).
     _dbytes = disk_total_bytes(raw.block_devices or [])
+    _dgb = bytes_to_gb(_dbytes) if _dbytes else None
     return {
         "capacity": {
             "status": cap.status,
@@ -113,7 +114,7 @@ def _disk_resource(raw, stats, host) -> dict:
             ),
             "evidence": _evidence_labels(cap.triggers),
             "confidence_notes": resource_confidence_notes(cap.confidence),
-            "current_gb": int(bytes_to_gb(_dbytes)) if _dbytes else None,  # 현재 배정 — target 과 짝
+            "current_gb": int(_dgb) if _dgb is not None else None,  # 현재 배정 — target 과 짝
             "sizing_target_gb": cap.sizing_target,
             "recommendation": _sizeable_recommendation("disk_capacity", cap),
             "detail": cap.detail or None,
@@ -141,7 +142,7 @@ def _action(kind: str, ra: recommendation.ResourceAssessment, op: str) -> dict:
     return a
 
 
-def _recommendation(host, stats, rec: str) -> dict:
+def _recommendation(host, stats, rec: recommendation.Recommendation) -> dict:
     """종합 권고 구조 (파싱용 견고 포맷) — 이 하나만 보고 조치를 결정한다.
 
     actions = 관측된 under 자원 전부(자원별 독립, 인과에 의한 억제 없음 — assessment API sizing.axes 와 동일
