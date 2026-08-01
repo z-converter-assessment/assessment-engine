@@ -88,16 +88,34 @@ tag 는 `release.yml` 이 `pyproject.toml` 의 version 에서 파생 생성하�
 
 develop 5개, main 7개다. UI 검색 결과에 워크플로 이름이 접두로 붙어 보일 수 있으니(`ci / pytest (unit)`) 검색해서 나오는 항목을 그대로 고른다.
 
+등록된 값은 API 로 대조한다 — 표와 어긋나면 머지가 막히거나 그물이 비는데, UI 로는 두 ruleset 을 번갈아 열어야 한다.
+
+```bash
+gh api repos/<owner>/<repo>/rulesets --jq '.[] | select(.target=="branch") | .id'
+gh api repos/<owner>/<repo>/rulesets/<id> \
+  --jq '.name, (.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context)'
+```
+
 `pr title + metadata` 는 Conventional Commits 형식과 AI 메타데이터 부재를 함께 본다.
 
 `wheel build` 와 `pytest (integration)` 은 job 의 `if` 조건으로 main PR 에서만 실행된다. paths 조건은 어느 워크플로에도 없다 — paths 로 skip 된 required check 가 N/A 로 남아 머지를 막는 함정을 피한다.
 
-### 3.5. 미등록 상태
+### 3.5. tag ruleset 에 `Restrict creations` 를 켜지 않는 이유
 
-저장소 설정은 UI 에서만 바꿀 수 있어 코드로 강제되지 않는다. 아래 둘이 아직 반영되지 않았다.
+`release.yml` 이 릴리즈 성공 후 `v<version>` tag 를 push 하므로, creation 을 막으려면 그 push 주체가 bypass 되어야 한다. 주체는 `GITHUB_TOKEN` 이 대변하는 `github-actions[bot]` 이고 ruleset 상 actor type 은 `Integration` 이다.
 
-- ruleset 3종 등록과 required status check 재등록. check 이름이 `conventional commits` 에서 `pr title + metadata` 로 바뀌었으므로 옛 이름으로 등록된 항목은 영원히 대기 상태가 된다.
-- tag ruleset 에 `Restrict creations` 를 켤 때 bypass 에 Actions 를 등록할 수 있는지 UI 에서 확인. 등록 없이 켜면 `release.yml` 이 tag push 단계에서 실패한다.
+저장소 레벨 ruleset 은 그 actor 를 받지 않는다 — 등록을 시도하면 `Actor GitHub Actions integration must be part of the ruleset source or owner organization` 으로 거부된다. `RepositoryRole`(admin 등)은 등록되지만 사람 역할이라 봇에 적용되지 않는다.
+
+따라서 creation 은 켜지 않는다. 켜면 릴리즈가 tag push 에서 멈춘다. 조직 레벨 ruleset 으로 옮기면 Actions 를 bypass 로 넣을 수 있으나, 그 경우 조직의 다른 저장소도 함께 규율 대상이 된다.
+
+현재 tag ruleset 은 `deletion` 과 `non_fast_forward` 만 건다. tag 가 다른 커밋으로 옮겨가거나 지워지는 것을 막으면 `deploy.sh` 가 태그 ref 에서 받는 compose 의 무결성 전제가 성립하므로, creation 없이도 목적은 달성된다.
+
+설정 조회·변경은 UI 없이 API 로 가능하다.
+
+```bash
+gh api repos/<owner>/<repo>/rulesets --jq '.[] | "\(.id) \(.name) \(.target)"'
+gh api repos/<owner>/<repo>/rulesets/<id> --jq '[.rules[].type]'
+```
 
 ## 4. Repository Settings
 
