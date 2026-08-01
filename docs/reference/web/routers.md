@@ -22,19 +22,19 @@
 | 경로 | 핸들러 | 비고 |
 |------|--------|------|
 | `GET /` | `overview` | 환경 개요(홈) — 집계 위젯(환경 요약·주요 워크로드·자원 적정성·자원 이용·포화 7도넛·운영 이벤트/에러). 자동 갱신 없음(정적 집계). 카드 레이아웃은 `docs/explanation/products/dashboard.md` 단일 진실. environment_overview + attention (`docs/reference/web/services.md` "환경 개요 상단 요약") |
-| `GET /servers?search=&is_online=&service=&os_id=&classification=&page=&limit=` | `servers_list` | 서버 목록 — 검색·온라인·서비스·OS·프로비저닝 필터 + 선택 N대 액션 버튼 (Install/Export/보고서). 필터 AND 조합 — service category (web/db/cache/mq/container/monitor/remote/file/mail/infra) · os_id (distro 정확 일치) · classification (under/over/idle/optimal/insufficient_data). 검색 버튼 없음, 변경 즉시 client-side filter + URL replaceState. 기본 20행 표시 후 client clip(더보기/접기). `fragment=rows` 면 행 partial 만 |
-| `GET /environment/assessment?time_range=&anchor_at=&fragment=` | `assessment` | 환경 자원 평가 — 윈도우/앵커 선택 -> 자원 적정성 평가 + 자원 부족 전체 목록(상위 N 절단 해제). `fragment=result` 면 결과 partial 만(JS swap). time_range 기본 `DIAGNOSTIC_DEFAULT_TIME_RANGE`(14d) |
+| `GET /servers?search=&is_online=&service=&os_distro=&classification=&os_eol=&fragment=&page=&limit=` | `servers_list` | 서버 목록 — 검색·온라인·서비스·OS·프로비저닝·OS 지원상태 필터 + 선택 N대 액션 버튼 (Install/Export/보고서). 필터 AND 조합 — service category (web/db/cache/mq/container/monitor/remote/file/mail/infra) · os_distro (endoflife product slug 정확 일치) · classification (under/over/idle/optimal/insufficient_data) · os_eol (eol/supported/unknown). 검색 버튼 없음, 변경 즉시 client-side filter + URL replaceState. 기본 20행 표시 후 client clip(더보기/접기). `fragment=rows` 면 행 partial 만 |
+| `GET /environment/assessment?time_range=&anchor_at=&fragment=` | `assessment` | 환경 자원 평가 — 윈도우/앵커 선택 -> 자원 적정성 분포 막대 + 서버별 자원 적정성 표(전 서버·전 분류, `build_action_targets` 단일 진실. 클라 20행 clip + 더보기). `fragment=result` 면 결과 partial 만(JS swap). time_range 기본 `DIAGNOSTIC_DEFAULT_TIME_RANGE`(14d) |
 | `GET /environment/topology` | `topology` | 네트워크 토폴로지 — L3 subnet 공동소속 집계 그래프(subnet 노드 클릭 시 host 펼침) + 서브넷별 서버 카드 |
 | `GET /environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 8차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
 | `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 이용률 2(CPU·메모리) + 신호 4 도넛 + 서버별 실시간 부하 sortable-table(7축 호스트당 1행 — 디스크 이용률은 표 전용, 도넛 없음. 칼럼 클릭 정렬). `realtime.js` 30초 polling(fragment swap). fragment=realtime 면 partial 만 |
 | `GET /servers/{server_id}` | `get_server` | detail 탭 |
 | `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(자원별 `.perf-stack` 카드 + 카드 안 `.perf-grid`/`.perf-item` 낱개 차트, 화면·인쇄 모두 2열 — 인쇄는 A4 portrait 1페이지, `static-assets.md` 단일 진실) |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
-| `GET /servers/{server_id}/report?view=&time_range=` | `single_server_report` | 단일 server 보고서 read-only. record 안 함 (1대 단위는 발행 흐름 없음) |
+| `GET /servers/{server_id}/report?job=&view=&time_range=` | `single_server_report` | 단일 server 보고서. job 있으면 정적 스냅샷(ids 1개 발행이 이 URL 로 귀결), 없으면 read-only live preview. GET 은 record 안 함 |
 | `GET /reports/servers?ids=&view=customer\|engineer&time_range=&job=` | `report` | 선택 N대 보고서 표시 (scope=server). job 있으면 정적 스냅샷, 없으면 read-only live preview (PRG). view 파라미터로 분기 |
 | `POST /reports/servers/emit?ids=&view=&time_range=` | `report_emit` | 선택 N대 보고서 발행 record (PRG). ids 1개=단일 양식, 2개+=selection. `{view_url}` 응답 — JS navigate. 다시 보기/북마크/직접 URL 은 GET 만 → 중복 row 방지 |
 
-`_render_server_tab` helper — 5개 탭이 `service.get_server` + `{"server": ...}` context로 동일하게 렌더링되어 묶음. storage/network는 별도 service 메서드라 분리.
+`_render_server_tab` helper — cpu/memory/services/metrics 4개 탭이 `service.get_server` 결과 + 공통 context(period·resource_period·back chain·service_categories)로 동일하게 렌더링되어 묶음. detail(`/servers/{id}`)은 stability·recent_tasks·zdm_defaults 를 더 조회해 별도 핸들러, storage/network는 별도 service 메서드라 분리.
 
 PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리. `POST /reports/environment/emit` + `POST /reports/servers/emit` 가 record 책임, GET endpoint 는 read-only. 다시 보기 / 북마크 / 직접 URL 진입 시 record 안 됨 — 발행 시각만 다른 중복 row 방지.
 
@@ -80,11 +80,11 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 ### `reports.py` — 보고서 SSR + 발행 (PRG 패턴)
 | 경로 | 용도 |
 |------|------|
-| `GET /reports/environment?view=&time_range=&anchor_at=` | 환경 보고서 표시. GET 은 read-only — record 안 함 (PRG) |
+| `GET /reports/environment?job=&view=&time_range=&anchor_at=` | 환경 보고서 표시. job 있으면 정적 스냅샷 렌더, 없으면 발행 컨트롤만(본문 미생성). GET 은 read-only — record 안 함 (PRG) |
 | `POST /reports/environment/emit?view=&time_range=&anchor_at=` | 환경 보고서 발행 record + `{view_url}` 응답 (JS navigate) |
-| `GET /reports/history?days=&view=&scope=&server_public_ids=&full=&fragment=` | 보고서 발행 이력. 기본 20건 + `full=1` 시 전체. `fragment=1` 시 partial HTML 만 (filter 변경 즉시 적용용) |
+| `GET /reports/history?days=&view=&scope=&server_public_ids=&limit=&fragment=&back=` | 보고서 발행 이력. 기본 20건, "더보기"가 `limit` 누적 재조회. `fragment=1` 시 partial HTML 만 (filter 변경 즉시 적용용) |
 | `GET /reports/{job_id}/status` | 비동기 보고서 생성 상태 폴링 (pending/running/succeeded/failed) — `report-poll.js` |
-| `GET /reference` | 참고 페이지 (`reference_router`) — 지표 정의(`_metric_definitions`) + 에이전트-엔진 데이터 계약·수집 함수 근거·assessment API 계약 요약(`_agent_contract_reference`) + 자원 적정성 평가 임계값·근거 계층·임계 상수 전체·Errors 축 설명(`_thresholds_reference`, recommendation 단일 진실) + 서비스 뱃지 카탈로그(`_service_badges`). 각 페이지 하단 `_reference_link` 는 앵커 링크 없이 "사이드바 참고 그룹에서 확인" 안내만(경량 링크, `_reference_footer.html`). 사이드바 "참고" 그룹 |
+| `GET /reference` | 참고 페이지 (`reference_router`) — 지표 정의(`_metric_definitions`) + 에이전트-엔진 데이터 계약·수집 함수 근거·assessment API 계약 요약(`_agent_contract_reference`) + 자원 적정성 평가 임계값·근거 계층·임계 상수 전체·Errors 축 설명(`_thresholds_reference`, recommendation 단일 진실) + 서비스 뱃지 카탈로그(`_service_badges`). 각 페이지 하단 `_reference_link.html` 은 제품명·버전 푸터만 렌더(보고서 꼬리 `_reference_footer.html` 도 이 partial 공유) — 참고 자료 진입은 사이드바 "참고" 그룹 단일 경로 |
 
 ## 검증·에러 매핑
 
@@ -94,7 +94,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | 404 | 리소스 없음 | `resolve_internal_id` 또는 service `TaskNotFound` exception |
 | 409 | 충돌 | `tasks/install` pending 중복 (`TaskDuplicatePending`) |
 | 500 | 서버 오류 | service 측 예기치 못한 Exception (DB·외부 의존 비정형 오류 등) |
-| 503 | 설정 미충족 | `TaskNotConfigured` — `HttpZdmPackageResolver` 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 차단 |
+| 503 | 발행 불가 | `TaskNotConfigured` — `HttpZdmPackageResolver` 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 차단 / `TaskPublishFailed` — broker 발행 실패 |
 
 ## URL 정책
 

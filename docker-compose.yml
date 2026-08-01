@@ -57,7 +57,7 @@ services:
     env_file: ${ENV_FILE:-.env}
     environment:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-assessment}
-      RABBITMQ_DEFAULT_VHOST: ${RABITMQ_VHOST:-assessment}
+      RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-assessment}
     ports:
       # agent 가 고객사 네트워크에서 발행하는 통로라 전체 인터페이스에 연다.
       - "${RABBITMQ_PUBLISH_PORT:-5672}:5672"

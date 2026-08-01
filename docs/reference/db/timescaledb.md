@@ -7,24 +7,15 @@
 시계열 8개 테이블 모두 hypertable (`collected_at` 기준 파티셔닝):
 - `server_metrics` / `server_disk_io` / `server_net_io` / `server_filesystem` / `server_cpu_core` / `server_pressure` / `server_disk_error` / `server_inventory_history`
 
-### `boot_time`/`agent_started_at` 컬럼 (server_metrics)
+`boot_time`/`agent_started_at` 컬럼 소유와 counter reset 처리 = `docs/reference/db/models.md` "envelope 메타" 절.
 
-`server_metrics` 만 행마다 `boot_time`/`agent_started_at` 컬럼을 저장한다(수집 1회당 1행 = envelope, CLAUDE.md #C1·#B). 자식 시계열(disk_io·net_io·filesystem·cpu_core·pressure·disk_error)은 미보유 — 동일 `(server_id, collected_at)` 로 server_metrics 행을 참조. counter reset 처리:
-- server_metrics 차트(`metric_trend`)·`metrics_calculator._is_counter_reset`: `LAG(boot_time)` 두 시점 비교로 재부팅 식별 -> reset 시 delta 건너뛰기.
-- 자식 시계열 rate 차트: boot_time 미보유라 `GREATEST(delta, 0)` 로 reset 흡수.
-- 보고서 집계(cagg)는 `counter_agg` 가 값-감소 기준 reset 을 일률 처리 -> boot_time gate 불요.
+## 스키마 관리
 
-## DEV / PROD 스키마 관리
-
-| 환경 | 방식 |
-|------|------|
-| 전 환경 (dev·staging·prod·테스트) | Alembic 마이그레이션 단일 진실. `migrate` init-container 가 `alembic upgrade head` 실행 (postgres healthy 후 1회). `CREATE EXTENSION`·`create_hypertable`·continuous aggregate 는 해당 revision 에 수동 작성 |
-
-스키마 변경은 새 Alembic revision 으로만 — web/consumer/worker lifespan 은 스키마를 만들지 않는다(schema 가정만). 로컬에서 스키마를 갈아엎으려면 `docker compose down -v` 후 재기동(migrate 가 head 까지 재적용).
+hypertable·continuous aggregate 를 포함한 모든 스키마 변경은 Alembic revision 단일 경로다 — 절차와 `create_hypertable`·`CREATE EXTENSION` 수동 보강 의무는 `docs/guides/migrate.md`. web/consumer/worker lifespan 은 스키마를 만들지 않고 이미 적용된 것으로 가정한다.
 
 ## 차트 SQL 패턴 — 단일 함수 `metric_trend`
 
-모든 차트(환경 성능 추이·선택 N대·서버 상세·대시보드 부하 추이·보고서 추이)는 단일 함수 `metric_trend`가 산출한다. `metric_chart`(서버 상세)는 `metric_trend(collapse=False, server_ids=[1대])`에 위임하는 thin wrapper. metric_type별 분기(jiffies delta percent·시점값 mem/run_queue/PSI gauge·누적 카운터 rate disk/net·fs.usage_percent)는 `metric_trend` 내부 SQL 분기로 흡수.
+모든 차트(환경 성능 추이·선택 N대·서버 상세·대시보드 부하 추이·보고서 추이)는 단일 함수 `metric_trend`가 산출한다. `metric_chart`(서버 상세)는 `metric_trend(collapse=False, server_ids=[1대])`에 위임하는 thin wrapper. metric_type별 분기(CPU 시간 delta percent·시점값 mem/run_queue/PSI gauge·누적 카운터 rate disk/net·fs.usage_percent)는 `metric_trend` 내부 SQL 분기로 흡수.
 
 ### 통일 산식
 
@@ -39,15 +30,17 @@
 
 `server_ids` 인자: `None`이면 전체 환경, `[1대]`이면 서버 상세와 동치(`per_ts`의 합산 대상이 1서버뿐이라 시점값=그 서버값), `[N대]`이면 선택. `collapse=True`면 dimension(device/iface/mount) 합산 단일선(환경), `False`면 dimension 보존(서버 상세 멀티라인).
 
+예외는 시점값을 먼저 내지 않고 버킷을 먼저 묶는 축들이다. disk/net rate 환경 합산(`collapse=True`)은 server+device 별 버킷 평균 rate 를 낸 뒤 전 함대를 `SUM` 하고, `fs.usage_percent` 환경 합산은 버킷 끝 시점까지의 마지막 값(LOCF)으로 `sum(used)/sum(used+free)` 를 내며, 판정 축(포화 이진·crossing 호스트 수)은 버킷 안에서 `bool_or` 로 넘었는지를 판정한다. 수집이 staggered 라 한 `collected_at`에는 소수 서버만 있어 시점 합산·시점 카운트가 undercount 가 되기 때문이고, 이 축들은 합산·판정 자체가 결과라 `agg`(avg/max/p95)를 적용하지 않는다.
+
 ### 공통 패턴
 
 1. window_start 확장 — `LAG`로 첫 버킷 delta 계산 위해 요청 `start`보다 한 bucket 더 과거부터 raw 읽음 (`window_start = start - bucket_td`)
-2. delta CTE — `LAG(...) OVER (PARTITION BY device ORDER BY collected_at)`로 누적 카운터 차 + `LAG(boot_time)`로 직전 boot_time 동시 추출
-3. reset 식별 CASE — calculator의 `_is_counter_reset`과 동일 정책 (CLAUDE.md B1):
-   ① `dt IS NULL OR dt <= 0` → NULL
-   ② `abs(boot_time - prev_boot) > BOOT_TIME_JITTER_TOLERANCE`(5s) → NULL (재부팅 — NTP 보정 흔들림은 흡수)
-   ③ `d_val < 0` → NULL (옛 데이터 휴리스틱)
-   ④ 정상 → `d_val / dt` 또는 `d_num * 100 / d_total`
+2. delta CTE — `LAG(...) OVER (PARTITION BY server_id, device ORDER BY collected_at)`로 누적 카운터 차. 차트는 boot_time 을 읽지 않는다
+3. reset 흡수 — 게이트 없이 산식 자체가 reset 구간을 떨군다:
+   - `dt IS NULL OR dt <= 0` -> NULL (분모 무효)
+   - rate 는 `GREATEST(delta, 0)`로 음수 delta 를 0 클램프
+   - CPU 는 `d_total > 0 AND d_num >= 0` 행만 통과시켜 감소 구간 배제
+   - 정상 -> `d_val / dt` 또는 `d_num * 100 / d_total`
    `dt`는 검증이 아니라 분모 — 실제 시간으로 자연 정규화
 4. time_bucket 집계 — TimescaleDB `time_bucket(interval '5m', collected_at)` + `agg`(avg/max/p95)
 5. dimension 필터 — `(CAST(:dim AS text) IS NULL OR device = :dim)` — None이면 전체
@@ -58,66 +51,31 @@
 
 ## 카운터 메트릭 사전집계 — continuous aggregate
 
-CPU jiffies·disk/net bytes 는 카운터다. 매 요청 7일치 raw 를 LAG 로 스캔하지 않고 continuous aggregate +
+CPU 시간(s)·disk/net bytes 는 카운터다. 매 요청 7일치 raw 를 LAG 로 스캔하지 않고 continuous aggregate +
 timescaledb_toolkit `counter_agg` 로 사전집계한다. 5분 버킷(클라우드 right-sizing 표준), `materialized_only=false`
-(real-time aggregation — 미materialize 최근 구간 실시간 집계, staleness 0), 5분 refresh policy. 초기 materialize 는
-`refresh_continuous_aggregate`(트랜잭션 밖)로 마이그레이션 외 1회.
+(real-time aggregation — 미materialize 최근 구간 실시간 집계, staleness 0), 5분 refresh policy. 초기 materialize 가
+필요한 쪽은 cagg 재생성뿐이다 — 마이그레이션 안 `autocommit_block()`(트랜잭션 밖)에서 `refresh_continuous_aggregate`
+1회로 기존 raw 를 backfill 한다. 신규 생성은 대상 데이터가 없어 policy 가 도착분부터 채운다.
 
 | cagg | 그룹 | 저장 |
 |------|------|------|
 | `server_metrics_5m` | server_id, bucket | CPU/paging/oom/tcp재전송/mce `counter_agg` + mem% avg/max·commit% + run_queue·blocked·conntrack avg/max + hw_corrupted + mem byte gauge(available/limit avg, cached/buffered% — env_util·memory_breakdown cagg 조회) |
-| `server_filesystem_5m` | server_id, mountpoint, bucket | used%/inode% avg/max + total_bytes_max + free/inode first·last(runway) + fstype_any(query 시 가상 fs 필터) |
-| `server_disk_io_5m` | server_id, device_id, bucket | io bytes·ops·op_time·io_time `counter_agg` + pending avg/max (물리 device만) |
-| `server_net_io_5m` | server_id, iface_id, bucket | rx/tx bytes·packets·drops·errors `counter_agg` + link_max (kind in {physical, bond_master}) |
+| `server_filesystem_5m` | server_id, mountpoint, bucket | used% avg/max + inode% max + total_bytes_max + free/inode first·last(runway) + fstype_any(query 시 가상 fs 필터) |
+| `server_disk_io_5m` | server_id, device_id, bucket | io bytes·ops·op_time·io_time `counter_agg` + pending avg/max |
+| `server_net_io_5m` | server_id, iface_id, bucket | rx/tx bytes·packets·drops·errors `counter_agg` + link_max |
 | `server_cpu_core_5m` | server_id, core_id, bucket | per-core CPU `counter_agg`(total/idle) — 단일스레드 병목 감지 |
 
-counter reset(재부팅·agent재시작·wraparound)은 `counter_agg` 가 값-감소 기준 일률 처리 — boot_time gate 불요.
-가상 device/interface 는 cagg 단계 필터(물리만, types 필터 스냅샷).
+cagg 정의에는 WHERE 절이 없어 전 device/interface 를 담는다. 물리 device/interface 한정은 조회 시점에
+`_PHYS_DISK_SQL_FILTER`/`_PHYS_IFACE_SQL_FILTER`(`query/types.py`) 상관 서브쿼리를 붙여 건다 — 필터 규약이
+바뀌어도 cagg 재생성이 필요 없다.
 
-## 보고서 집계 — `report_aggregate` SQL
+## 보고서 집계 — `report_aggregate`
 
-USE Method (Brendan Gregg) 기반 N서버 X period_days 통계 — `server_metrics_5m` cagg 조회:
+USE Method (Brendan Gregg) 기반 N서버 x period_days 통계. CTE 구성과 산식은 `db/repositories/query/report.py` 단일 진실이고, 본 절은 코드만 봐서는 안 서는 판단 근거만 담는다.
 
-```sql
-WITH bkt AS (
-  -- 버킷별 delta(counter_agg)로 CPU%/iowait% (reset 일률 처리). per-bucket = 5분 평균.
-  SELECT server_id, bucket,
-    CASE WHEN delta(cpu_total_ca) > 0
-         THEN GREATEST(0, (1 - delta(cpu_idle_ca)/delta(cpu_total_ca)) * 100) END AS cpu_pct,
-    mem_pct_avg, mem_pct_max, run_queue_avg AS procs_running, blocked_avg AS procs_blocked
-  FROM server_metrics_5m WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end
-),
-cpu_stats AS (  -- 버킷에 percentile_cont(정확)·avg·max
-  SELECT server_id, percentile_cont(0.95) WITHIN GROUP (ORDER BY cpu_pct) AS cpu_p95, MAX(cpu_pct) AS cpu_peak
-  FROM bkt GROUP BY server_id
-),
-mem_stats AS (...), rs_stats AS (-- run_queue·blocked·steal p95 (포화·근본원인 신호)),
-mount_max AS (-- server_filesystem_5m(가상 fs 제외), used%·runway)
-SELECT s.id, ..., cs.cpu_p95, cs.cpu_peak, ms.mem_p95, ms.mem_peak,
-       rs.procs_running_p95, rs.procs_blocked_p95, mm.worst_used_pct
-FROM server_inventory s
-LEFT JOIN cpu_stats cs ON cs.server_id = s.id
-... (mem/rs/mount LEFT JOIN)
-WHERE s.id = ANY(:sids)
-```
-
-- `services` JSONB 동시 SELECT — N+1 회피 (role 추론용)
-- LEFT JOIN — metric 없는 서버도 행 반환 (service에서 `insufficient_data` 분류)
-- sufficiency = 실측 버킷 / 기대 버킷(period_days*288, 5분). `report_disk_io_baseline`·`report_net_io_baseline`·`report_cpu_breakdown` 도 동일 cagg 조회.
-- repository는 raw 컬럼만 (P1) — `os_display`/`internal_ip[0]` 등 표시 가공은 mapper
-
-## 운영 / 디버깅
-
-```bash
-# 시계열 hypertable chunk 확인
-docker compose exec postgres psql -U assessment -d assessment -c \
-  "SELECT show_chunks('server_metrics')"
-
-# 인덱스 사용 확인
-docker compose exec postgres psql -U assessment -d assessment -c \
-  "EXPLAIN SELECT * FROM server_metrics WHERE server_id = 1 ORDER BY collected_at DESC LIMIT 10"
-
-# tasks pending 조회
-docker compose exec postgres psql -U assessment -d assessment -c \
-  "SELECT public_id, target_agent_id, task_type, status, created_at FROM tasks WHERE status='pending'"
-```
+- 입력은 raw hypertable 이 아니라 cagg 5종이다 — `server_metrics_5m`(CPU·mem·run_queue·blocked·steal·paging·oom·retrans·conntrack) / `server_filesystem_5m`(마운트 used%·inode%·runway) / `server_disk_io_5m`(await·iops baseline) / `server_net_io_5m`(drop·retrans 분모) / `server_cpu_core_5m`(per-core p95). `report_disk_io_baseline`·`report_net_io_baseline`·`report_memory_breakdown`·`report_cpu_breakdown` 도 같은 cagg 를 본다.
+- 최종 SELECT 가 `server_inventory` 를 좌변에 두고 통계 CTE 를 전부 LEFT JOIN 하는 이유는 metric 이 한 건도 없는 서버까지 행으로 돌려보내기 위해서다 — 그 행은 service 가 `insufficient_data` 로 분류한다.
+- sufficiency 분모 `period_days * 288` 은 5분 버킷이 하루 288개라는 데서 온다. 실측 버킷 수를 이 기대치로 나눈 비율이 다운사이즈 처방 이력 게이트 입력이다 (#F10).
+- `mount_span` CTE 만 하한 술어 없이 `bucket <= :end` 로 돈다 — partition pruning(#C5) 의 의식적 예외이고 근거는 `docs/explanation/tradeoffs.md` T18.
+- `services` JSONB 를 같은 쿼리에서 SELECT 해 role 추론 N+1 을 없앤다.
+- repository 는 raw 컬럼만 (P1) — `os_display`·`internal_ip[0]` 등 표시 가공은 mapper.

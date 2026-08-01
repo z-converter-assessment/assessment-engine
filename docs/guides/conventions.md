@@ -8,10 +8,10 @@
 
 | 도구 | 대상 | 설정 | 실행 |
 |------|------|------|------|
-| ruff | lint (E·F·I·B·UP) + format | `[tool.ruff]` | `uv run ruff check .` |
+| ruff | lint (E·F·I·B·UP) | `[tool.ruff]` | `uv run ruff check .` |
 | pyright | 타입 | `[tool.pyright]` | `uv run pyright` |
 
-ruff 는 CI(`ci.yml`)가 PR 마다 전체를 돌린다. pyright 는 게이트가 없다 — 저장소 전체가 아직 통과하지 못한다. 통과 못 하는 검사를 required 로 걸면 늘 빨간 CI 이고, 통과하도록 rule 을 끄면 아무것도 잡지 못한다. 잔여 위반을 줄인 뒤 건다.
+ruff 는 CI(`ci.yml`)가 PR 마다 `ruff check` 를 돌린다 — 포맷은 게이트가 아니다. pyright 는 게이트가 없다 — 저장소 전체가 아직 통과하지 못한다. 통과 못 하는 검사를 required 로 걸면 늘 빨간 CI 이고, 통과하도록 rule 을 끄면 아무것도 잡지 못한다. 잔여 위반을 줄인 뒤 건다.
 
 저장소가 공유하는 편집기 설정은 `.vscode/` 두 파일이다. `settings.json` 은 워크스페이스 우선순위로 개인 설정을 덮으므로 팀이 통일해야 할 것만 담는다 (ruff 포맷터·저장 시 포맷·import 정렬·pytest 활성화). `extensions.json` 은 추천일 뿐 강제가 아니며, 이 저장소에 검사 대상이 있는 확장만 올린다.
 
@@ -53,7 +53,7 @@ Warning 처리 우선순위:
 | 디렉토리 mv | `from X` import (들여쓰기 포함), `import X` (단순), 문자열 형태 모듈 경로 (`"web.main:app"`, target=`"X.Y"` 등), 동적 import (`importlib.import_module`) 모두 grep |
 | DTO·모델 타입 변경 | mapper / cache serializer / 템플릿 / inline JS / view_models 체인 — 한 곳 누락 시 cache 역직렬화 또는 attribute access 깨짐 |
 | 동시성 코드 (consumer / 핸들러) | placeholder는 `ON CONFLICT DO NOTHING` 의무 (`DO UPDATE`는 진짜 데이터에만). race 시나리오 명시 검증 |
-| Frontend JS | 외부 `.js` 파일에서 작업 (inline 신규 금지). 변환 후 `node --check` + 사용자 IDE에서 경고 0건 |
+| Frontend JS | 외부 `.js` 파일에서 작업 (inline 신규 금지). 변환 후 `pnpm run typecheck`. 엔드포인트·ViewModel 을 함께 만졌으면 `docs/reference/web/type-contract.md` 의 타입 계약 절차 |
 
 ## 4. 누적 사고 패턴 (반면교사)
 

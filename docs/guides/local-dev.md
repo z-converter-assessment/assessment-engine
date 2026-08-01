@@ -12,7 +12,7 @@ docker compose ps                                  # 7 서비스 상태 확인
 docker compose down                                # 종료 (볼륨 보존)
 ```
 
-`.env.dev.example` 에는 `COMPOSE_FILE` 이 없다. 그래서 compose 기본 규칙이 base 와 override 를 합쳐 로컬 빌드·핫리로드로 뜬다. 첫 기동은 의존성 설치(60s+)와 TimescaleDB 이미지 pull(~200MB)이 있어 5분쯤 걸린다.
+dev 는 `.env.dev.example` 을 쓴다 — 어떤 compose 파일이 합쳐져 로컬 빌드·핫리로드로 뜨는지는 `docs/reference/docker.md` "compose 3 파일" 절. 첫 기동은 의존성 설치(60s+)와 TimescaleDB 이미지 pull(~200MB)이 있어 5분쯤 걸린다.
 
 배포 기동은 secret 파일 생성이 선행해야 성립한다 — `docs/guides/deploy.md`.
 
@@ -65,8 +65,6 @@ docker compose down -v   # named volume 삭제
 - TimescaleDB hypertable 정의를 바꿨을 때
 - 테스트 시나리오를 처음부터 돌릴 때
 
-`PGDATA_HOST`·`MQ_DATA_HOST` 로 host bind 를 주입했으면 외부 디스크라 `-v` 로 지워지지 않는다.
-
 ---
 
 ## 디버깅
@@ -76,7 +74,7 @@ docker compose logs -f web                       # web 실시간 로그
 docker compose logs consumer --since=10m         # consumer 최근 10분
 docker compose exec postgres psql -U assessment -d assessment   # DB 접속
 docker compose exec redis redis-cli              # Redis 접속
-docker compose exec rabbitmq rabbitmqctl list_queues name messages_ready   # 큐 적재량
+docker compose exec rabbitmq rabbitmqctl -p assessment list_queues name messages_ready   # 큐 적재량
 ```
 
 ---

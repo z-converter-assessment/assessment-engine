@@ -15,13 +15,15 @@ docker-compose 는 엔진 그 자체다 — web·consumer·worker·migrate·post
 | web | `python -m assessment_engine.web` | `web/__main__.py` -> uvicorn 기동 |
 | consumer | `python -m assessment_engine.consumer` | `consumer/__main__.py` -> `asyncio.run(consumer.main.main())` |
 | worker | `python -m assessment_engine.worker` | `worker/__main__.py` -> 보고서 생성 + install reaper |
-| migrate | `alembic upgrade head` | postgres healthy 후 1회 실행하고 종료 (`restart: "no"`) |
+| migrate | `python -m alembic upgrade head` | postgres healthy 후 1회 실행하고 종료 (`restart: "no"`) |
+
+이미지는 ENTRYPOINT 를 두지 않고 CMD 도 비어 있다 — 무엇을 실행할지는 compose command 가 단독으로 정하고, 명령 없이 실행하면 기동하는 대신 거부된다.
 
 이미지가 1개라 빌드·푸시·패치 비용이 최소다. 네 컴포넌트가 같은 의존성 집합(SQLAlchemy·aio-pika·redis·FastAPI)을 쓰므로 나눠도 크기 이득이 작다. dev/prod Dockerfile 도 나누지 않는다 (parity — dev 편의는 override bind mount 로만).
 
 ### multi-stage
 
-builder 가 가상환경을 만들고 runtime 은 그것만 복사한다. uv 바이너리와 소스 트리가 최종 이미지에 남지 않는다. 릴리즈는 `linux/amd64` + `linux/arm64` 를 발행한다 (운영자 ARM 서버 직접 호환).
+builder 가 가상환경을 만들고 runtime 은 그것만 복사한다. uv 바이너리와 소스 트리가 최종 이미지에 남지 않는다.
 
 ### 빌드 캐시 — 2단 uv sync
 
@@ -45,11 +47,9 @@ RUN uv sync --frozen --no-dev --no-editable        # project 만 추가
 
 베이스 이미지의 python minor 를 올릴 때는 `pyproject.toml` `requires-python`, Dockerfile `FROM` 과 `ALEMBIC_CONFIG`, site-packages 경로가 박힌 override 3줄(마운트·watch 경로)을 함께 고친다.
 
-### CI 산출물
+### CI 빌드 검증
 
-본 repo CI 산출물은 서명·SBOM·provenance 된 GHCR 엔진 이미지 하나다.
-
-`ci.yml` 의 `build` job 은 `uv build` 로 wheel 을 만들어 fresh venv 에 install 하고 import·정적 자원 포함을 검증한다. Docker image 정합은 dev `docker compose build` 로 확인한다. `release.yml` 은 멀티아치 이미지를 GHCR 로 발행한다 — 상세는 `docs/guides/release.md`·`docs/guides/deploy.md`.
+`ci.yml` 의 `wheel build` job 이 `uv build` 로 wheel 을 만들어 fresh venv 에 install 하고 import·정적 자원 포함을 검증한다. Docker image 정합은 dev `docker compose build` 로 확인한다. 릴리즈 이미지의 태그·attestation·아키텍처 범위는 `docs/guides/release.md` 1절이 갖는다.
 
 ---
 
@@ -78,7 +78,7 @@ base 는 환경 색을 담지 않는다. prod 하드닝(강 secret·외부 secre
 | `postgres` | `timescale/timescaledb-ha:pg16` | 메인 DB + TimescaleDB all-in-one |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | 메시지 브로커 (AMQP + 관리 UI) |
 | `redis` | `redis:7-alpine` | 캐시·온라인 TTL·PUB/SUB |
-| `migrate` | GHCR pull (dev: override 로컬 빌드) | `alembic upgrade head` 1회 실행 후 종료 |
+| `migrate` | GHCR pull (dev: override 로컬 빌드) | 마이그레이션 1회 실행 후 종료 |
 | `web` | GHCR pull (dev: override 로컬 빌드) | FastAPI SSR + API + StaticFiles |
 | `consumer` | GHCR pull (dev: override 로컬 빌드) | aio-pika 컨슈머 (server.* + task.result 큐) |
 | `worker` | GHCR pull (dev: override 로컬 빌드) | 보고서 생성 + install task reaper |
@@ -87,13 +87,15 @@ base 는 환경 색을 담지 않는다. prod 하드닝(강 secret·외부 secre
 
 | 서비스 | 호스트 포트 | 컨테이너 포트 | 용도 |
 |--------|------------|--------------|------|
-| postgres | `127.0.0.1:${POSTGRES_PORT:-5432}` | 5432 | psql 직접 접속 (디버그) |
-| redis | `127.0.0.1:${REDIS_PORT:-6379}` | 6379 | redis-cli 직접 접속 (디버그) |
-| rabbitmq | `${RABBITMQ_PORT:-5672}` | 5672 | AMQP — 외부 호스트의 에이전트가 메트릭·결과 발행 |
-| rabbitmq | `127.0.0.1:${RABBITMQ_MANAGEMENT_PORT:-15672}` | 15672 | 관리 UI (SSH 터널) |
-| web | `${WEB_PORT:-8000}` | 8000 | HTTP — 브라우저 + `/static/*` 정적 자원 |
+| postgres | `127.0.0.1:${POSTGRES_PUBLISH_PORT:-5432}` | 5432 | psql 직접 접속 (디버그) |
+| redis | `127.0.0.1:${REDIS_PUBLISH_PORT:-6379}` | 6379 | redis-cli 직접 접속 (디버그) |
+| rabbitmq | `${RABBITMQ_PUBLISH_PORT:-5672}` | 5672 | AMQP — 외부 호스트의 에이전트가 메트릭·결과 발행 |
+| rabbitmq | `127.0.0.1:${RABBITMQ_MANAGEMENT_PUBLISH_PORT:-15672}` | 15672 | 관리 UI (SSH 터널) |
+| web | `${WEB_PUBLISH_PORT:-8000}` | `${WEB_PORT:-8000}` | HTTP — 브라우저 + `/static/*` 정적 자원 |
 
 AMQP 5672 만 0.0.0.0 이다 — 외부 호스트의 에이전트가 발행하는 통로라 노출이 필수다. 나머지는 loopback 에 묶어 VM 로컬 ops 접근으로 제한한다. consumer·worker 는 포트를 열지 않는다. 바인딩은 base 가 정하므로 dev·prod 가 같다.
+
+호스트 퍼블리시 포트(`*_PUBLISH_PORT`)와 컨테이너 안 listen 포트(`WEB_PORT`)는 키를 갈라 둔다 — 앱이 듣는 포트를 건드리지 않고 호스트 노출 포트만 옮길 수 있다.
 
 ### 영속 볼륨
 
@@ -108,15 +110,7 @@ redis 는 볼륨이 없다 — 재시작하면 캐시·온라인 TTL 이 초기�
 
 ### Redis 인라인 설정
 
-```yaml
-command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
-```
-
-설정 파일 없이 커맨드라인으로 넘긴다.
-
-- `maxmemory 256mb` — B2B 내부 포털 규모 기준. 키 수·값 크기가 작아 충분하다.
-- `volatile-lru` — TTL 있는 키만 evict 대상이다. TTL 없는 `cache:resolve:{public_id}` 를 보호하면서 만료 임박 캐시·온라인 키를 먼저 버린다.
-- 멱등성 키(`idempotent:{message_id}`)는 24h TTL 이 있어 evict 될 수 있다 -> at-most-once 트레이드오프 (`docs/explanation/tradeoffs.md` T1·T11).
+redis 는 설정 파일 없이 command 인자로 maxmemory 와 eviction policy 를 받는다. 두 값은 `REDIS_MAXMEMORY`·`REDIS_MAXMEMORY_POLICY` 로 열려 있고(카탈로그는 `docs/reference/contracts/env.md`), 정책 근거는 `docs/reference/redis.md` 가 갖는다.
 
 ### 환경변수 주입
 
@@ -124,9 +118,11 @@ command: redis-server --maxmemory 256mb --maxmemory-policy volatile-lru
 
 | 변수 | 호스트 실행 | 컨테이너 |
 |------|-------------|---------|
-| `POSTGRES_HOST` | `localhost` (.env) | `postgres` |
-| `REDIS_HOST` | `localhost` (.env) | `redis` |
-| `RABBITMQ_HOST` | `localhost` (.env) | `rabbitmq` (MQ 사용 서비스 한정) |
+| `POSTGRES_HOST` | 운영자 직접 주입 | `postgres` |
+| `REDIS_HOST` | 운영자 직접 주입 | `redis` |
+| `RABBITMQ_HOST` | 운영자 직접 주입 | `rabbitmq` |
+
+앱 서비스 셋(web·consumer·worker)이 세 키를 모두 받고, `migrate` 는 `POSTGRES_HOST` 만 받는다. 코드 기본값이 이미 서비스명이라 컨테이너는 그대로 붙고, 호스트에서 직접 띄울 때만 실제 좌표를 넣어야 한다 — env 템플릿은 이 세 키를 싣지 않는다.
 
 키 카탈로그와 secret 채널은 `docs/reference/contracts/env.md` 가 갖는다.
 
@@ -158,7 +154,11 @@ rabbitmq ───┴──────┴────────────�
 
 앱·인프라는 `unless-stopped`, `migrate` 는 `no` 다. 비정상 종료(OOM·크래시·healthcheck 누적 실패)면 Docker 가 다시 띄우고, `docker compose down` 으로 내릴 때는 다시 뜨지 않는다. 호스트 재부팅 시 자동 기동한다 (Docker daemon 이 enable 되어 있다면).
 
-`deploy.sh` 의 health gate 가 이 정책으로 서비스 종류를 가른다 — `no` 면 `exited 0` 을, 나머지는 `running` + healthcheck 통과를 요구한다.
+### 로그·종료 유예
+
+7 서비스 전부가 `x-logging` 앵커로 json-file 드라이버 로테이션을 건다 — 장기 가동 호스트에서 컨테이너 로그가 디스크를 채우지 않게 하려는 것이고, 외부 log collector 는 이 보존 창 안에서 수집해야 한다.
+
+`worker` 만 종료 유예를 따로 잡는다. 보고서 drain(`report_worker_shutdown_timeout_sec`)이 끝나기 전에 SIGKILL 이 오면 진행 중 job 정리가 잘리므로 그 예산보다 길게 둔다 (#F11).
 
 ---
 
@@ -173,7 +173,7 @@ volumes: [./src/assessment_engine:/opt/venv/lib/python3.12/site-packages/assessm
 앱 패키지를 컨테이너 가상환경에 덮어씌운다. `migrations/` 가 패키지 안에 있어 이 마운트 하나로 마이그레이션 파일까지 함께 덮인다.
 
 - `web` — uvicorn `reload=True`(`WEB_RELOAD=true`, override 주입)가 파일 변경을 감지해 재기동한다.
-- `consumer`·`worker` — watchfiles 래퍼 entrypoint 가 `.py` 변경 시 프로세스를 재시작한다 (uvicorn 이 아니라서).
+- `consumer`·`worker` — override 가 base command 를 watchfiles 래퍼 명령으로 덮어 `.py` 변경 시 프로세스를 재시작한다 (uvicorn 이 아니라서).
 - `migrate` — 새 alembic revision 을 재빌드 없이 인식한다.
 - 정적 자원 — `web/main.py` 미들웨어가 매 요청 `asset_v` 를 재발급해(`app.state.dev_assets`) `?v=` URL 이 매번 바뀌고 HTML·`/static/*` 응답에 `Cache-Control: no-store` 가 붙는다. 브라우저 disk cache 와 304 까지 회피하므로 `.py` 재시작 없는 정적 변경도 새로고침만으로 반영된다. prod 는 이 분기가 꺼진다 (cdn·long-cache).
 

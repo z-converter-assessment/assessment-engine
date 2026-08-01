@@ -35,7 +35,7 @@ cd "$DEPLOY_DIR"
 exec 9>".deploy.lock"
 flock -n 9 || die "다른 배포·교체가 진행 중"
 
-env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/[[:space:]]*#.*//;s/[[:space:]]*$//' || true; }
+env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/ #.*//;s/[[:space:]]*$//' || true; }
 
 SECRET_FILE="secrets/${TARGET}_password"
 [[ -f "$SECRET_FILE" ]] || die "$SECRET_FILE 없음 — bootstrap.sh 먼저"
@@ -65,6 +65,15 @@ case "$TARGET" in
     ;;
 esac
 
+rollback() {
+  log "$1 — 원래 값으로 되돌린다"
+  restore_server || log "서버 복원 실패 — 수동 조치 필요"
+  printf '%s' "$OLD" > "$SECRET_FILE"
+  chmod 644 "$SECRET_FILE"
+  docker compose up -d --force-recreate "${APP_SERVICES[@]}" || log "앱 재생성 실패 — 수동 조치 필요"
+  die "교체 실패 — 원래 비밀번호로 롤백했다. 앱 로그 확인 후 재시도"
+}
+
 restore_server() {
   case "$TARGET" in
     postgres)
@@ -83,7 +92,7 @@ chmod 644 "$SECRET_FILE"
 log "$SECRET_FILE 갱신"
 
 log "앱 재생성 (${APP_SERVICES[*]})"
-docker compose up -d --force-recreate "${APP_SERVICES[@]}"
+docker compose up -d --force-recreate "${APP_SERVICES[@]}" || rollback "앱 재생성 실패"
 
 for _ in $(seq 1 "$HEALTH_RETRIES"); do
   if curl -fsS "http://localhost:${PORT}/health" >/dev/null 2>&1; then
@@ -93,9 +102,4 @@ for _ in $(seq 1 "$HEALTH_RETRIES"); do
   sleep "$HEALTH_INTERVAL"
 done
 
-log "health 실패 — 원래 값으로 되돌린다"
-restore_server || log "서버 복원 실패 — 수동 조치 필요"
-printf '%s' "$OLD" > "$SECRET_FILE"
-chmod 644 "$SECRET_FILE"
-docker compose up -d --force-recreate "${APP_SERVICES[@]}"
-die "교체 실패 — 원래 비밀번호로 롤백했다. 앱 로그 확인 후 재시도"
+rollback "health 실패"

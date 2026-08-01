@@ -24,11 +24,11 @@
 
 multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
 
-단일 이미지 + ENTRYPOINT 가 `python -m`. CMD 기본값은 두지 않아 컴포넌트를 항상 인자로 명시한다 — 누락 시 조용히 web 이 뜨는 대신 즉시 실패한다.
-- web: `docker run image assessment_engine.web`
-- consumer: `docker run image assessment_engine.consumer`
-- worker: `docker run image assessment_engine.worker`
-- migrate: base compose 의 init-container 가 `alembic upgrade head` 실행 (이미지 안 `_alembic.ini`·`migrations/`)
+이미지는 실행할 컴포넌트를 정하지 않는다 — 호출자가 완결된 명령을 넘긴다 (이미지 쪽 구조는 `docs/reference/docker.md`).
+- web: `docker run image python -m assessment_engine.web`
+- consumer: `docker run image python -m assessment_engine.consumer`
+- worker: `docker run image python -m assessment_engine.worker`
+- migrate: base compose 의 init-container 가 `python -m alembic upgrade head` 실행 (이미지 안 `_alembic.ini`·`migrations/`)
 
 이미지 안 Alembic 자원 (패키지 디렉토리 안에 있어 별도 포장 설정 없이 동봉):
 - `assessment_engine/migrations/` — Alembic versions

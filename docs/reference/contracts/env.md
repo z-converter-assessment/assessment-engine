@@ -15,7 +15,7 @@
 | 3 | secret 과 일반 config 분리 | dev `.env` 평문 / prod 외부 인프라 자유 채널 (env·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등) |
 | 4 | Fail-fast 검증 | 기동 시점에 값을 거부해 세운다 (6절) |
 | 5 | 비밀번호는 기본값 없음 + 뻔한 값 거부 | 미설정·빈값은 필드 제약이, `_WEAK_VALUES`(POSTGRES·RABBITMQ password·user)는 검증이 차단 — 환경 무관 |
-| 6 | secret 을 코드·이미지·git 에 박지 않음 | `.dockerignore`·`.gitignore` 에 `.env` 명시 (.env.example·.env.dev.example 카탈로그만 commit) |
+| 6 | secret 을 코드·이미지·git 에 박지 않음 | `.gitignore` 가 `.env`·`.env.*` 를 무시하고 두 템플릿(`.env.example`·`.env.dev.example`)만 whitelist. `.dockerignore` 는 allowlist 방식이라 빌드 컨텍스트에 `.env` 가 들어가지 않음 |
 
 ---
 
@@ -45,9 +45,9 @@
 ```
 [lowest]  코드 default (config.py)
        v
-       .env 파일 (cwd 기준 — 컨테이너 안에서는 /app/.env)
-       v
        secrets_dir 파일 (<SECRETS_DIR>/<field_name>, default /run/secrets)
+       v
+       .env 파일 (cwd 기준 — 컨테이너 안에서는 /app/.env)
        v
        OS 환경변수 (systemd Environment / docker-compose env / orchestrator inject)
 [highest] 명시적 init kwargs (테스트용)
@@ -103,14 +103,13 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 | 항목 | dev (본 repo) | prod (외부 인프라) |
 |------|--------------|---------------------|
 | 기동 방식 | `docker compose up` (base + override.yml 머지, 로컬 빌드) | base+prod.yml pull-and-run — `deploy.sh` rollout 또는 수동 `docker compose up -d` |
-| compose 이미지 | override.yml 로컬 빌드(`assessment-engine:local`) | base 의 GHCR 핀(`ENGINE_IMAGE` 또는 기본 핀) pull |
+| compose 이미지 | override.yml 로컬 빌드(`assessment-engine:local`) | `.env` 의 `ENGINE_IMAGE` 핀 pull (미설정이면 compose 가 기동 거부) |
 | `APP_ENV` | `dev` (정적 자원 캐시 무효화) | `prod` 명시 (정적 자원 버전 고정) |
 | 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
 | 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
 | Password 주입 | `.env`(.env.dev.example 복사) 평문 | file-secret 단일(`docker-compose.prod.yml` + `./secrets/*` 644) — `/run/secrets/*` 마운트, env 노출 회피 |
-| Schema 관리 | `migrate` init-container 가 `alembic upgrade head` 1회 | 동일 — base compose `migrate` init-container 가 앱 서비스 기동 전 실행 (deploy.sh rollout 내재) |
+| Schema 관리 | 동일 — base compose `migrate` init-container 가 앱 기동 전 적용 (`docs/guides/migrate.md`) | 동일 |
 | Fail-fast 검증 | 동일 — 미설정·빈값·`_WEAK_VALUES` 는 어느 환경에서도 `Settings()` 생성 시점 `ValueError` | 동일 |
-| restart 정책 | `unless-stopped` | `unless-stopped` (base compose `restart:`) |
 | Logging | `LOG_FORMAT=text` (colorized·grep 친화) | `LOG_FORMAT=json` 권장 (외부 log aggregator indexing) |
 | web 노출 | plain HTTP port 8000 | HTTPS 외부 ingress (nginx·envoy 등) 종단, 앱은 plain |
 | broker AMQP | plain (port 5672) | AMQPS (port 5671) 권장 |
@@ -246,13 +245,13 @@ def _validate_web_secrets(self) -> "WebSettings":
 
 agent env 구성은 본 repo 범위 밖(agent repo + 외부 인프라): Ansible vault·SaltStack pillar 등으로 VM 안 `/etc/assessment-agent.env` 생성. `RABBITMQ_HOST` 는 엔진 broker 에 도달하는 host(IP·FQDN)로 주입.
 
-호스트명 정책 (dev compose 한정):
+호스트명 정책:
 
-기본값의 호스트명 (`postgres`·`rabbitmq`·`redis`) 은 docker-compose 서비스명. compose network 내부에서만 해석. 분산 배포 (VM 별 다른 호스트) 에는 인식 안 됨 — 외부 인프라가 실제 host (IP 또는 FQDN) 로 override 의무.
+기본값의 호스트명 (`postgres`·`rabbitmq`·`redis`) 은 docker-compose 서비스명이라 compose network 안에서만 해석된다. 엔진 밖(agent VM·별도 노드)에서는 인식되지 않으므로 실제 host (IP 또는 FQDN) 를 주입한다.
 
 ---
 
-## 12. 전체 키 카탈로그 (`.env.example` 순서)
+## 12. 전체 키 카탈로그
 
 compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose 파일이 `${...}` 로 참조하지 않아도 동작이 바뀌므로 애플리케이션 변수와 층위가 다르다.
 
@@ -261,27 +260,32 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 | `COMPOSE_FILE` | 없음 (compose 기본 규칙 = base + override) | compose CLI | 합칠 compose 파일 목록. `.env.example` 은 `docker-compose.yml:docker-compose.prod.yml` 로 dev override 를 뺀다 |
 | `COMPOSE_PROJECT_NAME` | 디렉토리명 | compose CLI | 컨테이너·네트워크·볼륨 이름 접두 |
 
-애플리케이션 변수.
+애플리케이션 변수. `*_PUBLISH_PORT` 의 바인딩 주소(loopback 여부)는 `docs/reference/docker.md` 가 갖는다.
 
 | 키 | 기본값 | 사용처 | 설명 |
 |----|--------|--------|------|
 | `APP_ENV` | `dev` | config.py / docker-compose | 환경 마커. `dev`/`staging`/`prod`. 정적 자원 캐시 무효화만 가른다 (4절) |
 | `LOG_FORMAT` | `text` | config.py / 각 entry `setup_logging()` | 로그 출력 format. `text`(dev colorized·grep) 또는 `json`(외부 log aggregator). prod 는 `json` 권장 |
 | `ENV_FILE` | `.env` | compose base `env_file:` | 서비스에 주입할 env 파일 경로. compose 가 `${ENV_FILE:-.env}` 로 참조하는 평범한 보간 변수다 |
-| `ENGINE_IMAGE` | base 기본 핀 (`ghcr.io/z-converter-assessment/assessment-engine:<version>`) | compose base | 앱 서비스 이미지. config.py 미사용 — compose 전용. 미설정 시 base `docker-compose.yml` 기본값(release CI 가 태그 semver 로 핀한 GHCR 이미지). dev override.yml 은 `assessment-engine:local`(로컬 빌드)로 덮음. GHCR public — 토큰 없이 pull |
+| `ENGINE_IMAGE` | 없음 (미설정 시 compose 가 기동 거부) | compose base | 앱 서비스·migrate 이미지. config.py 미사용 — compose 전용. `deploy.sh vX.Y.Z` 가 `.env` 의 이 줄을 갱신한다. dev override.yml 은 `assessment-engine:local`(로컬 빌드)로 덮음. GHCR public — 토큰 없이 pull |
 | `PGDATA_HOST` | `postgres_data` (named volume) | compose base | postgres 영속 경로. host 절대경로 주입 시 bind mount(infra Cinder `/mnt/pgdata`), 미설정 시 named volume |
 | `MQ_DATA_HOST` | `rabbitmq_data` (named volume) | compose base | rabbitmq 영속 경로. 주입 시 host bind(`/mnt/mqdata`), 미설정 시 named volume |
-| `POSTGRES_HOST` | `postgres` | config.py / dev compose | PostgreSQL 호스트 (docker-compose 서비스명). prod 는 실제 host 명시 |
-| `POSTGRES_PORT` | `5432` | config.py / dev compose | |
-| `POSTGRES_DB` | `assessment` | config.py / dev compose | |
+| `WEB_PUBLISH_PORT` | `8000` | compose base | web 을 호스트에 퍼블리시할 포트. 컨테이너 안 listen 포트는 `WEB_PORT`. `deploy.sh`·`rotate-secret.sh` 의 health 체크가 이 값을 읽는다 |
+| `RABBITMQ_PUBLISH_PORT` | `5672` | compose base | AMQP 퍼블리시 포트 (agent 발행 통로) |
+| `RABBITMQ_MANAGEMENT_PUBLISH_PORT` | `15672` | compose base | RabbitMQ 관리 UI 퍼블리시 포트 |
+| `POSTGRES_PUBLISH_PORT` | `5432` | compose base | psql 직접 접속용 퍼블리시 포트 |
+| `REDIS_PUBLISH_PORT` | `6379` | compose base | redis-cli 직접 접속용 퍼블리시 포트 |
+| `SECRETS_DIR` | `/run/secrets` | config.py | secret 파일 디렉토리. 파일명은 pydantic 필드명과 일치하고 디렉토리가 있을 때만 활성 (3절). BaseSettings 필드가 아니라 모듈 로드 시점 `os.environ` 으로 읽는다 — 컨테이너는 `env_file` 이 `.env` 를 환경변수로 올려 통하지만, 호스트 직접 기동은 환경변수로 줘야 한다 |
+| `POSTGRES_HOST` | `postgres` | config.py / compose base(서비스명 고정) | PostgreSQL 호스트. compose 배포에서는 base 의 `environment:` 가 서비스명으로 고정해 `.env` 값이 무시되고, compose 밖에서 기동할 때만 `.env` 값이 쓰인다 |
+| `POSTGRES_PORT` | `5432` | config.py | 컨테이너가 접속할 서버 포트 — 호스트 퍼블리시 포트는 `POSTGRES_PUBLISH_PORT` |
+| `POSTGRES_DB` | `assessment` | config.py / compose base | |
 | `POSTGRES_USER` | `assessment` | config.py / compose | assessment 허용 — 빈값·password·admin·root·changeme 는 거부 |
 | `POSTGRES_PASSWORD` | 없음 (필수) | config.py / compose | 기본값이 없어 미설정·빈값이면 기동이 멈춘다. 명시 `assessment` 는 허용. 강한 secret 권장 |
-| `RABBITMQ_HOST` | `rabbitmq` | config.py | 컨슈머 broker 접속 (docker-compose 서비스명). 에이전트는 본 키 안 씀 — 외부 인프라가 broker 도달 host 별도 주입 |
-| `RABBITMQ_PORT` | `5672` | config.py / dev compose | |
+| `RABBITMQ_HOST` | `rabbitmq` | config.py / compose base(서비스명 고정) | 컨슈머 broker 접속. `POSTGRES_HOST` 와 같은 고정 규칙. 에이전트는 본 키 안 씀 — 외부 인프라가 broker 도달 host 별도 주입 |
+| `RABBITMQ_PORT` | `5672` | config.py | 컨테이너가 접속할 broker 포트 — 호스트 퍼블리시 포트는 `RABBITMQ_PUBLISH_PORT` |
 | `RABBITMQ_VHOST` | `assessment` | config.py / compose | 전용 vhost (무슬래시). 에이전트와 동일 값. 이름에 `/` 없어 인코딩 무영향(config.py `broker_url` 은 슬래시 포함 vhost 를 `%2F`로 자동 인코딩) |
 | `RABBITMQ_USER` | `assessment` | config.py / compose | assessment 허용 — 빈값·password·admin·root·changeme 는 거부 |
 | `RABBITMQ_PASSWORD` | 없음 (필수) | config.py / compose | 기본값이 없어 미설정·빈값이면 기동이 멈춘다. 명시 `assessment` 는 허용. 강한 secret 권장 |
-| `RABBITMQ_MANAGEMENT_PORT` | `15672` | dev compose | RabbitMQ 관리 콘솔 포트 노출 (config.py 미사용) |
 | `RABBITMQ_EXCHANGE` | `assessment` | config.py / agent env (repo 밖) | 에이전트·consumer routing 계약. 변경 시 양쪽 동기화 |
 | `RABBITMQ_ROUTING_KEY_INVENTORY` | `server.inventory` | config.py / agent env (repo 밖) | 동일 |
 | `RABBITMQ_ROUTING_KEY_METRICS` | `server.metrics` | config.py / agent env (repo 밖) | 동일 |
@@ -298,11 +302,11 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 | `WORKER_TASK_QUEUE_PREFIX` | `agent.tasks` | agent env (repo 밖) | 원격 호스트별 큐 prefix. full name = `<prefix>.<agent_id>`. 엔진 `RABBITMQ_TASK_QUEUE_PREFIX` 와 일치 |
 | `WORKER_TASK_RESULT_KEY` | `task.result` | agent env (repo 밖) | 원격 호스트 → 엔진 결과 보고 routing key. 엔진 `RABBITMQ_ROUTING_KEY_TASK_RESULT` 와 일치 |
 | `WORKER_DOWNLOAD_ALLOWED_HOSTS` | `""` (빈값) | agent env (repo 밖) | task.install download.url 의 host 화이트리스트 (case-insensitive 정확 매치). 빈 whitelist 면 전부 거부 — 운영자가 ZDM_DEFAULT_IP host 를 등록 |
-| `REDIS_HOST` | `redis` | config.py | (docker-compose 서비스명). prod 는 실제 host |
-| `REDIS_PORT` | `6379` | config.py | |
-| `REDIS_MAXMEMORY` | `256mb` | dev compose (redis command) | Redis maxmemory cap. prod 튜닝 가능 |
-| `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | dev compose (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict |
-| `WEB_PORT` | `8000` | config.py / dev compose | Web UI 접속 포트 |
+| `REDIS_HOST` | `redis` | config.py / compose base(서비스명 고정) | Redis 호스트. `POSTGRES_HOST` 와 같은 고정 규칙 |
+| `REDIS_PORT` | `6379` | config.py | 컨테이너가 접속할 서버 포트 — 호스트 퍼블리시 포트는 `REDIS_PUBLISH_PORT` |
+| `REDIS_MAXMEMORY` | `256mb` | compose base (redis command) | Redis maxmemory cap. prod 튜닝 가능 |
+| `REDIS_MAXMEMORY_POLICY` | `volatile-lru` | compose base (redis command) | maxmemory 도달 시 eviction policy. TTL 키 우선 evict |
+| `WEB_PORT` | `8000` | config.py / compose base | 컨테이너 안 uvicorn listen 포트 + web healthcheck 대상. 호스트 접속 포트는 `WEB_PUBLISH_PORT` |
 | `WEB_RELOAD` | `false` | config.py / dev compose | uvicorn auto-reload. dev hot-reload 전용 (dev override 가 `true` 주입, 패키지 bind mount 와 짝). prod 미설정 → false (코드 변경 감시 프로세스 불필요·bind mount 없는 wheel/image 배포에 무의미) |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout (픽업 후 스크립트 실행 예산). 원격 host worker 가 SIGTERM/SIGKILL |
 | `INSTALL_TASK_DEADLINE_SEC` | `3600` | config.py | install task 배달/마감 창(초). engine `tasks.deadline_at` + broker `agent.tasks.<agent_id>` 큐 `x-message-ttl` 동일 창(오프라인 호스트 store-and-forward 유예). `INSTALL_TIMEOUT_SEC`(600) 와 별개 개념 |
@@ -313,9 +317,9 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 | `REDIS_TTL_ZDM_PACKAGE_SHA256` | `21600` (6h) | config.py | ETag 기반 sha256 cache TTL |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
 
-### `.env.example` 에 없고 config.py default 만 정의된 키
+### 표에 두지 않는 내부 튜닝 키
 
-다음 키는 운영 변경 빈도가 낮아 의도적으로 env 노출 안 함 — `.env.example` 미수록. 필요 시 운영자가 env 로 override 가능 (BaseSettings 필드라 자동 인식).
+다음 키는 운영 변경 빈도가 낮아 표에 행을 두지 않는다. BaseSettings 필드라 필요하면 env 로 override 된다.
 
 - `redis_ttl_idempotent` (24h)·`redis_ttl_online` (5min)·`redis_ttl_token` (1h)
 - `redis_ttl_last_agent_start` (24h)·`redis_ttl_agent_restarts` (1h 슬라이딩 윈도우)·`redis_ttl_time_invariant_warned` (1h)
@@ -336,9 +340,9 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 - [ ] `POSTGRES_USER`·`RABBITMQ_USER` 강한 값 권장 (assessment 는 허용 — 빈값·password·admin·root·changeme 만 거부)
 - [ ] `ZDM_DEFAULT_IP`·`ZDM_DEFAULT_USER` 고객사 ZDM 좌표로 override (startup 거부는 없음 — 미설정 시 첫 install 발행이 런타임 503 또는 agent `url_not_allowed` 로 실패)
 - [ ] `ZDM_PACKAGE_*` 운영 ZDM 측 패키지 layout 과 일치 (path·script)
-- [ ] Alembic 마이그레이션 사전 적용 — wheel 안 `assessment_engine/_alembic.ini` + `migrations/` 활용 (`docs/guides/migrate.md`)
-- [ ] DB·MQ·Redis 외부 포트 노출 없음 (reverse proxy 뒤)
-- [ ] web 노출 결정 (reverse proxy 또는 직접) — `/metrics` 엔드포인트 외부 노출 안 함 (Prometheus 스크레이핑 미채택, 로그(loguru) 단일 관측 채널)
+- [ ] 마이그레이션은 base compose 의 `migrate` init-container 가 앱 기동 전 적용 — 별도 사전 실행 불요 (`docs/guides/migrate.md`)
+- [ ] DB·Redis·MQ 관리 UI 는 loopback 바인딩 유지, AMQP 5672 만 외부 노출(agent 발행 통로) — 바인딩은 base compose 가 정한다 (`docs/reference/docker.md`)
+- [ ] web 노출 결정 (reverse proxy 또는 직접)
 - [ ] `LOG_FORMAT=json` 권장 — 외부 log aggregator indexing (`docs/reference/observability.md`)
 - [ ] 에이전트 secret 채널은 엔진과 독립 — Ansible vault·SaltStack pillar 등 별도 도구
 - [ ] 기동 직후 `Settings()` 생성 시점 `ValueError` 발생 없음 — fail 시 secret 채널 점검 필요
@@ -351,7 +355,7 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 - `.env.production` / `.env.development` 같은 환경별 .env 동시 보유 — 활성 파일 모호
 - prod 에서 코드 bind mount 유지 — 컨테이너 안 `.env` 노출 + 코드 변조 위험
 - base 를 dev 쪽으로 기울이기 — base 는 prod-safe 로 두고 dev 편의는 override 만 담는다. prod overlay(`docker-compose.prod.yml`)는 file-secret 배선만 얹는다
-- secret 을 git 저장소에 커밋 — `.dockerignore`·`.gitignore` 의 `.env` 항목 절대 제거 금지 (카탈로그 .env.example·.env.dev.example 만 commit)
+- secret 을 git·이미지 컨텍스트에 커밋 — `.gitignore` 의 `.env` 무시 규칙과 `.dockerignore` 의 allowlist 를 무너뜨리지 않는다 (1절 6항)
 - 컨테이너 안에서 `/app/.env` 를 직접 read 하는 코드 추가 — pydantic-settings 의 `env_file` 폴백 외 직접 read 금지
 - `secrets_dir` 강제 활성화 — 디렉토리 부재 시 noisy 경고. `os.path.isdir` 분기로 None fallback 유지
 
@@ -359,7 +363,7 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 
 ## 15. 핵심 의도 요약
 
-1. secret 을 git 에 커밋하지 않는다 — `.env` 는 .gitignore (카탈로그 .env.example·.env.dev.example 만 commit). prod secret 은 외부 인프라의 secret 채널.
+1. secret 을 git 에 커밋하지 않는다 (1절 6항). prod secret 은 외부 인프라의 secret 채널.
 2. dev 편의성을 prod 안전성과 거래하지 않는다 — `.env` 평문은 dev 에만, prod 는 secret 채널 강제.
 3. 약한 값을 어느 환경으로도 흘려보내지 않는다 — 기본값 없는 필수 필드 + 뻔한 값 거부.
 4. 이미지는 환경 무관 — `Dockerfile` 1개, 차이는 환경변수·compose override·secret 주입으로만.
@@ -369,7 +373,7 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 
 ## 관련 문서
 
-- `docs/guides/deploy.md` — release artifact 활용 단계별 install·systemd 가이드
+- `docs/guides/deploy.md` — VM 부트스트랩·compose rollout 절차
 - `docs/reference/observability.md` — `LOG_FORMAT` toggle
 - `docs/guides/migrate.md` — schema migrate contract
 - `docs/guides/release.md` — CI release artifact 카탈로그

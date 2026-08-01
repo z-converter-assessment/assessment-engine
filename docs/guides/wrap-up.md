@@ -137,13 +137,13 @@ Self-audit 메타 인용 제외:
 - [2.2] 추가·변경한 모든 라우터에 통합 테스트 — happy path + 핵심 분기(422 형식 · 404 미존재 · trigger 별 분기).
 - [2.3] 변경한 기존 함수·핸들러의 기존 테스트가 여전히 의미를 갖는가 — signature·동작 변경 반영. 통과만 시키는 mock 보강 0건.
 - [2.4] 변경·추가한 임계 상수(`mappers/shared.py` · `recommendation.py` · `_USAGE_DANGER_PCT` 등) 테스트 하드코딩 0건 — 모두 import.
-- [2.5] 삭제한 public 함수·라우터의 deprecated 테스트 0건. Alembic revision 추가 시 round-trip(downgrade → upgrade 무손실) 테스트 존재.
+- [2.5] 삭제한 public 함수·라우터의 deprecated 테스트 0건. Alembic revision 추가 시 라운드트립 검증은 `docs/guides/migrate.md` "신규 마이그레이션 작성 워크플로우" 4단계 수행.
 
 정석 (5):
-- [2.6] pytest-asyncio `loop_scope=session`(`pyproject.toml`). `@pytest.mark.asyncio` 명시 0건(`asyncio_mode=auto`).
-- [2.7] `tests/factories.py` `make_inventory()` · `make_metrics()` 활용. raw dict 직접 생성 0건. 신규 도메인은 factory 추가 후 활용.
-- [2.8] DB 의존 테스트는 `tests/integration/conftest.py` testcontainers + alembic round-trip fixture 사용. 함수 안 fixture 정의 0건 — 신규는 `conftest.py` 에만.
-- [2.9] mock 범위: 외부 의존(HTTP · 외부 큐)에만. 내부 모듈 mock 0건. AsyncMock(Redis)는 unit `safe_*` 검증 시에만, integration 은 실제 컨테이너.
+- [2.6] asyncio 테스트 작성 패턴이 `docs/guides/testing.md` 4절과 일치.
+- [2.7] `tests/factories.py` 빌더 활용. raw dict 직접 생성 0건. 신규 도메인은 factory 추가 후 활용.
+- [2.8] DB 의존 테스트는 루트 `tests/conftest.py` 의 testcontainers 컨테이너 + `db_session` 사용. repo fixture 는 `tests/integration/conftest.py` 에만 — 함수 안 fixture 정의 0건.
+- [2.9] mock 범위: 추상 인터페이스(`Base*Repository`)와 외부 의존 경계(Redis · HTTP · MQ)에만. 구체 구현 내부 함수 patch 0건. integration 은 실제 컨테이너.
 - [2.10] 동일 시나리오 분기(같은 setup + 다른 입력·기대값)는 `@pytest.mark.parametrize`. 중복 함수 0건.
 
 레이어 결정 (test-write 흡수):
@@ -154,7 +154,7 @@ Self-audit 메타 인용 제외:
 원칙 (3):
 - [2.11] 테스트 한 개 = 한 분기. assert 누락·smoke-only 0건. 한 함수에 무관한 assert 다발 0건.
 - [2.12] 동일 픽스처·테스트 데이터 중복 0건 — fixture / factory / parametrize.
-- [2.13] 사용자 명시 없이 pytest 자동 실행 0건. 단계 종료 시 "테스트 실행하시겠습니까?" 1회 옵션.
+- [2.13] 테스트 실행 정책 준수 — 정본은 CLAUDE.md #F5.
 
 도구:
 - 직접 수행 (레이어 결정 + 패턴 작성). 테스트 정책 단일 진실 `docs/guides/testing.md`.

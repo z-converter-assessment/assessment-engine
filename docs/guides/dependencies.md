@@ -2,7 +2,7 @@
 
 본 문서는 본 repo 의 Python 의존성 관리 단일 진실. 의존성 추가·갱신·lockfile 동기화·Python 버전 변경·운영자 수동 bump 정책 모두 포함.
 
-도구: [uv](https://docs.astral.sh/uv/) 0.4+. `pip` / `poetry` / `pipenv` 미사용 — 단일 도구로 통일.
+도구: [uv](https://docs.astral.sh/uv/) 단일 — `pip` / `poetry` / `pipenv` 미사용. 쓸 수 있는 계열은 `pyproject.toml` `[build-system]` 의 `uv_build` 제약과 `Dockerfile` 의 이미지 핀이 정한다.
 
 ## 1. 두 파일의 책임
 
@@ -17,34 +17,6 @@ CI (`ci.yml`·`alembic-check.yml`) 가 `uv sync --frozen` 으로 설치한다 �
 
 ## 2. `pyproject.toml` 구조
 
-```toml
-[build-system]
-requires = ["uv_build>=0.11.16,<0.12.0"]
-build-backend = "uv_build"
-
-[project]
-name = "assessment-engine"
-version = "X.Y.Z"       # 릴리즈 시 `uv version --bump <part>` 가 이 값을 올린다
-requires-python = ">=3.12"
-dependencies = [
-    "fastapi>=0.136.0",
-    "uvicorn[standard]>=0.45.0",
-    # ...
-]
-
-[dependency-groups]                       # PEP 735 (uv 권장)
-dev = [
-    "pytest>=8.0",
-    "pytest-asyncio>=0.24",
-    "ruff>=0.15.13",
-    # ...
-]
-
-[tool.pytest.ini_options] # ...
-[tool.pyright] # ...
-[tool.ruff] # ...
-```
-
 빌드 대상 설정은 없다. `uv_build` 가 `src/` 아래 패키지를 자동으로 잡고, `migrations/` 와 `_alembic.ini` 는 패키지 디렉토리 안에 있어 확장자와 무관하게 함께 포장된다.
 
 ### 운영 vs dev 의존성
@@ -56,7 +28,7 @@ PEP 735 가 PEP 621 의 `[project.optional-dependencies]` 보다 정공 — dev 
 
 ### Python 버전
 
-`requires-python = ">=3.12"` + `[tool.ruff].target-version = "py312"`. 두 값 동시 갱신 의무 — drift 시 ruff 가 옛 syntax 허용/거부 잘못.
+`requires-python` 과 `[tool.ruff].target-version` 은 같은 minor 를 가리켜야 한다 — drift 시 ruff 가 옛 syntax 를 잘못 허용·거부한다. 올리는 절차는 4절 "Python 버전 변경".
 
 ## 3. `uv.lock`
 
@@ -86,8 +58,9 @@ uv sync --no-dev
 # 단일 명령 실행 (의존성 자동 sync 포함)
 uv run pytest
 uv run ruff check .
-uv run alembic upgrade head
 ```
+
+alembic 은 설정 파일이 패키지 안에 있어 호출 측이 경로를 줘야 한다 — 명령 형태는 `docs/guides/migrate.md` "명령" 절.
 
 ### 의존성 추가·갱신
 
@@ -125,7 +98,7 @@ target-version = "py313"             # 2. ruff modernize 룰 정합
 uv sync --group dev                  # 3. lockfile 재-resolve (Python 3.13 wheel 선택)
 ```
 
-CI matrix 확장 시 `.github/workflows/ci.yml` `setup-python` 의 `python-version` 도 동시 갱신 의무.
+같은 minor 가 워크플로에도 박혀 있어 함께 고친다 — `ci.yml` 은 job 마다 `setup-python` 을 따로 두므로 전 job 을 훑고, `alembic-check.yml`·`release.yml` 도 같은 값을 갖는다. 이미지 쪽은 `docs/reference/docker.md` 가 소유한다.
 
 ## 5. dependabot 미사용 정책
 

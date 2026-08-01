@@ -24,11 +24,11 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 
 | 파일 | 역할 |
 |------|------|
-| `package.json` | pnpm(packageManager 핀). devDep: typescript·openapi-typescript·chart.js·@types/cytoscape. 빌드/번들/런타임 아님 — 검사 도구. |
+| `package.json` | pnpm(packageManager 핀). devDep 은 검사 도구(typescript·openapi-typescript·chart.js·@types/cytoscape) + 화면 캡처용 playwright(`pnpm run screenshot`). 빌드/번들/런타임 산출물 없음. |
 | `tsconfig.json` | strict + `noImplicitAny`(전-strict) + `checkJs:false`(파일별 `// @ts-check` opt-in) + `moduleDetection:force`(page script 를 tsc 상 격리 모듈로 — 파일 간 전역 식별자 충돌 제거). vendor 제외. |
 | `scripts/dump_openapi.py` | 서버 불요 `app.openapi()` 덤프(codegen 입력). import 시 dev 기본값 자체 주입. |
 | `static/js/generated/api.ts` | openapi-typescript 생성 타입(커밋 — drift 게이트 대상). 직접 편집 금지. |
-| `static/js/globals.d.ts` | 전역 lib(Chart·cytoscape) + 프로젝트 모듈 전역(ChartUtils·TableUtils·ToastUtils·EmitUtils·TaskModal) ambient 선언. |
+| `static/js/globals.d.ts` | 전역 lib(Chart·cytoscape) + 프로젝트 모듈 전역(각 util 이 `window.X` 로 노출하는 것들) ambient 선언. |
 | `pnpm run codegen` | `dump_openapi.py` -> `openapi-typescript` -> `generated/api.ts`. |
 | `pnpm run typecheck` | `tsc --noEmit`. |
 
@@ -36,7 +36,7 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 
 - 서버 JSON 엔드포인트는 응답 타입을 선언한다 — `response_model=` 또는 return 어노테이션(`-> Foo`). FastAPI 가
   stdlib dataclass ViewModel 도 OpenAPI 스키마로 변환한다(Pydantic 필수 아님). 응답 검증도 함께 붙는다.
-- 클라 JS 는 파일 최상단 `// @ts-check` 로 tsc 대상이 된다(vendor 제외 전 파일 채택). strict + noImplicitAny 라
+- 클라 JS 는 파일 선두 주석의 `// @ts-check` 로 tsc 대상이 된다(vendor 제외 전 파일 채택). strict + noImplicitAny 라
   함수 파라미터·로컬까지 타입 강제 — (1) `fetch('/api/...')` 응답을 `/** @type {import('...generated/api').components['schemas']['<Name>'][]} */`
   로 annotate(계약 핵심) (2) 함수 파라미터·콜백은 JSDoc `@param` (3) strictNullChecks(DOM null 등)를 가드/캐스트로
   좁힌다. 파생 계산은 서버 단일 소스(P2) 유지 — 클라는 통계·분류·단위 변환을 재계산하지 않는다(차트 range 토글
@@ -59,7 +59,7 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 ## 한계·현황
 
 - vendor(*.min.js) 외 전 클라 JS 가 `// @ts-check` + noImplicitAny-clean(파라미터·로컬까지 타입 강제). 신규 JS
-  는 최상단 `// @ts-check` 추가가 규약 — CI typecheck 가 tsc error 0 을 강제한다.
+  는 선두 주석에 `// @ts-check` 추가가 규약 — CI typecheck 가 tsc error 0 을 강제한다.
 - 전역(ChartUtils 등)은 `globals.d.ts` 선언 — 차트 데이터셋 빌더 등 일부 반환은 elaborate Chart.js 타입 대신
   permissive(any). 명시적 캐스트라 noImplicitAny 위반은 아니고, 필요 시 각 소비처가 로컬로 좁힌다.
 

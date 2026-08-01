@@ -19,6 +19,14 @@ COSIGN_VERSION="${COSIGN_VERSION:-latest}"
 log() { printf '[bootstrap] %s\n' "$*"; }
 die() { printf '[bootstrap][error] %s\n' "$*" >&2; exit 1; }
 
+# 임시 파일로 받아 성공 시에만 옮긴다 — 잘린 파일이 남으면 멱등 재실행이 그것을 보존한다.
+fetch() {
+  local url="$1" dest="$2" mode="$3" what="$4" tmp="$2.download"
+  curl -fsSL "$url" -o "$tmp" || { rm -f "$tmp"; die "받지 못했다: $what — $url"; }
+  chmod "$mode" "$tmp"
+  mv "$tmp" "$dest"
+}
+
 [[ "$(id -u)" -eq 0 ]] || die "root 로 실행 (sudo)"
 
 # curl 은 스크립트·템플릿 다운로드, openssl 은 secret 값 생성에 쓴다.
@@ -33,11 +41,11 @@ else
   apt-get update -qq
   apt-get install -y -qq ca-certificates curl gnupg
   install -m 0755 -d /etc/apt/keyrings
-  if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
-    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc
-    chmod a+r /etc/apt/keyrings/docker.asc
-  fi
   . /etc/os-release
+  # 키와 repo 를 같은 배포판 경로에서 가져온다 — 지금은 Docker 가 키를 공유하지만 갈리면 서명 검증이 깨진다.
+  if [[ ! -f /etc/apt/keyrings/docker.asc ]]; then
+    fetch "https://download.docker.com/linux/${ID}/gpg" /etc/apt/keyrings/docker.asc 0644 "docker apt 서명 키"
+  fi
   echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
 https://download.docker.com/linux/${ID} ${VERSION_CODENAME} stable" > /etc/apt/sources.list.d/docker.list
   apt-get update -qq
@@ -56,8 +64,7 @@ else
     COSIGN_URL="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${CARCH}"
   fi
   log "cosign 설치 ($COSIGN_URL)"
-  curl -fsSL "$COSIGN_URL" -o /usr/local/bin/cosign
-  chmod 0755 /usr/local/bin/cosign
+  fetch "$COSIGN_URL" /usr/local/bin/cosign 0755 "cosign 바이너리"
 fi
 
 # --- (2) 배포 디렉토리 + secret 스캐폴딩 + .env 템플릿 ---
@@ -66,15 +73,11 @@ install -d -m 0755 "$DEPLOY_DIR"
 install -d -m 0700 "$DEPLOY_DIR/secrets"
 
 # .env 는 최초 1회만 생성한다 — 이후엔 deploy.sh 가 ENGINE_IMAGE 줄만 갱신한다.
-if [[ ! -f "$DEPLOY_DIR/.env" ]]; then
-  if curl -fsSL "$ENV_TEMPLATE_URL" -o "$DEPLOY_DIR/.env"; then
-    chmod 0640 "$DEPLOY_DIR/.env"
-    log ".env 생성 (.env.example 템플릿) — POSTGRES_USER 등 운영값을 채울 것"
-  else
-    log ".env.example 다운로드 실패 — $DEPLOY_DIR/.env 를 수동 배치할 것"
-  fi
-else
+if [[ -f "$DEPLOY_DIR/.env" ]]; then
   log ".env 이미 존재 — 보존"
+else
+  fetch "$ENV_TEMPLATE_URL" "$DEPLOY_DIR/.env" 0640 ".env 템플릿"
+  log ".env 생성 — POSTGRES_USER 등 운영값을 채울 것"
 fi
 
 # secret 목록은 prod compose 의 secrets: 가 정하므로 받아서 읽는다 — 여기 열거하면 이중 관리다.
@@ -101,9 +104,8 @@ done <<< "$SECRET_KEYS"
 # --- (3) 운영 스크립트 배치 ---
 for pair in "deploy.sh:$DEPLOY_SCRIPT_URL" "rotate-secret.sh:$ROTATE_SCRIPT_URL"; do
   name="${pair%%:*}"; url="${pair#*:}"
+  fetch "$url" "$DEPLOY_DIR/$name" 0755 "$name"
   log "$name 배치: $DEPLOY_DIR/$name"
-  curl -fsSL "$url" -o "$DEPLOY_DIR/$name"
-  chmod 0755 "$DEPLOY_DIR/$name"
 done
 
 log "완료. 다음: (1) $DEPLOY_DIR/.env 운영값 채우기 (2) sudo $DEPLOY_DIR/deploy.sh vX.Y.Z"
