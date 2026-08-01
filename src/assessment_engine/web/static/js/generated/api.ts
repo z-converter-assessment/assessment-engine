@@ -2348,6 +2348,7 @@ export interface operations {
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 anchor_at?: string | null;
                 fragment?: string | null;
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2379,6 +2380,7 @@ export interface operations {
     environment_metrics_environment_metrics_get: {
         parameters: {
             query?: {
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
                 /** @description public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경. */
                 ids?: string | null;
@@ -2412,6 +2414,7 @@ export interface operations {
     environment_realtime_environment_realtime_get: {
         parameters: {
             query?: {
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
                 fragment?: string | null;
                 /** @description public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경. */
@@ -2446,6 +2449,7 @@ export interface operations {
     topology_environment_topology_get: {
         parameters: {
             query?: {
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2497,7 +2501,7 @@ export interface operations {
     right_sizing_thresholds_reference_get: {
         parameters: {
             query?: {
-                /** @description ← 이전 link referrer. 미명시 시 / (환경 개요) */
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2556,7 +2560,7 @@ export interface operations {
                 /** @description 분석 기준 시각 (live preview). 미명시 시 현재 */
                 anchor_at?: string | null;
                 view?: "customer" | "engineer";
-                /** @description ← 이전 link 의 referrer. 미명시 시 /servers/ */
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2633,7 +2637,7 @@ export interface operations {
                 limit?: number;
                 /** @description HTML partial 만 반환 — JS 즉시 filter (full page reload 회피) */
                 fragment?: boolean;
-                /** @description ← 이전 link referrer */
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2673,7 +2677,7 @@ export interface operations {
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 /** @description 고객용(A) / 엔지니어용(B) (live preview) */
                 view?: "customer" | "engineer";
-                /** @description ← 이전 link 의 referrer. 미명시 시 /servers/ */
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2811,7 +2815,7 @@ export interface operations {
     get_server_servers__server_id__get: {
         parameters: {
             query?: {
-                /** @description ← 이전 link referrer. 미명시 시 / (환경 개요) */
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2845,6 +2849,7 @@ export interface operations {
     get_cpu_servers__server_id__cpu_get: {
         parameters: {
             query?: {
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2878,6 +2883,7 @@ export interface operations {
     get_memory_servers__server_id__memory_get: {
         parameters: {
             query?: {
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2911,6 +2917,7 @@ export interface operations {
     get_metrics_servers__server_id__metrics_get: {
         parameters: {
             query?: {
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2944,6 +2951,7 @@ export interface operations {
     get_network_servers__server_id__network_get: {
         parameters: {
             query?: {
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -2982,6 +2990,7 @@ export interface operations {
                 /** @description 윈도우 (live preview) */
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 view?: "customer" | "engineer";
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -3015,6 +3024,7 @@ export interface operations {
     get_services_servers__server_id__services_get: {
         parameters: {
             query?: {
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;
@@ -3048,6 +3058,7 @@ export interface operations {
     get_storage_servers__server_id__storage_get: {
         parameters: {
             query?: {
+                /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
             header?: never;

@@ -21,7 +21,11 @@ def _sanitize(back: str | None) -> str | None:
     return normalized
 
 
-BackUrl = Annotated[str | None, Query(), AfterValidator(_sanitize)]
+BackUrl = Annotated[
+    str | None,
+    Query(description="이전 link referrer. 미명시 시 라우터별 기본 목적지"),
+    AfterValidator(_sanitize),
+]
 """back Query 파라미터 타입 — 라우터가 이것을 쓰면 검증이 시그니처에서 강제된다."""
 
 
