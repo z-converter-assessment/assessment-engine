@@ -27,7 +27,7 @@ curl -fsSL https://raw.githubusercontent.com/z-converter-assessment/assessment-e
 sudo bash bootstrap.sh
 ```
 
-선택 env: `DEPLOY_DIR`(기본 `/opt/assessment-engine`), `COSIGN_VERSION`(기본 latest), `ENV_TEMPLATE_URL`·`DEPLOY_SCRIPT_URL`·`ROTATE_SCRIPT_URL`·`PROD_COMPOSE_URL`(기본 raw main).
+선택 env: `DEPLOY_DIR`(기본 `/opt/assessment-engine`), `COSIGN_VERSION`(기본은 스크립트가 핀한 버전 — 바꾸면 체크섬 대조를 건너뛴다), `ENV_TEMPLATE_URL`·`DEPLOY_SCRIPT_URL`·`ROTATE_SCRIPT_URL`·`PROD_COMPOSE_URL`(기본 raw main).
 
 `bootstrap.sh` 가 `$DEPLOY_DIR/secrets/*` 를 만든다 — `docker-compose.prod.yml` 의 `secrets:` 항목을 읽어
 없는 파일만 강 random 으로 채우고 권한 644 를 건다(디렉토리는 0700 root 소유, 근거는 `docs/reference/contracts/env.md`).

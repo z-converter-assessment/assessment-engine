@@ -35,7 +35,7 @@ cd "$DEPLOY_DIR"
 exec 9>".deploy.lock"
 flock -n 9 || die "다른 배포·교체가 진행 중"
 
-env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/ #.*//;s/[[:space:]]*$//' || true; }
+env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/ #.*//;s/[[:space:]]*$//;s/^"\(.*\)"$/\1/;s/^'"'"'\(.*\)'"'"'$/\1/' || true; }
 
 SECRET_FILE="secrets/${TARGET}_password"
 [[ -f "$SECRET_FILE" ]] || die "$SECRET_FILE 없음 — bootstrap.sh 먼저"
@@ -67,7 +67,8 @@ esac
 
 rollback() {
   log "$1 — 원래 값으로 되돌린다"
-  restore_server || log "서버 복원 실패 — 수동 조치 필요"
+  # 서버 복원이 실패하면 파일은 NEW 로 둔다 — 서버=NEW/파일=OLD 로 갈라놓는 것보다 낫다.
+  restore_server || die "서버 계정 복원 실패 — 서버·파일 모두 새 비밀번호다. 앱 상태를 직접 확인할 것"
   printf '%s' "$OLD" > "$SECRET_FILE"
   chmod 644 "$SECRET_FILE"
   docker compose up -d --force-recreate "${APP_SERVICES[@]}" || log "앱 재생성 실패 — 수동 조치 필요"
@@ -94,8 +95,10 @@ log "$SECRET_FILE 갱신"
 log "앱 재생성 (${APP_SERVICES[*]})"
 docker compose up -d --force-recreate "${APP_SERVICES[@]}" || rollback "앱 재생성 실패"
 
+# /health 는 정적 응답이라 DB 가 끊겨도 200 이다. 목록 페이지가 실제로 조회를 태우므로 함께 본다.
 for _ in $(seq 1 "$HEALTH_RETRIES"); do
-  if curl -fsS "http://localhost:${PORT}/health" >/dev/null 2>&1; then
+  if curl -fsS "http://localhost:${PORT}/health" >/dev/null 2>&1 \
+    && curl -fsS "http://localhost:${PORT}/servers" >/dev/null 2>&1; then
     log "완료 — $TARGET 비밀번호 교체됨"
     exit 0
   fi

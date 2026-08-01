@@ -73,7 +73,10 @@ else
     *) die "unsupported arch $(dpkg --print-architecture)" ;;
   esac
   # 버전을 override 하면 위 체크섬과 짝이 안 맞으므로 대조를 건너뛴다 — 그때는 호출자가 무결성을 책임진다.
-  [[ "$COSIGN_VERSION" == "$COSIGN_PINNED_VERSION" ]] || COSIGN_SHA=""
+  if [[ "$COSIGN_VERSION" != "$COSIGN_PINNED_VERSION" ]]; then
+    COSIGN_SHA=""
+    log "cosign $COSIGN_VERSION — 핀한 $COSIGN_PINNED_VERSION 이 아니라 체크섬 대조를 건너뛴다"
+  fi
   COSIGN_URL="https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-${CARCH}"
   log "cosign 설치 ($COSIGN_URL)"
   fetch "$COSIGN_URL" /usr/local/bin/cosign 0755 "cosign 바이너리" "$COSIGN_SHA"

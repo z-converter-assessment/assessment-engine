@@ -8,7 +8,6 @@
 
 from datetime import datetime
 from typing import Literal
-from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -17,7 +16,7 @@ from assessment_engine.db.repositories.query.types import (
     TimeRange,
 )
 from assessment_engine.web.deps import get_diagnostic_service
-from assessment_engine.web.routers._back import safe_back
+from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
 from assessment_engine.web.services.mappers.api_reference import build_api_reference
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
@@ -48,15 +47,15 @@ async def environment_report(
     ),
     anchor_at: datetime | None = Query(None, description="분석 기준 시각 (live preview). 미명시 시 현재"),
     view: Literal["customer", "engineer"] = Query("customer"),
-    back: str | None = Query(None, description="← 이전 link 의 referrer. 미명시 시 /servers/"),
+    back: BackUrl = None,
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """환경 단위 보고서 — job 있으면 정적 스냅샷, 없으면 발행 전 컨트롤(본문은 발행해야 생성)."""
     back_url = safe_back(back, "/")
-    self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
+    self_back_url = self_back(request)
 
     if job:
-        return await _render_environment_snapshot(request, job, back_url, self_back, diag_service)
+        return await _render_environment_snapshot(request, job, back_url, self_back_url, diag_service)
 
     # 발행 전 — 컨트롤만 노출(본문 미표시, summary 미계산). 발행(POST emit)해야 스냅샷 생성 + 화면 표시 + 이력 추가.
     return templates.TemplateResponse(
@@ -68,7 +67,7 @@ async def environment_report(
             "view": view,
             "view_title": _VIEW_TITLES[view],
             "back_url": back_url,
-            "self_back": self_back,
+            "self_back": self_back_url,
             "report_job_id": None,
             "time_range": time_range,
         },
@@ -97,7 +96,7 @@ async def _render_environment_snapshot(
     request: Request,
     job_id: str,
     back_url: str,
-    self_back: str,
+    self_back_url: str,
     diag_service: DiagnosticService,
 ):
     """발행된 환경 보고서 렌더 — succeeded 면 정적 스냅샷, 그 외(pending/running/failed)는 진행 화면."""
@@ -120,7 +119,7 @@ async def _render_environment_snapshot(
             "view": view,
             "view_title": _VIEW_TITLES.get(view, view),
             "back_url": back_url,
-            "self_back": self_back,
+            "self_back": self_back_url,
             "report_job_id": rec.id,
             "time_range": rec.input_params.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE),
         },
@@ -172,7 +171,7 @@ async def history(
     ),
     limit: int = Query(_HISTORY_PAGE_LIMIT, ge=1, le=10000, description="표시 한도 — '더보기' 클릭 시 누적(20씩)"),
     fragment: bool = Query(False, description="HTML partial 만 반환 — JS 즉시 filter (full page reload 회피)"),
-    back: str | None = Query(None, description="← 이전 link referrer"),
+    back: BackUrl = None,
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """보고서 발행 이력 — 운영자 회고용. created_at DESC. 기본 20건 + "더보기"(limit 누적).
@@ -187,7 +186,7 @@ async def history(
         scope=None if scope == "all" else scope,
     )
     # 본 이력 페이지 URL — 진입한 보고서의 "이전" 버튼이 돌아올 위치 (back chain).
-    history_back = quote(f"{request.url.path}?{request.url.query}", safe="")
+    history_back = self_back(request)
     items = [to_report_history_item(r, history_back) for r in records]
     back_url = safe_back(back, "/")
     context = {
@@ -230,7 +229,7 @@ async def report_status(
 @reference_router.get("/reference")
 async def right_sizing_thresholds(
     request: Request,
-    back: str | None = Query(None, description="← 이전 link referrer. 미명시 시 / (환경 개요)"),
+    back: BackUrl = None,
 ):
     """Right-sizing 분류 임계값 reference 페이지 — 환경 엔지니어 보고서에서 link 로 분리.
 

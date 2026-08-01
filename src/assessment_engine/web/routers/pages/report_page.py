@@ -11,7 +11,6 @@ server scope 보고서. 환경 단위 high-level 보고서는 `/reports/environm
 
 from datetime import datetime
 from typing import Literal
-from urllib.parse import quote
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -21,6 +20,7 @@ from assessment_engine.db.repositories.query.types import (
     TimeRange,
 )
 from assessment_engine.web.deps import get_diagnostic_service, get_service
+from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.routers.reports import _render_job_progress
 from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
 from assessment_engine.web.services.query_service import QueryService
@@ -50,16 +50,16 @@ async def report(
         DIAGNOSTIC_DEFAULT_TIME_RANGE, description="윈도우 (live preview). job 모드 시 input_params 사용"
     ),
     view: Literal["customer", "engineer"] = Query("customer", description="고객용(A) / 엔지니어용(B) (live preview)"),
-    back: str | None = Query(None, description="← 이전 link 의 referrer. 미명시 시 /servers/"),
+    back: BackUrl = None,
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """Server scope N대 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview."""
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
-    self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
+    back_url = safe_back(back, "/")
+    self_back_url = self_back(request)
 
     if job:
-        return await _render_summary_snapshot(request, job, back_url, self_back, diag_service)
+        return await _render_summary_snapshot(request, job, back_url, self_back_url, diag_service)
 
     # live read-only preview — 진단 트리거 없음.
     public_ids = [pid.strip() for pid in (ids or "").split(",") if pid.strip()]
@@ -79,7 +79,7 @@ async def report(
             "child_jobs": {},
             "back_url": back_url,
             "attention_by_host": by_host,
-            "self_back": self_back,
+            "self_back": self_back_url,
             "time_range": time_range,
         },
     )
@@ -89,7 +89,7 @@ async def _render_summary_snapshot(
     request: Request,
     job_id: str,
     back_url: str,
-    self_back: str,
+    self_back_url: str,
     diag_service: DiagnosticService,
 ):
     """발행된 N대 selection 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + 운영신호 (aux)."""
@@ -116,7 +116,7 @@ async def _render_summary_snapshot(
             "child_jobs": result.get("child_jobs", {}),
             "back_url": back_url,
             "attention_by_host": attention_by_host,
-            "self_back": self_back,
+            "self_back": self_back_url,
             "time_range": time_range,
         },
     )
@@ -160,16 +160,16 @@ async def single_server_report(
     job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
     time_range: TimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE, description="윈도우 (live preview)"),
     view: Literal["customer", "engineer"] = Query("customer"),
-    back: str | None = Query(None),
+    back: BackUrl = None,
     service: QueryService = Depends(get_service),
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """단일 서버 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview (단순화 양식, T13)."""
-    self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
-    back_url = back if back and back.startswith("/") and not back.startswith("//") else f"/servers/{server_id}"
+    self_back_url = self_back(request)
+    back_url = safe_back(back, f"/servers/{server_id}")
 
     if job:
-        return await _render_single_snapshot(request, job, back_url, self_back, diag_service)
+        return await _render_single_snapshot(request, job, back_url, self_back_url, diag_service)
 
     # 본문·aux 가 동일 attention 공유 — preview 는 anchor 없음(현재 시각). single 내부 재계산 회피.
     attention = await service.get_attention_signals(limit_each=None)
@@ -190,7 +190,7 @@ async def single_server_report(
             "hostname": hostname,
             "report_job_id": None,
             "attention_for_host": attention_for_host(hostname, attention),
-            "self_back": self_back,
+            "self_back": self_back_url,
             "time_range": time_range,
         },
     )
@@ -200,7 +200,7 @@ async def _render_single_snapshot(
     request: Request,
     job_id: str,
     back_url: str,
-    self_back: str,
+    self_back_url: str,
     diag_service: DiagnosticService,
 ):
     """발행된 단일 서버 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + 운영신호 (aux)."""
@@ -226,7 +226,7 @@ async def _render_single_snapshot(
             "hostname": hostname,
             "report_job_id": rec.id,
             "attention_for_host": result.get("aux", {}).get("attention_for_host", {}),
-            "self_back": self_back,
+            "self_back": self_back_url,
             "time_range": rec.input_params.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE),
         },
     )

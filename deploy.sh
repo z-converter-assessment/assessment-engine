@@ -19,7 +19,7 @@ log() { printf '[deploy] %s\n' "$*"; }
 die() { printf '[deploy][error] %s\n' "$*" >&2; exit 1; }
 
 # compose 는 값의 인라인 주석을 잘라내고 읽는다 — 같은 값을 보려면 여기서도 잘라야 한다.
-env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/ #.*//;s/[[:space:]]*$//' || true; }
+env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/ #.*//;s/[[:space:]]*$//;s/^"\(.*\)"$/\1/;s/^'"'"'\(.*\)'"'"'$/\1/' || true; }
 
 VERSION="${1:-}"
 [[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "사용: deploy.sh vX.Y.Z (stable semver)"
@@ -77,6 +77,13 @@ rollback() {
   local last; last="$(cat .last-good)"
   log "rollback -> $last"
   sed -i "s#^ENGINE_IMAGE=.*#ENGINE_IMAGE=${last}#" .env
+  if [[ -f .last-good-docker-compose.yml && -f .last-good-docker-compose.prod.yml ]]; then
+    cp .last-good-docker-compose.yml docker-compose.yml
+    cp .last-good-docker-compose.prod.yml docker-compose.prod.yml
+    log "compose 도 직전 버전으로 복원"
+  else
+    log "직전 compose 사본 없음 — 이미지만 되돌린다(토폴로지가 바뀐 릴리즈면 기동이 깨질 수 있다)"
+  fi
   docker compose up -d || die "rollback($last) 기동 실패 — 수동 조치 필요"
   for _ in $(seq 1 "$HEALTH_RETRIES"); do
     healthy_now && die "새 버전 $VERSION 배포 실패 — $last 로 rollback 완료. 원인 확인 후 재시도"
@@ -98,6 +105,10 @@ curl -fsSL "${RAW_BASE}/${VERSION}/docker-compose.yml" -o .compose-base.new \
   || die "docker-compose.yml 을 받지 못했다 — $VERSION 태그에 그 파일이 있는지 확인"
 curl -fsSL "${RAW_BASE}/${VERSION}/docker-compose.prod.yml" -o .compose-prod.new \
   || { rm -f .compose-base.new .compose-prod.new; die "docker-compose.prod.yml 을 받지 못했다 — $VERSION 태그에 그 파일이 있는지 확인"; }
+# 교체 전 사본을 남긴다 — rollback 이 이미지만 되돌리면 옛 이미지가 새 토폴로지 아래 뜬다.
+for f in docker-compose.yml docker-compose.prod.yml; do
+  [[ -f "$f" ]] && cp "$f" ".last-good-$f"
+done
 mv .compose-base.new docker-compose.yml
 mv .compose-prod.new docker-compose.prod.yml
 

@@ -306,8 +306,8 @@ window.location.href = `/reports/servers?${params.toString()}`;
 
 라우터의 결과 페이지 표준:
 ```python
-back_url = back if back and back.startswith("/") and not back.startswith("//") else "/"
-# open-redirect 방어: '/' 시작 + '//' 제외 (same-origin path 만 허용)
+back: BackUrl = None            # 시그니처에서 검증 강제 (routers/_back.py)
+back_url = safe_back(back, "/")  # 걸러진 값에 기본 목적지만 씌운다
 ```
 
 템플릿 ← 이전 link:
@@ -355,7 +355,7 @@ statusEl 은 이전 상태 복원 — 에러 흔적 본문에 잔존 금지.
 - 발행 publish 함수에서 `window.open(url, '_blank')` — 사용자 의도 (현재 탭 일관) 위반.
 - ← 이전 link 에 `javascript:history.back()` 단독 사용 (back chain 끊김 시 이상한 곳으로 복귀) — 명시 `back_url` 항상 같이.
 - back query 인자 sanitize 누락 (open-redirect — 외부 URL 로 점프 가능).
-- `.back` 버튼에 hardcoded URL (`/servers/{id}` / `/` 등) 박음 — back_url context 활용 의무. fallback 산출·sanitize 는 라우터 책임(`back` 이 `/` 로 시작하고 `//` 가 아닐 때만 사용, 아니면 fallback).
+- `.back` 버튼에 hardcoded URL (`/servers/{id}` / `/` 등) 박음 — back_url context 활용 의무. fallback 산출은 라우터 책임(`safe_back`). sanitize 는 `BackUrl` 타입이 시그니처에서 강제한다.
 - 자식 진입 link 에 `?back=` 박지 않음 — 진입한 자식 페이지가 fallback 으로 점프하는 결과.
 
 ## 링크 포맷 — 단일 진실 (예외 0)
