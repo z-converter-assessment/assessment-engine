@@ -21,15 +21,19 @@ from assessment_engine.consumer.schemas import MessageBase
 from assessment_engine.consumer.settings import get_consumer_settings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 
-# 일시 장애(connection·deadlock)만 retry. 영구 장애(IntegrityError·ProgrammingError·DataError 등)는
-# 즉시 raise -> nack -> DLQ (F6). DBAPIError 광역 재시도 금지 — 영구 오류를 헛재시도시킨다(_is_retryable_db_exc 판별).
-# connection = OperationalError·InterfaceError(타입). deadlock 은 asyncpg 가 OperationalError 아닌 base DBAPIError
-# 로 래핑하므로 타입 아닌 SQLSTATE 40P01 로 판별. IntegrityError(= UNIQUE/FK 위반)도 DBAPIError 상속이라 먼저 별도 캐치.
+# 일시 장애만 retry. 영구 장애(IntegrityError·ProgrammingError·DataError 등)는 즉시 raise -> nack -> DLQ (F6).
+# IntegrityError(= UNIQUE/FK 위반)도 DBAPIError 상속이라 먼저 별도 캐치.
+# asyncpg dialect 의 예외 번역표에는 sqlalchemy OperationalError 로 가는 항목이 없다 — 커넥션 유실·서버
+# 재기동·deadlock 은 base DBAPIError 로만 래핑돼 타입으로 안 갈린다. 그래서 SQLSTATE 를 함께 본다.
 _RETRYABLE_DB_EXC = (OperationalError, InterfaceError)
-_DEADLOCK_SQLSTATE = "40P01"  # PostgreSQL deadlock_detected
+# class 08 = connection exception (커넥션 유실 — 전 코드 일시).
+_RETRYABLE_SQLSTATE_PREFIX = "08"
+# 40001 serialization_failure · 40P01 deadlock_detected — victim rollback 후 재시도하면 경합이 풀린다.
+# 57P01 admin_shutdown · 57P02 crash_shutdown · 57P03 cannot_connect_now — 서버 재기동 중.
+_RETRYABLE_SQLSTATES = frozenset({"40001", "40P01", "57P01", "57P02", "57P03"})
 
 # exponential backoff + full jitter — thundering herd 방지 + 메시지 처리 블로킹 최소화.
-# base 2: attempt0 <=2s, attempt1 <=4s (기존 base 5 는 최악 25s 단일 블로킹이라 과공격적).
+# base 2 — 한 메시지가 재시도에 붙잡히는 시간을 최악 6s 로 묶어 prefetch 슬롯 점유를 짧게 유지한다.
 _RETRY_MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_BASE_SEC = 2
 
@@ -75,15 +79,23 @@ def _format_validation_err(e: ValidationError, limit: int = _VALIDATION_ERR_LIMI
     return f"count={len(errors)} {head}{more}"
 
 
-def _is_retryable_db_exc(e: DBAPIError) -> bool:
-    """일시 DB 장애 판정 — connection(OperationalError/InterfaceError 타입) + deadlock(SQLSTATE 40P01).
+def _hide_bound_params(e: DBAPIError) -> None:
+    """핸들러 밖으로 나가는 DB 예외에서 bound parameter 를 지운다 (F8).
 
-    deadlock 은 victim rollback 후 재시도하면 경합이 풀려 흡수된다(#F6 일시 장애 재시도 원칙). asyncpg 는
-    deadlock 을 OperationalError 가 아닌 base DBAPIError 로 래핑하므로 타입만으론 못 잡아 SQLSTATE 로 판별한다.
+    나간 예외는 asyncio 가 traceback 전문을 출력하는데, DBAPIError 문자열은 INSERT 에 실린
+    hostname·IP·interfaces 를 `[parameters: ...]` 로 그대로 담는다.
     """
+    e.hide_parameters = True
+
+
+def _is_retryable_db_exc(e: DBAPIError) -> bool:
+    """일시 DB 장애 판정 — 예외 타입 또는 SQLSTATE 둘 중 하나라도 걸리면 재시도."""
     if isinstance(e, _RETRYABLE_DB_EXC):
         return True
-    return getattr(getattr(e, "orig", None), "sqlstate", None) == _DEADLOCK_SQLSTATE
+    sqlstate = getattr(getattr(e, "orig", None), "sqlstate", None)
+    if not isinstance(sqlstate, str):
+        return False
+    return sqlstate.startswith(_RETRYABLE_SQLSTATE_PREFIX) or sqlstate in _RETRYABLE_SQLSTATES
 
 
 async def _db_retry[T](
@@ -99,9 +111,11 @@ async def _db_retry[T](
             return result
         except IntegrityError as e:
             # 영구 장애 — 즉시 raise -> 핸들러 nack -> DLQ. F8: 진단 메타만 로깅.
+            _hide_bound_params(e)
             logger.error("db integrity error (non-retryable) {}", _format_db_err(e))
             raise
         except DBAPIError as e:
+            _hide_bound_params(e)
             if not _is_retryable_db_exc(e):
                 # 영구 장애 (ProgrammingError·DataError 등) — 즉시 raise -> nack -> DLQ (F6).
                 logger.error("db error (non-retryable) {}", _format_db_err(e))
@@ -110,8 +124,15 @@ async def _db_retry[T](
                 logger.error("db error after {} attempts {}", _RETRY_MAX_ATTEMPTS, _format_db_err(e))
                 raise
             logger.warning("db error attempt={} {}", attempt + 1, _format_db_err(e))
-            # full jitter: [0, base^(attempt+1)] 균등 — 동시 재연결 쏠림 방지.
-            await asyncio.sleep(random.uniform(0, _RETRY_BACKOFF_BASE_SEC ** (attempt + 1)))
+        except TimeoutError:
+            # asyncpg 의 connect/command timeout 은 asyncio.TimeoutError 로 나오고 dialect 예외 번역표에
+            # 없어 DBAPIError 로 감싸이지 않는다 — 위 분기가 못 잡으므로 여기서 일시 장애로 받는다.
+            if attempt == _RETRY_MAX_ATTEMPTS - 1:
+                logger.error("db timeout after {} attempts", _RETRY_MAX_ATTEMPTS)
+                raise
+            logger.warning("db timeout attempt={}", attempt + 1)
+        # full jitter: [0, base^(attempt+1)] 균등 — 동시 재연결 쏠림 방지.
+        await asyncio.sleep(random.uniform(0, _RETRY_BACKOFF_BASE_SEC ** (attempt + 1)))
     raise AssertionError("unreachable")
 
 

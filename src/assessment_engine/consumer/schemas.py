@@ -278,7 +278,9 @@ class InventoryInput(MessageBase):
         if v is None:
             return v
         if not isinstance(v, (list, tuple)):
-            raise TypeError(f"expected list of IP strings, got {type(v).__name__}")
+            # ValueError 만 ValidationError 로 수렴한다 — TypeError 는 model_validate_json 밖으로 새어
+            # 핸들러의 검증 실패 로그를 건너뛴다.
+            raise ValueError(f"expected list of IP strings, got {type(v).__name__}")
         for item in v:
             ip_interface(str(item))
         return v

@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import aio_pika
-from aio_pika.abc import AbstractIncomingMessage
+from aio_pika.abc import AbstractIncomingMessage, AbstractQueue, ConsumerTag
+from aio_pika.exceptions import AMQPError, ChannelInvalidStateError
 from loguru import logger
 
 from assessment_engine.cache.redis import close_pool, get_redis
@@ -29,6 +30,12 @@ _ERROR_TTL_MS = 300_000  # 5분
 _TASK_RESULT_TTL_MS = 24 * 60 * 60 * 1000  # 24h
 _TASK_RESULT_MAX_LEN = 100_000
 
+# 종료 신호 후 진행 중 핸들러를 기다리는 총 예산. docker 기본 stop_grace_period(10s) 안에서 끝나야
+# SIGKILL 이 drain 을 자르지 않는다.
+_SHUTDOWN_DRAIN_SEC = 5.0
+
+_Handler = Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]
+
 
 @dataclass
 class _QueueBinding:
@@ -36,9 +43,52 @@ class _QueueBinding:
     dlx_name: str
     queue_name: str
     routing_key: str
-    handler: Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]
+    handler: _Handler
     ttl_ms: int | None
     max_len: int | None
+
+
+def _track_inflight(handler: _Handler, inflight: set[asyncio.Task[Any]]) -> _Handler:
+    """핸들러 실행 task 를 등록한다 — 종료 시 기다릴 대상 (`_drain`)."""
+
+    async def _run(message: AbstractIncomingMessage) -> None:
+        task = asyncio.current_task()
+        if task is None:  # aio-pika 는 콜백을 task 로 띄운다. 아니면 추적할 대상이 없다.
+            await handler(message)
+            return
+        inflight.add(task)
+        try:
+            await handler(message)
+        finally:
+            inflight.discard(task)
+
+    return _run
+
+
+async def _drain(consumers: list[tuple[AbstractQueue, ConsumerTag]], inflight: set[asyncio.Task[Any]]) -> None:
+    """새 배달을 끊고 진행 중 핸들러가 ack/nack 를 마칠 때까지 예산 안에서 기다린다 (F11).
+
+    채널 close 는 aiormq 가 진행 중 consumer task 에 CancelledError 를 던지므로, 그전에 기다리지 않으면
+    커밋 직전 취소된 메시지가 재전송 시 멱등성 1단(#D2)에 중복으로 걸려 조용히 사라진다. basic.cancel 은
+    이미 배달된 메시지의 ack 를 막지 않아 남은 in-flight 는 그대로 마칠 수 있다.
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + _SHUTDOWN_DRAIN_SEC
+    for queue, tag in consumers:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            break
+        # broker 가 이미 끊긴 상태면 끊을 배달도 없다 — 남은 메시지는 unack 이라 재전송된다.
+        # cancel 인자 timeout 은 basic.cancel RPC 만 덮는다. robust 채널은 그전에 재연결 완료를 무기한
+        # 기다리므로(RobustChannel.get_underlay_channel -> connection.ready) 호출 전체를 wait_for 로 묶는다.
+        with suppress(AMQPError, ChannelInvalidStateError, TimeoutError):
+            await asyncio.wait_for(queue.cancel(tag), timeout=remaining)
+    while inflight:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            logger.warning("drain timeout inflight={} — 미완 메시지는 unack 잔류(재전송)", len(inflight))
+            return
+        await asyncio.wait(set(inflight), timeout=remaining)
 
 
 async def main() -> None:
@@ -58,8 +108,9 @@ async def main() -> None:
 
     redis = get_redis()
     # graceful shutdown (F11) — asyncio.run 은 SIGTERM(docker stop)을 취소로 변환하지 않으므로 asyncio-native
-    # add_signal_handler 로 stop_event 를 set 한다(signal.signal 아님 — 이벤트 루프 안전). SIGTERM 시 stop_event 가
-    # 깨어 `async with conn` 이 정상 unwind -> 채널/커넥션 close 로 in-flight consumer drain, finally 로 redis close.
+    # add_signal_handler 로 stop_event 를 set 한다(signal.signal 아님 — 이벤트 루프 안전). stop_event 가 깨면
+    # `_drain` 이 배달을 끊고 in-flight 를 기다린 뒤 `async with conn` unwind 로 채널/커넥션 close,
+    # finally 로 redis close.
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -110,6 +161,9 @@ async def main() -> None:
             ),
         ]
 
+        inflight: set[asyncio.Task[Any]] = set()
+        consumers: list[tuple[AbstractQueue, ConsumerTag]] = []
+
         conn = await aio_pika.connect_robust(get_consumer_settings().broker_url, timeout=10)
         async with conn, conn.channel() as channel:
             await channel.set_qos(prefetch_count=10)
@@ -144,7 +198,7 @@ async def main() -> None:
                     arguments=args,
                 )
                 await queue.bind(exchanges[b.exchange_name], routing_key=b.routing_key)
-                await queue.consume(b.handler)
+                consumers.append((queue, await queue.consume(_track_inflight(b.handler, inflight))))
                 logger.info(
                     "consuming exchange={} queue={} routing_key={} ttl_ms={} max_len={}",
                     b.exchange_name,
@@ -154,7 +208,8 @@ async def main() -> None:
                     b.max_len,
                 )
 
-            await stop_event.wait()  # SIGTERM/SIGINT 까지 소비 — 이후 async with unwind 로 graceful 종료
-        logger.info("consumer stopping (signal received)")
+            await stop_event.wait()  # SIGTERM/SIGINT 까지 소비
+            logger.info("consumer stopping (signal received) — draining in-flight={}", len(inflight))
+            await _drain(consumers, inflight)
     finally:
         await close_pool()

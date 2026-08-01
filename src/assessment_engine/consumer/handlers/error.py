@@ -20,8 +20,11 @@ def make_error_handler(
             try:
                 data = ErrorInput.model_validate_json(message.body)
             except ValidationError as e:
-                logger.error("error message parse error {}", _format_validation_err(e))
-                raise
+                detail = _format_validation_err(e)
+                logger.error("error message parse error {}", detail)
+                # 핸들러 밖으로 빠져나간 예외는 asyncio 가 전문을 출력한다 — 실패 필드의 입력값을
+                # 문자열에 싣는 원본 대신, nack 에 필요한 만큼만 담은 예외로 바꿔 던진다.
+                raise ValueError(f"error message validation failed: {detail}") from None
 
             if not await _check_idempotent(redis, data.message_id):
                 logger.info("error duplicate skipped message_id={}", data.message_id)

@@ -16,6 +16,8 @@ HEALTH_INTERVAL="${HEALTH_INTERVAL:-5}"
 APP_SERVICES=(web consumer worker)
 
 log() { printf '[rotate] %s\n' "$*"; }
+pg_quote_ident() { printf '"%s"' "${1//\"/\"\"}"; }
+pg_quote_literal() { printf "'%s'" "${1//\'/\'\'}"; }
 die() { printf '[rotate][error] %s\n' "$*" >&2; exit 1; }
 
 TARGET="${1:-}"
@@ -49,19 +51,31 @@ OLD="$(cat "$SECRET_FILE")"
 # base64 는 영숫자와 +/= 뿐이라 SQL 리터럴·셸 인자에 그대로 넣어도 깨지지 않는다.
 NEW="$(openssl rand -base64 32)"
 
+# 비밀번호를 명령 인자로 넘기지 않는다 — 호스트 프로세스 목록에 평문이 뜬다. SQL 은 stdin 으로 넣고
+# 접속 비밀번호는 컨테이너가 마운트된 secret 파일에서 직접 읽는다.
+set_postgres_password() {
+  printf "ALTER USER %s PASSWORD %s" "$(pg_quote_ident "$DB_USER")" "$(pg_quote_literal "$1")" \
+    | docker compose exec -T postgres sh -c \
+        'PGPASSWORD="$(cat /run/secrets/postgres_password)" exec psql -h 127.0.0.1 -U "$0" -d "$1" -v ON_ERROR_STOP=1 -f -' \
+        "$DB_USER" "$DB_NAME" >/dev/null
+}
+
+# rabbitmqctl 은 비밀번호를 인자로만 받는다. sh 로 감싸 호스트 argv 에서는 감추되, 컨테이너 안 프로세스
+# 목록에는 잠시 남는다 — 그 안은 이미 secret 을 읽을 수 있는 경계라 추가 노출이 아니다.
+set_rabbitmq_password() {
+  printf '%s' "$1" | docker compose exec -T rabbitmq sh -c \
+    'exec rabbitmqctl change_password "$0" "$(cat)"' "$MQ_USER" >/dev/null
+}
+
 # 서버 쪽 계정을 먼저 바꾼다. 실패하면 파일도 앱도 건드리지 않았으니 그대로 중단하면 된다.
 case "$TARGET" in
   postgres)
     log "postgres 계정 비밀번호 변경 ($DB_USER)"
-    docker compose exec -T -e PGPASSWORD="$OLD" postgres \
-      psql -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
-      -c "ALTER USER \"$DB_USER\" PASSWORD '$NEW'" >/dev/null \
-      || die "변경 실패 — 서버·파일 모두 원래 값 그대로다"
+    set_postgres_password "$NEW" || die "변경 실패 — 서버·파일 모두 원래 값 그대로다"
     ;;
   rabbitmq)
     log "rabbitmq 계정 비밀번호 변경 ($MQ_USER)"
-    docker compose exec -T rabbitmq rabbitmqctl change_password "$MQ_USER" "$NEW" >/dev/null \
-      || die "변경 실패 — 서버·파일 모두 원래 값 그대로다"
+    set_rabbitmq_password "$NEW" || die "변경 실패 — 서버·파일 모두 원래 값 그대로다"
     ;;
 esac
 
@@ -77,14 +91,8 @@ rollback() {
 
 restore_server() {
   case "$TARGET" in
-    postgres)
-      docker compose exec -T -e PGPASSWORD="$NEW" postgres \
-        psql -h 127.0.0.1 -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 \
-        -c "ALTER USER \"$DB_USER\" PASSWORD '$OLD'" >/dev/null 2>&1
-      ;;
-    rabbitmq)
-      docker compose exec -T rabbitmq rabbitmqctl change_password "$MQ_USER" "$OLD" >/dev/null 2>&1
-      ;;
+    postgres) set_postgres_password "$OLD" 2>/dev/null ;;
+    rabbitmq) set_rabbitmq_password "$OLD" 2>/dev/null ;;
   esac
 }
 

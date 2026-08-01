@@ -90,6 +90,7 @@ class BaseZdmPackageResolver(Protocol):
         package_path = OS 별 path (caller 가 os_family 보고 결정). cache key 는 ETag 기반이라
         path 별 자동 분리.
         """
+        ...
 
 
 class HttpZdmPackageResolver:

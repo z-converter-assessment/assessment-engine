@@ -150,9 +150,16 @@ S2 결정에 종속. src 69건 정리는 대략 이렇게 갈린다.
 
 tests 루트를 손봐 보니 세 유형이 반복됐다. fixture scope·이미지 이름처럼 코드가 이미 말하는 것을 옮겨 적은 주석, 쓰지 않기로 한 라이브러리를 왜 안 쓰는지 늘어놓은 설명, "(v2)"·"구 X"·"v1 컬럼이 아니라" 같은 회고 토큰. 다른 파일도 같은 것을 찾으면 된다.
 
-### S4-5. `docs/temp/handoff.md`
+### S4-5. 마무리 가이드 Stage 1 체크리스트 압축
 
-이전 세션의 인수인계 문서인데 미결 항목 하나가 남아 있다 (마무리 가이드 Stage 1 체크리스트 압축). 처리하거나, 그 항목을 본 문서로 옮기고 삭제한다.
+`wrap-up.md` Stage 1 의 `[1.7]~[1.15]` 가 규약 문서를 항목별로 재서술한다. 규범(무엇이 금지인가)과 검사(어떻게 확인하나)를 갈라 9항목을 `조항 | grep 패턴` 표로 줄인다.
+
+### S4-7. GitHub 설정 (저장소 관리자 UI 작업)
+
+코드로 처리할 수 없는 항목이다.
+
+- ruleset 3종 등록과 required status check 재등록. job 이름이 `conventional commits` 에서 `pr title + metadata` 로 바뀌었다. 절차는 `docs/guides/ci-setup.md`.
+- tag ruleset 에 `Restrict creations` 를 켤 때 bypass 에 Actions 를 등록할 수 있는지 UI 에서 확인. 등록 없이 켜면 릴리즈가 tag push 단계에서 실패한다.
 
 ### S4-6. collect review S3
 

@@ -1,6 +1,7 @@
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from typing import Any, cast
 
-from sqlalchemy import func, select, update
+from sqlalchemy import CursorResult, Row, UniqueConstraint, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +29,18 @@ from assessment_engine.db.models.server_net_io import ServerNetIo
 from assessment_engine.db.models.server_pressure import ServerPressure
 from assessment_engine.db.models.task import Task
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
+
+
+def _natural_key(model: type) -> list[str]:
+    """모델이 선언한 시계열 자연키 — 멱등성 2단 방어가 이 제약에 기대므로 다른 UNIQUE 위반은 삼키지 않는다.
+
+    `Table.constraints` 는 set 이라 UNIQUE 가 둘 이상이면 어느 쪽이 잡힐지 프로세스마다 달라진다.
+    자연키를 하나로 특정할 수 없는 모델은 침묵 대신 거부한다.
+    """
+    uniques = [c for c in model.__table__.constraints if isinstance(c, UniqueConstraint)]
+    if len(uniques) != 1:
+        raise RuntimeError(f"{model.__name__} 의 자연키 UNIQUE 가 {len(uniques)}개 — 충돌 대상을 특정할 수 없다")
+    return [col.name for col in uniques[0].columns]
 
 
 class CollectRepository(BaseCollectRepository):
@@ -141,8 +154,11 @@ class CollectRepository(BaseCollectRepository):
         return server_id
 
     @staticmethod
-    def _inventory_changed(prev: ServerInventory, new: ServerInventoryCreate) -> bool:
-        """변경 감지. collected_at·last_seen_at·agent_id·composite_id·machine_id·hostname 제외 비교."""
+    def _inventory_changed(prev: Row[Any], new: ServerInventoryCreate) -> bool:
+        """변경 감지. collected_at·last_seen_at·agent_id·composite_id·machine_id·hostname 제외 비교.
+
+        prev 는 `_INVENTORY_COMPARE_COLS` 부분 SELECT 행 — ORM 인스턴스가 아니라 컬럼 순서대로 채워진 Row.
+        """
         return (
             prev.agent_version != new.agent_version
             or prev.os_family != new.os_family
@@ -285,7 +301,8 @@ class CollectRepository(BaseCollectRepository):
             )
             .values(status="failure", failure_reason="timeout", completed_at=func.now())
         )
-        result = await self.session.execute(stmt)
+        # rowcount 는 DML 실행 결과인 CursorResult 에만 있고 session.execute 는 상위 타입 Result 로 선언돼 있다.
+        result = cast("CursorResult[Any]", await self.session.execute(stmt))
         return result.rowcount or 0
 
     async def expire_all_overdue_tasks(self) -> int:
@@ -299,7 +316,7 @@ class CollectRepository(BaseCollectRepository):
             )
             .values(status="failure", failure_reason="timeout", completed_at=func.now())
         )
-        result = await self.session.execute(stmt)
+        result = cast("CursorResult[Any]", await self.session.execute(stmt))
         return result.rowcount or 0
 
     async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
@@ -334,7 +351,7 @@ class CollectRepository(BaseCollectRepository):
                 stderr_tail=data.stderr_tail,
             )
         )
-        result = await self.session.execute(stmt)
+        result = cast("CursorResult[Any]", await self.session.execute(stmt))
         return (result.rowcount or 0) > 0
 
     # ─── 시계열 (record_metrics) ───────────────────────────────────────────
@@ -366,7 +383,7 @@ class CollectRepository(BaseCollectRepository):
         model: type,
         server_id: int,
         data: ServerMetricCreate,
-        entries: list[CpuCoreEntry | DiskIoEntry | NetIoEntry | FilesystemEntry | PressureEntry | DiskErrorEntry],
+        entries: Sequence[CpuCoreEntry | DiskIoEntry | NetIoEntry | FilesystemEntry | PressureEntry | DiskErrorEntry],
         row_hook: Callable[[dict], dict] | None = None,
     ) -> int:
         """자식 시계열 공통 bulk INSERT — dataclass 필드가 곧 컬럼. envelope 메타 미주입(본 행이 참조).
@@ -379,8 +396,8 @@ class CollectRepository(BaseCollectRepository):
         rows = [{"server_id": server_id, "collected_at": data.collected_at, **vars(e)} for e in entries]
         if row_hook is not None:
             rows = [row_hook(row) for row in rows]
-        stmt = pg_insert(model).values(rows).on_conflict_do_nothing()
-        result = await self.session.execute(stmt)
+        stmt = pg_insert(model).values(rows).on_conflict_do_nothing(index_elements=_natural_key(model))
+        result = cast("CursorResult[Any]", await self.session.execute(stmt))
         return result.rowcount or 0
 
     async def _insert_scalar_metrics(
@@ -426,5 +443,5 @@ class CollectRepository(BaseCollectRepository):
             )
             .on_conflict_do_nothing(index_elements=["server_id", "collected_at"])
         )
-        result = await self.session.execute(stmt)
+        result = cast("CursorResult[Any]", await self.session.execute(stmt))
         return result.rowcount or 0

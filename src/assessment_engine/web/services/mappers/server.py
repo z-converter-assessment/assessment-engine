@@ -318,7 +318,8 @@ def to_server_list_item(
         os_eol, os_eol_status = info.eol_iso, info.status
     # 물리 디스크 총량 — disk_total_bytes 단일 산식(type=disk 합, 목록·상세·보고서 일관).
     _disk_bytes = disk_total_bytes(dto.block_devices)
-    storage_total_gb = round(bytes_to_gb(_disk_bytes), 1) if _disk_bytes else None
+    _disk_gb = bytes_to_gb(_disk_bytes) if _disk_bytes else None
+    storage_total_gb = round(_disk_gb, 1) if _disk_gb is not None else None
 
     _mem_gib = bytes_to_gib(dto.mem_total_bytes)  # 1자리 반올림 — ServerListItem.mem_total_gb 용
     # 정적 사양 한 줄 — spec_display_line 단일 진실(shared.py, 환경 자원 평가 compact 표와 공유).
@@ -509,7 +510,7 @@ def _attach_fs_usage(node: StorageNode, fs) -> None:
 _SPANNING_KINDS = ("raid", "mpath", "dynamic")
 
 
-def _member_ref_node(c: dict, array_home: dict[str, str]) -> StorageNode:
+def _member_ref_node(c: dict, array_home: dict[str | None, str]) -> StorageNode:
     """이미 다른 디스크 아래 배치된 배열(RAID/멀티패스) 참조 스텁 — 빈 디스크 오인 방지.
 
     kind_label 에 배열 종류(RAID1 등)를 직접 담아 칩만 봐도 "이 디스크도 그 배열 소속"임을 알 수 있게 한다 —
@@ -535,7 +536,7 @@ def _build_storage_node(
     vg_free_gb: dict[str, float | None],
     visited: set,
     root_disk: str,
-    array_home: dict[str, str],
+    array_home: dict[str | None, str],
     depth: int = 0,
 ) -> StorageNode:
     did = d.get("id")
@@ -616,10 +617,13 @@ def build_storage_tree(block_devices: list[dict], lvm_vgs: list[dict], filesyste
 
     fs_by_mount = {fs.mountpoint: fs for fs in (filesystems or []) if fs.mountpoint}
     fs_by_dev = {fs.device_id: fs for fs in (filesystems or []) if fs.device_id}
-    vg_free_gb = {v.get("name"): bytes_to_gb(v.get("free_bytes")) for v in (lvm_vgs or []) if v.get("name")}
+    vg_free_gb: dict[str, float | None] = {
+        name: bytes_to_gb(v.get("free_bytes")) for v in (lvm_vgs or []) if (name := v.get("name"))
+    }
 
     visited: set = set()
-    array_home: dict[str, str] = {}  # 배열 id -> 최초 배치 디스크명 (구성원 참조 스텁 안내용)
+    # 배열 id -> 최초 배치 디스크명 (구성원 참조 스텁 안내용). id 미발행 device 는 None 키로 들어온다.
+    array_home: dict[str | None, str] = {}
     roots = [
         _build_storage_node(d, children_map, fs_by_dev, fs_by_mount, vg_free_gb, visited, d.get("name", ""), array_home)
         for d in devs

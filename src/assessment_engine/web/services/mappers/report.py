@@ -26,6 +26,7 @@ from assessment_engine.web.services.mappers.shared import (
     OS_FAMILY_LABEL_KO,
     RISK_LEVEL_ORDER,
     ReportView,
+    SaturationAxisDisplay,
     build_host_confidence_notes,
     lookup_os_eol,
     resolve_os_eol,
@@ -578,7 +579,7 @@ def build_period_assessment(
     # d.threshold 는 saturation_axis_displays 원문(">= 1"·"> 20ms"·"발생 시") — 다른 화면(단일 보고서 포화 축
     # 표·참고자료 임계값)과 공유하는 표시 단일 진실이라 그 원본은 불변. 이 카드만 이용률 컬럼과 같은 "임계 X" 어투
     # 통일 — 부등호(>=·>)는 "임계"라는 말 자체가 이상(以上) 의미를 담아 중복이라 제거하고 숫자만 접두.
-    def _s(label: str, d: object) -> PeriodSignalRow:
+    def _s(label: str, d: SaturationAxisDisplay) -> PeriodSignalRow:
         raw = d.threshold
         if raw.startswith("발생"):
             thr = raw

@@ -20,6 +20,8 @@ def get_engine() -> AsyncEngine:
         echo=settings.sqlalchemy_echo,
         connect_args={"command_timeout": 30, "timeout": 10},
         pool_pre_ping=True,
+        # DBAPIError 문자열에 SQL 전문과 바인드 파라미터가 붙는다 — 재시도 로그와 DLQ 경로로 새어 나간다.
+        hide_parameters=True,
     )
 
 

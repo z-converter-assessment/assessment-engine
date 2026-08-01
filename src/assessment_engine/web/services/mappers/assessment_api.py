@@ -77,8 +77,9 @@ def _repro_interface(i: dict, link_speeds: dict[str, int] | None = None) -> dict
     # speed_mbps null(Windows NT5.2/virtio 는 inventory 미발행) 시 metrics link.speed(bit/s)로 폴백 — reproduction
     # 정확도(agent 확정 규약). iface 안정 id 로 매칭. link.speed 도 null(virtio)이면 그대로 null.
     speed = i.get("speed_mbps")
-    if speed is None and link_speeds:
-        bps = link_speeds.get(i.get("id"))
+    iface_id = i.get("id")
+    if speed is None and link_speeds and isinstance(iface_id, str):
+        bps = link_speeds.get(iface_id)
         if bps:
             speed = int(bps // 1_000_000)  # bit/s -> Mbps
     return {
