@@ -818,7 +818,7 @@ def assess_network(stats: ResourceStats) -> ResourceAssessment:
             parts.append(f"재전송 {retrans:.1f}%")
         if drop is not None:
             parts.append(f"드롭 {drop:.2f}%")
-        if conntrack is not None and "net_conntrack" in triggers:
+        if "net_conntrack" in triggers and conntrack is not None:
             parts.append(f"conntrack {conntrack * 100:.0f}%")
         return ResourceAssessment("network", "congested", triggers=triggers, confidence=conf, detail=" ".join(parts))
     if retrans is None and drop is None and conntrack is None:

@@ -51,7 +51,7 @@ def _int(v: float | None) -> int | None:
 
 def _state_sum(pts: list[Datapoint], state: str) -> float | None:
     """cpu.time 을 attr.cpu 전 코어 합산(host 집계). 실측 하나라도 있으면 합, 전부 None 이면 None."""
-    vals = [p.value for p in pts if p.attr.get("state") == state and p.value is not None]
+    vals = [p.value for p in pts if _attr_key(p.attr.get("state")) == state and p.value is not None]
     return sum(vals) if vals else None
 
 
@@ -242,9 +242,9 @@ def _build_pressure(pr_ns: Namespace | None) -> list[PressureEntry]:
     keys: dict[tuple[str, str], None] = {}
     for pts in (ratio, time):
         for p in pts:
-            r, s = p.attr.get("resource"), p.attr.get("scope")
-            if isinstance(r, str) and isinstance(s, str):
-                keys.setdefault((r, s), None)
+            r, sc = _attr_key(p.attr.get("resource")), _attr_key(p.attr.get("scope"))
+            if r is not None and sc is not None:
+                keys.setdefault((r, sc), None)
     return [
         PressureEntry(
             resource=r,

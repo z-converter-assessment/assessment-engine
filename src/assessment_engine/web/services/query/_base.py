@@ -58,7 +58,6 @@ class _BaseQueryServiceMixin:
         get_report(세부행)와 분류가 어긋난다 (#E3 build_resource_stats 단일 진실).
         """
         # period_days 는 15m 창(=0.0104일)까지 내려가는 float 이고 repo 는 timedelta(days=)로 그대로 받는다.
-        # 억제 사유 = repo 추상 시그니처가 int 로 좁게 선언한 결함 (repo 계층에서 float 로 정정해야 풀린다).
         net_io = await self.repo.report_net_io_baseline(
             server_ids,
             period_days,

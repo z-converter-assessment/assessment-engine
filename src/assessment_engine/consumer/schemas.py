@@ -9,7 +9,7 @@ from ipaddress import ip_address, ip_interface
 from typing import Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 from assessment_engine.contract import AGENT_CONTRACT_VERSION
 
@@ -25,15 +25,15 @@ class MessageBase(BaseModel):
     # agent_id — 호스트 식별 단일 키(불변 UUID). DB UNIQUE·MQ 라우팅. task.result 한정 nullable(task_id 매칭).
     agent_id: UUID
     message_id: UUID
-    collected_at: datetime
+    collected_at: AwareDatetime
     # composite_id — SHA-256 감사·표시용(식별 미사용). "" -> None 정규화.
     composite_id: str | None = Field(default=None, max_length=64)
     machine_id: str | None = Field(default=None, max_length=64)
     agent_version: str | None = Field(default=None, min_length=1, max_length=32)
     # boot_time — 부팅 시각(판독 불가 시 null). counter reset 게이트.
-    boot_time: datetime | None = None
+    boot_time: AwareDatetime | None = None
     # agent_started_at — 발행 프로세스 기동 시각. task.result 만 항상 null.
-    agent_started_at: datetime | None = None
+    agent_started_at: AwareDatetime | None = None
     os_family: Literal["linux", "windows"]
 
     @field_validator("schema_version")

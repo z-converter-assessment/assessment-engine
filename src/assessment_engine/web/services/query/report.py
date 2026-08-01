@@ -432,7 +432,6 @@ class ReportQueryMixin(_ReportMixinBase):
         유휴 분류 정합(세부 행·under·도넛 동일 입력). worst_mount used%·용량 임박(구동 마운트·runway)은
         report_aggregate 단일 산출 (별도 mount_worst 쿼리 폐기).
         """
-        # 억제 사유 = repo 추상 시그니처가 period_days 를 int 로 좁게 선언, 실제 창은 15m(0.0104일)까지 float.
         raws = await self.repo.report_aggregate(
             server_ids,
             period_days,

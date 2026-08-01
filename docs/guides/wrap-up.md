@@ -111,7 +111,7 @@ Self-audit 메타 인용 제외:
 | F7 로깅 | `rg '\bprint\(|sys\.stdout\.write|^import logging' src/` · except 밖 `logger.exception()` · payload 로깅 |
 | F8 시크릿 | 신규 비밀 필드의 `SecretStr` · 응답·캐시·로그·예외의 PII |
 | F10 F11 | 평가 윈도우가 `recommendation.WINDOW_DAYS` 단일 참조 · 새 TimeRange 는 4곳 동시 갱신 · `rg 'signal\.signal|os\._exit' src/` |
-| B C5 E1 | `rg 'extra="allow"' src/` · hypertable 조회의 `collected_at` 술어 · 템플릿 계산(`+`·`*`·`length`·`sort`·`selectattr`) · 차트 JS 5 의무 규약 |
+| B C5 E1 | `rg 'extra="(forbid|allow)"' src/` · hypertable 조회의 `collected_at` 술어 · 템플릿 계산(`+`·`*`·`length`·`sort`·`selectattr`) · 차트 JS 5 의무 규약 |
 
 주석 (1):
 - [1.8] 이번 브랜치가 건드린 파일의 주석만 본다. 전수 검토는 하지 않는다 — 판단이 필요해 자동화가 안 되고,

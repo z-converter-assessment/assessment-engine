@@ -43,6 +43,13 @@ def _natural_key(model: type) -> list[str]:
     return [col.name for col in uniques[0].columns]
 
 
+# import 시점에 해소한다 — 자연키를 빠뜨린 모델이 들어오면 첫 메트릭 메시지가 아니라 기동에서 드러난다.
+_NATURAL_KEYS: dict[type, list[str]] = {
+    m: _natural_key(m)
+    for m in (ServerCpuCore, ServerDiskIo, ServerNetIo, ServerFilesystem, ServerPressure, ServerDiskError)
+}
+
+
 class CollectRepository(BaseCollectRepository):
     def __init__(self, session: AsyncSession):
         self.session = session
@@ -396,7 +403,7 @@ class CollectRepository(BaseCollectRepository):
         rows = [{"server_id": server_id, "collected_at": data.collected_at, **vars(e)} for e in entries]
         if row_hook is not None:
             rows = [row_hook(row) for row in rows]
-        stmt = pg_insert(model).values(rows).on_conflict_do_nothing(index_elements=_natural_key(model))
+        stmt = pg_insert(model).values(rows).on_conflict_do_nothing(index_elements=_NATURAL_KEYS[model])
         result = cast("CursorResult[Any]", await self.session.execute(stmt))
         return result.rowcount or 0
 

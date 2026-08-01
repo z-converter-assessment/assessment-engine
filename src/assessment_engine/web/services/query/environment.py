@@ -106,7 +106,6 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         if not server_ids:
             return EnvironmentAssessment(overview=_empty_overview())
         details = await self.repo.get_servers(server_ids)
-        # 억제 사유 = repo 추상 시그니처가 period_days 를 int 로 좁게 선언, 실제 창은 15m(0.0104일)까지 float.
         raws_period = await self.repo.report_aggregate(
             server_ids,
             period_days=period_days,
@@ -148,7 +147,6 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         raws: list = []
         online_by_id: dict[int, bool] = {}
         if matched_ids:
-            # 억제 사유 = repo 추상 시그니처가 period_days 를 int 로 좁게 선언, window_days 는 float.
             raws = await self.repo.report_aggregate(
                 matched_ids,
                 period_days=window_days,
@@ -253,7 +251,6 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         mounts_by_id: dict = {}
         link_speeds: dict[int, dict[str, int]] = {}
         if matched_ids:
-            # 억제 사유 = repo 추상 시그니처가 period_days 를 int 로 좁게 선언, window_days 는 float.
             raws = await self.repo.report_aggregate(
                 matched_ids,
                 period_days=window_days,

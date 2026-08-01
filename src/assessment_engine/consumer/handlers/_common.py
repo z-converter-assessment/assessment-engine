@@ -152,19 +152,6 @@ async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:
     return True if result is None else result
 
 
-def _tz_naive_time_fields(data: MessageBase) -> list[str]:
-    """tz 표기가 없는 시각 필드 이름. wire 는 offset 을 강제하지 않아 aware/naive 가 섞여 올 수 있다."""
-    return [
-        name
-        for name, value in (
-            ("boot_time", data.boot_time),
-            ("agent_started_at", data.agent_started_at),
-            ("collected_at", data.collected_at),
-        )
-        if value is not None and value.tzinfo is None
-    ]
-
-
 async def _time_warn_allowed(redis: Redis, agent_id: UUID) -> bool:
     """쿨다운 창이 비어 있으면 True. Redis 장애 시 fail-open (매번 출력) — F7 빈도 제어."""
     key = get_consumer_settings().redis_key_time_invariant_warned.format(agent_id)
@@ -181,20 +168,9 @@ async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
 
     F7: 같은 서버 지속 시 매 메시지 warning 방지 위해 1h 쿨다운. Redis 장애 시 fail-open (매번 출력).
     boot_time·agent_started_at 은 판독 불가 시 null (계약 값 의미론) — null 축은 해당 순서 검증을 건너뛴다.
-    tz 표기가 섞이면 순서 비교 자체가 불가능해 검증을 건너뛰고 그 사실만 warning 으로 남긴다.
     """
     if data.agent_started_at is None:
         return  # 발행 기동시각 미상 — 순서 검증 불가 (task.result 등)
-    naive_fields = _tz_naive_time_fields(data)
-    if naive_fields:
-        # aware/naive 비교는 TypeError — 관측 전용 helper 가 메시지를 nack 시키지 않도록 여기서 끊는다.
-        if await _time_warn_allowed(redis, data.agent_id):
-            logger.warning(
-                "time fields tz-naive, invariant check skipped agent_id={} fields={}",
-                data.agent_id,
-                ",".join(naive_fields),
-            )
-        return
     boot_ok = data.boot_time is None or data.boot_time <= data.agent_started_at
     if boot_ok and data.agent_started_at <= data.collected_at:
         return
