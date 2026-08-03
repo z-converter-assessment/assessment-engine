@@ -4,6 +4,9 @@
 // PNG 로 확인하기 위한 도구. Chart.js·fetch 동적 차트가 그려질 시간을 준 뒤 full-page 캡처하고,
 // 페이지 콘솔 에러도 함께 수집해 표시 계층 회귀를 눈으로 검증한다.
 //
+// 소비자는 코딩 에이전트다. 사람 워크플로에는 진입점이 없어 가이드 문서에 절차를 두지 않는다.
+// 첫 실행 전 브라우저 바이너리가 필요하다 — `pnpm exec playwright install chromium`.
+//
 // 사용:
 //   node scripts/screenshot.mjs <outDir> [옵션] [url ...]
 // 옵션:
