@@ -63,9 +63,9 @@ POSTGRES_HOST=localhost .venv/bin/alembic upgrade head
 | 현재 적용 revision 확인 | `docker compose run --rm migrate alembic current` |
 | 모든 revision 이력 | `docker compose run --rm migrate alembic history --verbose` |
 | 미적용 revision 미리보기 (offline SQL) | `docker compose run --rm migrate alembic upgrade head --sql` |
-| head로 업그레이드 | `docker compose run --rm migrate alembic upgrade head` |
+| head로 업그레이드 | `make migrate` |
 | 한 단계 다운그레이드 | `docker compose run --rm migrate alembic downgrade -1` |
-| 모델 diff로 신규 revision 생성 | `docker compose run --rm migrate alembic revision --autogenerate -m "<설명>"` |
+| 모델 diff로 신규 revision 생성 | `make migration M="<설명>"` |
 | 빈 revision 생성 (수동 작성) | `docker compose run --rm migrate alembic revision -m "<설명>"` |
 | 모델 vs schema drift 검출 | `docker compose run --rm migrate alembic check` |
 
@@ -82,7 +82,7 @@ POSTGRES_HOST=localhost .venv/bin/alembic upgrade head
 DB가 이미 띄워진 상태에서:
 
 ```bash
-docker compose run --rm migrate alembic revision --autogenerate -m "add boot_time to server_metrics"
+make migration M="add boot_time to server_metrics"
 ```
 
 `src/assessment_engine/migrations/versions/<id>_add_boot_time_*.py` 파일 자동 생성. ORM과 DB schema 차이만큼 `upgrade()`·`downgrade()` 본문이 채워진다.
@@ -154,7 +154,7 @@ docker compose run --rm migrate alembic upgrade head --sql > /tmp/migration.sql
 cat /tmp/migration.sql
 
 # 검토 OK면 적용
-docker compose run --rm migrate alembic upgrade head
+make migrate
 ```
 
 ## DEV·PROD 동일 책임 매트릭스
@@ -162,7 +162,7 @@ docker compose run --rm migrate alembic upgrade head
 | 작업 | 명령 |
 |------|------|
 | Schema 생성 | migrate 컨테이너 `alembic upgrade head` (자동) |
-| 컬럼 추가 | `alembic revision --autogenerate` + migrate가 자동 적용 |
+| 컬럼 추가 | `make migration M="설명"` + migrate가 자동 적용 |
 | Hypertable 변환 | 마이그레이션 파일에 `op.execute("SELECT create_hypertable(...)")` 수동 |
 | 검증 | pytest (testcontainers + alembic) + staging smoke test |
 

@@ -8,10 +8,12 @@
 
 | 도구 | 대상 | 설정 | 실행 |
 |------|------|------|------|
-| ruff | lint (E·F·I·B·UP) | `[tool.ruff]` | `uv run ruff check .` |
-| pyright | 타입 | `[tool.pyright]` | `uv run pyright` (게이트는 `uv run pyright src`) |
+| ruff | lint (E·F·I·B·UP) | `[tool.ruff]` | `make lint` |
+| pyright | 타입 | `[tool.pyright]` | `make typecheck` (게이트 범위는 `src`) |
 
-ruff 는 CI(`ci.yml`)가 PR 마다 `ruff check` 를 돌린다 — 포맷은 게이트가 아니다. pyright 는 `src` 만 게이트다. `tests` 는 픽스처가 dict 리터럴을 넘기고 반환에 `| None` 이 붙은 함수 결과를 바로 쓰는 방식 탓에 위반이 남아 있어 범위 밖이다. 편집기는 `[tool.pyright].include` 대로 전체를 보므로 테스트 코드도 실시간 검사는 받는다.
+`make typecheck` 는 파이썬 타입과 정적 JS 타입을 함께 본다. 편집기는 `[tool.pyright].include` 대로 `tests` 까지 보므로 CLI 보다 범위가 넓다.
+
+ruff 는 검증 워크플로(`ci.yml`)가 PR 마다 `ruff check` 를 돌린다 — 포맷은 게이트가 아니다. pyright 는 `src` 만 게이트다. `tests` 는 픽스처가 dict 리터럴을 넘기고 반환에 `| None` 이 붙은 함수 결과를 바로 쓰는 방식 탓에 위반이 남아 있어 범위 밖이다. 편집기는 `[tool.pyright].include` 대로 전체를 보므로 테스트 코드도 실시간 검사는 받는다.
 
 저장소가 공유하는 편집기 설정은 `.vscode/` 두 파일이다. `settings.json` 은 워크스페이스 우선순위로 개인 설정을 덮으므로 팀이 통일해야 할 것만 담는다 (ruff 포맷터·저장 시 포맷·import 정렬·pytest 활성화). `extensions.json` 은 추천일 뿐 강제가 아니며, 이 저장소에 검사 대상이 있는 확장만 올린다.
 

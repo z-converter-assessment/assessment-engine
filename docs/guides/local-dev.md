@@ -7,10 +7,13 @@
 ## 기동
 
 ```bash
-cp .env.dev.example .env && docker compose up -d   # web http://localhost:8000
-docker compose ps                                  # 7 서비스 상태 확인
-docker compose down                                # 종료 (볼륨 보존)
+make setup        # python + node 개발 의존성
+make dev          # 기동 — web http://localhost:8000
+make dev-down     # 종료 (볼륨 보존)
+docker compose ps # 7 서비스 상태 확인
 ```
+
+`make dev` 는 `.env` 가 없으면 `.env.dev.example` 에서 만든 뒤 기동한다. 그 템플릿에 `COMPOSE_FILE` 이 없어야 compose 가 base 와 override 를 자동 머지해 핫리로드 스택이 뜬다.
 
 dev 는 `.env.dev.example` 을 쓴다 — 어떤 compose 파일이 합쳐져 로컬 빌드·핫리로드로 뜨는지는 `docs/reference/docker.md` "compose 3 파일" 절. 첫 기동은 의존성 설치(60s+)와 TimescaleDB 이미지 pull(~200MB)이 있어 5분쯤 걸린다.
 
@@ -31,12 +34,25 @@ agent 가 붙는 VM 은 본 repo 범위 밖이다 (OpenStack 공급).
 | Python 코드 (worker/, db/, config.py) | uvicorn auto-reload | watchfiles 재시작 | watchfiles 재시작 | 없음 |
 | 정적 자원 (web/static/) | 즉시 | — | — | 없음 (dev 는 매 요청 asset_v 재발급) |
 | Jinja2 템플릿 (web/templates/) | 즉시 | — | — | 없음 |
-| `pyproject.toml` (의존성) | 미반영 | 미반영 | 미반영 | `docker compose up --build -d` |
-| `Dockerfile` | 미반영 | 미반영 | 미반영 | `docker compose up --build -d` |
-| `docker-compose.yml` | 부분 | 부분 | 부분 | `docker compose up -d` (변경된 서비스만 재생성) |
-| ORM 모델 (컬럼·제약 추가) | 코드는 reload 되나 DB 스키마는 미반영 | 동일 | 동일 | `alembic revision --autogenerate` -> `docker compose restart migrate` -> 앱 재기동 |
+| `pyproject.toml` (의존성) | 미반영 | 미반영 | 미반영 | `make dev-build` |
+| `Dockerfile` | 미반영 | 미반영 | 미반영 | `make dev-build` |
+| `docker-compose.yml` | 부분 | 부분 | 부분 | `make dev` (변경된 서비스만 재생성) |
+| ORM 모델 (컬럼·제약 추가) | 코드는 reload 되나 DB 스키마는 미반영 | 동일 | 동일 | 아래 "스키마 반영" |
 
 반영 메커니즘(bind mount 경로·watchfiles 래퍼·`asset_v` 재발급)은 `docs/reference/docker.md` "dev override" 절.
+
+### 스키마 반영
+
+ORM 모델을 고치면 코드는 reload 되지만 DB 는 그대로다. 재빌드가 아니라 마이그레이션이 필요하다.
+
+```bash
+make migration M="add boot_time to server_metrics"   # 리비전 초안 생성
+# 생성된 파일을 검토·보강한다 (자동 생성이 놓치는 항목은 docs/guides/migrate.md)
+make migrate                                          # 적용
+docker compose restart web consumer worker            # 커넥션 풀 재생성
+```
+
+절차 상세와 라운드트립 검증은 `docs/guides/migrate.md`.
 
 ---
 
@@ -49,7 +65,23 @@ uv add <pkg>          # pyproject.toml + uv.lock 동시 갱신
 uv lock               # pyproject.toml 수동 편집 후 lockfile 만 재생성
 ```
 
-이후 `docker compose up --build -d` 로 이미지를 다시 만든다. 근거·검사 방법은 `docs/guides/dependencies.md`.
+이후 `make dev-build` 로 이미지를 다시 만든다. 근거·검사 방법은 `docs/guides/dependencies.md`.
+
+---
+
+## OS EOL 카탈로그 갱신
+
+OS 지원 종료일은 외부 데이터를 미리 받아 저장소에 커밋한 정적 카탈로그로 판정한다. 갱신은 스크립트를 다시 돌려 그 파일을 재커밋하는 것이다.
+
+```bash
+make eol
+```
+
+인터넷이 되는 곳에서 돌린다. 갱신 주기는 분기 1회면 충분하다 — EOL 날짜는 그보다 자주 움직이지 않는다. 새 릴리즈가 나왔거나 벤더가 날짜를 바꿨을 때도 돌린다.
+
+실패해도 기존 카탈로그가 그대로 남아 운영에 영향이 없다. 워크플로에 최신 여부를 확인하는 게이트는 없다 — 원본이 외부라 재생성 결과가 달라지는 것이 정상이고, 그것을 실패로 처리하면 우리 잘못이 아닌 이유로 통합이 막힌다.
+
+판정 규약은 `src/assessment_engine/web/services/mappers/shared.py` 의 `_eol_info` 가 갖는다.
 
 ---
 
@@ -69,8 +101,9 @@ docker compose down -v   # named volume 삭제
 
 ## 디버깅
 
+web 실시간 로그는 `make logs` 다. 나머지는 대상·옵션이 매번 달라 raw 로 쓴다.
+
 ```bash
-docker compose logs -f web                       # web 실시간 로그
 docker compose logs consumer --since=10m         # consumer 최근 10분
 docker compose exec postgres psql -U assessment -d assessment   # DB 접속
 docker compose exec redis redis-cli              # Redis 접속
@@ -82,12 +115,11 @@ docker compose exec rabbitmq rabbitmqctl -p assessment list_queues name messages
 렌더된 페이지를 PNG 로 찍고 브라우저 콘솔 에러를 함께 걷는다. 표시 계층이 실제 브라우저에서 어떻게 그려지는지는 띄워 봐야 알고, 화면이 멀쩡해 보여도 차트 로더가 조용히 죽은 경우를 이 콘솔 수집이 잡는다.
 
 ```bash
-pnpm install                                     # 최초 1회
-pnpm exec playwright install --with-deps chromium  # 최초 1회 — 브라우저 실물은 npm 패키지가 아니다
-pnpm run screenshot shots --server <public_id>   # 표준 페이지 세트 캡처
+pnpm exec playwright install --with-deps chromium   # 최초 1회 — 브라우저 실물은 npm 패키지가 아니다
+make screenshot OUT=shots SERVER=<public_id>        # 표준 페이지 세트 캡처
 ```
 
-두 번째 줄이 별도인 이유는 브라우저가 150MB 안팎이라 npm 패키지에 담기지 않기 때문이다. `--with-deps` 는 실행에 필요한 시스템 라이브러리를 apt 로 받으므로 sudo 를 묻는다.
+브라우저 설치가 별도인 이유는 실물이 150MB 안팎이라 npm 패키지에 담기지 않기 때문이다. `make setup` 이 받는 것은 playwright 패키지까지다. `--with-deps` 는 실행에 필요한 시스템 라이브러리를 apt 로 받으므로 sudo 를 묻는다.
 
 | 옵션 | 기본값 | 뜻 |
 |------|--------|-----|
