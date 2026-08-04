@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
     from assessment_engine.db.dtos.outbound import ReportRowRaw, SaturationRaw, ServerDetail
-    from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
+    from assessment_engine.db.repositories.query.repository import QueryRepository
     from assessment_engine.web.view_models.metric import MetricDashboard
     from assessment_engine.web.view_models.task import TaskSummaryItem
 
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 class _BaseQueryServiceMixin:
     """`__init__(repo, redis)` + online/net baseline 공통 helper (전 도메인 공유)."""
 
-    def __init__(self, repo: BaseQueryRepository, redis: Redis):
+    def __init__(self, repo: QueryRepository, redis: Redis):
         self.repo = repo
         self.redis = redis
 

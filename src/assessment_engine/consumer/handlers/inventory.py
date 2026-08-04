@@ -23,12 +23,12 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+    from assessment_engine.db.repositories.collect import CollectRepository
 
 
 def make_inventory_handler(
     session_factory: async_sessionmaker[AsyncSession],
-    repo_factory: Callable[[AsyncSession], BaseCollectRepository],
+    repo_factory: Callable[[AsyncSession], CollectRepository],
     redis: Redis,
 ) -> Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]:
     async def _handle(message: AbstractIncomingMessage) -> None:
@@ -50,7 +50,7 @@ def make_inventory_handler(
 
             dto = to_inventory_create(data)
 
-            async def upsert(repo: BaseCollectRepository) -> int:
+            async def upsert(repo: CollectRepository) -> int:
                 return await repo.upsert_server(dto)
 
             resolved_server_id = await _db_retry(session_factory, repo_factory, upsert)

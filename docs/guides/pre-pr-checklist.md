@@ -97,7 +97,7 @@ Self-audit 메타 인용 제외:
   - FastAPI: `Depends(...)` · `APIRouter` · 라우터 분리. 글로벌 state X.
   - Jinja2: 필터 · `{% if %}` · `{% for %}` 만 (#E1 P3). 계산 X.
   - aio-pika: `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료 (#F11).
-- [1.2] 추상화는 정석 위치에만. `BaseSettings` · `Base*Repository` · `*Service` 외 ad-hoc abstract 0건.
+- [1.2] 추상화는 정석 위치에만. `BaseSettings` · repository protocol · `*Service` 외 ad-hoc abstract 0건.
 - [1.3] composition root 외 위치에서 `Settings()` 인스턴스 생성 0건 (#F4 6 위치만). 검사: `rg 'Settings\(\)|WebSettings\(\)|ConsumerSettings\(\)|DiagnosticSettings\(\)' src/`.
 - [1.4] 중복 함수·중복 상수 0건. 같은 의미는 단일 모듈 (UI badge 임계 = `mappers/shared.py` / USE Method 임계 = `recommendation.py`). 두 도메인 혼용 0건 (#E3).
 - [1.5] 죽은 코드 0건 — unused import · unreachable branch · 호출처 없는 public 함수. `ruff` · IDE inspection 통과.
@@ -165,7 +165,7 @@ Self-audit 메타 인용 제외:
 - [2.6] asyncio 테스트 작성 패턴이 `docs/guides/testing.md` 4절과 일치.
 - [2.7] `tests/factories.py` 빌더 활용. raw dict 직접 생성 0건. 신규 도메인은 factory 추가 후 활용.
 - [2.8] DB 의존 테스트는 루트 `tests/conftest.py` 의 testcontainers 컨테이너 + `db_session` 사용. repo fixture 는 `tests/integration/conftest.py` 에만 — 함수 안 fixture 정의 0건.
-- [2.9] mock 범위: 추상 인터페이스(`Base*Repository`)와 외부 의존 경계(Redis · HTTP · MQ)에만. 구체 구현 내부 함수 patch 0건. integration 은 실제 컨테이너.
+- [2.9] mock 범위: repository protocol 과 외부 의존 경계(Redis · HTTP · MQ)에만. 구체 구현 내부 함수 patch 0건. integration 은 실제 컨테이너.
 - [2.10] 동일 시나리오 분기(같은 setup + 다른 입력·기대값)는 `@pytest.mark.parametrize`. 중복 함수 0건.
 
 레이어 결정은 `docs/guides/testing.md` 1절.

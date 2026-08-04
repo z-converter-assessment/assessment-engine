@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from assessment_engine.consumer.schemas import AgentMessageBase
-    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+    from assessment_engine.db.repositories.collect import CollectRepository
 
 # 일시 장애만 retry. 영구 장애(IntegrityError·ProgrammingError·DataError 등)는 즉시 raise -> nack -> DLQ (F6).
 # IntegrityError(= UNIQUE/FK 위반)도 DBAPIError 상속이라 먼저 별도 캐치.
@@ -107,8 +107,8 @@ def _is_retryable_db_exc(e: DBAPIError) -> bool:
 
 async def _db_retry[T](
     session_factory: async_sessionmaker[AsyncSession],
-    repo_factory: Callable[[AsyncSession], BaseCollectRepository],
-    fn: Callable[[BaseCollectRepository], Coroutine[Any, Any, T]],
+    repo_factory: Callable[[AsyncSession], CollectRepository],
+    fn: Callable[[CollectRepository], Coroutine[Any, Any, T]],
 ) -> T:
     for attempt in range(_RETRY_MAX_ATTEMPTS):
         try:

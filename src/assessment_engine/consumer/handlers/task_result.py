@@ -18,12 +18,12 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+    from assessment_engine.db.repositories.collect import CollectRepository
 
 
 def make_task_result_handler(
     session_factory: async_sessionmaker[AsyncSession],
-    repo_factory: Callable[[AsyncSession], BaseCollectRepository],
+    repo_factory: Callable[[AsyncSession], CollectRepository],
     redis: Redis,
     success_exit_codes: Mapping[str, Sequence[int]],
 ) -> Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]:
@@ -59,7 +59,7 @@ def make_task_result_handler(
                 logger.warning("task_result task_id not uuid, unmatchable (silent ack) message_id={}", data.message_id)
                 return
 
-            async def commit(repo: BaseCollectRepository) -> tuple[bool, str, str | None]:
+            async def commit(repo: CollectRepository) -> tuple[bool, str, str | None]:
                 # 성공 보정 매칭 OS — agent 가 task.result 에 os 필드를 직접 발행 (inventory 조회 불요).
                 eff_status, eff_reason = effective_task_result(
                     status=data.status,

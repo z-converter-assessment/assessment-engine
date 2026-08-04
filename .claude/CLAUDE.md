@@ -92,7 +92,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 8테이블 자�
 
 ## C2. Repository 계층 — 인터페이스 우선 (#F4)
 
-추상 인터페이스(`BaseCollectRepository`/`BaseQueryRepository`/`BaseDiagnosticRepository`) · DTO 흐름(Inbound Pydantic·Outbound raw dataclass) · INSERT 통일(`pg_insert` + `on_conflict_do_*`) · `list_servers` 부분 SELECT 정책 · repo 메서드 카탈로그 · asyncpg 함정 · `_chart_*` 패턴: `docs/reference/db/repositories.md` · `docs/reference/db/dtos.md` · `docs/reference/db/timescaledb.md` 단일 진실. `Settings()` 인스턴스 사용 절차는 #F4 단일 진실.
+Protocol 인터페이스(`CollectRepository`/`QueryRepository`/`DiagnosticRepository`) · DTO 흐름(Inbound Pydantic·Outbound raw dataclass) · INSERT 통일(`pg_insert` + `on_conflict_do_*`) · `list_servers` 부분 SELECT 정책 · repo 메서드 카탈로그 · asyncpg 함정 · `_chart_*` 패턴: `docs/reference/db/repositories.md` · `docs/reference/db/dtos.md` · `docs/reference/db/timescaledb.md` 단일 진실. `Settings()` 인스턴스 사용 절차는 #F4 단일 진실.
 
 ## C3. Redis 전략 — fail-open 의무
 
@@ -287,7 +287,7 @@ Pagination 정책:
 
 ## F4. 인터페이스 우선 — Composition Root 패턴
 
-원칙: Service/Handler는 추상 인터페이스(`Base*Repository`)만 의존. 구체 구현체·`Settings()` 인스턴스는 Composition Root에서만.
+원칙: Service/Handler 는 Protocol 인터페이스만 의존한다. 구현(`Sql*Repository`)과 `Settings()` 인스턴스는 Composition Root 에서만 만든다.
 
 `Settings()` 인스턴스 단일 진실 위치 — import 시점이 아니라 사용 시점에 만든다(alembic 진입점 `migrations/env.py` 만 module-level). import 만으로 설정을 읽으면 비밀번호를 필수 필드로 둘 수 없다:
 - `src/assessment_engine/web/settings.py` — `get_web_settings()` (WebSettings) + `get_diagnostic_settings()` (DiagnosticSettings, web 이 task.install 발행 위해 broker 사용)
@@ -298,12 +298,12 @@ Pagination 정책:
 `src/assessment_engine/config.py`는 class 정의만 — module-level instance 0 (multi-node 분리 정합, ADR/문서 패턴 정합).
 
 금지:
-- Service/Handler 안 구체 구현체 import.
+- Service/Handler 안 구현(`Sql*`) import.
 - Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·worker/settings·db/session·cache/redis·migrations/env)만 허용 — 전부 `src/assessment_engine/` 아래다.
 - `assessment_engine.config`에서 Settings 인스턴스 import — class만 export.
 - `APP_ENV` 환경 분기를 entry lifespan 외 위치에 추가. 비밀번호 검증은 환경을 가르지 않는다 (#F8·`contracts/env.md` 6절).
 
-추상 인터페이스 카탈로그·새 Repository 절차: `docs/reference/web/layering.md` · `docs/reference/db/repositories.md`.
+Protocol 카탈로그·새 Repository 절차: `docs/reference/web/layering.md` · `docs/reference/db/repositories.md`.
 
 ## F5. 자동화 변환 — 책임 분담
 

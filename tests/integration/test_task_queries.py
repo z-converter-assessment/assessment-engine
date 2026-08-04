@@ -21,8 +21,8 @@ from assessment_engine.db.dtos.inbound import TaskCreate
 from tests.factories import make_inventory, make_task_result_update
 
 if TYPE_CHECKING:
-    from assessment_engine.db.repositories.collect_repository import CollectRepository
-    from assessment_engine.db.repositories.query.query_repository import QueryRepository
+    from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
+    from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
 
 pytestmark = pytest.mark.asyncio
 
@@ -33,7 +33,7 @@ _AGENT_B = "00000000-0000-4000-8000-0000000000b2"
 
 
 async def _setup_server(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     agent_id: str = _AGENT_A,
     hostname: str = "test-task-host-01",
 ) -> int:
@@ -42,7 +42,7 @@ async def _setup_server(
 
 
 async def _insert_task(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     server_id: int,
     agent_id: str,
     task_type: str = "zconverter_install",
@@ -60,7 +60,7 @@ async def _insert_task(
 # --- complete_task --------------------------------------------------------
 
 
-async def test_complete_task_success(collect_repo: CollectRepository) -> None:
+async def test_complete_task_success(collect_repo: SqlCollectRepository) -> None:
     sid = await _setup_server(collect_repo)
     pid = await _insert_task(collect_repo, sid, _AGENT_A)
 
@@ -93,7 +93,7 @@ async def test_complete_task_success(collect_repo: CollectRepository) -> None:
     assert row.completed_at is not None
 
 
-async def test_complete_task_failure_with_reason(collect_repo: CollectRepository) -> None:
+async def test_complete_task_failure_with_reason(collect_repo: SqlCollectRepository) -> None:
     sid = await _setup_server(collect_repo)
     pid = await _insert_task(collect_repo, sid, _AGENT_A)
 
@@ -122,8 +122,8 @@ async def test_complete_task_failure_with_reason(collect_repo: CollectRepository
 
 
 async def test_complete_task_stores_signal_no(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ) -> None:
     """시그널 사망 결과 — exit_code null + signal_no 저장. query 경로도 signal_no 노출."""
     sid = await _setup_server(collect_repo)
@@ -140,7 +140,7 @@ async def test_complete_task_stores_signal_no(
     assert row.signal_no == 9
 
 
-async def test_complete_task_stores_task_policy(collect_repo: CollectRepository) -> None:
+async def test_complete_task_stores_task_policy(collect_repo: SqlCollectRepository) -> None:
     """task_policy 실값(True/False) 영속 — 판정 1순위 신호 raw 보존(감사)."""
     sid = await _setup_server(collect_repo)
     for policy in (True, False):
@@ -153,7 +153,7 @@ async def test_complete_task_stores_task_policy(collect_repo: CollectRepository)
         assert row is policy
 
 
-async def test_complete_task_unknown_public_id_returns_false(collect_repo: CollectRepository) -> None:
+async def test_complete_task_unknown_public_id_returns_false(collect_repo: SqlCollectRepository) -> None:
     update = make_task_result_update(public_id="00000000-0000-4000-8000-000000000000")
     updated = await collect_repo.complete_task(update)
     assert updated is False
@@ -162,7 +162,7 @@ async def test_complete_task_unknown_public_id_returns_false(collect_repo: Colle
 # --- expire_all_overdue_tasks (reaper) ------------------------------------
 
 
-async def test_expire_all_overdue_tasks_transitions_overdue_only(collect_repo: CollectRepository) -> None:
+async def test_expire_all_overdue_tasks_transitions_overdue_only(collect_repo: SqlCollectRepository) -> None:
     """deadline 경과 pending 만 failure(timeout) 전이. 미경과·미래 deadline 은 pending 유지."""
     sid = await _setup_server(collect_repo)
     past = datetime.now(UTC) - timedelta(hours=1)
@@ -197,8 +197,8 @@ async def test_expire_all_overdue_tasks_transitions_overdue_only(collect_repo: C
 
 
 async def test_get_task_by_public_id_joins_server(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ) -> None:
     sid = await _setup_server(collect_repo)
     pid = await _insert_task(collect_repo, sid, _AGENT_A)
@@ -221,7 +221,7 @@ async def test_get_task_by_public_id_joins_server(
     assert row.duration_ms == 29
 
 
-async def test_get_task_by_public_id_not_found(query_repo: QueryRepository) -> None:
+async def test_get_task_by_public_id_not_found(query_repo: SqlQueryRepository) -> None:
     row = await query_repo.get_task_by_public_id("00000000-0000-4000-8000-000000000099")
     assert row is None
 
@@ -230,8 +230,8 @@ async def test_get_task_by_public_id_not_found(query_repo: QueryRepository) -> N
 
 
 async def test_list_recent_tasks_orders_by_created_desc(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ) -> None:
     sid = await _setup_server(collect_repo)
     pids = [await _insert_task(collect_repo, sid, _AGENT_A, task_type=f"t-{i}") for i in range(3)]
@@ -244,8 +244,8 @@ async def test_list_recent_tasks_orders_by_created_desc(
 
 
 async def test_list_recent_tasks_cursor_pagination(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ) -> None:
     sid = await _setup_server(collect_repo)
     base = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
@@ -274,8 +274,8 @@ async def test_list_recent_tasks_cursor_pagination(
 
 
 async def test_latest_tasks_by_servers_distinct_on(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ) -> None:
     s1 = await _setup_server(collect_repo, agent_id=_AGENT_A, hostname="test-task-host-A")
     s2 = await _setup_server(collect_repo, agent_id=_AGENT_B, hostname="test-task-host-B")
@@ -290,7 +290,7 @@ async def test_latest_tasks_by_servers_distinct_on(
     assert latest[s2].public_id == p2_only
 
 
-async def test_latest_tasks_by_servers_empty_input(query_repo: QueryRepository) -> None:
+async def test_latest_tasks_by_servers_empty_input(query_repo: SqlQueryRepository) -> None:
     assert await query_repo.latest_tasks_by_servers([]) == {}
 
 
@@ -299,7 +299,7 @@ async def test_latest_tasks_by_servers_empty_input(query_repo: QueryRepository) 
 _AGENT_C = "00000000-0000-4000-8000-0000000000c3"
 
 
-async def test_expire_overdue_tasks_scopes_to_server_ids(collect_repo: CollectRepository) -> None:
+async def test_expire_overdue_tasks_scopes_to_server_ids(collect_repo: SqlCollectRepository) -> None:
     """server_ids 스코프 만료 — 목록에 든 서버만 failure(timeout) 전이, 목록 밖 서버는 pending 유지(격리)."""
     s1 = await _setup_server(collect_repo, agent_id=_AGENT_A, hostname="test-task-host-A")
     s2 = await _setup_server(collect_repo, agent_id=_AGENT_B, hostname="test-task-host-B")
@@ -331,7 +331,7 @@ async def test_expire_overdue_tasks_scopes_to_server_ids(collect_repo: CollectRe
     assert (await _row(out_scope)).status == "pending"
 
 
-async def test_expire_overdue_tasks_empty_list_returns_zero(collect_repo: CollectRepository) -> None:
+async def test_expire_overdue_tasks_empty_list_returns_zero(collect_repo: SqlCollectRepository) -> None:
     """빈 리스트 -> 0 즉시 반환(early return). 경과 pending 이 있어도 건드리지 않음."""
     sid = await _setup_server(collect_repo)
     past = datetime.now(UTC) - timedelta(hours=1)
@@ -349,7 +349,7 @@ async def test_expire_overdue_tasks_empty_list_returns_zero(collect_repo: Collec
     assert status == "pending"
 
 
-async def test_expire_overdue_tasks_ignores_fresh_deadline(collect_repo: CollectRepository) -> None:
+async def test_expire_overdue_tasks_ignores_fresh_deadline(collect_repo: SqlCollectRepository) -> None:
     """스코프 안이어도 미래 deadline 은 만료 안 함."""
     sid = await _setup_server(collect_repo)
     future = datetime.now(UTC) + timedelta(hours=1)
@@ -368,7 +368,7 @@ async def test_expire_overdue_tasks_ignores_fresh_deadline(collect_repo: Collect
 
 
 async def test_find_pending_deadline_servers_only_pending_with_deadline(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
 ) -> None:
     """pending + deadline_at NOT NULL 서버만 반환. 비-pending·deadline NULL 은 제외."""
     s1 = await _setup_server(collect_repo, agent_id=_AGENT_A, hostname="test-task-host-A")
@@ -394,7 +394,7 @@ async def test_find_pending_deadline_servers_only_pending_with_deadline(
     assert result == [s1]
 
 
-async def test_find_pending_deadline_servers_distinct(collect_repo: CollectRepository) -> None:
+async def test_find_pending_deadline_servers_distinct(collect_repo: SqlCollectRepository) -> None:
     """같은 서버 다건 pending(task_type 상이) 이어도 DISTINCT — 1회만 반환."""
     sid = await _setup_server(collect_repo)
     future = datetime.now(UTC) + timedelta(hours=1)
@@ -410,5 +410,5 @@ async def test_find_pending_deadline_servers_distinct(collect_repo: CollectRepos
     assert result == [sid]
 
 
-async def test_find_pending_deadline_servers_empty_input(collect_repo: CollectRepository) -> None:
+async def test_find_pending_deadline_servers_empty_input(collect_repo: SqlCollectRepository) -> None:
     assert await collect_repo.find_pending_deadline_servers([]) == []

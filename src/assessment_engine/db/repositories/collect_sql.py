@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING, Any, cast, override
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import CursorResult, Row, Table, UniqueConstraint, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -14,7 +14,7 @@ from assessment_engine.db.models.server_metrics import ServerMetrics
 from assessment_engine.db.models.server_net_io import ServerNetIo
 from assessment_engine.db.models.server_pressure import ServerPressure
 from assessment_engine.db.models.task import Task
-from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
+from assessment_engine.db.repositories.collect import MetricInsertResult
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -56,13 +56,11 @@ _NATURAL_KEYS: dict[type, list[str]] = {
 }
 
 
-class CollectRepository(BaseCollectRepository):
+class SqlCollectRepository:
     def __init__(self, session: AsyncSession):
         self.session = session
 
     # --- server_inventory --------------------------------------------------
-
-    @override
     async def find_server_id(self, agent_id: str) -> int | None:
         result = await self.session.execute(select(ServerInventory.id).where(ServerInventory.agent_id == agent_id))
         return result.scalar_one_or_none()
@@ -138,7 +136,6 @@ class CollectRepository(BaseCollectRepository):
             "last_seen_at": data.collected_at,
         }
 
-    @override
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
         # 변경 감지: 직전 행과 다를 때만 history 한 행 INSERT (앱 레벨 trigger).
         # agent_id 가 부팅 무관 불변이라 재부팅해도 동일 agent_id 가 자연히 같은 행을 잡는다 (호스트 재연결 로직 불요).
@@ -248,7 +245,6 @@ class CollectRepository(BaseCollectRepository):
         )
         await self.session.execute(stmt)
 
-    @override
     async def ensure_server_id(
         self,
         agent_id: str,
@@ -286,8 +282,6 @@ class CollectRepository(BaseCollectRepository):
         return result.scalar_one_or_none()
 
     # --- tasks -------------------------------------------------------------
-
-    @override
     async def create_task(self, data: TaskCreate) -> str:
         stmt = (
             pg_insert(Task)
@@ -304,7 +298,6 @@ class CollectRepository(BaseCollectRepository):
         result = await self.session.execute(stmt)
         return str(result.scalar_one())
 
-    @override
     async def expire_overdue_tasks(self, server_ids: list[int]) -> int:
         if not server_ids:
             return 0
@@ -323,7 +316,6 @@ class CollectRepository(BaseCollectRepository):
         result = cast("CursorResult[Any]", await self.session.execute(stmt))
         return result.rowcount or 0
 
-    @override
     async def expire_all_overdue_tasks(self) -> int:
         # reaper 전역 버전 — server_ids 무필터. DB now() 단일 비교(클라이언트 시각차 회피).
         stmt = (
@@ -338,7 +330,6 @@ class CollectRepository(BaseCollectRepository):
         result = cast("CursorResult[Any]", await self.session.execute(stmt))
         return result.rowcount or 0
 
-    @override
     async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
         if not server_ids:
             return []
@@ -355,7 +346,6 @@ class CollectRepository(BaseCollectRepository):
         result = await self.session.execute(stmt)
         return [row[0] for row in result.all()]
 
-    @override
     async def complete_task(self, data: TaskResultUpdate) -> bool:
         stmt = (
             update(Task)
@@ -376,8 +366,6 @@ class CollectRepository(BaseCollectRepository):
         return (result.rowcount or 0) > 0
 
     # --- 시계열 (record_metrics) -------------------------------------------
-
-    @override
     async def record_metrics(
         self,
         server_id: int,

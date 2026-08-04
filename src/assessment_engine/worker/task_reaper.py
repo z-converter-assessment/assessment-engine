@@ -25,13 +25,13 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+    from assessment_engine.db.repositories.collect import CollectRepository
 
 
 async def run_task_reaper(
     *,
     session_factory: Callable[[], AbstractAsyncContextManager[AsyncSession]],
-    collect_repo_factory: Callable[..., BaseCollectRepository],
+    collect_repo_factory: Callable[..., CollectRepository],
     interval_sec: float,
     stop_event: asyncio.Event,
 ) -> None:
