@@ -26,7 +26,7 @@
 | `GET /environment/assessment?time_range=&anchor_at=&fragment=` | `assessment` | 환경 자원 평가 — 윈도우/앵커 선택 -> 자원 적정성 분포 막대 + 서버별 자원 적정성 표(전 서버·전 분류, `build_action_targets` 단일 진실. 클라 20행 clip + 더보기). `fragment=result` 면 결과 partial 만(JS swap). time_range 기본 `DIAGNOSTIC_DEFAULT_TIME_RANGE`(14d) |
 | `GET /environment/topology` | `topology` | 네트워크 토폴로지 — L3 subnet 공동소속 집계 그래프(subnet 노드 클릭 시 host 펼침) + 서브넷별 서버 카드 |
 | `GET /environment/metrics?ids=` | `environment_metrics` | 환경(또는 선택 N대) 성능 추이 — 8차트 live. ids(public_ids) 면 선택 N대 한정, 제목 "선택 N대" |
-| `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 이용률 2(CPU·메모리) + 신호 4 도넛 + 서버별 실시간 부하 sortable-table(7축 호스트당 1행 — 디스크 이용률은 표 전용, 도넛 없음. 칼럼 클릭 정렬). `realtime.js` 30초 polling(fragment swap). fragment=realtime 면 partial 만 |
+| `GET /environment/realtime?ids=&fragment=` | `environment_realtime` | 환경(또는 선택 N대) 실시간 현황 — 이용률 2(CPU·메모리) + 신호 4 도넛 + 서버별 실시간 부하 sortable-table(7축 호스트당 1행 — 디스크 이용률은 표 전용, 도넛 없음. 칼럼 클릭 정렬). `realtime.js` 가 주기 폴링으로 fragment 를 갈아끼운다. fragment=realtime 면 partial 만 |
 | `GET /servers/{server_id}` | `get_server` | detail 탭 |
 | `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(자원별 `.perf-stack` 카드 + 카드 안 `.perf-grid`/`.perf-item` 낱개 차트, 화면·인쇄 모두 2열 — 인쇄는 A4 portrait 1페이지, `static-assets.md` 단일 진실) |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |

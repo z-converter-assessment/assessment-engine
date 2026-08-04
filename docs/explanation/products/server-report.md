@@ -140,12 +140,12 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 ## 한계
 
 1. 분류 라벨 어휘가 운영자에게 항상 직관적이지 않음 — "over_provisioned"·"under_provisioned" 의미는 명시적 가이드 (`recommendation.py` 상수) 에 의존. 한국어 라벨이 한국어 사용자에게 더 명확하지만 영어 분류 식별자는 코드·메시지에 박힘.
-2. 워크로드 역할 무관 임계 — DB·캐시·앱서버가 같은 자원별 임계를 공유한다 (값은 `docs/reference/right-sizing.md` 4절 단일 진실). DB 는 메모리 압박이 정상 운영일 수 있는데도 자원 부족으로 잡힐 가능성. 역할별 정밀 분기는 향후 별도 결정.
+2. 워크로드 역할 무관 임계 — DB·캐시·앱서버가 같은 자원별 임계를 공유한다 (값은 `docs/reference/right-sizing.md` 4절 단일 진실). DB 는 메모리 압박이 정상 운영일 수 있는데도 자원 부족으로 잡힐 가능성.
 3. anchor 임의 선택 가능 — 운영자가 특정 시점 (부하 spike 발생 직후 등) anchor 로 잡으면 분류가 그 윈도우 한정. 표준 14d default 외 사용 시 운영자가 의도 인지 의무.
 4. 정성 요약의 표현 한정 — 결정론 템플릿이라 운영자가 추가 컨텍스트 반영 불가.
 5. engineer 세부 서버 목록은 화면에서 최대 11 컬럼. 인쇄는 구성 표(6칼럼)/평가 표(engineer 5칼럼) 2분할로 갈라 A4 가로에 맞춘다 — 백엔드 PDF export 는 미도입이라 브라우저 인쇄 의존.
-6. 표는 위험 우선 기본 정렬 (발행 시점 under -> attention -> normal, 동순위 cpu_p95 DESC). 사용자 임의 재정렬·필터는 미지원 — 추후 client-side sort 도입 검토 후보.
-7. URL 길이 한계 — `ids` query string 에 N개 public_id 넣음. N 이 매우 크면 URL 한계. 추후 POST + session 도입 검토.
+6. 표는 위험 우선 기본 정렬 (발행 시점 under -> attention -> normal, 동순위 cpu_p95 DESC). 사용자 임의 재정렬·필터는 미지원.
+7. URL 길이 한계 — `ids` query string 에 N개 public_id 넣음. N 이 매우 크면 URL 한계.
 
 ## 관련 문서·코드
 

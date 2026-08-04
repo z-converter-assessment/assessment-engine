@@ -112,7 +112,7 @@ right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기·벤더 임
 
 ## 환경 개요 상단 요약 — environment_overview (`/`)
 
-환경 개요(`/`)는 `EnvironmentOverview` 만 노출 — 환경 요약 KPI(OS 지원 4상태 포함)·주요 워크로드·자원 적정성 막대·자원 이용/포화 도넛·시스템 에러. 운영신호 3 카탈로그(`AttentionSignals` — 통신끊김/OS지원종료/에이전트재시작)는 독립 라이브 카드로 렌더되지 않고 보고서 경로에서만 소비된다 (#E9, view-models.md "환경 개요 상단 요약" 절). 라이브 운영 현황은 별도 `/environment/realtime`(`get_environment_realtime` — 서버별 순간 스냅샷, `realtime.js` 30초 fragment 폴링은 본 문서 "실시간 현황" 절). 평균 활용률·자원 적정성 현황은 `recommendation.WINDOW_DAYS`(14일, #F10) 윈도우 — 분류와 한 창 통일. 홈 카드 레이아웃은 `docs/explanation/products/dashboard.md` 단일 진실. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 조립부 `_assemble_overview` 를 attention/trend 제외 경량 재사용, 서버별 표는 `build_action_targets` 로 전 서버·전 분류를 절단 없이 산출). 자원 부족 상세 표의 소유는 `/environment/assessment`.
+환경 개요(`/`)는 `EnvironmentOverview` 만 노출 — 환경 요약 KPI(OS 지원 4상태 포함)·주요 워크로드·자원 적정성 막대·자원 이용/포화 도넛·시스템 에러. 운영신호 3 카탈로그(`AttentionSignals` — 통신끊김/OS지원종료/에이전트재시작)는 독립 라이브 카드로 렌더되지 않고 보고서 경로에서만 소비된다 (#E9, view-models.md "환경 개요 상단 요약" 절). 라이브 운영 현황은 별도 `/environment/realtime`(`get_environment_realtime` — 서버별 순간 스냅샷, 갱신 흐름은 본 문서 "실시간 현황" 절). 평균 활용률·자원 적정성 현황은 `recommendation.WINDOW_DAYS`(14일, #F10) 윈도우 — 분류와 한 창 통일. 홈 카드 레이아웃은 `docs/explanation/products/dashboard.md` 단일 진실. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 조립부 `_assemble_overview` 를 attention/trend 제외 경량 재사용, 서버별 표는 `build_action_targets` 로 전 서버·전 분류를 절단 없이 산출). 자원 부족 상세 표의 소유는 `/environment/assessment`.
 
 | 영역 | service 메서드 | repo SQL | 시간 축 | 분류 |
 |------|----------------|----------|---------|------|
