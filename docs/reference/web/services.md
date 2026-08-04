@@ -15,7 +15,7 @@
 | `serialization_util.py` | `cache_serializer`·`report_serializer` 공용 직렬화 계약 (datetime -> ISO, dataclass -> dict) |
 | `unit_converter.py` | KB->GB / sectors->KB/s / usage_pct 단위 변환 |
 | `device_filters.py` | block_device `type`·fstype·net_interface `kind` 기반 계층 술어 단일 진실 — `is_physical_disk`(type=="disk")·`is_lvm_disk`(lvm/raid/crypt/mpath/dynamic)·`is_partition`(=="part")·`is_swap`(=="swap")·`is_virtual_interface`(kind not in physical/bond_master)·`is_data_volume`(fstype·mountpoint — 가상fs·/boot 제외) + `disk_total_bytes`/`swap_total_bytes` (block_device type 합산 단일 산식 — Windows PhysicalDrive 도 type=disk 발행이라 양 OS 공통, fallback 없음). 부모-자식 조인은 노드 `parent`(부모 id) |
-| `service_classifier.py` (도메인 `assessment_engine/`, web·consumer 공용 — `recommendation.py` 동급) | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`/`remote`/`file`/`mail`/`infra` — 원칙·경계 규칙은 `SERVICE_CATALOG` 상단 주석 단일 진실) + 포트 매핑 + 카테고리 집합 사전계산(`compute_service_categories`, ingest 가 `service_categories` 저장). 단일 카탈로그(`SERVICE_CATALOG`) 파생. `MatchedPort` 정의(web view_model re-export) |
+| `service_classifier.py` (도메인 `assessment_engine/`, web·consumer 공용 — `recommendation.py` 동급) | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`/`remote`/`file`/`mail`/`infra` — 원칙·경계 규칙은 아래 "카테고리 경계" 절) + 포트 매핑 + 카테고리 집합 사전계산(`compute_service_categories`, ingest 가 `service_categories` 저장). 단일 카탈로그(`SERVICE_CATALOG`) 파생. `MatchedPort` 정의(web view_model re-export) |
 
 ## 서비스 분류 — 3단계 표시 계층
 
@@ -24,6 +24,34 @@
 | 목록 | `/servers` | 카테고리 chip (ingest 사전계산 `service_categories` 집합) — 원본 unit·개수 노출 안 함 |
 | 상세 | `/servers/{id}` | unit 이름 + matched_ports + 카테고리 badge |
 | services 탭 | `/servers/{id}/services` | unit 전체 + sub state + 포트 + 카테고리 |
+
+### 카테고리 경계
+
+분류 축은 하나다 — "이 호스트에서의 주 역할(배포 목적)". 카테고리는 상호배타라 한 서비스가 정확히 하나에 든다. 겸업(예: 프록시가 캐시도 함)이면 그 소프트웨어의 존재 이유로 tie-break 해 경계를 재현 가능하게 만든다.
+
+| 카테고리 | 범위 |
+|----------|------|
+| `web` | 앱·웹 서빙 + 리버스 프록시·로드밸런서 (앱 트래픽 앞단 edge) |
+| `db` | 범용 데이터 저장소 (RDBMS·NoSQL·범용 TSDB·검색엔진) |
+| `cache` | 인메모리·휘발 캐시·HTTP 가속 |
+| `mq` | 메시지 브로커 |
+| `mail` | 메일 서버 (SMTP/IMAP/POP3) |
+| `file` | 파일·오브젝트·블록 스토리지 공유 |
+| `remote` | 원격 접속·관리 (관리 표면 — 대개 전 호스트) |
+| `infra` | 네트워크 인프라 (DNS·DHCP·NTP·디렉토리·SNMP·포워드 프록시·HA) |
+| `monitor` | 관측 전용 도구 (수집·저장·시각화·알림) |
+| `container` | 컨테이너 런타임·오케스트레이션 (호스트당 1) |
+
+모호한 경계는 못박아 둔다 — 원칙이 없으면 판단이 자의적으로 보인다.
+
+| 케이스 | 규칙 | 예 |
+|--------|------|-----|
+| 프록시 | 리버스·LB(inbound, 앱 앞단) = `web` / 포워드·egress = `infra` / 캐싱이 주목적 = `cache` | haproxy·traefik = web · squid = infra · varnish = cache |
+| 시계열 | 범용 TSDB = `db` / 관측 전용 설계 = `monitor` | influxdb = db · prometheus·victoriametrics·loki = monitor |
+| 검색엔진 | 저장이 본질이라 `db` (ELK 로그 용도여도) | elasticsearch = db · 오브젝트 스토리지 minio = file |
+| 디렉토리 | 인증·디렉토리 인프라라 `infra` (계층 db 로 보지 않음) | ldap·slapd = infra |
+
+카탈로그의 카테고리 순서가 곧 분류 우선순위다 (cross-category 첫 매칭 우선) — `web` -> `db` -> ... 순서를 유지한다.
 
 ### 단일 카탈로그 + 다중 신호 분류
 
@@ -66,12 +94,12 @@
 - `is_partition(type)` = `type=="part"`. `is_swap(type)` = `type=="swap"` (v2 는 swap 을 block_device 노드로 표현).
 - `is_data_volume(fstype, mountpoint)` = 가상 fs(`VIRTUAL_FSTYPES`) 아니고 mountpoint 가 `/boot` 아님 — fstype None(미상)은 데이터로 포함(df 관례).
 - `is_virtual_interface(kind)` = `kind not in ("physical","bond_master")` — 물리 NIC + bond_master 만 통과(bond_member 이중 집계 회피). net_interface 만 `kind` 유지(block_device 는 `type`).
-- 집계 SQL 투영은 `types._DATA_VOLUME_SQL_FILTER` (`(fstype IS NULL OR fstype NOT IN (가상fs)) AND mountpoint NOT LIKE '/boot%'`) — `device_filters.is_data_volume` 의 SQL 등가. 변경 시 동기화.
+- 집계 SQL 투영은 `types._DATA_VOLUME_SQL_FILTER`(raw 테이블) 와 `types._DATA_VOLUME_CAGG_FILTER`(cagg) — 둘 다 `device_filters.is_data_volume` 의 SQL 등가다. 변경 시 셋을 함께 맞춘다.
 
 적용 경계 — 저장은 모두 유지, 표시 경계에서만 필터:
 - 디스크: `compute_disk_io`(스냅샷) + `to_storage_detail`(인벤토리 물리 디스크). I/O rate 차트는 물리 device 스코프 — 집계 계층(`server_disk_io_5m` cagg) 사전필터.
-- 인터페이스: `compute_net_io`(스냅샷) + `query_service.get_metric_chart`(차트 `_NET_METRIC_TYPES`).
-- 마운트: `mappers/server.py`·`metrics_calculator.py`·`query_service.py`(파이썬 경계) + `_DATA_VOLUME_SQL_FILTER`(집계 SQL — `metric.py`·`report.py`).
+- 인터페이스: `compute_net_io`(스냅샷) + repo SQL `types._PHYS_IFACE_SQL_FILTER`(차트·집계).
+- 마운트: `mappers/server.py`·`metrics_calculator.py`(파이썬 경계) + `types._DATA_VOLUME_SQL_FILTER`(raw 집계 SQL — `query/metric.py`)·`types._DATA_VOLUME_CAGG_FILTER`(cagg 조회 — `query/report.py`).
 
 IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(인터페이스 매핑 부재) 가상/물리 구분이 주소 형식만으론 불가 — docker 사설 IP와 물리 사설 IP가 같은 대역(192.168/10/172.16/fd00 ULA). 링크로컬(`fe80::/10`·`169.254/16`)·루프백 정도만 형식 필터 가능하나 이득이 작아, agent가 IP-인터페이스 매핑을 발행하기 전까지 IP는 필터하지 않는다 (인터페이스 IO 필터는 device 이름이 명확해 유지).
 

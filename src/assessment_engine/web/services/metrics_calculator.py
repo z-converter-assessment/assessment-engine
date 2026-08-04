@@ -399,7 +399,8 @@ def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSna
         return None
 
     def cpu_total(r: MetricPairRaw) -> float:
-        # Windows 는 nice/iowait/irq/softirq/steal 이 null (OS 개념 부재) — None->0 정규화(#C2 SQL COALESCE 와 동일).
+        # Windows 는 nice/iowait/irq/softirq/steal 이 null (OS 개념 부재) — None->0 정규화.
+        # 집계 SQL 의 COALESCE 와 같은 처리다.
         # Windows total = user+system+idle (GetSystemTimes 전체 스케줄러 시간과 일치). cpu_stat 전부 부재면 0 ->
         # delta<=0 로 자연히 N/A. 성분 하나가 null 이라고 total 을 null 로 만들면 Windows CPU 가 항상 N/A 가 된다.
         vals = [

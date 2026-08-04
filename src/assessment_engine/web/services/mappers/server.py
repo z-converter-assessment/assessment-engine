@@ -85,7 +85,7 @@ _BADGE_CLASS_BY_SEVERITY: dict[_Severity, str] = {
     "warn": "badge-warn",
     "danger": "badge-danger",
 }
-# 파일시스템 사용량 게이지 막대 = 테마 주색(blue-500) 단색 (사용자 결정 — 임계별 색 분기 없이 통일).
+# 파일시스템 사용량 게이지 막대 = 테마 주색 단색 (사용자 결정 — 임계별 색 분기 없이 통일).
 # 사용률 위험/주의 신호는 badge_class(_usage_badge_class)가 담당. 게이지 막대는 단색.
 _MOUNT_BAR_COLOR = "var(--color-title)"  # 테마색1 (base.html :root) — 마운트 usage 막대 CSS background
 

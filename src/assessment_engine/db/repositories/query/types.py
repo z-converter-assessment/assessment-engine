@@ -122,7 +122,7 @@ _AGG: dict[str, str] = {
 
 # CPU 누적 시간(seconds). delta로 % 계산 (LAG 기반). 성분 COALESCE — Windows 는 nice/iowait/irq/softirq/steal
 # 이 null(OS 개념 부재)이라 raw 합이 X+NULL=NULL 로 전파되면 delta null -> 전량 제외돼 Windows CPU 추이 차트가
-# 빈다(#C2, cagg·compute_cpu 동일). per-component(user/system/iowait) 분자는 bare 유지 — Windows iowait 는 null
+# 빈다(cagg·compute_cpu 동일). per-component(user/system/iowait) 분자는 bare 유지 — Windows iowait 는 null
 # 이라 d_num null 로 자연 제외(N/A), COALESCE 하면 측정 0(iowait 여유)으로 오인.
 _CPU_TOTAL_EXPR = (
     "COALESCE(cpu_user_s,0)+COALESCE(cpu_nice_s,0)+COALESCE(cpu_system_s,0)+COALESCE(cpu_idle_s,0)"
@@ -167,7 +167,7 @@ _DATA_VOLUME_CAGG_FILTER = (
 )
 
 # 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼(단위 By).
-# guard = 분자 성분이 실측된 행만 집계(미측정 성분 null 을 0 으로 삼키지 않음, #C2). Windows 는 mem_cached/buffered
+# guard = 분자 성분이 실측된 행만 집계(미측정 성분 null 을 0 으로 삼키지 않음). Windows 는 mem_cached/buffered
 # 가 null(OS 미측정)이라 IS NOT NULL 가드로 gap 표시.
 _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
     "mem.usage_percent": (

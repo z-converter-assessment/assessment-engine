@@ -1,6 +1,6 @@
 # Release Artifact
 
-본 repo CI가 발행하는 release artifact 단일 진실. 배포(rollout) 단계는 `docs/guides/deploy.md`.
+본 repo 릴리즈 워크플로(`release.yml`)가 발행하는 release artifact 단일 진실. 배포(rollout) 단계는 `docs/guides/deploy.md`.
 
 ## 1. artifact 카탈로그
 

@@ -10,7 +10,7 @@
 make setup        # python + node 개발 의존성
 make dev          # 기동 — web http://localhost:8000
 make dev-down     # 종료 (볼륨 보존)
-docker compose ps # 7 서비스 상태 확인
+docker compose ps -a # 7 서비스 상태 확인 (migrate 는 1회 실행 후 exited 0 이 정상)
 ```
 
 `make dev` 는 `.env` 가 없으면 `.env.dev.example` 에서 만든 뒤 기동한다. 그 템플릿에 `COMPOSE_FILE` 이 없어야 compose 가 base 와 override 를 자동 머지해 핫리로드 스택이 뜬다.
