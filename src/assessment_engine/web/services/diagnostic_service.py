@@ -7,26 +7,29 @@
 - 발행 이력(list_reports) — customer + engineer 통합.
 - 추상 `BaseDiagnosticRepository`만 의존 (F4).
 
-anchor 정규화(`_normalize_anchor`)는 `diagnostic.report_result` 가 단일 진실이고 본 모듈은 라우터를 위해
-그대로 re-export 한다.
+anchor 정규화(`normalize_anchor`)와 input_hash 계산(`compute_hash`)은 `diagnostic.report_result` 가 갖는다.
 """
 
-from collections.abc import Callable
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
-from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
-from assessment_engine.db.repositories.base_diagnostic_repository import (
-    BaseDiagnosticRepository,
-)
-from assessment_engine.diagnostic.report_result import _compute_hash, build_report_result
 
 # 발행 result 조립·해시 helper 단일 진실은 diagnostic.report_result — 본 모듈은 호환 re-export.
-from assessment_engine.diagnostic.report_result import _normalize_anchor as _normalize_anchor
-from assessment_engine.json_types import JsonObject
+from assessment_engine.diagnostic.report_result import build_report_result, compute_hash
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+    from datetime import datetime
+
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
+    from assessment_engine.db.repositories.base_diagnostic_repository import (
+        BaseDiagnosticRepository,
+    )
+    from assessment_engine.json_types import JsonObject
 
 _ENQUEUE_MAX_ATTEMPTS = 2
 
@@ -124,7 +127,7 @@ class DiagnosticService:
         GET(세부·이력)은 본 job_id 의 정적 스냅샷만 렌더 (재계산 없음, 정적 보관).
         같은 input 활성 충돌(더블클릭) 시 기존 job_id 회수.
 
-        anchor_at: 발행 시점 기준 시각 (필수) — 스냅샷 ViewModel 윈도우. 라우터가 _normalize_anchor 로 분 단위 truncate.
+        anchor_at: 발행 시점 기준 시각 (필수) — 스냅샷 ViewModel 윈도우. 라우터가 normalize_anchor 로 분 단위 truncate.
         kind: report_result.REPORT_KIND_ENV — 모든 보고서(selection N대·환경·단일서버) 공통 양식.
         snapshot: 발행 시점 완성 ViewModel 직렬화 dict (report_serializer.*_to_dict).
         aux: ViewModel 밖 부가 정적 데이터 (운영신호 attention 등) — GET 정적 렌더가 그대로 읽음.
@@ -132,7 +135,7 @@ class DiagnosticService:
         """
         job_type = f"{view}_report"
         input_params = _build_input_params(view, scope, server_public_ids, time_range, anchor_at)
-        input_hash = _compute_hash(scope, input_params)
+        input_hash = compute_hash(scope, input_params)
         result = build_report_result(kind=kind, snapshot=snapshot, view=view, aux=aux)
         if child_jobs:
             # input_hash 에는 미포함(더블클릭 dedup 보존) — result 에만 보관 (세부 서버 목록 link).
@@ -171,12 +174,12 @@ class DiagnosticService:
         """비동기 발행 — parent job 을 pending 으로 enqueue 후 job_id 즉시 반환(워커가 생성·저장).
 
         같은 input 활성 충돌(더블클릭) 시 기존 active job_id 회수 — 같은 `?job={id}` 로 합류(C2 멱등).
-        anchor_at 은 호출 라우터가 _normalize_anchor 로 확정한 값 — 워커가 발행 윈도우 재현에 사용.
+        anchor_at 은 호출 라우터가 normalize_anchor 로 확정한 값 — 워커가 발행 윈도우 재현에 사용.
         재시도를 소진하면 ReportEnqueueError.
         """
         job_type = f"{view}_report"
         input_params = _build_input_params(view, scope, server_public_ids, time_range, anchor_at)
-        input_hash = _compute_hash(scope, input_params)
+        input_hash = compute_hash(scope, input_params)
         # INSERT 가 충돌로 비고 회수 SELECT 까지 비는 경우는 둘이다 — 두 문장 사이에서 그 job 이 끝났거나,
         # 동시 INSERT 가 아직 커밋 전이라 READ COMMITTED SELECT 에 안 보이거나. 앞의 경우는 다시 INSERT 하면
         # 자리를 잡고, 뒤의 경우는 재시도가 상대의 커밋을 만나 회수로 이어진다.

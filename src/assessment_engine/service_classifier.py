@@ -13,8 +13,10 @@ Windows SCM 이름은 정규화 없이 들어와(MSSQLSERVER / MSSQL$INSTANCE / 
 """
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from assessment_engine.json_types import JsonObject
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 
 @dataclass
@@ -550,10 +552,28 @@ def detect_listen_categories(listen_ports: list[JsonObject]) -> dict[str, list[M
 # compute_service_categories(저장값 = 목록·환경분포·필터 소스)·workload_category_counter 에서 제외.
 _BASELINE_KEYWORDS: frozenset[str] = frozenset(
     {
-        "sshd", "ssh", "openssh", "rdp", "termservice", "umrdpservice", "winrm", "wsmprovhost",
-        "tigervnc", "x11vnc", "vino", "vncserver", "telnetd",
-        "chronyd", "ntpd", "ntpdate", "timesyncd", "resolved",
-        "rpcbind", "gssproxy", "sssd", "winbind",
+        "sshd",
+        "ssh",
+        "openssh",
+        "rdp",
+        "termservice",
+        "umrdpservice",
+        "winrm",
+        "wsmprovhost",
+        "tigervnc",
+        "x11vnc",
+        "vino",
+        "vncserver",
+        "telnetd",
+        "chronyd",
+        "ntpd",
+        "ntpdate",
+        "timesyncd",
+        "resolved",
+        "rpcbind",
+        "gssproxy",
+        "sssd",
+        "winbind",
         # systemd 자체 유닛(journald·coredump·udevd·networkd 등)은 OS 제공물 — 특징 워크로드 아님. 포트 문맥
         # classify 가 이들을 remote/file/infra 로 오귀속하는 노이즈 차단(워크로드 유닛엔 "systemd-" 접두 없음).
         "systemd-",
@@ -576,7 +596,7 @@ def is_baseline_socket(p: JsonObject) -> bool:
 def compute_service_categories(services: list[JsonObject] | None, listen_ports: list[JsonObject] | None) -> list[str]:
     """ingest 사전계산 — 호스트 "특징 워크로드" 카테고리 키 집합 (정렬·dedup, "unknown"·baseline 제외).
 
-    services unit 이름 분류(`classify`: name->comm->port) ∪ listen 소켓 직접 분류(`detect_listen_categories`).
+    services unit 이름 분류(`classify`: name->comm->port)와 listen 소켓 직접 분류(`detect_listen_categories`).
     baseline(OS 기본·관리 — SSH·NTP·RPC 등)은 제외 — 거의 전 호스트에 있어 특징 신호 아님(상세 live classify 는 유지).
     inventory upsert 시 1회 계산해 `server_inventory.service_categories` 저장 -> 목록·환경분포·필터 소비(화면 간 일치).
     """

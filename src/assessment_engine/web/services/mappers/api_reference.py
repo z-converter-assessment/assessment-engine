@@ -43,8 +43,10 @@ def _property_type(prop: JsonObject) -> str:
 
 def _resolve_body_fields(op: JsonObject, spec: JsonObject) -> list[ApiParam]:
     """POST 등 요청 본문 스키마($ref)를 풀어 필드 목록 반환 — required(스키마 `required` 배열)까지 표시해야
+
     한다: required 미표시로 "전부 선택"처럼 보이면 실제로는 필수인 필드(예: InstallRequest.target_public_ids)
-    없이 호출 가능하다고 오인하기 쉽다(query/path 파라미터의 `*` 표시와 동일 원칙, 화면 간 표현 통일)."""
+    없이 호출 가능하다고 오인하기 쉽다(query/path 파라미터의 `*` 표시와 동일 원칙, 화면 간 표현 통일).
+    """
     rb = json_obj(op, "requestBody")
     schema = json_obj(json_obj(json_obj(rb, "content"), "application/json"), "schema")
     ref = schema.get("$ref")
@@ -61,6 +63,7 @@ def _resolve_body_fields(op: JsonObject, spec: JsonObject) -> list[ApiParam]:
 
 def _display_summary(op: JsonObject) -> str:
     """목록 표시 요약 — docstring 첫 줄(한국어) 우선. OpenAPI summary 는 FastAPI 가 함수명에서 자동 생성한
+
     영어("Get Right Sizing")라 Korean UI 에 부적합 -> description(=docstring) 첫 줄을 요약으로 쓴다.
     """
     desc = (op.get("description") or "").strip()
@@ -71,18 +74,20 @@ def _display_summary(op: JsonObject) -> str:
 
 def _returns_json(op: JsonObject) -> bool:
     """성공(2xx) 응답 중 하나라도 application/json 을 포함하는지 — HTML fragment 엔드포인트(모달 등, 내부
-    UI 전용) 제외 판별. 200 하나만 보면 201 Created 등만 쓰는 엔드포인트를 오탈락시킨다."""
+
+    UI 전용) 제외 판별. 200 하나만 보면 201 Created 등만 쓰는 엔드포인트를 오탈락시킨다.
+    """
     responses = json_obj(op, "responses")
     return any(
-        "application/json" in json_obj(resp, "content")
-        for code, resp in responses.items()
-        if code.startswith("2")
+        "application/json" in json_obj(resp, "content") for code, resp in responses.items() if code.startswith("2")
     )
 
 
 def build_api_reference(spec: JsonObject) -> list[ApiGroup]:
     """OpenAPI dict -> ApiGroup list (태그별). `/api/*` 중 화이트리스트 태그(_ALLOWED_TAGS)의 JSON 엔드포인트만,
-    태그 정의 순서로 정렬."""
+
+    태그 정의 순서로 정렬.
+    """
     by_tag: dict[str, list[ApiEndpoint]] = {}
     for path, ops in sorted((json_obj(spec, "paths")).items()):
         if not path.startswith("/api/"):

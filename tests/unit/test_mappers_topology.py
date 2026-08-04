@@ -14,12 +14,14 @@ net_interfaces 는 구조화 dict [{name, kind, gateway, addresses:[{address, pr
 """
 
 from types import SimpleNamespace
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
-from assessment_engine.db.dtos.outbound import ServerDetail
-from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.topology import build_network_topology
-from assessment_engine.web.view_models.topology import NetworkTopology
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import ServerDetail
+    from assessment_engine.json_types import JsonObject
+    from assessment_engine.web.view_models.topology import NetworkTopology
 
 
 def _iface(cidr: str, kind: str = "physical", gateway: str | None = None) -> JsonObject:
@@ -42,7 +44,9 @@ def _iface(cidr: str, kind: str = "physical", gateway: str | None = None) -> Jso
 
 def _host(pid: str, name: str, os_family: str, ifaces: list[JsonObject]) -> ServerDetail:
     """build_network_topology 가 읽는 축만 가진 대역 — public_id·hostname·os_family·net_interfaces."""
-    return cast(ServerDetail, SimpleNamespace(public_id=pid, hostname=name, os_family=os_family, net_interfaces=ifaces))
+    return cast(
+        "ServerDetail", SimpleNamespace(public_id=pid, hostname=name, os_family=os_family, net_interfaces=ifaces)
+    )
 
 
 def _subnet_ids(t: NetworkTopology) -> list[str]:
@@ -188,12 +192,10 @@ def test_gateway_disambiguates_overlapping_subnet():
     assert t.host_count == 4
 
 
-def _host_roles(
-    pid: str, name: str, os_family: str, ifaces: list[JsonObject], roles: list[str] | None
-) -> ServerDetail:
+def _host_roles(pid: str, name: str, os_family: str, ifaces: list[JsonObject], roles: list[str] | None) -> ServerDetail:
     """service_categories(E7) 를 실은 대역 — _host 는 해당 속성이 없어 roles 테스트용 별도 구성."""
     return cast(
-        ServerDetail,
+        "ServerDetail",
         SimpleNamespace(
             public_id=pid,
             hostname=name,
@@ -257,9 +259,7 @@ def test_roles_from_service_categories_sorted_in_node_and_subnet_host():
         _host_roles("b", "hostB", "linux", [_iface("10.0.1.11/24")], ["cache"]),
     ]
     t = build_network_topology(hosts)
-    node_roles = {
-        e["data"]["publicId"]: e["data"]["roles"] for e in t.elements if e["data"].get("kind") == "host"
-    }
+    node_roles = {e["data"]["publicId"]: e["data"]["roles"] for e in t.elements if e["data"].get("kind") == "host"}
     assert node_roles["a"] == ["db", "web"]  # 정렬됨
     assert node_roles["b"] == ["cache"]
     sh_roles = {sh.public_id: sh.roles for sh in t.subnets[0].hosts}
@@ -275,9 +275,7 @@ def test_roles_filtered_to_signature_workloads():
         _host_roles("b", "hostB", "linux", [_iface("10.0.1.11/24")], ["mail", "infra", "remote"]),
     ]
     t = build_network_topology(hosts)
-    node_roles = {
-        e["data"]["publicId"]: e["data"]["roles"] for e in t.elements if e["data"].get("kind") == "host"
-    }
+    node_roles = {e["data"]["publicId"]: e["data"]["roles"] for e in t.elements if e["data"].get("kind") == "host"}
     assert node_roles["a"] == ["db", "web"]  # file·remote 제외, 시그니처만 정렬
     assert node_roles["b"] == []  # 시그니처 0 -> 빈 리스트
 
@@ -289,9 +287,7 @@ def test_roles_default_empty_when_service_categories_absent():
         _host_roles("b", "hostB", "linux", [_iface("10.0.1.11/24")], None),
     ]
     t = build_network_topology(hosts)
-    node_roles = {
-        e["data"]["publicId"]: e["data"]["roles"] for e in t.elements if e["data"].get("kind") == "host"
-    }
+    node_roles = {e["data"]["publicId"]: e["data"]["roles"] for e in t.elements if e["data"].get("kind") == "host"}
     assert node_roles["a"] == []
     assert node_roles["b"] == []
     assert all(sh.roles == [] for sh in t.subnets[0].hosts)
@@ -346,7 +342,12 @@ def _rich_iface(
     """툴팁·표 필드까지 담은 net_interface — name/id(mac)/mtu/gateway/addresses.origin."""
     addr, _, prefix_s = cidr.partition("/")
     return {
-        "name": name, "id": mac, "id_type": "mac", "kind": "physical", "mtu": mtu, "gateway": gateway,
+        "name": name,
+        "id": mac,
+        "id_type": "mac",
+        "kind": "physical",
+        "mtu": mtu,
+        "gateway": gateway,
         "addresses": [{"address": addr, "prefix": int(prefix_s), "family": "ipv4", "origin": origin}],
     }
 
@@ -390,8 +391,12 @@ def test_shared_gateway_groups_subnets_under_one_router():
 
 def test_multi_homed_host_flagged_in_node_and_subnet_host():
     hosts = [
-        _host("a", "hostA", "linux",
-              [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1"), _rich_iface("ens4", "10.0.2.10/24", "10.0.2.1")]),
+        _host(
+            "a",
+            "hostA",
+            "linux",
+            [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1"), _rich_iface("ens4", "10.0.2.10/24", "10.0.2.1")],
+        ),
         _host("b", "hostB", "linux", [_rich_iface("ens3", "10.0.1.11/24", "10.0.1.1")]),
         _host("c", "hostC", "linux", [_rich_iface("ens3", "10.0.2.11/24", "10.0.2.1")]),
     ]
@@ -402,13 +407,15 @@ def test_multi_homed_host_flagged_in_node_and_subnet_host():
     assert host_a["multiHomed"] is True
     assert host_b["multiHomed"] is False
     a_rows = [h for sn in t.subnets for h in sn.hosts if h.public_id == "a"]
-    assert len(a_rows) == 2 and all(h.multi_homed for h in a_rows)
+    assert len(a_rows) == 2
+    assert all(h.multi_homed for h in a_rows)
 
 
 def test_subnet_host_carries_mtu_speed_origin_and_group_gateway():
     """SubnetHost 는 iface 이름·per-host gateway 대신 mtu/speed_mbps/origin — 게이트웨이는
 
-    SubnetGroup(서브넷당 1개, disambiguation 완료)으로 이동해 행마다 반복 안 함."""
+    SubnetGroup(서브넷당 1개, disambiguation 완료)으로 이동해 행마다 반복 안 함.
+    """
     hosts = [
         _host("a", "hostA", "linux", [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1", origin="static")]),
         _host("b", "hostB", "linux", [_rich_iface("eth0", "10.0.1.11/24", "10.0.1.1")]),
@@ -424,10 +431,26 @@ def test_subnet_host_carries_mtu_speed_origin_and_group_gateway():
 def test_subnet_host_online_status_from_online_by_id():
     """online_by_id(내부 id -> bool) 로 SubnetHost.is_online 채움 — 미전달/미매칭은 기본 False."""
     hosts = [
-        cast(ServerDetail, SimpleNamespace(id=1, public_id="a", hostname="hostA", os_family="linux",
-                                           net_interfaces=[_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1")])),
-        cast(ServerDetail, SimpleNamespace(id=2, public_id="b", hostname="hostB", os_family="linux",
-                                           net_interfaces=[_rich_iface("eth0", "10.0.1.11/24", "10.0.1.1")])),
+        cast(
+            "ServerDetail",
+            SimpleNamespace(
+                id=1,
+                public_id="a",
+                hostname="hostA",
+                os_family="linux",
+                net_interfaces=[_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1")],
+            ),
+        ),
+        cast(
+            "ServerDetail",
+            SimpleNamespace(
+                id=2,
+                public_id="b",
+                hostname="hostB",
+                os_family="linux",
+                net_interfaces=[_rich_iface("eth0", "10.0.1.11/24", "10.0.1.1")],
+            ),
+        ),
     ]
     t = build_network_topology(hosts, online_by_id={1: True})
     by_pid = {h.public_id: h for sn in t.subnets for h in sn.hosts}
@@ -440,8 +463,9 @@ def test_subnet_host_online_status_from_online_by_id():
 
 def test_host_node_ifaces_tooltip_payload():
     hosts = [
-        _host("a", "hostA", "linux",
-              [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1", mac="fa:16:3e:ab:cd:ef", mtu=9000)]),
+        _host(
+            "a", "hostA", "linux", [_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1", mac="fa:16:3e:ab:cd:ef", mtu=9000)]
+        ),
         _host("b", "hostB", "linux", [_rich_iface("ens3", "10.0.1.11/24", "10.0.1.1")]),
     ]
     t = build_network_topology(hosts)

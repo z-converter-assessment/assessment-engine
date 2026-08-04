@@ -3,11 +3,10 @@
 라우터는 이 모듈의 helper만 import. 구체 구현체(QueryRepository) 직접 import 금지 (F4).
 """
 
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
-from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.cache.redis import get_redis
 from assessment_engine.db.repositories.collect_repository import CollectRepository
@@ -17,6 +16,10 @@ from assessment_engine.db.session import get_db, get_session_factory
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import HttpZdmPackageResolver, TaskService
+
+if TYPE_CHECKING:
+    from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 def get_service(

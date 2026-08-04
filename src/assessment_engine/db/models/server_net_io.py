@@ -15,9 +15,7 @@ class ServerNetIo(Base):
     """
 
     __tablename__ = "server_net_io"
-    __table_args__ = (
-        UniqueConstraint("server_id", "iface_id", "collected_at", name="uq_server_net_io_sid_iface_ts"),
-    )
+    __table_args__ = (UniqueConstraint("server_id", "iface_id", "collected_at", name="uq_server_net_io_sid_iface_ts"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)

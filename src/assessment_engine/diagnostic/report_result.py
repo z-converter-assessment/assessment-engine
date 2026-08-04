@@ -17,8 +17,10 @@ input_hash/anchor helper — 라우터 발행 시 anchor 정규화·같은 분 �
 import hashlib
 import json
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from assessment_engine.json_types import JsonObject
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 REPORT_KIND_ENV = "env_report"  # 전 보고서 공통 양식 (EnvironmentReportSummary)
 
@@ -33,12 +35,12 @@ def build_report_result(*, kind: str, snapshot: JsonObject, view: str, aux: Json
     }
 
 
-def _compute_hash(scope: str, input_params: JsonObject) -> str:
+def compute_hash(scope: str, input_params: JsonObject) -> str:
     canonical = json.dumps(input_params, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(f"{scope}|{canonical}".encode()).hexdigest()
 
 
-def _normalize_anchor(at: datetime | None) -> datetime:
+def normalize_anchor(at: datetime | None) -> datetime:
     """anchor 분 단위 truncate — 같은 분 발행은 같은 input_hash (더블클릭 dedup).
 
     None이면 now() UTC 분 단위. 명시 시 timezone-aware 후 UTC 변환 + 분 단위.

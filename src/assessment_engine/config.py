@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import Literal
 from urllib.parse import quote
 
@@ -8,7 +9,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 def _secrets_dir() -> str | None:
     path = os.environ.get("SECRETS_DIR", "/run/secrets")
-    return path if os.path.isdir(path) else None
+    return path if Path(path).is_dir() else None
 
 
 # 외부 인프라가 secret을 어떻게 주입하든(systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등)
@@ -36,7 +37,7 @@ def _reject_env_shadowing_secret(field: str) -> None:
     # pydantic-settings 는 기본이 case_sensitive=False 라 소문자 env 도 secret 파일을 이긴다.
     if not any(key.lower() == field for key in os.environ):
         return
-    if os.path.isfile(os.path.join(_SECRETS_DIR, field)):
+    if (Path(_SECRETS_DIR) / field).is_file():
         raise ValueError(
             f"{field.upper()} is set in the environment while {_SECRETS_DIR}/{field} exists. "
             "The environment value takes precedence, so the secret file is ignored and the value "
@@ -140,7 +141,7 @@ class WebSettings(BaseSettings):
         return f"redis://{self.redis_host}:{self.redis_port}"
 
     @model_validator(mode="after")
-    def _validate_web_secrets(self) -> "WebSettings":
+    def _validate_web_secrets(self) -> WebSettings:
         # 환경으로 강도를 가르지 않는다 — dev 카탈로그도 뻔한 값을 쓰지 않으므로 같은 기준이 통한다.
         # 채널 자체는 본 repo 책임 밖(CLAUDE.md #A0). 결과만 본다.
         _reject_env_shadowing_secret("postgres_password")
@@ -232,7 +233,7 @@ class ConsumerSettings(WebSettings):
         return f"{self.rabbitmq_task_install_key_prefix}.{agent_id}"
 
     @model_validator(mode="after")
-    def _validate_consumer_secrets(self) -> "ConsumerSettings":
+    def _validate_consumer_secrets(self) -> ConsumerSettings:
         _reject_env_shadowing_secret("rabbitmq_password")
         if self.rabbitmq_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(

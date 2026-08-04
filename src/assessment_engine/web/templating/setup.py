@@ -7,10 +7,9 @@ filter 등록을 한 곳으로 모아 다른 라우터/모듈도 동일 인스�
 import time
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from fastapi.templating import Jinja2Templates
-from jinja2 import Environment
 
 from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
@@ -29,6 +28,9 @@ from assessment_engine.web.templating.filters import (
     storagesize,
     storagesize_styled,
 )
+
+if TYPE_CHECKING:
+    from jinja2 import Environment
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
@@ -50,6 +52,7 @@ env_filters["or_dash"] = or_dash
 # dev(app_env=dev)는 main.py 미들웨어가 매 요청 asset_v 를 재발급해 hot reload 즉시 반영 (prod 는 본 고정값 유지).
 ASSET_V: str = format(int(time.time()), "x")
 env_globals["asset_v"] = ASSET_V
+
 
 # 엔진(포털) 버전 — 전역 상단 바에 노출. 설치 메타데이터의 버전. 미설치/개발 트리면 "dev".
 def _engine_version() -> str:

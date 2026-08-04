@@ -12,10 +12,10 @@
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
@@ -23,8 +23,12 @@ from assessment_engine.db.dtos.inbound import (
     NetIoEntry,
     PressureEntry,
 )
-from assessment_engine.db.repositories.collect_repository import CollectRepository
 from tests.factories import make_inventory, make_metrics
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from assessment_engine.db.repositories.collect_repository import CollectRepository
 
 pytestmark = pytest.mark.asyncio
 
@@ -287,8 +291,9 @@ async def test_record_metrics_stores_pressure_rows(
     ts = datetime.now(UTC)
     m = make_metrics(collected_at=ts)
     m.pressure = [
-        PressureEntry(resource="cpu", scope="some", stall_time_s=111.0,
-                      ratio_avg10=0.1, ratio_avg60=0.05, ratio_avg300=0.01),
+        PressureEntry(
+            resource="cpu", scope="some", stall_time_s=111.0, ratio_avg10=0.1, ratio_avg60=0.05, ratio_avg300=0.01
+        ),
         PressureEntry(resource="memory", scope="some", stall_time_s=222.0),
         PressureEntry(resource="io", scope="full", stall_time_s=333.0),
     ]
@@ -298,8 +303,7 @@ async def test_record_metrics_stores_pressure_rows(
     rows = (
         await collect_repo.session.execute(
             text(
-                "SELECT resource, scope, stall_time_s FROM server_pressure "
-                "WHERE server_id = :s AND collected_at = :t"
+                "SELECT resource, scope, stall_time_s FROM server_pressure WHERE server_id = :s AND collected_at = :t"
             ),
             {"s": sid, "t": ts},
         )
@@ -322,7 +326,10 @@ async def test_record_metrics_idempotent_on_conflict(
     first = await collect_repo.record_metrics(sid, m)
     second = await collect_repo.record_metrics(sid, m)
 
-    assert first.metrics == 1 and first.disk_io == 1 and first.net_io == 1 and first.filesystem == 1
+    assert first.metrics == 1
+    assert first.disk_io == 1
+    assert first.net_io == 1
+    assert first.filesystem == 1
     assert second.metrics == 0
     assert second.disk_io == 0
     assert second.net_io == 0
@@ -358,7 +365,8 @@ async def test_record_metrics_independent_collected_at_succeeds(
     r1 = await collect_repo.record_metrics(sid, make_metrics(collected_at=ts1))
     r2 = await collect_repo.record_metrics(sid, make_metrics(collected_at=ts2))
 
-    assert r1.metrics == 1 and r2.metrics == 1
+    assert r1.metrics == 1
+    assert r2.metrics == 1
 
 
 async def test_record_metrics_per_device_unique(
@@ -418,10 +426,7 @@ async def test_record_metrics_persists_boot_time_envelope(
     for table in ("server_disk_io", "server_net_io", "server_filesystem"):
         count = (
             await db_session.execute(
-                text(
-                    f"SELECT COUNT(*) FROM {table} "
-                    "WHERE server_id = :sid AND collected_at = :ts"
-                ),
+                text(f"SELECT COUNT(*) FROM {table} WHERE server_id = :sid AND collected_at = :ts"),
                 {"sid": sid, "ts": ts},
             )
         ).scalar_one()
@@ -484,11 +489,13 @@ async def test_upsert_server_history_appended_on_boot_change(
     """_inventory_changed 가 boot(JSONB) 변경을 감지 → history append (재현 필드도 변경 감지 대상)."""
     aid = "00000000-0000-4000-8000-000000000043"
     inv1 = make_inventory(
-        agent_id=aid, hostname="h1",
+        agent_id=aid,
+        hostname="h1",
         boot={"kernel_cmdline": "ro quiet", "root_ref_type": "label", "grub_install_target": "i386-pc"},
     )
     inv2 = make_inventory(
-        agent_id=aid, hostname="h1",
+        agent_id=aid,
+        hostname="h1",
         boot={"kernel_cmdline": "ro quiet", "root_ref_type": "uuid", "grub_install_target": "i386-pc"},
     )
     await collect_repo.upsert_server(inv1)
@@ -510,9 +517,20 @@ async def test_upsert_server_persists_reproduction_columns(
     """_inventory_row/_append_inventory_history 가 재현 컬럼을 server_inventory + history 양쪽에 기록."""
     aid = "00000000-0000-4000-8000-000000000044"
     inv = make_inventory(
-        agent_id=aid, hostname="h1", arch="x86_64", rtc_utc=True,
-        nonblock_mounts=[{"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
-                          "options": ["rw", "nosuid"], "fs_freq": 0, "fs_passno": 0}],
+        agent_id=aid,
+        hostname="h1",
+        arch="x86_64",
+        rtc_utc=True,
+        nonblock_mounts=[
+            {
+                "source": "tmpfs",
+                "target": "/run",
+                "fstype": "tmpfs",
+                "options": ["rw", "nosuid"],
+                "fs_freq": 0,
+                "fs_passno": 0,
+            }
+        ],
     )
     sid = await collect_repo.upsert_server(inv)
     for table, where in (("server_inventory", "id"), ("server_inventory_history", "server_id")):

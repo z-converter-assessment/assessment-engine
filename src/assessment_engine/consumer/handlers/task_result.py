@@ -1,20 +1,24 @@
 """task.result 메시지 핸들러 — agent worker 가 task 실행 종료 후 발행."""
 
-from collections.abc import Callable, Coroutine, Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from aio_pika.abc import AbstractIncomingMessage
 from loguru import logger
 from pydantic import ValidationError
-from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.consumer.handlers._common import _check_idempotent, _db_retry, _format_validation_err
 from assessment_engine.consumer.schemas import TaskResultInput
 from assessment_engine.db.dtos.inbound import TaskResultUpdate
-from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.task_policy import effective_task_result
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine, Mapping, Sequence
+
+    from aio_pika.abc import AbstractIncomingMessage
+    from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 
 
 def make_task_result_handler(

@@ -19,13 +19,15 @@ IPv4 only: 그래프는 physical+bond_master 인터페이스의 IPv4 주소만. 
 
 import ipaddress
 from collections import defaultdict
-from typing import NamedTuple, cast
+from typing import TYPE_CHECKING, NamedTuple, cast
 
-from assessment_engine.db.dtos.outbound import ServerDetail
 from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import is_virtual_interface
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import ServerDetail
 
 
 class _Member(NamedTuple):
@@ -37,6 +39,7 @@ class _Member(NamedTuple):
     origin: str | None  # 주소 origin (dhcp/static/...)
     mtu: int | None
     speed_mbps: int | None
+
 
 _CAVEATS = [
     "추론 토폴로지 — 같은 서브넷(IP·prefix) 공유 기준이며, 실제 통신 가능 여부(방화벽·VLAN 격리)는 반영하지 않습니다.",
@@ -53,9 +56,7 @@ def _subnet_host_sort_key(host: SubnetHost) -> tuple[int, int]:
         return (1, 0)
 
 
-def build_network_topology(
-    hosts: list[ServerDetail], online_by_id: dict[int, bool] | None = None
-) -> NetworkTopology:
+def build_network_topology(hosts: list[ServerDetail], online_by_id: dict[int, bool] | None = None) -> NetworkTopology:
     """hosts: ServerDetail/DTO 리스트 (public_id·hostname·os_family·net_interfaces 사용).
 
     net_interfaces 는 [{kind, gateway, addresses:[{address, prefix, family}]}]. physical+bond_master 의 IPv4 주소만 채택.
@@ -66,7 +67,9 @@ def build_network_topology(
     subnet_members: dict[str, list[_Member]] = defaultdict(list)
     host_id: dict[str, int | None] = {}  # public_id -> 내부 id (온라인 조회 online_by_id 키)
     host_meta: dict[str, tuple[str, str]] = {}  # public_id -> (hostname, os_family)
-    host_roles: dict[str, list[str]] = {}  # public_id -> 주요 워크로드 카테고리(시그니처만, 환경 개요 도넛·서버 목록 뱃지와 동일 기준)
+    host_roles: dict[
+        str, list[str]
+    ] = {}  # public_id -> 주요 워크로드 카테고리(시그니처만, 환경 개요 도넛·서버 목록 뱃지와 동일 기준)
     host_ifaces: dict[str, list[JsonObject]] = {}  # public_id -> 물리 인터페이스 요약 dict (그래프 노드 툴팁 JSON)
 
     for h in hosts:
@@ -115,9 +118,7 @@ def build_network_topology(
                 if subnet in seen_nets:
                     continue
                 seen_nets.add(subnet)
-                subnet_members[subnet].append(
-                    _Member(pid, str(ip), gateway, a.get("origin"), mtu, speed_mbps)
-                )
+                subnet_members[subnet].append(_Member(pid, str(ip), gateway, a.get("origin"), mtu, speed_mbps))
         host_ifaces[pid] = ifaces
 
     # gateway disambiguation + 단독 서브넷 필터. 한 서브넷에 서로 다른 non-null gateway 2+ 면 다른 물리망으로
@@ -189,10 +190,10 @@ def build_network_topology(
             graph_hosts.add(pid)
             host_edges.append((pid, net_key))
 
-    for gw in sorted(shared_gws):
-        elements.append(
-            {"data": {"id": f"gw:{gw}", "label": gw, "kind": "gateway", "subnetCount": gw_subnet_count[gw]}}
-        )
+    elements.extend(
+        {"data": {"id": f"gw:{gw}", "label": gw, "kind": "gateway", "subnetCount": gw_subnet_count[gw]}}
+        for gw in sorted(shared_gws)
+    )
 
     for pid in sorted(graph_hosts):
         hostname, os_family = host_meta[pid]
@@ -243,8 +244,10 @@ def build_network_topology(
         hosts_list.sort(key=_subnet_host_sort_key)  # 서브넷 내 IP 숫자 오름차순
         subnets.append(
             SubnetGroup(
-                net_key=net_label[net_key], host_count=len(hosts_list),
-                gateway=net_gateway.get(net_key), hosts=hosts_list,
+                net_key=net_label[net_key],
+                host_count=len(hosts_list),
+                gateway=net_gateway.get(net_key),
+                hosts=hosts_list,
             )
         )
 

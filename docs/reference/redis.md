@@ -28,7 +28,7 @@
 - `idempotent:{message_id}` 24h — message_id는 UUID v4이므로 24h 동안 unique 보장. broker 재전송 윈도우 충분히 커버.
 - `time_invariant_warned:{agent_id}` 1h — 시계 invariant warning 쿨다운 (같은 호스트가 매 메시지 warning 을 내지 않게). evict 시 다음 위반에서 1회 더 출력.
 - `last_agent_start:{server_id}` 24h — 직전 비교용 캐시. evict 시 다음 메시지에서 재시작 감지 1회 누락만 — 다음 정상 sample에서 회복.
-- `agent_restarts:{server_id}` 1h — 슬라이딩 윈도우 (마지막 INCR 후 1h). `agent_restart_alert_threshold` (기본 3) 도달 시 warning 로그.
+- `agent_restarts:{server_id}` 1h — 슬라이딩 윈도우 (마지막 INCR 후 1h). `agent_restart_alert_threshold` 도달 시 warning 로그.
 
 원격 작업 명령 전달 자체는 Redis 를 거치지 않는다 — 별도 큐 모델 채택으로 broker 가 메시지를 보유하고, DB `tasks` + broker `agent.tasks.<agent_id>` 큐가 단일 진실. 발행 직전 ZDM 패키지 sha256 조회만 위 캐시를 쓴다.
 

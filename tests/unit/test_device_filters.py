@@ -22,7 +22,7 @@ from assessment_engine.web.services.device_filters import (
 
 
 @pytest.mark.parametrize(
-    "kind, expected",
+    ("kind", "expected"),
     [
         ("physical", False),  # 물리 NIC — 집계 대상
         ("bond_master", False),  # 본딩 집계 단위 — 집계 대상(가상 아님)
@@ -43,7 +43,7 @@ def test_is_virtual_interface(kind: str | None, expected: bool):
 
 
 @pytest.mark.parametrize(
-    "dtype, expected",
+    ("dtype", "expected"),
     [
         # type=="disk" 만 물리 디스크 (sd/nvme/vd/PhysicalDrive)
         ("disk", True),
@@ -63,7 +63,7 @@ def test_is_physical_disk(dtype: str | None, expected: bool):
 
 
 @pytest.mark.parametrize(
-    "dtype, expected",
+    ("dtype", "expected"),
     [
         # type in (lvm,raid,crypt,mpath,dynamic) 가 논리 볼륨 계층
         ("lvm", True),
@@ -82,7 +82,7 @@ def test_is_lvm_disk(dtype: str | None, expected: bool):
 
 
 @pytest.mark.parametrize(
-    "dtype, expected",
+    ("dtype", "expected"),
     [
         ("part", True),
         ("disk", False),
@@ -97,7 +97,7 @@ def test_is_partition(dtype: str | None, expected: bool):
 
 
 @pytest.mark.parametrize(
-    "dtype, expected",
+    ("dtype", "expected"),
     [
         ("swap", True),
         ("disk", False),
@@ -114,7 +114,7 @@ def test_is_swap(dtype: str | None, expected: bool):
 
 
 @pytest.mark.parametrize(
-    "fstype, mountpoint, expected",
+    ("fstype", "mountpoint", "expected"),
     [
         # 실 데이터 파일시스템 — 데이터 볼륨
         ("ext4", "/", True),

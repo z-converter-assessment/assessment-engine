@@ -12,7 +12,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
 
-from assessment_engine import recommendation as R
+from assessment_engine import recommendation
 from assessment_engine.recommendation import ResourceStats
 from tests.hypothesis_scale import examples
 
@@ -74,7 +74,7 @@ def stats_strategy(draw: DrawFn) -> ResourceStats:
 @given(stats_strategy())
 def test_structural_invariants(stats: ResourceStats):
     """구조 불변식 — 어떤 유효 입력에도 성립해야 함 (위반 = 확정 버그)."""
-    host = R.rollup_host(stats)
+    host = recommendation.rollup_host(stats)
 
     # 1. 5자원 축 전부 존재
     assert set(host.resources) == _RES_KINDS
@@ -83,18 +83,20 @@ def test_structural_invariants(stats: ResourceStats):
     # 3. sizing_target/floor 는 있으면 양의 정수
     for a in host.resources.values():
         if a.sizing_target is not None:
-            assert isinstance(a.sizing_target, int) and a.sizing_target > 0, (a.kind, a.sizing_target)
+            assert isinstance(a.sizing_target, int), (a.kind, a.sizing_target)
+            assert a.sizing_target > 0, (a.kind, a.sizing_target)
         if a.sizing_floor is not None:
-            assert isinstance(a.sizing_floor, int) and a.sizing_floor > 0, (a.kind, a.sizing_floor)
+            assert isinstance(a.sizing_floor, int), (a.kind, a.sizing_floor)
+            assert a.sizing_floor > 0, (a.kind, a.sizing_floor)
     # 4. classify 정합 — classify_host == host_status_to_recommendation(rollup) (문서화된 단일 진실)
-    assert R.classify_host(stats) == R.host_status_to_recommendation(host.host_status)
+    assert recommendation.classify_host(stats) == recommendation.host_status_to_recommendation(host.host_status)
 
 
 @settings(max_examples=examples(2000))
 @given(stats_strategy())
 def test_determinism(stats: ResourceStats):
     """동일 입력 -> 동일 출력 (순수 함수)."""
-    h1, h2 = R.rollup_host(stats), R.rollup_host(stats)
+    h1, h2 = recommendation.rollup_host(stats), recommendation.rollup_host(stats)
     assert h1.host_status == h2.host_status
     assert {k: v.status for k, v in h1.resources.items()} == {k: v.status for k, v in h2.resources.items()}
     assert {k: v.sizing_target for k, v in h1.resources.items()} == {
@@ -106,7 +108,7 @@ def test_determinism(stats: ResourceStats):
 @given(stats_strategy())
 def test_cpu_never_under_provision(stats: ResourceStats):
     """CPU under -> sizing_target 은 현재 코어 이상 (부족을 더 부족하게 만들지 않음). over -> 이하."""
-    cpu = R.rollup_host(stats).resources["cpu"]
+    cpu = recommendation.rollup_host(stats).resources["cpu"]
     if stats.cpu_cores is None or cpu.sizing_target is None:
         return
     if cpu.status == "under":
@@ -122,7 +124,7 @@ def test_memory_sizing_bounded(stats: ResourceStats):
 
     넘으면 near-peak 통계 오염 또는 산식 결함(비현실적 과대 사이징).
     """
-    mem = R.rollup_host(stats).resources["memory"]
+    mem = recommendation.rollup_host(stats).resources["memory"]
     if stats.mem_total_mb is None or mem.sizing_target is None:
         return
     upper = math.ceil(stats.mem_total_mb * 1.3) + 2  # 반올림 여유
@@ -143,8 +145,8 @@ def test_idle_cpu_not_under_by_runqueue_artifact(stats: ResourceStats):
     cpu_util = stats.cpu_p95_pct
     steal = stats.cpu_steal_p95_pct or 0
     # 이용률이 실측됐고 유휴 수준이며 steal 도 낮은데 CPU under 인 경우
-    if cpu_util is not None and cpu_util <= R.IDLE_CPU_P95_PCT and steal < 5:
-        cpu = R.rollup_host(stats).resources["cpu"]
+    if cpu_util is not None and cpu_util <= recommendation.IDLE_CPU_P95_PCT and steal < 5:
+        cpu = recommendation.rollup_host(stats).resources["cpu"]
         assert cpu.status != "under", (
             f"idle CPU(util={cpu_util}%)인데 under — run_queue={stats.procs_running_p95}/"
             f"win_q={stats.cpu_run_queue_p95} cores={stats.cpu_cores} triggers={cpu.triggers}"

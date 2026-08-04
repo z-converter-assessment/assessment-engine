@@ -55,7 +55,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 ### `tasks.py` — 원격 작업 발행 + 단건 조회
 | 경로 | 용도 |
 |------|------|
-| `POST /install` | ZConverter Install task 발행 (다중 서버 일괄). 부분 UNIQUE pending 중복 시 409 (`TaskDuplicatePending`) |
+| `POST /install` | ZConverter Install task 발행 (다중 서버 일괄). 부분 UNIQUE pending 중복 시 409 (`TaskDuplicatePendingError`) |
 | `GET /{task_id}` | 단일 task JSON — polling / list cell 갱신 callback 용 |
 | `GET /{task_id}/detail` | 단일 task HTML fragment — task-modal body 용 (P3 정공, 서버 렌더 HTML 반환) |
 | `GET /api/tasks?server_public_id=&limit=&cursor=` | 서버별 task 이력 — `server_public_id`(UUID) 필수, 시간 역순 cursor pagination(E2). `list_recent_tasks` -> `TaskSummaryItem[]` |
@@ -91,10 +91,10 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | HTTP | 의미 | 발생 위치 |
 |------|------|-----------|
 | 422 | 입력 형식 오류 | Pydantic field validator (IP 형식·UUID 형식·Literal enum) |
-| 404 | 리소스 없음 | `resolve_internal_id` 또는 service `TaskNotFound` exception |
-| 409 | 충돌 | `tasks/install` pending 중복 (`TaskDuplicatePending`) |
+| 404 | 리소스 없음 | `resolve_internal_id` 또는 service `TaskNotFoundError` exception |
+| 409 | 충돌 | `tasks/install` pending 중복 (`TaskDuplicatePendingError`) |
 | 500 | 서버 오류 | service 측 예기치 못한 Exception (DB·외부 의존 비정형 오류 등) |
-| 503 | 발행 불가 | `TaskNotConfigured` — `HttpZdmPackageResolver` 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 차단 / `TaskPublishFailed` — broker 발행 실패 |
+| 503 | 발행 불가 | `TaskNotConfiguredError` — `HttpZdmPackageResolver` 메타 fetch 실패 (ZDM 도달 불가·HEAD non-200·size mismatch) 시 install 발행 차단 / `TaskPublishFailedError` — broker 발행 실패 |
 
 ## URL 정책
 

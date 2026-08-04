@@ -5,8 +5,6 @@
 계약 출력 불변) — 문서화 전용. extra=forbid 로 골든 테스트가 매퍼<->스키마 drift 를 잡는다.
 """
 
-from __future__ import annotations
-
 from pydantic import BaseModel, ConfigDict
 
 from assessment_engine.recommendation import Recommendation, ResourceStatus

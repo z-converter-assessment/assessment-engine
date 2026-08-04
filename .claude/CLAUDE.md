@@ -260,12 +260,13 @@ Pagination 정책:
 # F. 운영 규약
 
 ## F1. 타입 어노테이션
-- `from __future__ import annotations` 허용 — 순환 import 회피·불필요한 forward-ref 따옴표 제거 목적. 새 파일에 강제하지는 않되(전면 도입 아님), 순환·noise 있는 모듈에 선택 도입.
-- `if TYPE_CHECKING:` 블록 허용 — 런타임 미사용 타입 import 격리.
-- 단 Pydantic 모델(`config.py`·`consumer/schemas.py`·consumer handler inbound DTO·라우터 body 모델)은 필드 타입을 `TYPE_CHECKING` 블록에만 두지 않는다 — Pydantic v2 는 model build 시 `get_type_hints()` 로 어노테이션을 resolve 하므로 런타임 네임스페이스에 타입이 없으면 `NameError`/`PydanticUndefinedAnnotation`. Pydantic 필드 타입은 런타임 import 유지.
+- `from __future__ import annotations` 를 쓰지 않는다 — Python 3.14 는 어노테이션을 지연 평가한다(PEP 649). forward-ref 따옴표도 불필요하다.
+- 타입 별칭은 `type X = ...`(PEP 695). 런타임에 별칭 안을 들여다볼 때는 `X.__value__` 를 거친다 — `get_args(X)` 는 빈 튜플을 준다.
+- 상위 메서드를 덮어쓰는 자리는 `@override`(PEP 698). pyright `reportImplicitOverride` 가 강제한다.
+- `if TYPE_CHECKING:` 블록으로 런타임 미사용 타입 import 를 격리한다. ruff `TC` 규칙이 자동 판정하되, 어노테이션을 런타임에 읽는 세 지점은 예외다 — Pydantic 모델 필드, SQLAlchemy `Mapped[...]`, FastAPI endpoint·의존성 callable. 앞의 둘은 `runtime-evaluated-base-classes`·`runtime-evaluated-decorators` 등록으로, 뒤는 per-file 제외로 처리한다 (설정은 `pyproject.toml`).
 - 시그니처는 정직하게 — 실제로 `None` 을 반환하면 `-> T | None` 으로 선언한다. type checker 억제(`# type: ignore[return-value]`)로 거짓 시그니처를 덮지 않는다.
 
-정적 검사 도구(ruff·pyright) · 편집기 설정 · 경고 대처 · 강제 채널 카탈로그: `docs/guides/conventions.md` 단일 진실.
+정적 검사 도구(ruff format·ruff check·pyright) · 규약과 lint 규칙의 대응 · 편집기 설정 · 경고 대처 · 강제 채널 카탈로그: `docs/guides/conventions.md` 단일 진실.
 
 ## F2. 시간대 정책 (UTC 저장 / KST 표시)
 
@@ -306,9 +307,9 @@ Pagination 정책:
 
 ## F5. 자동화 변환 — 책임 분담
 
-원칙: 자동화 변환(sed · `Edit replace_all` · 디렉토리 mv · Python 일괄 갱신) 직후 검증을 2 채널로 분담. 로컬 훅은 두지 않는다 — 우회 가능한 자리라 강제 수단이 못 된다(`docs/guides/conventions.md` 2절).
+원칙: 자동화 변환(sed · `Edit replace_all` · 디렉토리 mv · Python 일괄 갱신) 직후 검증을 2 채널로 분담. 로컬 훅은 두지 않는다 — 우회 가능한 자리라 강제 수단이 못 된다(`docs/guides/conventions.md` 5절).
 - 메인 세션 — 자가 검증. 변환 직후 매 회 의무 (아래 4 항목).
-- 에이전트 (code-reviewer / schema-contract-auditor) — 본 절 맥락(변환 직후 점검)에서는 사용자 명시 요청(`리뷰해줘`·`스키마 일관성 확인` 등) 시에만 발동. PR 게이트의 코드 리뷰는 별개 채널이며 배치는 `docs/guides/wrap-up.md` 0절이 정한다 (develop PR = `/pr` 이 code-reviewer 발동).
+- 에이전트 (code-reviewer / schema-contract-auditor) — 본 절 맥락(변환 직후 점검)에서는 사용자 명시 요청(`리뷰해줘`·`스키마 일관성 확인` 등) 시에만 발동. PR 게이트의 코드 리뷰는 별개 채널이며 배치는 `docs/guides/pre-pr-checklist.md` 0절이 정한다 (develop PR = `/pr` 이 code-reviewer 발동).
 
 메인 자가 검증 의무:
 1. 옛 패턴 잔존 0건 grep.
@@ -324,7 +325,7 @@ Pagination 정책:
 
 에이전트 결과: Error → 즉시 수정 / Warning → 사용자 결정 위임 / Info → 보고만.
 
-변환 유형별 체크리스트·누적 사고 패턴: `docs/guides/conventions.md` 3절·4절.
+변환 유형별 추가 체크리스트: `docs/guides/conventions.md` 6절.
 
 ## F6. 에러 처리·실패 모델
 
@@ -335,7 +336,7 @@ Pagination 정책:
 금지:
 - `except Exception` 광범위 catch — 예외 타입 명시(`OperationalError`/`IntegrityError`/`RedisError`/`asyncio.TimeoutError` 등). 불가피하면 reraise + 컨텍스트 로그.
 - 영구 오류(`IntegrityError`·4xx) 재시도. 일시 장애(`OperationalError`·deadlock(40P01)·5xx·timeout)만 백오프.
-- timeout 없는 외부 호출 — `asyncio.wait_for` 또는 클라이언트 옵션(`aiohttp.ClientTimeout`·asyncpg `command_timeout`·redis `socket_timeout`) 의무.
+- timeout 없는 외부 호출 — `asyncio.wait_for` 또는 클라이언트 옵션(`httpx.Timeout`·asyncpg `command_timeout`·redis `socket_timeout`) 의무.
 
 소비자 측 상세 매트릭스: `docs/reference/consumer.md` "DB 재시도 정책" + "메시지 자체 결함 → DLQ" 절.
 
@@ -375,7 +376,7 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 
 원칙: 영향받는 모든 곳 동시 갱신 의무 — 한 곳만 수정 후 PR 금지.
 
-적용 시점: 게이트 배치는 `docs/guides/wrap-up.md` 0절 단일 진실.
+적용 시점: 게이트 배치는 `docs/guides/pre-pr-checklist.md` 0절 단일 진실.
 
 기능 개발 중간 단계에서는 기능 코드만 작성한다 — 동작 검증은 사용자가 실행 화면으로 하고, 메인 세션이 기능 추가와 함께 테스트·문서를 선제 작성하지 않는다. (테스트 자동 실행·보고 금지는 #F5 와 일관.)
 

@@ -97,7 +97,7 @@
 
 | 영역 | 기술 |
 |------|------|
-| 애플리케이션 | Python 3.12 · FastAPI · pydantic · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx |
+| 애플리케이션 | Python 3.14 · FastAPI · pydantic · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx |
 | DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 |
 | Schema 관리 | Alembic 단일 진실 |
 | 진단 | 규칙 기반 right-sizing (USE Method, 도메인 모듈 `recommendation.py` — web·repository 공용) |

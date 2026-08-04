@@ -13,9 +13,12 @@ Create Date: 2026-07-09
 
 """
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 from alembic import op
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 revision: str = "a2f4c6e8d0b1"
 down_revision: str | Sequence[str] | None = "53df4c2132fd"

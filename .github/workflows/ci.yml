@@ -6,7 +6,7 @@ name: ci
 #          ├─> typecheck
 #          └─> build
 #
-# base 별 발화 범위는 job 의 if 조건이 정한다. 게이트 배치 근거는 docs/guides/wrap-up.md 0절.
+# base 별 발화 범위는 job 의 if 조건이 정한다. 게이트 배치 근거는 docs/guides/pre-pr-checklist.md 0절.
 
 on:
   pull_request:
@@ -29,7 +29,7 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
           cache: 'pip'
           cache-dependency-path: uv.lock
 
@@ -38,6 +38,12 @@ jobs:
 
       - name: Install project (frozen)
         run: uv sync --frozen --group dev
+
+      - name: lockfile drift
+        run: uv lock --check
+
+      - name: ruff format
+        run: uv run ruff format --check .
 
       - name: ruff check
         run: uv run ruff check .
@@ -61,7 +67,7 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
           cache: 'pip'
           cache-dependency-path: uv.lock
 
@@ -87,7 +93,7 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
           cache: 'pip'
           cache-dependency-path: uv.lock
 
@@ -126,7 +132,7 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
           cache: 'pip'
           cache-dependency-path: uv.lock
 
@@ -156,7 +162,7 @@ jobs:
 
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
-          python-version: '3.12'
+          python-version: '3.14'
           cache: 'pip'
           cache-dependency-path: uv.lock
 

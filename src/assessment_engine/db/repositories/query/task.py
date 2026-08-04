@@ -1,7 +1,6 @@
 """Task 조회 도메인 concrete — modal · timeline · 서버별 latest."""
 
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any, override
 
 from sqlalchemy import text
 
@@ -9,8 +8,12 @@ from assessment_engine.db.dtos.outbound import TaskRow
 from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 from assessment_engine.db.repositories.query.base_task import BaseTaskQueryRepository
 
+if TYPE_CHECKING:
+    from datetime import datetime
+
 
 class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
+    @override
     async def get_task_by_public_id(self, public_id: str) -> TaskRow | None:
         sql = text("""
             SELECT
@@ -29,6 +32,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
             return None
         return self._row_to_task(row)
 
+    @override
     async def list_recent_tasks(
         self,
         target_server_id: int,
@@ -58,6 +62,7 @@ class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):
         result = await self.session.execute(sql, params)
         return [self._row_to_task(r) for r in result.all()]
 
+    @override
     async def latest_tasks_by_servers(
         self,
         server_ids: list[int],

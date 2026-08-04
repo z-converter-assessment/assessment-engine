@@ -77,7 +77,8 @@ async def environment_realtime(
 ):
     """실시간 메트릭 (live 현황 모니터링) — 현재 평균 활용률 + 현재 부하 상위. ids 면 선택 N대 한정.
 
-    fragment=realtime: 실시간 메트릭 partial 만 재렌더 (JS 30초 폴링이 mount innerHTML 교체)."""
+    fragment=realtime: 실시간 메트릭 partial 만 재렌더 (JS 30초 폴링이 mount innerHTML 교체).
+    """
     now = datetime.now(UTC)
     valid_pids = await _resolve_selection_pids(service, ids)
     server_ids = None
@@ -127,7 +128,8 @@ async def topology(
 ):
     """네트워크 토폴로지 전용 — L3 subnet 공동소속 그래프. 환경 단위 `/environment` 그룹.
 
-    현재 전체 인벤토리 그래프 — 대규모 범위 좁히기(subnet/host 필터)는 후속."""
+    현재 전체 인벤토리 그래프 — 대규모 범위 좁히기(subnet/host 필터)는 후속.
+    """
     topo = await service.get_topology()
     return templates.TemplateResponse(
         request=request,
@@ -154,7 +156,8 @@ async def assessment(
     """환경 자원 평가 — 14일 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
 
     분류 창은 서버 목록·보고서·환경 개요 카드와 같은 14일(#F10 #E3 정합). 기본값 `DIAGNOSTIC_DEFAULT_TIME_RANGE`.
-    환경 단위 `/environment` 그룹. fragment=result: 결과 partial 만 재렌더 (JS swap, 풀 reload 회피)."""
+    환경 단위 `/environment` 그룹. fragment=result: 결과 partial 만 재렌더 (JS swap, 풀 reload 회피).
+    """
     result = await service.get_environment_assessment(time_range, anchor_at)
     qs = f"?time_range={time_range}" + (f"&anchor_at={quote(anchor_at.isoformat(), safe='')}" if anchor_at else "")
     ctx: dict[str, Any] = {
@@ -179,7 +182,8 @@ async def overview(
     """환경 개요 (홈, `/`) — 집계 위젯(환경 요약·주요 워크로드·자원 적정성·자원 이용·포화 7도넛·운영 이벤트/에러).
 
     서버 목록은 `/servers`, 환경 단위 분석은 `/environment/*` 로 분리. 집계형 위젯만 본 페이지에 남는다.
-    운영 신호는 실시간 현황(`/environment/realtime`)으로 분리. 자동 갱신 없음 — 정적 집계라 진입 시 1회 렌더."""
+    운영 신호는 실시간 현황(`/environment/realtime`)으로 분리. 자동 갱신 없음 — 정적 집계라 진입 시 1회 렌더.
+    """
     overview = await service.get_dashboard_overview()
     ctx: dict[str, Any] = {
         "overview": overview,
@@ -210,7 +214,8 @@ async def servers_list(
     """서버 목록 (`/servers`) — 검색·필터 + 선택 N대 액션(보고서·install·export).
 
     fragment=rows: 서버목록 행 partial 만 재렌더.
-    현재 전체 로드 후 client clip — page/limit Query 는 서버사이드 페이지네이션 도입 시 사용 (E2 page 정책)."""
+    현재 전체 로드 후 client clip — page/limit Query 는 서버사이드 페이지네이션 도입 시 사용 (E2 page 정책).
+    """
     if fragment == "rows":
         rows = await service.list_servers(
             1, _LIST_FETCH_LIMIT, None, None, service=None, os_distro=None, classification=None

@@ -68,13 +68,14 @@ WIN_PAGES_INPUT_SATURATION = 20.0
 PROCS_BLOCKED_DSTATE_SATURATION = 1.0
 
 
-Recommendation = Literal[
+type Recommendation = Literal[
     "idle",  # 유휴 — 수요≈0 미사용 상태. 조치(종료·통합)는 파생 권고 층(상태 아님).
     "over_provisioned",
     "under_provisioned",
     "optimal",
     "insufficient_data",  # cpu_p95·mem_p95 둘 다 부재 (신규/표본 부족)
 ]
+
 
 @dataclass
 class ResourceStats:
@@ -228,8 +229,10 @@ def mem_pressure_active(paging_major_rate: float | None, os_family: str | None) 
 
 
 def net_signal_active(
-    retrans_pct: float | None, drop_pct: float | None,
-    conntrack_ratio: float | None, net_kbytes_per_s: float | None,
+    retrans_pct: float | None,
+    drop_pct: float | None,
+    conntrack_ratio: float | None,
+    net_kbytes_per_s: float | None,
 ) -> bool:
     """실시간 네트워크 혼잡 신호 여부 — assess_network 트리거와 동일 임계·저트래픽 게이트(스냅샷용).
 
@@ -418,8 +421,8 @@ def util_trend_rising_from_slopes(cpu_slope: float | None, mem_slope: float | No
     return any(s >= RS_UTIL_TREND_RISING_PCT_PER_DAY for s in slopes)
 
 
-ResourceKind = Literal["cpu", "memory", "disk_capacity", "disk_io", "network"]
-ResourceStatus = Literal[
+type ResourceKind = Literal["cpu", "memory", "disk_capacity", "disk_io", "network"]
+type ResourceStatus = Literal[
     "under",
     "optimal",
     "over",
@@ -462,7 +465,7 @@ class ResourceAssessment:
     detail: str = ""
 
 
-HostStatus = Literal["under", "idle", "over", "optimal", "insufficient"]
+type HostStatus = Literal["under", "idle", "over", "optimal", "insufficient"]
 
 
 @dataclass
@@ -483,9 +486,7 @@ def _precision_low(stats: ResourceStats) -> bool:
     """통계 정밀도 하향? — 이력 30h 미만 or 버스티(p95/median > 2)."""
     if stats.history_hours is not None and stats.history_hours < RS_CONFIDENCE_MIN_HOURS:
         return True
-    if stats.cpu_burst_ratio is not None and stats.cpu_burst_ratio > RS_BURST_RATIO_MAX:
-        return True
-    return False
+    return bool(stats.cpu_burst_ratio is not None and stats.cpu_burst_ratio > RS_BURST_RATIO_MAX)
 
 
 def _base_confidence(stats: ResourceStats, *, biased: bool = False, util_bearing: bool = False) -> ConfidenceNote:
@@ -553,7 +554,12 @@ def assess_cpu(stats: ResourceStats) -> ResourceAssessment:
         up = target if target > cores else None
         floor = None if up is not None else cores + 1
         return ResourceAssessment(
-            "cpu", "under", triggers=triggers, sizing_target=up, sizing_floor=floor, confidence=conf,
+            "cpu",
+            "under",
+            triggers=triggers,
+            sizing_target=up,
+            sizing_floor=floor,
+            confidence=conf,
             detail=(f"목표 {up}코어" if up else f"포화 주도 — 증설(최소 {cores + 1}코어)"),
         )
     if target < cores and not percore_busy:
@@ -618,7 +624,11 @@ def assess_memory(stats: ResourceStats) -> ResourceAssessment:
                 else None
             )
             return ResourceAssessment(
-                "memory", "under", triggers=["mem_oom"], sizing_floor=floor, confidence=conf,
+                "memory",
+                "under",
+                triggers=["mem_oom"],
+                sizing_floor=floor,
+                confidence=conf,
                 detail="이용률 미측정, OOM 발생",
             )
         conf.coverage_gap = True
@@ -675,7 +685,7 @@ def assess_disk_capacity(stats: ResourceStats) -> ResourceAssessment:
     inode_used = stats.disk_inode_used_pct
     # 목표 용량(GB)은 양의 정수로 정규화 — report_aggregate CEIL 산출이나 0/음수/float 방어(sizing_target int 계약).
     tgt = stats.disk_capacity_target_gb
-    tgt = int(math.ceil(tgt)) if tgt is not None and tgt >= 1 else None
+    tgt = math.ceil(tgt) if tgt is not None and tgt >= 1 else None
     if runway is not None and runway < RS_DISK_RUNWAY_DAYS:
         # 소진 임박(추세 주도). 목표는 경로1(1년 수명, span 충분 시만). inode 소진이 먼저면 목표 없음(용량 확장 무관).
         rtgt = tgt if runway == stats.disk_capacity_runway_days else None
@@ -696,7 +706,10 @@ def assess_disk_capacity(stats: ResourceStats) -> ResourceAssessment:
     if inode_static:
         # inode 소진은 용량 확장(GB)으로 안 풀림(mkfs 고정) -> 목표 없음, 파일 정리·재포맷 처방 층에서.
         return ResourceAssessment(
-            "disk_capacity", "filling", triggers=["disk_capacity"], confidence=conf,
+            "disk_capacity",
+            "filling",
+            triggers=["disk_capacity"],
+            confidence=conf,
             detail=f"inode used {inode_used:.0f}% (정적 가드)",
         )
     if runway is None and used is None and inode_used is None:
@@ -759,7 +772,10 @@ def assess_mount_capacity(
         return MountSizing(current_gib, floor_gib, "increase", "floor")
     if inode_filling:
         return MountSizing(
-            current_gib, current_gib, "keep", "exact",
+            current_gib,
+            current_gib,
+            "keep",
+            "exact",
             note="inode 소진 — 파일 정리/재포맷(용량 확장 무관)",
         )
     return MountSizing(current_gib, current_gib, "keep", "exact")
@@ -964,7 +980,9 @@ def resource_prescription(kind: str, ra: ResourceAssessment) -> str:
 
 def under_prescription(host: HostAssessment) -> str:
     """자원 부족 처방 — 관측된 under 자원 전부를 " | " 결합(prescribed_under_kinds, 억제 없음). 근본원인은
-    root_cause_display(별도 칼럼)가 "왜"를 전달 — 본 문구는 "무엇을"만 나열한다."""
+
+    root_cause_display(별도 칼럼)가 "왜"를 전달 — 본 문구는 "무엇을"만 나열한다.
+    """
     return " | ".join(resource_prescription(k, host.resources[k]) for k in prescribed_under_kinds(host))
 
 
@@ -1000,9 +1018,7 @@ def downsize_prescribable(assessment: ResourceAssessment, stats: ResourceStats) 
         return False
     if assessment.confidence.nonstationary:
         return False
-    if stats.sample_sufficiency is None or stats.sample_sufficiency < RS_DOWNSIZE_MIN_SUFFICIENCY:
-        return False
-    return True
+    return not (stats.sample_sufficiency is None or stats.sample_sufficiency < RS_DOWNSIZE_MIN_SUFFICIENCY)
 
 
 # ─── 표시 라벨 (한국어, mapper/템플릿 소비) ───

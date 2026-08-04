@@ -15,25 +15,24 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 
 ### base = `develop` 게이트 (통합 branch)
 
-코드와 문서를 feature 단위로 함께 맞추는 지점. 문서·ADR 은 결정한 직후에만 근거가 정확하므로 여기서 쓴다 (배치 근거는 `docs/guides/wrap-up.md` 0절).
+코드와 문서를 feature 단위로 함께 맞추는 지점. 문서·ADR 은 결정한 직후에만 근거가 정확하므로 여기서 쓴다 (배치 근거는 `docs/guides/pre-pr-checklist.md` 0절).
 
-1. code-reviewer 에이전트 1회 (`Agent(subagent_type='code-reviewer')`) — 정석 idiom + 명문 규약(P1-P4·F1-F11·#B·#C5). Error 즉시 수정 / Warning 위임 / Info 보고.
+1. code-reviewer 에이전트 1회 (`Agent(subagent_type='code-reviewer')`) — 정석 idiom + 명문 규약(P1-P4·F1-F13·#B·#C5). Error 즉시 수정 / Warning 위임 / Info 보고.
 2. 변경 유형이 결합 목록에 걸리면 `change-impact` skill 로 동시 갱신 위치 확인.
 3. `docs` skill 을 본 feature 가 건드린 영역으로 실행 — 코드 현황 대조·문서 갱신·ADR 정리·doc-auditor 검증까지 그 skill 이 담당한다.
 4. ADR 정합 확인 (차단 게이트). 검사 항목과 명령은 `.claude/agents/doc-auditor.md` 축 B 가 갖는다 — 그 명령을 그대로 돌려 번호 집합과 역참조 Status 를 본다. 결정이 바뀐 건이 있는데 ADR 이 없지는 않은지도 함께 본다. 어긋나면 3 으로 돌려보내고 PR 을 열지 않는다 — 강제 채널이 워크플로에도 훅에도 없어 여기가 유일한 그물이다.
+5. 이 PR 이 승격 직전이면(머지 후 바로 `develop -> main` 을 열 계획이면) doc-auditor 에이전트를 `origin/main..HEAD` 범위로 1회 (`Agent(subagent_type='doc-auditor')`) — 릴리즈 단위 중복·목적 혼선·ADR 인덱스 정합. 개별로는 맞는 서술이 여러 feature 가 모이면 어긋나고 그건 묶어 봐야 보인다. 지적은 이 PR 안에서 고친다.
 
 lint·단위 테스트·타입 계약·alembic drift 는 PR 발행 후 CI 가 돌린다 — 로컬 재현 없이 CI 결과를 확인한다.
 
 ### `--base main` 추가 강화 (배포 branch)
 
-릴리즈 단위가 확정되는 지점. 문서는 여기서 쓰지 않고 검증만 한다 — 쓰기는 develop PR 에서 끝났다. 개별로는 맞는 서술이 여러 feature 가 모이면 어긋날 수 있고, 그건 묶어 봐야 보인다.
+릴리즈 단위가 확정되는 지점. 문서는 여기서 쓰지도 검증하지도 않는다 — 릴리즈 단위 문서 검증은 승격 직전 develop PR 이 이미 했다(develop 게이트 5항).
 
 1. 정상 경로 = `develop -> main` 승격 또는 `hotfix/*`. 다른 prefix 직접 main PR 이면 의도 재확인.
 2. `uv run pytest tests/integration -q` 의무 (사용자 confirm 없이 — main 안전 우선).
 3. `git log origin/main..HEAD --oneline` 전 커밋이 Conventional Commits 형식 의무.
-4. doc-auditor 에이전트를 승격 범위로 1회 (`Agent(subagent_type='doc-auditor')`) — 릴리즈 단위 중복·목적 혼선·ADR 인덱스 정합. 지적이 나오면 여기서 고치지 않는다. develop 으로 돌려 `/docs` 로 처리한 뒤 다시 승격한다.
-   - 단 그 재승격에서는 다시 돌리지 않는다. 같은 승격 범위에서 감사를 이미 한 번 받았고 그 지적을 반영한 상태면 게이트는 소진된 것으로 본다. 되돌아온 이유가 문서 감사가 아닐 때(테스트·커밋 형식)도 마찬가지다 — 문서가 그 사이 바뀌었으면 그 변경은 develop PR 게이트가 이미 봤다.
-5. PR body 에 "main PR 사유"(release·hotfix) 절 강제.
+4. PR body 에 "main PR 사유"(release·hotfix) 절 강제.
 
 ## Pre-check (발행 직전 의무 — CI 실패·알림 noise 회피)
 

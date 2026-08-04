@@ -13,7 +13,7 @@
 
 `pyproject.toml` 만 있으면 사용자 마다 다른 transitive 버전 install (resolver 시점 의존). `uv.lock` 이 그 결과를 freeze — 같은 lockfile 로는 어디서나 정확히 같은 install.
 
-CI (`ci.yml`·`alembic-check.yml`) 가 `uv sync --frozen` 으로 설치한다 — lockfile 을 재해석하지 않고 그대로 써서 빌드 시점과 무관하게 같은 버전 집합이 깔린다. drift 자체를 실패로 잡는 것은 `uv lock --check` 이며 현재 CI 에는 없다.
+CI (`ci.yml`·`alembic-check.yml`) 가 `uv sync --frozen` 으로 설치한다 — lockfile 을 재해석하지 않고 그대로 써서 빌드 시점과 무관하게 같은 버전 집합이 깔린다. `--frozen` 은 lockfile 을 그대로 쓸 뿐 `pyproject.toml` 과 맞는지는 보지 않으므로, `ci.yml` 이 `uv lock --check` 를 따로 돌려 drift 를 실패로 잡는다.
 
 ## 2. `pyproject.toml` 구조
 
@@ -28,7 +28,7 @@ PEP 735 가 PEP 621 의 `[project.optional-dependencies]` 보다 정공 — dev 
 
 ### Python 버전
 
-`requires-python` 과 `[tool.ruff].target-version` 은 같은 minor 를 가리켜야 한다 — drift 시 ruff 가 옛 syntax 를 잘못 허용·거부한다. 올리는 절차는 4절 "Python 버전 변경".
+`requires-python` · `[tool.ruff].target-version` · `[tool.pyright].pythonVersion` · `.python-version` 이 같은 minor 를 가리켜야 한다 — drift 시 ruff 가 옛 syntax 를 잘못 허용·거부하고 pyright 가 다른 표준 라이브러리 시그니처를 본다. 올리는 절차는 4절 "Python 버전 변경".
 
 ## 3. `uv.lock`
 
@@ -78,23 +78,29 @@ uv lock
 
 ```toml
 # pyproject.toml
-requires-python = ">=3.13"           # 1. 운영 의존성 호환 범위 변경
+requires-python = ">=3.15"           # 1. 운영 의존성 호환 범위
 
 [tool.ruff]
-target-version = "py313"             # 2. ruff modernize 룰 정합
+target-version = "py315"             # 2. ruff modernize 룰 정합
+
+[tool.pyright]
+pythonVersion = "3.15"               # 3. 표준 라이브러리 시그니처 기준
 ```
 
 ```bash
-uv sync --group dev                  # 3. lockfile 재-resolve (Python 3.13 wheel 선택)
+uv python pin 3.15                   # 4. .python-version (uv 가 쓰는 인터프리터)
+uv lock && uv sync --all-groups      # 5. lockfile 재-resolve (해당 minor wheel 선택)
 ```
 
 같은 minor 가 워크플로에도 박혀 있어 함께 고친다 — `ci.yml` 은 job 마다 `setup-python` 을 따로 두므로 전 job 을 훑고, `alembic-check.yml`·`release.yml` 도 같은 값을 갖는다. 이미지 쪽은 `docs/reference/docker.md` 가 소유한다.
 
+의존성 floor 는 실제로 resolve 된 버전으로 올린다 — 검증한 조합과 선언이 갈리면 lockfile 없이 설치한 환경이 테스트 안 된 조합을 받는다.
+
 ## 5. dependabot 미사용 정책
 
-본 repo 는 GitHub Dependabot version updates 비활성 (`.github/dependabot.yml` 없음). 사유:
+Dependabot 이 자동 PR 을 여는 두 항목(security updates·version updates)을 끈다. `.github/dependabot.yml` 도 두지 않는다. 사유:
 
-- Dependabot 이 `uv.lock` 직접 갱신 미지원 (uv 의 ecosystem 미통합) — PR 머지 시 `pyproject.toml` 만 갱신, `uv.lock` 은 drift 상태로 남음.
+- Dependabot 이 `uv.lock` 직접 갱신 미지원 (uv 의 ecosystem 미통합) — PR 머지 시 `pyproject.toml` 만 갱신, `uv.lock` 은 drift 상태로 남음. `ci.yml` 의 `uv lock --check` 가 그 PR 을 실패시킨다.
 - lockfile 이 갱신되지 않은 채 머지되면 결국 운영자가 수동으로 `uv lock` 을 돌려야 한다. 자동화의 이점이 없다.
 - 의존성 PR 폭주 + 자동 merge 패턴이 운영 흐름 방해.
 
@@ -116,7 +122,7 @@ git add pyproject.toml uv.lock
 git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 ```
 
-보안 알림은 GitHub Dependabot alerts 로 수신한다 (Security 탭). 자동 PR 을 여는 security updates·version updates 는 둘 다 비활성 — 위 사유가 양쪽에 동일하게 적용된다. 설정 상태와 조회 명령은 `docs/guides/ci-setup.md` 4.2 가 소유한다.
+보안 알림은 GitHub Dependabot alerts 로 수신한다 (Security 탭). 알림을 받으면 대상 패키지를 `uv lock --upgrade-package <name>` 으로 올리고, 하한을 고정해야 하면 `pyproject.toml` 에 직접 선언해 그 줄에 근거를 남긴다 — 전이 의존이라도 직접 선언하면 핀을 걸 자리가 생긴다. 설정 위치와 조회 명령은 `docs/guides/ci-setup.md` 4.2 가 갖는다.
 
 CI 단계의 의존성 CVE 자동 gate 는 두지 않는다 — CVE 평가·대응(수정본 유무 판단·bump·예외 수용)은 alert 를 보고 운영자가 판단한다.
 

@@ -1,22 +1,26 @@
 from datetime import timedelta
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast, override
 
 from sqlalchemy import CursorResult, Result, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.models.diagnostic_job import DiagnosticJob
 from assessment_engine.db.repositories.base_diagnostic_repository import BaseDiagnosticRepository
-from assessment_engine.json_types import JsonObject
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
+    from assessment_engine.json_types import JsonObject
 
 
 class DiagnosticRepository(BaseDiagnosticRepository):
     def __init__(self, session: AsyncSession):
         self.session = session
 
+    @override
     async def enqueue(self, job: DiagnosticJobCreate) -> str | None:
         # active partial UNIQUE = (scope, input_hash, job_type). 충돌 시 returning None.
         # index_where 명시 의무 — partial unique index 는 column 만으로 자동 매칭 안 되고
@@ -41,6 +45,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    @override
     async def get_active_by_hash(
         self,
         scope: str,
@@ -60,12 +65,14 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
+    @override
     async def get_by_id(self, job_id: str) -> DiagnosticJobRecord | None:
         stmt = select(DiagnosticJob).where(DiagnosticJob.id == job_id)
         result = await self.session.execute(stmt)
         row = result.scalar_one_or_none()
         return _row_to_diagnostic_record(row) if row is not None else None
 
+    @override
     async def mark_succeeded(self, job_id: str, result: JsonObject) -> None:
         stmt = (
             update(DiagnosticJob)
@@ -79,6 +86,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         )
         await self.session.execute(stmt)
 
+    @override
     async def claim_next_pending(self) -> DiagnosticJobRecord | None:
         # FOR UPDATE SKIP LOCKED — 다른 워커가 이미 잠근 row 는 건너뛰어 1 job = 1 워커 보장(멀티노드 분산).
         # created_at 오름차순(FIFO). running 마킹까지가 claim 트랜잭션 — 커밋은 워커.
@@ -99,6 +107,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         await self.session.refresh(row)  # started_at func.now() 실제값 반영
         return _row_to_diagnostic_record(row)
 
+    @override
     async def mark_failed(self, job_id: str, error_message: str) -> None:
         stmt = (
             update(DiagnosticJob)
@@ -112,6 +121,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         )
         await self.session.execute(stmt)
 
+    @override
     async def recover_stale_running(self, stale_seconds: int) -> int:
         stmt = (
             update(DiagnosticJob)
@@ -123,6 +133,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         )
         return _affected_rows(await self.session.execute(stmt))
 
+    @override
     async def list_recent(
         self,
         days: int,
@@ -155,6 +166,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         result = await self.session.execute(stmt)
         return [_row_to_diagnostic_record(row) for row in result.scalars().all()]
 
+    @override
     async def delete_retention(self, older_than_days: int) -> int:
         stmt = delete(DiagnosticJob).where(DiagnosticJob.finished_at < func.now() - timedelta(days=older_than_days))
         return _affected_rows(await self.session.execute(stmt))

@@ -9,8 +9,6 @@
 않기 위해 문서화 전용. sizing.axes 이질(cpu/mem vs disk)은 disk 전용 필드를 Optional 로 흡수.
 """
 
-from __future__ import annotations
-
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict

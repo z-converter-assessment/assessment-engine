@@ -3,12 +3,12 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
-# MatchedPort 는 분류 도메인 개념 — service_classifier(domain)에 정의, 본 모듈은 ServiceItem.ports 로 소비.
 from assessment_engine.service_classifier import MatchedPort
-
-# NetIoSnapshot 은 NetworkDetailResponse.interfaces 필드 타입으로 재사용 (metric sub-module 정의).
 from assessment_engine.web.view_models.metric import NetIoSnapshot
 from assessment_engine.web.view_models.task import TaskSummaryItem
+
+# MatchedPort 는 분류 도메인 개념 — service_classifier(domain)에 정의, 본 모듈은 ServiceItem.ports 로 소비.
+# NetIoSnapshot 은 NetworkDetailResponse.interfaces 필드 타입으로 재사용 (metric sub-module 정의).
 
 
 @dataclass
@@ -19,7 +19,7 @@ class DiskItem:
 
 @dataclass
 class VolumeItem:
-    """파일시스템(논리 볼륨) — block_devices 중 마운트된 데이터 볼륨 노드 기준. 물리 디스크(DiskItem)와 별개 축.
+    r"""파일시스템(논리 볼륨) — block_devices 중 마운트된 데이터 볼륨 노드 기준. 물리 디스크(DiskItem)와 별개 축.
 
     양 OS 일관 표시 (Linux: / ext4 등, Windows: C:\\ ntfs 등). fstype 명시.
     """
@@ -222,7 +222,7 @@ class StorageNode:
     inode_pct: float | None = None
     inode_label: str = ""  # "1%"
     inode_class: str = ""
-    children: list["StorageNode"] = field(default_factory=list["StorageNode"])
+    children: list[StorageNode] = field(default_factory=list["StorageNode"])
     # 게이지(usage_pct) 있는 행에만 설정 — 트리 depth 들여쓰기를 상쇄해 모든 게이지 시작 x 를 통일하는
     # .stree-info 폭(px). None = 게이지 없음(폭 고정 불요, 자연 크기). mapper precompute(P3 계산 회피).
     gauge_info_width_px: int | None = None

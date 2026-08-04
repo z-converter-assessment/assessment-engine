@@ -134,7 +134,7 @@ redis 는 설정 파일 없이 command 인자로 maxmemory 와 eviction policy �
 
 postgres 는 `-h 127.0.0.1` 을 붙여 TCP 로 물어본다 — 초기화 중 unix socket 만 열린 구간을 healthy 로 오판하지 않기 위해서다.
 
-web 은 명령이 `python -c ...` 다. `curl` 이 `python:3.12-slim` 에 없어서 표준 라이브러리로 대신한다. `start_period` 는 lifespan(broker channel·redis pool·http client 초기화)이 끝날 시간을 준다 — 이 구간의 실패는 `retries` 에 포함되지 않는다. 엔드포인트(`/health`)는 `{"status": "ok"}` 만 돌려주고 DB·Redis 연결은 검사하지 않는다.
+web 은 명령이 `python -c ...` 다. `curl` 이 `python:3.14-slim` 에 없어서 표준 라이브러리로 대신한다. `start_period` 는 lifespan(broker channel·redis pool·http client 초기화)이 끝날 시간을 준다 — 이 구간의 실패는 `retries` 에 포함되지 않는다. 엔드포인트(`/health`)는 `{"status": "ok"}` 만 돌려주고 DB·Redis 연결은 검사하지 않는다.
 
 ### 기동 순서
 
@@ -169,7 +169,7 @@ rabbitmq ───┴──────┴────────────�
 bind mount 와 hot reload 는 override 에만 있다. base 는 불변 이미지다.
 
 ```yaml
-volumes: [./src/assessment_engine:/opt/venv/lib/python3.12/site-packages/assessment_engine]
+volumes: [./src/assessment_engine:/opt/venv/lib/python3.14/site-packages/assessment_engine]
 ```
 
 앱 패키지를 컨테이너 가상환경에 덮어씌운다. `migrations/` 가 패키지 안에 있어 이 마운트 하나로 마이그레이션 파일까지 함께 덮인다.

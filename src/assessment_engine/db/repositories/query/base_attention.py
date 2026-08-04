@@ -1,8 +1,10 @@
 """Attention warning 도메인 추상 인터페이스 — metric gap (통신 끊김 운영신호) 전용."""
 
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
 
 
 class BaseAttentionQueryRepository(ABC):

@@ -124,7 +124,7 @@ handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (�
 
 2. `_track_agent_restart(redis, server_id, agent_id, agent_started_at)` — metrics 핸들러 후처리 끝에서 호출.
    - 직전 `agent_started_at` 과 비교 → 변경 시 슬라이딩 윈도우 카운터 INCR
-   - `agent_restart_alert_threshold` (기본 3) 도달 시 warning (운영자가 crash loop 인지)
+   - `agent_restart_alert_threshold` 도달 시 warning (운영자가 crash loop 인지)
    - 시스템 재부팅도 같은 카운터 — 1h 내 3회 재부팅도 unusual이라 alert 적정
    - Redis 장애 시 silent skip (fail-open — 재시작 감지 1회 누락, 다음 sample 회복)
 

@@ -2,7 +2,7 @@
 
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -12,7 +12,6 @@ from assessment_engine.db.dtos.outbound import (
     ReportRowRaw,
     ServerDetail,
 )
-from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.attention import (
     _UTIL_COLOR_GAUGE,
     _UTIL_COLOR_NONE,
@@ -40,6 +39,9 @@ from assessment_engine.web.services.mappers.shared import (
     lookup_os_eol,
     resolve_os_eol,
 )
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 # ─── 헬퍼 ────────────────────────────────────────────────────────────────
 
@@ -111,8 +113,12 @@ def _raw(
         if net_interfaces is not None
         else [
             {
-                "id": "52:54:00:12:34:56", "id_type": "mac", "name": "eth0", "kind": "physical",
-                "speed_mbps": 1000, "gateway": None,
+                "id": "52:54:00:12:34:56",
+                "id_type": "mac",
+                "name": "eth0",
+                "kind": "physical",
+                "speed_mbps": 1000,
+                "gateway": None,
                 "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}],
             }
         ],
@@ -165,7 +171,7 @@ def _raw(
 
 
 @pytest.mark.parametrize(
-    "rec, risk_level, risk_label",
+    ("rec", "risk_level", "risk_label"),
     [
         ("under_provisioned", "high", "고위험"),
         ("idle", "attention", "주의 필요"),
@@ -218,7 +224,9 @@ def test_report_row_under_provisioned_maps_to_high():
 
 def test_report_row_is_partial_by_unmeasured_saturation():
     """ViewModel.is_partial = saturation 축 미관측(데이터 기반, 템플릿 마커 단일 소스).
-    Windows 는 CPU 포화 None(미관측)이라 True, Linux 는 run queue·await 관측이라 False — os 단정 아님."""
+
+    Windows 는 CPU 포화 None(미관측)이라 True, Linux 는 run queue·await 관측이라 False — os 단정 아님.
+    """
     # Windows 실측: load None -> 부분 평가 (CPU run queue 미관측)
     assert to_report_row_item(_raw(cpu_p95=40.0, mem_p95=60.0, os_family="windows"), True, _NOW).is_partial is True
     # Linux: saturation 축(run queue·cores·await) 관측 -> 완전 평가
@@ -236,12 +244,19 @@ def test_report_row_is_partial_by_unmeasured_saturation():
 
 def test_report_row_windows_swap_not_high_risk():
     """Gate0 dual-gate: 메모리 포화 = 이용률>=90 AND 페이징. Windows 는 page-out(mem_swap_paging) 축을
+
     보지 않고 Pages Input/sec 만 본다 — 같은 mem_swap_paging 신호라도 Windows 진단은 '스왑'으로 오라벨 안 함.
 
     이용률 92%(>=90)라 양 OS 모두 mem_util 로 under(high)지만, 포화 원인 라벨이 갈린다:
     Linux 는 swap page-out -> '메모리 부족 (스왑 발생)', Windows 는 pages_input 미발행이라 util 만 -> '메모리 압박'.
     """
-    stats: dict[str, Any] = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=92.0, mem_peak=95.0, mem_swap_paging=True)
+    stats: dict[str, Any] = {
+        "cpu_p95": 20.0,
+        "cpu_peak": 25.0,
+        "mem_p95": 92.0,
+        "mem_peak": 95.0,
+        "mem_swap_paging": True,
+    }
     linux = to_report_row_item(_raw(os_family="linux", **stats), True, _NOW)
     windows = to_report_row_item(_raw(os_family="windows", **stats), True, _NOW)
     assert linux.risk_level == "high"  # mem_util(92>=90) + swap page-out -> under
@@ -336,8 +351,12 @@ def _detail(
         agent_started_at=None,
         net_interfaces=[
             {
-                "id": "52:54:00:12:34:56", "id_type": "mac", "name": "eth0", "kind": "physical",
-                "speed_mbps": 1000, "gateway": None,
+                "id": "52:54:00:12:34:56",
+                "id_type": "mac",
+                "name": "eth0",
+                "kind": "physical",
+                "speed_mbps": 1000,
+                "gateway": None,
                 "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}],
             }
         ],
@@ -397,7 +416,7 @@ def test_environment_overview_utilization_default_empty():
 
 
 @pytest.mark.parametrize(
-    "pct, expected_color",
+    ("pct", "expected_color"),
     [
         # 활용률 게이지 단색 — pct 무관 _UTIL_COLOR_GAUGE (E8, hsl 그라데이션 폐기).
         (0.0, _UTIL_COLOR_GAUGE),
@@ -425,7 +444,7 @@ def test_environment_overview_utilization_bar_color(pct: float | None, expected_
 
 
 @pytest.mark.parametrize(
-    "pct, expected_dash",
+    ("pct", "expected_dash"),
     [
         (0.0, 0.0),  # 0% → dash 0
         (50.0, 263.89 / 2),  # 50% → 절반
@@ -514,7 +533,7 @@ def test_risk_donut_segments_empty_total():
 
 
 @pytest.mark.parametrize(
-    "rec, expected_key",
+    ("rec", "expected_key"),
     [
         # 자원 적정성 5 상태 1:1 매핑 (정석). T13.
         ("under_provisioned", "under_provisioned"),
@@ -563,7 +582,8 @@ def test_capacity_warning_active_causes_os_neutral_windows():
     )
     assert "메모리 포화" in item.active_causes
     assert "CPU 포화" in item.active_causes
-    assert "스왑" not in item.active_causes and "Load" not in item.active_causes
+    assert "스왑" not in item.active_causes
+    assert "Load" not in item.active_causes
 
 
 # ─── build_report_summary_bullets — 신호 9종 트리거 ──────────────────────
@@ -776,7 +796,7 @@ def test_capacity_warning_item_fields():
 
 
 @pytest.mark.parametrize(
-    "cpu_p95, mem_p95, mem_swap_paging, expected_causes",
+    ("cpu_p95", "mem_p95", "mem_swap_paging", "expected_causes"),
     [
         # _raw default: procs_running=None(cpu 포화 미발동)·mount 없음(디스크 미발동). 발화 원인만 고정순 나열.
         # Gate0 dual-gate: 이용률 미측정(None)이면 page-out 있어도 포화 아님 -> 발화 원인 0.
@@ -820,9 +840,12 @@ def test_period_assessment_windows_os_aware_and_hit():
     cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
     assert [r.name for r in pa.resources] == ["CPU", "메모리", "스토리지", "네트워크"]
     # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가.
-    assert cpu.sat_rows[0].value == "W 3.00" and cpu.sat_rows[0].over  # 12/4=3 >= 2
-    assert mem.sat_rows[0].value == "W 2000/s" and mem.sat_rows[0].over  # >= 20
-    assert disk.sat_rows[0].value == "30ms" and disk.sat_rows[0].over  # await > 20 무태그
+    assert cpu.sat_rows[0].value == "W 3.00"
+    assert cpu.sat_rows[0].over
+    assert mem.sat_rows[0].value == "W 2000/s"
+    assert mem.sat_rows[0].over
+    assert disk.sat_rows[0].value == "30ms"
+    assert disk.sat_rows[0].over
 
 
 def test_period_assessment_linux_signals_and_ok():
@@ -841,8 +864,10 @@ def test_period_assessment_linux_signals_and_ok():
     pa = build_period_assessment(stats)
     cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
     # L 태그 — Windows(Processor Queue)와 의미·임계 달라 값만으론 구분 불가.
-    assert cpu.sat_rows[0].label == "실행 큐" and cpu.sat_rows[0].value == "L 0.25"
-    assert mem.sat_rows[0].label == "페이징" and mem.sat_rows[0].value == "L 없음"
+    assert cpu.sat_rows[0].label == "실행 큐"
+    assert cpu.sat_rows[0].value == "L 0.25"
+    assert mem.sat_rows[0].label == "페이징"
+    assert mem.sat_rows[0].value == "L 없음"
     assert disk.sat_rows[0].value == "5ms"  # await 무태그(양 OS 공통)
     assert not any(r.over for r in cpu.sat_rows + mem.sat_rows + disk.sat_rows)
 
@@ -868,7 +893,7 @@ def test_period_assessment_unmeasured_when_counter_absent():
 
 
 @pytest.mark.parametrize(
-    "os_id, os_version, should_match",
+    ("os_id", "os_version", "should_match"),
     [
         ("centos", "7.9", True),
         ("rhel", "7.4", True),
@@ -887,7 +912,9 @@ def test_os_eol_matching(os_id: str, os_version: str, should_match: bool):
 
 def test_windows_ambiguous_build_takes_least_severe_candidate():
     """빌드 17763 은 SAC(1809)·LTSC(2019) 양쪽에 매핑. 후보 판정이 갈리면 심각도 최소를 택한다 —
-    불확실할 때 과소지원으로 오판하지 않는 쪽. 대표 라벨·날짜는 eol 최장(LTSC)."""
+
+    불확실할 때 과소지원으로 오판하지 않는 쪽. 대표 라벨·날짜는 eol 최장(LTSC).
+    """
     info = lookup_os_eol("windows", None, "17763.4644", _NOW.date())
     assert info is not None
     assert info.label == "Windows Server 2019"
@@ -904,7 +931,8 @@ def test_windows_2019_security_only_does_not_fire():
 def test_windows_2012_r2_fires():
     """빌드 9600(2012 R2) — 무상 패치가 끝났고 ESU 날짜가 남아 있다."""
     info = lookup_os_eol("windows", None, "9600.1", _NOW.date())
-    assert info is not None and info.status == "paid_only"
+    assert info is not None
+    assert info.status == "paid_only"
     assert info.extended_support_iso is not None
     assert resolve_os_eol("windows", None, "9600.1", _NOW.date()) is not None
 
@@ -940,17 +968,23 @@ def test_classify_eol_boundaries(support: str | None, eol: str, extended: str | 
 def test_windows_2022_full_support():
     """빌드 20348(2022) — support·eol 둘 다 미도래라 기능 업데이트까지 받는 단계."""
     info = lookup_os_eol("windows", None, "20348.2340", _NOW.date())
-    assert info is not None and info.status == "full"
+    assert info is not None
+    assert info.status == "full"
 
 
 def test_linux_carries_all_boundaries():
     """Linux 도 경계 셋을 싣는다 — ubuntu 는 support·extendedSupport 가 모두 있고,
-    유상 연장 경로가 없는 배포(fedora·centos)는 무상 종료가 곧 ended 다."""
+
+    유상 연장 경로가 없는 배포(fedora·centos)는 무상 종료가 곧 ended 다.
+    """
     ubuntu = lookup_os_eol("ubuntu", "22.04", "5.15", _NOW.date())
     assert ubuntu is not None
-    assert ubuntu.support_iso is not None and ubuntu.extended_support_iso is not None
+    assert ubuntu.support_iso is not None
+    assert ubuntu.extended_support_iso is not None
     ended = lookup_os_eol("centos", "7.9", "3.10", _NOW.date())
-    assert ended is not None and ended.status == "ended" and ended.extended_support_iso is None
+    assert ended is not None
+    assert ended.status == "ended"
+    assert ended.extended_support_iso is None
 
 
 def test_agent_unstable_item_fields():
@@ -966,7 +1000,7 @@ def test_agent_unstable_item_fields():
 
 
 @pytest.mark.parametrize(
-    "os_id, os_version",
+    ("os_id", "os_version"),
     [("centos", "7"), ("rhel", "7"), ("ubuntu", "18.04")],
 )
 def test_resolve_os_eol_known_eol_distros(os_id: str, os_version: str):
@@ -978,7 +1012,7 @@ def test_resolve_os_eol_known_eol_distros(os_id: str, os_version: str):
 
 
 @pytest.mark.parametrize(
-    "kwargs, expected",
+    ("kwargs", "expected"),
     [
         # Gate0 dual-gate: 스왑 발생 진단은 이용률>=90 AND page-out (mem_saturation trigger). util 미측정이면 미도달.
         ({"mem_p95": 92.0, "mem_swap_paging": True}, "메모리 부족 (스왑 발생)"),
@@ -1059,7 +1093,7 @@ def _host(status: recommendation.HostStatus) -> recommendation.HostAssessment:
 
 
 @pytest.mark.parametrize(
-    "status, expected",
+    ("status", "expected"),
     [
         # 비-under·비-idle 은 상태별 고정 조치 (recommendation.recommend_action 도메인 단일 진실).
         ("over", "축소 검토"),
@@ -1162,5 +1196,3 @@ def test_build_resource_stats_util_trend_rising_from_slopes():
     assert r3.util_trend_rising is None  # span 가드
     # 둘 다 None(추세 산출 불가) -> None
     assert build_resource_stats(_raw(history_hours=40.0)).util_trend_rising is None
-
-

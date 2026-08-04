@@ -6,7 +6,6 @@
 그 외 모든 경우는 입력 그대로 통과. allowlist 변경 시 본 test 회귀 가시화.
 """
 
-
 from assessment_engine.task_policy import effective_task_result
 
 ALLOW = {"20348": [2], "rocky:9": [3], "almalinux:9": [3], "ol:9": [3], "centos:9": [3]}
@@ -115,8 +114,14 @@ def _effv(
     os_id: str | None = None,
 ) -> tuple[str, str | None]:
     return effective_task_result(
-        status=status, failure_reason=reason, exit_code=exit_code, os_family=os_family,
-        os_version=os_version, os_id=os_id, success_exit_codes=ALLOW, task_policy=task_policy,
+        status=status,
+        failure_reason=reason,
+        exit_code=exit_code,
+        os_family=os_family,
+        os_version=os_version,
+        os_id=os_id,
+        success_exit_codes=ALLOW,
+        task_policy=task_policy,
     )
 
 

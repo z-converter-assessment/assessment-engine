@@ -5,19 +5,21 @@ env_report_to_dict(실제 ViewModel 직렬화)는 디스패치 테스트 범위 
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV
-from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services import report_generator
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_generator import (
     ReportGenerationError,
     build_report_result_for_job,
 )
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 _ANCHOR_ISO = "2026-05-12T00:00:00+00:00"
 
@@ -177,8 +179,10 @@ async def test_build_child_prefetched_reports_matches_per_server():
     out = await qs.build_child_prefetched_reports(["pa", "pb"], sid_map, "engineer", "7d", anchor, None)
 
     assert len(out) == 2
-    assert captured["pa"].raw is raw1 and captured["pa"].detail.id == 1  # server 1 -> pa
-    assert captured["pb"].raw is raw2 and captured["pb"].detail.id == 2  # server 2 -> pb
+    assert captured["pa"].raw is raw1
+    assert captured["pa"].detail.id == 1
+    assert captured["pb"].raw is raw2
+    assert captured["pb"].detail.id == 2
 
 
 @pytest.mark.asyncio
@@ -220,4 +224,4 @@ async def test_report_trend_uses_valid_metric_types():
     await svc._build_report_trend("24h", datetime(2026, 1, 1, tzinfo=UTC), [1])
 
     assert seen == ["cpu.usage_percent", "mem.usage_percent", "fs.usage_percent"]
-    assert set(seen) <= set(get_args(MetricType))
+    assert set(seen) <= set(get_args(MetricType.__value__))

@@ -5,17 +5,17 @@
 | 모듈 | 책임 |
 |------|------|
 | `query_service.py` (+ `query/` 패키지) | Redis 캐시 + repository 오케스트레이션. SSR/JSON 양 경로에 일관된 ViewModel·Summary 반환. `QueryService` 는 6 도메인 mixin (`query/` 하위 server·metric·attention·environment·report·task) 을 multiple inheritance 로 결합 — repo 계층 `db/repositories/query/` 와 동형. 공유 helper(`_online_map`·`_inject_net_baseline`)는 `query/_base.py` |
-| `task_service.py` | Task 발행 (DB INSERT + Redis SET). 트랜잭션 경계 + `IntegrityError` -> `TaskDuplicatePending` 변환. 본 모듈 상단 `HttpZdmPackageResolver` (ZDM 패키지 sha256·size 동적 조회 — install 발행 의존성) |
+| `task_service.py` | Task 발행 (DB INSERT + Redis SET). 트랜잭션 경계 + `IntegrityError` -> `TaskDuplicatePendingError` 변환. 본 모듈 상단 `HttpZdmPackageResolver` (ZDM 패키지 sha256·size 동적 조회 — install 발행 의존성) |
 | `mappers/` (sub-package) | Outbound DTO + Detail -> ViewModel 변환 단일 진실 (P2). 12 sub-module — `server.py`(상세·목록 ViewModel + `infer_role`) / `metric.py` / `attention.py` / `report.py` / `task.py` / `shared.py` (공용 임계 상수 + ReportView Literal + `_DONUT_SEGMENT_DEFS` + `UTIL_GAUGE_COLOR` + `spec_display_line`(정적 사양 한 줄) + `_eol_info`(경계 3개 -> 지원 단계 4상태 판정)/`resolve_os_eol`·`lookup_os_eol`/endoflife 카탈로그) / `environment_report.py` (환경 보고서 합성) / `report_history.py` (보고서 이력 row) / `topology.py` (네트워크 토폴로지 — Cytoscape 집계 그래프 elements + 서브넷별 서버 목록 `SubnetGroup`) / JSON API 응답 매퍼 3종 (`api_reference.py` OpenAPI 스펙 -> API 목록 · `assessment_api.py` `/api/assessment` per-server 계약 dict · `right_sizing_api.py` per-server 프로비저닝 판정 dict — E6 타입계약 원천, 분류·근거는 도메인 단일 진실(`rollup_host` 등) 재사용) |
 | `metrics_calculator.py` | CPU/Disk/Net delta + Mem/Swap 시점값 -> Snapshot. reset 판정은 `boot_time.is_counter_reset`(공용 도메인 모듈, 지터 허용 비교) 경유 — 재부팅 구간 delta 는 None |
 | `diagnostic_service.py` | 보고서 발행 enqueue(비동기 parent job) + 동기 저장(워커 child 경로) + job 상태 전이(claim/finish/recover) + 발행 이력. 추상 `BaseDiagnosticRepository`만 의존 |
 | `report_generator.py` | pending job -> 보고서 ViewModel 생성 디스패치 (워커·발행 경로 공유 단일 진실). 보고서 교차참조 helper `attention_for_host`/`attention_by_host` 정의 |
 | `report_serializer.py` | 발행 시점 정적 스냅샷 serde — ViewModel <-> `diagnostic_jobs.result` JSONB |
 | `cache_serializer.py` | Redis serde — `ServerDetailResponse` / `MetricDashboard`. 역직렬화 후 `enrich_*` 재호출 (idempotent) |
-| `serialization_util.py` | `cache_serializer`·`report_serializer` 공용 직렬화 계약 (datetime -> ISO, dataclass -> dict) |
+| `serialization.py` | `cache_serializer`·`report_serializer` 공용 직렬화 계약 (datetime -> ISO, dataclass -> dict) |
 | `unit_converter.py` | KB->GB / sectors->KB/s / usage_pct 단위 변환 |
 | `device_filters.py` | block_device `type`·fstype·net_interface `kind` 기반 계층 술어 단일 진실 — `is_physical_disk`(type=="disk")·`is_lvm_disk`(lvm/raid/crypt/mpath/dynamic)·`is_partition`(=="part")·`is_swap`(=="swap")·`is_virtual_interface`(kind not in physical/bond_master)·`is_data_volume`(fstype·mountpoint — 가상fs·/boot 제외) + `disk_total_bytes`/`swap_total_bytes` (block_device type 합산 단일 산식 — Windows PhysicalDrive 도 type=disk 발행이라 양 OS 공통, fallback 없음). 부모-자식 조인은 노드 `parent`(부모 id) |
-| `service_classifier.py` (도메인 `assessment_engine/`, web·consumer 공용 — `recommendation.py` 동급) | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`/`remote`/`file`/`mail`/`infra` — 원칙·경계 규칙은 아래 "카테고리 경계" 절) + 포트 매핑 + 카테고리 집합 사전계산(`compute_service_categories`, ingest 가 `service_categories` 저장). 단일 카탈로그(`SERVICE_CATALOG`) 파생. `MatchedPort` 정의(web view_model re-export) |
+| `service_classifier.py` (도메인 `assessment_engine/`, web·consumer 공용 — `recommendation.py` 동급) | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`/`remote`/`file`/`mail`/`infra` — 원칙·경계 규칙은 아래 "카테고리 경계" 절) + 포트 매핑 + 카테고리 집합 사전계산(`compute_service_categories`, ingest 가 `service_categories` 저장). 단일 카탈로그(`SERVICE_CATALOG`) 파생. `MatchedPort` 정의 — 소비자는 본 모듈에서 직접 import 한다 |
 
 ## 서비스 분류 — 3단계 표시 계층
 

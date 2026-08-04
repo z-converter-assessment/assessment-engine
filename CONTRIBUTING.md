@@ -34,12 +34,13 @@ make dev      # 컨테이너 기동 (web http://localhost:8000)
 ## 3. 검증
 
 ```bash
-make lint         # ruff
+make lint         # ruff format --check + ruff check
+make format       # ruff format 적용
 make typecheck    # pyright + tsc(정적 JS)
 make test         # 전체
 ```
 
-로컬 커밋은 lint 만 건다. develop PR 에서 코드 리뷰·테스트와 함께 문서·ADR 을 맞추고, main PR 에서는 릴리즈 단위 문서 검증과 통합 테스트를 한다. 배치 근거는 `docs/guides/wrap-up.md` 0절이 갖는다.
+로컬 커밋은 lint 만 건다. develop PR 에서 코드 리뷰·테스트와 함께 문서·ADR 을 맞추고, 승격 직전 develop PR 이 릴리즈 단위 문서 검증까지 한다. main PR 은 통합 테스트와 커밋 형식만 본다. 배치 근거는 `docs/guides/pre-pr-checklist.md` 0절이 갖는다.
 
 ## 4. 커밋과 PR
 
@@ -52,7 +53,7 @@ feat: 환경 보고서에 자원 적정성 분포를 넣는다
 fix: 자식 시계열 INSERT 가 충돌 대상을 지정하게 한다
 ```
 
-마무리 워크플로는 `docs/guides/wrap-up.md`.
+PR 발행 전 체크리스트는 `docs/guides/pre-pr-checklist.md`.
 
 ## 5. 문서를 고칠 때
 

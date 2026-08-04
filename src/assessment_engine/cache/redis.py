@@ -1,3 +1,6 @@
+from functools import lru_cache
+from typing import cast
+
 from loguru import logger
 from redis.asyncio import ConnectionPool, Redis
 from redis.exceptions import RedisError
@@ -6,27 +9,22 @@ from assessment_engine.config import WebSettings
 
 # db layer는 모든 컴포넌트 공통 — 자체 WebSettings 인스턴스화 (session.py와 동일 패턴).
 # 첫 get_pool 호출에서 만든다 — import 만으로 설정을 요구하지 않는다.
-_pool: ConnectionPool | None = None
 
 
+@lru_cache(maxsize=1)
 def get_pool() -> ConnectionPool:
-    global _pool
-    pool = _pool
-    if pool is None:
-        # redis 는 from_url 의 **kwargs 를 타입 없이 선언한다 — 인자 이름별 검증이 성립하지 않는다.
-        pool = ConnectionPool.from_url(  # pyright: ignore[reportUnknownMemberType]
-            WebSettings().redis_url,  # pyright: ignore[reportCallIssue]
-            decode_responses=True,
-            socket_timeout=5,  # F6 — 명령 timeout (fail-open 경계)
-            socket_connect_timeout=3,
-            # 장수 async 풀 정석: idle-cut(방화벽/서버) 로 죽은 소켓을 사용 직전 PING 검사해 spurious
-            # ConnectionResetError -> fail-open 캐시미스(#C3)를 예방. keepalive 로 TCP dead-peer 감지.
-            health_check_interval=30,
-            socket_keepalive=True,
-            max_connections=50,  # 소켓 고갈 상한 (기본 무제한)
-        )
-        _pool = pool
-    return pool
+    # redis 는 from_url 의 **kwargs 를 타입 없이 선언한다 — 인자 이름별 검증이 성립하지 않는다.
+    return ConnectionPool.from_url(  # pyright: ignore[reportUnknownMemberType]
+        WebSettings().redis_url,  # pyright: ignore[reportCallIssue]
+        decode_responses=True,
+        socket_timeout=5,  # F6 — 명령 timeout (fail-open 경계)
+        socket_connect_timeout=3,
+        # 장수 async 풀 정석: idle-cut(방화벽/서버) 로 죽은 소켓을 사용 직전 PING 검사해 spurious
+        # ConnectionResetError -> fail-open 캐시미스(#C3)를 예방. keepalive 로 TCP dead-peer 감지.
+        health_check_interval=30,
+        socket_keepalive=True,
+        max_connections=50,  # 소켓 고갈 상한 (기본 무제한)
+    )
 
 
 def get_redis() -> Redis:
@@ -34,10 +32,9 @@ def get_redis() -> Redis:
 
 
 async def close_pool() -> None:
-    global _pool
-    if _pool:
-        await _pool.disconnect()
-        _pool = None
+    if get_pool.cache_info().currsize:
+        await get_pool().disconnect()
+        get_pool.cache_clear()
 
 
 # ─── fail-open helpers ──────────────────────────────────────────────────────
@@ -47,7 +44,8 @@ async def close_pool() -> None:
 
 async def safe_get(redis: Redis, key: str) -> str | None:
     try:
-        return await redis.get(key)
+        # 풀이 decode_responses=True 라 응답은 str 이다. redis 8 은 그 설정을 타입에 반영하지 않는다.
+        return cast("str | None", await redis.get(key))
     except RedisError as e:
         logger.warning("redis get failed key={} err={}", key, e)
         return None
@@ -56,10 +54,11 @@ async def safe_get(redis: Redis, key: str) -> str | None:
 async def safe_set(redis: Redis, key: str, value: str, ex: int | None = None) -> bool:
     try:
         await redis.set(key, value, ex=ex)
-        return True
     except RedisError as e:
         logger.warning("redis set failed key={} err={}", key, e)
         return False
+    else:
+        return True
 
 
 async def safe_set_nx(redis: Redis, key: str, value: str, ex: int) -> bool | None:
@@ -77,10 +76,11 @@ async def safe_set_nx(redis: Redis, key: str, value: str, ex: int) -> bool | Non
 async def safe_delete(redis: Redis, key: str) -> bool:
     try:
         await redis.delete(key)
-        return True
     except RedisError as e:
         logger.warning("redis delete failed key={} err={}", key, e)
         return False
+    else:
+        return True
 
 
 async def safe_mget(redis: Redis, keys: list[str]) -> list[str | None] | None:
@@ -88,7 +88,7 @@ async def safe_mget(redis: Redis, keys: list[str]) -> list[str | None] | None:
     if not keys:
         return []
     try:
-        return await redis.mget(keys)
+        return cast("list[str | None]", await redis.mget(keys))
     except RedisError as e:
         logger.warning("redis mget failed count={} err={}", len(keys), e)
         return None

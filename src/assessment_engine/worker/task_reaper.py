@@ -12,15 +12,20 @@ graceful(F11): stop_event 로 다음 tick 중단. 진행 중 UPDATE 1건은 짧�
 구체 인스턴스는 composition root(worker/main.py)가 구성해 주입.
 """
 
-import asyncio
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
+from typing import TYPE_CHECKING
 
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.worker.worker_lifecycle import sleep_or_stop
+
+if TYPE_CHECKING:
+    import asyncio
+    from collections.abc import Callable
+    from contextlib import AbstractAsyncContextManager
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 
 
 async def run_task_reaper(

@@ -8,11 +8,10 @@ reproduction 은 인벤토리(os 서술자·boot·nonblock_mounts 컬럼 + block
 계약 OUTPUT 형태로 reshape. sizing 은 near-peak 메모리 + p95 CPU + per-mount 디스크(도메인 assess_*).
 """
 
-from __future__ import annotations
+from typing import TYPE_CHECKING
 
 from assessment_engine import recommendation
 from assessment_engine.contract import API_CONTRACT_VERSION
-from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
 from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
@@ -21,6 +20,9 @@ from assessment_engine.web.services.mappers.shared import (
     resource_confidence_notes,
     saturation_block,
 )
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
 
 
 # ─── identity ──────────────────────────────────────────────
@@ -38,9 +40,13 @@ def _identity(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool) -> J
 # ─── reproduction ──────────────────────────────────────────
 # bond_mode raw 커널 토큰 -> 계약 enum(에이전트는 raw 발행, 엔진 정규화). 미매핑/None -> None.
 _BOND_MODE_MAP = {
-    "802.3ad": "lacp", "active-backup": "active-backup", "balance-rr": "balance-rr",
-    "balance-xor": "balance-xor", "broadcast": "broadcast",
-    "balance-tlb": "balance-tlb", "balance-alb": "balance-alb",
+    "802.3ad": "lacp",
+    "active-backup": "active-backup",
+    "balance-rr": "balance-rr",
+    "balance-xor": "balance-xor",
+    "broadcast": "broadcast",
+    "balance-tlb": "balance-tlb",
+    "balance-alb": "balance-alb",
 }
 
 
@@ -60,12 +66,40 @@ def _norm_raid_level(v: object) -> int | None:
 
 # 계약 4.3 block_devices 전 키 — OUTPUT 은 "전 키 존재(null)" 규약(미수집 키도 노출). wire 는 자연노드만(엔진이 채움).
 _BLOCK_DEVICE_KEYS = (
-    "id", "id_type", "name", "type", "parent", "size_bytes",
-    "partition_table", "sector_size", "serial", "wwn", "rotational",
-    "part_number", "part_start_bytes", "part_type", "part_name", "part_flags",
-    "fstype", "fs_uuid", "fs_label", "block_size", "mountpoint", "mount_options", "fs_freq", "fs_passno",
-    "lvm_vg", "lvm_lv", "lvm_segtype", "lvm_stripes", "lvm_stripe_size_kib",
-    "raid_level", "raid_chunk_kib", "raid_metadata", "raid_uuid", "crypt_type",
+    "id",
+    "id_type",
+    "name",
+    "type",
+    "parent",
+    "size_bytes",
+    "partition_table",
+    "sector_size",
+    "serial",
+    "wwn",
+    "rotational",
+    "part_number",
+    "part_start_bytes",
+    "part_type",
+    "part_name",
+    "part_flags",
+    "fstype",
+    "fs_uuid",
+    "fs_label",
+    "block_size",
+    "mountpoint",
+    "mount_options",
+    "fs_freq",
+    "fs_passno",
+    "lvm_vg",
+    "lvm_lv",
+    "lvm_segtype",
+    "lvm_stripes",
+    "lvm_stripe_size_kib",
+    "raid_level",
+    "raid_chunk_kib",
+    "raid_metadata",
+    "raid_uuid",
+    "crypt_type",
 )
 
 
@@ -85,24 +119,37 @@ def _repro_interface(i: JsonObject, link_speeds: dict[str, int] | None = None) -
         if bps:
             speed = int(bps // 1_000_000)  # bit/s -> Mbps
     return {
-        "id": i.get("id"), "id_type": i.get("id_type"), "name": i.get("name"), "kind": i.get("kind"),
+        "id": i.get("id"),
+        "id_type": i.get("id_type"),
+        "name": i.get("name"),
+        "kind": i.get("kind"),
         "mtu": i.get("mtu"),
         "addresses": [
-            {"address": a.get("address"), "prefix": a.get("prefix"),
-             "family": a.get("family"), "origin": a.get("origin")}
+            {
+                "address": a.get("address"),
+                "prefix": a.get("prefix"),
+                "family": a.get("family"),
+                "origin": a.get("origin"),
+            }
             for a in json_list(i, "addresses")
         ],
-        "gateway": i.get("gateway"), "dns": i.get("dns"), "routes": i.get("routes"),
-        "bond_mode": _norm_bond_mode(i.get("bond_mode")), "vlan_id": i.get("vlan_id"),
+        "gateway": i.get("gateway"),
+        "dns": i.get("dns"),
+        "routes": i.get("routes"),
+        "bond_mode": _norm_bond_mode(i.get("bond_mode")),
+        "vlan_id": i.get("vlan_id"),
         "speed_mbps": speed,
     }
 
 
 def _repro_lvm_vg(v: JsonObject) -> JsonObject:
     return {
-        "name": v.get("name"), "vg_uuid": v.get("vg_uuid"),
-        "size_bytes": v.get("size_bytes"), "free_bytes": v.get("free_bytes"),
-        "extent_size_bytes": v.get("extent_size_bytes"), "pv_ids": v.get("pv_ids"),
+        "name": v.get("name"),
+        "vg_uuid": v.get("vg_uuid"),
+        "size_bytes": v.get("size_bytes"),
+        "free_bytes": v.get("free_bytes"),
+        "extent_size_bytes": v.get("extent_size_bytes"),
+        "pv_ids": v.get("pv_ids"),
     }
 
 
@@ -116,11 +163,18 @@ def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) 
     boot = raw.boot or {}
     return {
         "os": {
-            "family": raw.os_family, "id": raw.os_id, "version": raw.os_version,
-            "codename": raw.os_codename, "kernel": raw.kernel_version,
-            "arch": raw.arch, "bits": raw.bits, "boot_firmware": raw.boot_firmware,
-            "secure_boot": raw.secure_boot, "edition": raw.edition,
-            "timezone": raw.timezone, "rtc_utc": raw.rtc_utc,
+            "family": raw.os_family,
+            "id": raw.os_id,
+            "version": raw.os_version,
+            "codename": raw.os_codename,
+            "kernel": raw.kernel_version,
+            "arch": raw.arch,
+            "bits": raw.bits,
+            "boot_firmware": raw.boot_firmware,
+            "secure_boot": raw.secure_boot,
+            "edition": raw.edition,
+            "timezone": raw.timezone,
+            "rtc_utc": raw.rtc_utc,
         },
         "boot": {
             "kernel_cmdline": boot.get("kernel_cmdline"),
@@ -134,8 +188,12 @@ def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) 
         },
         "mounts": [
             {
-                "source": m.get("source"), "target": m.get("target"), "fstype": m.get("fstype"),
-                "options": m.get("options"), "fs_freq": m.get("fs_freq"), "fs_passno": m.get("fs_passno"),
+                "source": m.get("source"),
+                "target": m.get("target"),
+                "fstype": m.get("fstype"),
+                "options": m.get("options"),
+                "fs_freq": m.get("fs_freq"),
+                "fs_passno": m.get("fs_passno"),
             }
             for m in raw.nonblock_mounts or []
         ],
@@ -143,7 +201,7 @@ def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) 
 
 
 # ─── sizing (axes[]) ───────────────────────────────────────
-def _axis_size(current: int | float, ra: recommendation.ResourceAssessment, stats: recommendation.ResourceStats):
+def _axis_size(current: float, ra: recommendation.ResourceAssessment, stats: recommendation.ResourceStats):
     """cpu/memory 축 판정 -> (recommended, action, estimate_quality). recommended never-null(current 폴백).
 
     under: 정확 목표 있으면 exact, floor 있으면 floor, 둘 다 없으면 uncertain(방어).
@@ -174,7 +232,12 @@ def _device_ref(raw: ReportRowRaw, mountpoint: str | None) -> str | None:
     return None
 
 
-def _sizing(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment, mounts: list[MountCapacityRaw]) -> JsonObject:
+def _sizing(
+    raw: ReportRowRaw,
+    stats: recommendation.ResourceStats,
+    host: recommendation.HostAssessment,
+    mounts: list[MountCapacityRaw],
+) -> JsonObject:
     """사이징 축 배열 — cpu/memory(호스트 1축) + disk(마운트별 N축). 소비자 전 원소 순회 + max(current,recommended)."""
     axes: list[JsonObject] = []
     for kind, unit, current in (("cpu", "vcpus", stats.cpu_cores), ("memory", "mib", stats.mem_total_mb)):
@@ -182,26 +245,43 @@ def _sizing(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recomm
             continue  # base 수량(코어/총 RAM) 미상 -> 축 생략(recommended never-null 보장, disk 축과 대칭)
         ra = host.resources[kind]
         rec, action, quality = _axis_size(current, ra, stats)
-        axes.append({
-            "axis": kind, "current": current, "recommended": rec,
-            "unit": unit, "action": action, "estimate_quality": quality,
-        })
+        axes.append(
+            {
+                "axis": kind,
+                "current": current,
+                "recommended": rec,
+                "unit": unit,
+                "action": action,
+                "estimate_quality": quality,
+            }
+        )
     for m in mounts:
         s = recommendation.assess_mount_capacity(
-            m.total_bytes, m.target_bytes, m.byte_runway_days, m.used_pct,
-            m.inode_runway_days, m.inode_used_pct,
+            m.total_bytes,
+            m.target_bytes,
+            m.byte_runway_days,
+            m.used_pct,
+            m.inode_runway_days,
+            m.inode_used_pct,
         )
         if s is None:
             continue  # total 미상 -> 사이징 불가(축 생략)
-        axes.append({
-            "axis": "disk", "mountpoint": m.mountpoint, "device_ref": _device_ref(raw, m.mountpoint),
-            "current": s.current_gib, "recommended": s.recommended_gib,
-            "unit": "gib", "action": s.action, "estimate_quality": s.estimate_quality,
-            # 관측 근거(cpu/memory 의 utilization 과 대칭) + 크기로 안 풀리는 신호(inode 소진 등).
-            "used_pct": round(m.used_pct, 1) if m.used_pct is not None else None,
-            "runway_days": int(m.byte_runway_days) if m.byte_runway_days is not None else None,
-            "note": s.note or None,
-        })
+        axes.append(
+            {
+                "axis": "disk",
+                "mountpoint": m.mountpoint,
+                "device_ref": _device_ref(raw, m.mountpoint),
+                "current": s.current_gib,
+                "recommended": s.recommended_gib,
+                "unit": "gib",
+                "action": s.action,
+                "estimate_quality": s.estimate_quality,
+                # 관측 근거(cpu/memory 의 utilization 과 대칭) + 크기로 안 풀리는 신호(inode 소진 등).
+                "used_pct": round(m.used_pct, 1) if m.used_pct is not None else None,
+                "runway_days": int(m.byte_runway_days) if m.byte_runway_days is not None else None,
+                "note": s.note or None,
+            }
+        )
     return {"axes": axes}
 
 
@@ -245,7 +325,9 @@ def _diag_util(kind: str, raw: ReportRowRaw) -> JsonObject:
     return {"eval_pct": None, "sizing_pct": None}
 
 
-def _diag_resource(kind: str, ra: recommendation.ResourceAssessment, raw: ReportRowRaw, stats: recommendation.ResourceStats) -> JsonObject:
+def _diag_resource(
+    kind: str, ra: recommendation.ResourceAssessment, raw: ReportRowRaw, stats: recommendation.ResourceStats
+) -> JsonObject:
     axis = "disk" if kind == "disk_capacity" else kind
     return {
         "axis": axis,
@@ -264,7 +346,9 @@ def _root_cause_axis(host: recommendation.HostAssessment):
     return "disk" if rc == "disk_capacity" else rc
 
 
-def _diagnostics(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment) -> JsonObject:
+def _diagnostics(
+    raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment
+) -> JsonObject:
     return {
         "root_cause": _root_cause_axis(host),
         "root_cause_detail": recommendation.root_cause_display(host) or None,
@@ -278,7 +362,10 @@ def _diagnostics(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: r
 
 
 def build_assessment_entry(
-    raw: ReportRowRaw, mounts: list[MountCapacityRaw], is_online: bool, hostname_ambiguous: bool = False,
+    raw: ReportRowRaw,
+    mounts: list[MountCapacityRaw],
+    is_online: bool,
+    hostname_ambiguous: bool = False,
     link_speeds: dict[str, int] | None = None,
 ) -> JsonObject:
     """ReportRowRaw + per-mount 용량 + online -> /api/assessment 서버 항목 (계약 4.2).

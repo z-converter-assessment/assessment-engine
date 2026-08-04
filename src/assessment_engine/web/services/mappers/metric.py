@@ -4,8 +4,12 @@
 `web/services/metrics_calculator.py` 책임이라 본 모듈 범위 밖.
 """
 
-from assessment_engine.db.dtos.outbound import CollectionStatus, MetricSeries
+from typing import TYPE_CHECKING
+
 from assessment_engine.web.view_models.metric import CollectionStatusItem, MetricSeriesItem
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import CollectionStatus, MetricSeries
 
 
 def to_collection_status_item(dto: CollectionStatus, is_online: bool) -> CollectionStatusItem:

@@ -41,7 +41,7 @@ from assessment_engine.web.services.mappers.shared import (
 
 
 @pytest.mark.parametrize(
-    "pct, severity",
+    ("pct", "severity"),
     [
         (None, "ok"),
         (0.0, "ok"),
@@ -62,7 +62,7 @@ def test_usage_badge_class_none_returns_empty():
 
 
 @pytest.mark.parametrize(
-    "pct, expected",
+    ("pct", "expected"),
     [
         (50.0, "badge-ok"),
         (80.0, "badge-warn"),
@@ -180,7 +180,7 @@ def test_list_item_os_display():
 
 
 @pytest.mark.parametrize(
-    "kernel_version,expected",
+    ("kernel_version", "expected"),
     [
         ("9600", "2012 R2"),
         ("9200", "2012"),
@@ -212,7 +212,7 @@ def test_list_item_os_display_windows_legacy_from_build():
 
 
 @pytest.mark.parametrize(
-    "product_name,expected",
+    ("product_name", "expected"),
     [
         ("Windows Server 2019 Standard", "2019"),
         ("Windows Server 2012 R2 Datacenter", "2012 R2"),
@@ -233,7 +233,9 @@ def test_list_item_os_display_windows_product_name_overrides_display_version():
     # 티어1: product_name 연도가 os_version(DisplayVersion "1809") 을 대체 — LTSC 2019 정확 표시
     item = to_server_list_item(
         _summary(
-            os_id="windows", os_version="1809", kernel_version="17763.4644",
+            os_id="windows",
+            os_version="1809",
+            kernel_version="17763.4644",
             product_name="Windows Server 2019 Standard",
         )
     )
@@ -241,7 +243,9 @@ def test_list_item_os_display_windows_product_name_overrides_display_version():
     # SAC(연도 없는 product_name) -> 티어2 폴백, os_version("1809") 그대로 (SAC 는 그게 정확)
     item_sac = to_server_list_item(
         _summary(
-            os_id="windows", os_version="1809", kernel_version="17763.4644",
+            os_id="windows",
+            os_version="1809",
+            kernel_version="17763.4644",
             product_name="Windows Server Datacenter",
         )
     )
@@ -310,7 +314,8 @@ def _detail(**overrides: Any) -> ServerDetail:
 def test_to_server_detail_basic():
     resp = to_server_detail(_detail())
     assert resp.hostname == "host"
-    assert len(resp.disks) == 1 and resp.disks[0].name == "sda"
+    assert len(resp.disks) == 1
+    assert resp.disks[0].name == "sda"
     assert resp.disk_total_gb == 93.13  # bytes_to_gb binary divisor(GB 라벨) — decimal 100.0 아님
     assert resp.os_display == "ubuntu 22.04"
     assert resp.cpu_display == "test-cpu 4 cores"
@@ -346,7 +351,7 @@ def test_enrich_server_detail_idempotent():
     assert resp.key_listen_ports == key_ports_before
 
 
-# ─── workload union (ADR 0032) — services 이름 ∪ listen 소켓 탐지 ─────────────
+# ─── workload 합집합 (ADR 0032) — services 이름 + listen 소켓 탐지 ─────────────
 
 
 def test_workload_counter_listen_only_rescues_opaque_name():
@@ -421,7 +426,8 @@ def test_enrich_listen_only_synthetic_badge():
         )
     )
     db = next(s for s in resp.known_services if s.category == "db")
-    assert db.unit == "" and db.display_name == ""  # 특정 service 귀속 불가
+    assert db.unit == ""
+    assert db.display_name == ""
     assert any(p.port == 1433 for p in db.ports)
     assert resp.show_unknown_badge is False  # listen 으로 구제됨
 
@@ -440,7 +446,8 @@ def test_enrich_category_port_aggregation_web_iis():
     )
     web = next(s for s in resp.known_services if s.category == "web")
     port_pairs = {(p.proto, p.port) for p in web.ports}
-    assert ("tcp", 80) in port_pairs and ("tcp6", 80) in port_pairs  # 카테고리 집계로 귀속
+    assert ("tcp", 80) in port_pairs
+    assert ("tcp6", 80) in port_pairs
     assert all(lp.port != 80 for lp in resp.key_listen_ports)  # 뱃지로 갔으니 주요 Listen 에서 제외
 
 
@@ -457,7 +464,10 @@ def test_to_storage_detail_filters_virtual_mounts():
         # 마운트 사용량은 filesystems(df 시계열) 단일 소스 — 가상 제외는 fstype in VIRTUAL_FSTYPES 기준.
         filesystems=[
             MountUsageRaw(
-                mountpoint="/", fstype="ext4", used_bytes=3 * 10**10, free_bytes=2 * 10**10,
+                mountpoint="/",
+                fstype="ext4",
+                used_bytes=3 * 10**10,
+                free_bytes=2 * 10**10,
                 collected_at=datetime.now(UTC),
             ),
             MountUsageRaw(mountpoint="/proc", fstype="proc"),  # 가상 fstype -> 제외
@@ -522,9 +532,23 @@ def test_to_gap_warning_item_right_size_short_gap():
 
 def _min_raw(**overrides: Any) -> ReportRowRaw:
     base = ReportRowRaw(
-        server_id=1, public_id="p1", hostname="h", os_family="linux", os_id="ubuntu", os_version="22.04",
-        os_codename="jammy", kernel_version="5.15", net_interfaces=[], services=[], last_seen_at=None,
-        cpu_p95_pct=None, cpu_avg_pct=None, cpu_peak_pct=None, mem_p95_pct=None, mem_avg_pct=None, mem_peak_pct=None,
+        server_id=1,
+        public_id="p1",
+        hostname="h",
+        os_family="linux",
+        os_id="ubuntu",
+        os_version="22.04",
+        os_codename="jammy",
+        kernel_version="5.15",
+        net_interfaces=[],
+        services=[],
+        last_seen_at=None,
+        cpu_p95_pct=None,
+        cpu_avg_pct=None,
+        cpu_peak_pct=None,
+        mem_p95_pct=None,
+        mem_avg_pct=None,
+        mem_peak_pct=None,
     )
     return dataclasses.replace(base, **overrides)
 

@@ -7,9 +7,9 @@
 
 from collections import Counter, defaultdict
 from datetime import UTC, date, datetime
+from typing import TYPE_CHECKING
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.json_types import json_list
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES, detect_listen_categories
 from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
@@ -49,6 +49,9 @@ from assessment_engine.web.view_models.report import (
     ReportTotals,
     ReportWorkloadGroup,
 )
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import ReportRowRaw
 
 # ─── 위험도 매핑 — 양식 A KPI 3단계 압축 ────────────────────────────────
 # USE Method 분류 -> (risk_level, 한글 라벨, badge CSS 클래스).
@@ -244,9 +247,7 @@ def build_report_summary_bullets(
 # ─── 자동 진단·권고 helper (양식 B 컬럼) ───
 
 
-def _build_recommendation_action(
-    host: recommendation.HostAssessment, stats: recommendation.ResourceStats
-) -> str:
+def _build_recommendation_action(host: recommendation.HostAssessment, stats: recommendation.ResourceStats) -> str:
     """recommendation 분류 -> "권고" 컬럼 단일 문구. 조치 semantic 은 recommendation 단일 진실 (신 모델 host 기반).
 
     under_provisioned 는 근본원인 기반 처방(`under_prescription`, root_cause 정합·삼중 처방 방지),
@@ -340,9 +341,8 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
     if raw.os_family == "windows":
         if raw.cpu_run_queue_p95 is None:
             missing.append("run queue")
-    else:
-        if raw.procs_running_p95 is None:
-            missing.append("실행 큐")
+    elif raw.procs_running_p95 is None:
+        missing.append("실행 큐")
     # 디스크 응답(await)은 양 OS 공통 포화 신호 (op_time delta).
     if raw.disk_await_p95_ms is None:
         missing.append("디스크 응답(await)")
@@ -361,12 +361,21 @@ def _pct_str(v: float | None) -> str:
 # 자원별 status -> (소제목 옆 verdict 라벨, 색). 문제 자원(부족·용량임박·I/O병목=빨강 / 혼잡=주황 / 과다=파랑)만
 # 색으로 부각, 정상·유휴·미측정은 muted 회색. 라벨은 카드용 간결형(RS_STATUS_LABEL_KO 동계열).
 _VERDICT_LABEL = {
-    "under": "부족", "over": "과다", "filling": "용량 임박", "io_bound": "I/O 병목",
-    "congested": "혼잡", "idle": "유휴", "unmeasured": "미측정", "insufficient": "표본 부족",
+    "under": "부족",
+    "over": "과다",
+    "filling": "용량 임박",
+    "io_bound": "I/O 병목",
+    "congested": "혼잡",
+    "idle": "유휴",
+    "unmeasured": "미측정",
+    "insufficient": "표본 부족",
 }
 _VERDICT_COLOR = {
-    "under": "#dc2626", "filling": "#dc2626", "io_bound": "#dc2626",
-    "congested": "#d97706", "over": "var(--color-title)",
+    "under": "#dc2626",
+    "filling": "#dc2626",
+    "io_bound": "#dc2626",
+    "congested": "#d97706",
+    "over": "var(--color-title)",
 }
 
 
@@ -376,6 +385,7 @@ def _verdict(status: str) -> tuple[str, str]:
 
 def _period_error_rows(errors: list[ErrorSignal]) -> list[PeriodErrorRow]:
     """ErrorSignal -> 카드 표시행(배지 precompute, P3). occurred=빨강 카운트 / clean=초록 이상없음 / no_data=회색
+
     "수집 대기"(일시적 미수집) / not_applicable=회색 "N/A"(이 OS 구조적 미지원, 예 Windows EDAC — no_data 와
     구분해 "나중에 나타날 것"으로 오인 표시 안 함).
 
@@ -401,7 +411,9 @@ def _period_error_rows(errors: list[ErrorSignal]) -> list[PeriodErrorRow]:
     return rows
 
 
-def _extra_row(label: str, val: float | None, unit: str, thr: float | None = None, over: bool = False) -> PeriodSignalRow:
+def _extra_row(
+    label: str, val: float | None, unit: str, thr: float | None = None, over: bool = False
+) -> PeriodSignalRow:
     """신뢰도 카드 공용 로우 빌더 — CPU/메모리 등 자원별 extra_groups 가 공유(P2 표현 단일 소스)."""
     value = f"{val:.1f}{unit}" if val is not None else "N/A"
     threshold = f"임계 {thr:g}{unit}" if thr is not None else ""  # 임계 없는 정보성 값 — 괄호 자체 생략(_prows)
@@ -410,6 +422,7 @@ def _extra_row(label: str, val: float | None, unit: str, thr: float | None = Non
 
 def _confidence_rows(stats: recommendation.ResourceStats) -> list[PeriodSignalRow]:
     """관측 시간·표본 충분성 — host-level 신뢰도 입력(_base_confidence 공용, ADR 0052). 자원마다 별 신뢰도
+
     카드에 반복 노출하는 게 설계 의도(per-resource ConfidenceNote) — 값 자체는 host 공통이라 자원 간 동일.
     """
     rec = recommendation
@@ -417,13 +430,17 @@ def _confidence_rows(stats: recommendation.ResourceStats) -> list[PeriodSignalRo
     suff = stats.sample_sufficiency
     return [
         PeriodSignalRow(
-            label="관측 시간", value=(f"{hours:.0f}h" if hours is not None else "N/A"),
-            threshold=f"최소 {rec.RS_CONFIDENCE_MIN_HOURS:g}h", measured=hours is not None,
+            label="관측 시간",
+            value=(f"{hours:.0f}h" if hours is not None else "N/A"),
+            threshold=f"최소 {rec.RS_CONFIDENCE_MIN_HOURS:g}h",
+            measured=hours is not None,
             over=hours is not None and hours < rec.RS_CONFIDENCE_MIN_HOURS,
         ),
         PeriodSignalRow(
-            label="표본 충분성", value=(f"{suff * 100:.0f}%" if suff is not None else "N/A"),
-            threshold=f"최소 {rec.RS_DOWNSIZE_MIN_SUFFICIENCY * 100:g}%", measured=suff is not None,
+            label="표본 충분성",
+            value=(f"{suff * 100:.0f}%" if suff is not None else "N/A"),
+            threshold=f"최소 {rec.RS_DOWNSIZE_MIN_SUFFICIENCY * 100:g}%",
+            measured=suff is not None,
             over=suff is not None and suff < rec.RS_DOWNSIZE_MIN_SUFFICIENCY,
         ),
     ]
@@ -431,6 +448,7 @@ def _confidence_rows(stats: recommendation.ResourceStats) -> list[PeriodSignalRo
 
 def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
     """CPU 상세 탭 "신뢰도" 카드 — U/S 2축 헤드라인 수치를 얼마나 믿을지 보완하는 원신호, 성격별 2그룹(#E9 완전
+
     노출). 대등한 두 독립 축이 아니라 전부 "신뢰도" 우산 아래 성격 구분 — 부하 신호도 사이징/근본원인 판정
     게이트(코어별 최대=단일스레드 보호, D-state=IO발 로드 오귀속 방지)라 결국 U/S 수치 해석 맥락이다.
 
@@ -444,21 +462,33 @@ def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
     load_rows = [
         _extra_row("피크 사용률", stats.cpu_peak_pct, "%"),
         _extra_row(
-            "코어별 최대 p95", percore, "%", rec.RS_CPU_PERCORE_HOLD_PCT,
+            "코어별 최대 p95",
+            percore,
+            "%",
+            rec.RS_CPU_PERCORE_HOLD_PCT,
             over=percore is not None and percore >= rec.RS_CPU_PERCORE_HOLD_PCT,
         ),
         _extra_row(
-            "D-state 블록 p95", stats.procs_blocked_p95, "", rec.PROCS_BLOCKED_DSTATE_SATURATION,
+            "D-state 블록 p95",
+            stats.procs_blocked_p95,
+            "",
+            rec.PROCS_BLOCKED_DSTATE_SATURATION,
             over=stats.procs_blocked_p95 is not None and stats.procs_blocked_p95 >= rec.PROCS_BLOCKED_DSTATE_SATURATION,
         ),
     ]
     confidence_rows = [
         _extra_row(
-            "버스트 비율(p95/median)", burst, "x", rec.RS_BURST_RATIO_MAX,
+            "버스트 비율(p95/median)",
+            burst,
+            "x",
+            rec.RS_BURST_RATIO_MAX,
             over=burst is not None and burst > rec.RS_BURST_RATIO_MAX,
         ),
         _extra_row(
-            "Steal 편향 p95", steal, "%", rec.RS_CPU_STEAL_BIAS_PCT,
+            "Steal 편향 p95",
+            steal,
+            "%",
+            rec.RS_CPU_STEAL_BIAS_PCT,
             over=steal is not None and steal >= rec.RS_CPU_STEAL_BIAS_PCT,
         ),
         *_confidence_rows(stats),
@@ -485,6 +515,7 @@ def _mem_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
 
 def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
     """스토리지 상세 탭 "신뢰도" 카드 — CPU/메모리와 동일 개념. 스토리지는 용량(disk_capacity)+I/O(disk_io)
+
     두 축 통합이라 "부하 신호"에 양쪽 원신호를 함께 담는다(#E9 완전 노출).
 
     "부하 신호" = 용량 소진 잔여일수(bytes·inode, RS_DISK_RUNWAY_DAYS 미만이면 임박)·inode 사용률(정적 가드
@@ -515,7 +546,9 @@ def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExt
         else:
             value, threshold = "N/A (관측 부족)", f"최소 {rec.RS_CONFIDENCE_MIN_HOURS:g}h 관측"
         return PeriodSignalRow(
-            label=label, value=value, threshold=threshold,
+            label=label,
+            value=value,
+            threshold=threshold,
             over=val is not None and val < rec.RS_DISK_RUNWAY_DAYS,
             measured=val is not None or stable,
         )
@@ -525,7 +558,10 @@ def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExt
         _runway_row("용량 소진 잔여일수", stats.disk_capacity_runway_days),
         _runway_row("inode 소진 잔여일수", stats.disk_inode_runway_days),
         _extra_row(
-            "inode 사용률", inode_used, "%", rec.RS_DISK_STATIC_GUARD_PCT,
+            "inode 사용률",
+            inode_used,
+            "%",
+            rec.RS_DISK_STATIC_GUARD_PCT,
             over=inode_used is not None and inode_used >= rec.RS_DISK_STATIC_GUARD_PCT,
         ),
         _extra_row("IOPS 활동량(baseline)", stats.disk_iops_baseline, " IOPS"),
@@ -575,8 +611,11 @@ def build_period_assessment(
 
     def _u(label: str, val: float | None, thr: float) -> PeriodSignalRow:
         return PeriodSignalRow(
-            label=label, value=_pct_str(val), threshold=f"임계 {thr:g}%",
-            over=val is not None and val >= thr, measured=val is not None,
+            label=label,
+            value=_pct_str(val),
+            threshold=f"임계 {thr:g}%",
+            over=val is not None and val >= thr,
+            measured=val is not None,
         )
 
     # 포화 축 over = 단일 게이트(d.crossed: 신호가 자기 임계 넘음) — 값·임계와 self-consistent. 종합 dual-gate
@@ -586,10 +625,7 @@ def build_period_assessment(
     # 통일 — 부등호(>=·>)는 "임계"라는 말 자체가 이상(以上) 의미를 담아 중복이라 제거하고 숫자만 접두.
     def _s(label: str, d: SaturationAxisDisplay) -> PeriodSignalRow:
         raw = d.threshold
-        if raw.startswith("발생"):
-            thr = raw
-        else:
-            thr = "임계 " + raw.removeprefix(">= ").removeprefix("> ")
+        thr = raw if raw.startswith("발생") else "임계 " + raw.removeprefix(">= ").removeprefix("> ")
         return PeriodSignalRow(label=label, value=d.value, threshold=thr, over=d.crossed, measured=d.measured)
 
     def _net(label: str, val: float | None, thr: float, unit: str) -> PeriodSignalRow:
@@ -597,7 +633,8 @@ def build_period_assessment(
             label=label,
             value=(f"{val:.2f}{unit}" if val is not None else "N/A"),
             threshold=f"임계 {thr:g}{unit}",
-            over=val is not None and val >= thr, measured=val is not None,
+            over=val is not None and val >= thr,
+            measured=val is not None,
         )
 
     cpu_u = [_u("P95 사용률", stats.cpu_p95_pct, rec.RS_CPU_UNDER_PCT)]
@@ -610,7 +647,9 @@ def build_period_assessment(
         disk_util_value = f"{disk_util_value} ({disk_worst_mount})"
     disk_u = [
         PeriodSignalRow(
-            label="사용률 (worst mount)", value=disk_util_value, threshold=f"임계 {rec.RS_DISK_STATIC_GUARD_PCT:g}%",
+            label="사용률 (worst mount)",
+            value=disk_util_value,
+            threshold=f"임계 {rec.RS_DISK_STATIC_GUARD_PCT:g}%",
             over=disk_util_val is not None and disk_util_val >= rec.RS_DISK_STATIC_GUARD_PCT,
             measured=disk_util_val is not None,
         )
@@ -662,17 +701,52 @@ def build_period_assessment(
         classification_color=cls_color,
         resources=[
             PeriodResource(
-                "CPU", cpu_u, _over(cpu_u), cpu_s, _over(cpu_s), True, "cpu", *_verdict(_rstat("cpu")),
+                "CPU",
+                cpu_u,
+                _over(cpu_u),
+                cpu_s,
+                _over(cpu_s),
+                True,
+                "cpu",
+                *_verdict(_rstat("cpu")),
                 extra_groups=_cpu_extra_groups(stats),
             ),
-            PeriodResource("메모리", mem_u, _over(mem_u), mem_s, _over(mem_s), True, "memory",
-                           *_verdict(_rstat("memory")), extra_groups=_mem_extra_groups(stats),
-                           error_rows=mem_error_rows),
-            PeriodResource("스토리지", disk_u, _over(disk_u), disk_s, _over(disk_s), True, "storage",
-                           *_verdict(dc), extra_groups=_storage_extra_groups(stats),
-                           verdict_label2=_verdict(di)[0], verdict_color2=_verdict(di)[1]),
-            PeriodResource("네트워크", [], 0, net_s, _over(net_s), False, "network", *_verdict(_rstat("network")),
-                           extra_groups=_network_extra_groups(stats)),
+            PeriodResource(
+                "메모리",
+                mem_u,
+                _over(mem_u),
+                mem_s,
+                _over(mem_s),
+                True,
+                "memory",
+                *_verdict(_rstat("memory")),
+                extra_groups=_mem_extra_groups(stats),
+                error_rows=mem_error_rows,
+            ),
+            PeriodResource(
+                "스토리지",
+                disk_u,
+                _over(disk_u),
+                disk_s,
+                _over(disk_s),
+                True,
+                "storage",
+                *_verdict(dc),
+                extra_groups=_storage_extra_groups(stats),
+                verdict_label2=_verdict(di)[0],
+                verdict_color2=_verdict(di)[1],
+            ),
+            PeriodResource(
+                "네트워크",
+                [],
+                0,
+                net_s,
+                _over(net_s),
+                False,
+                "network",
+                *_verdict(_rstat("network")),
+                extra_groups=_network_extra_groups(stats),
+            ),
         ],
     )
 

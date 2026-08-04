@@ -1,8 +1,10 @@
 from abc import ABC, abstractmethod
+from typing import TYPE_CHECKING
 
-from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
-from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
-from assessment_engine.json_types import JsonObject
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
+    from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
+    from assessment_engine.json_types import JsonObject
 
 # 진단 평가 윈도우 타입·상수(TimeRange/DIAGNOSTIC_RANGE_DAYS/DIAGNOSTIC_DEFAULT_TIME_RANGE)는
 # db/repositories/query/types.py 단일 진실 (#F10) — repo 인터페이스 계층에 표시/윈도우 상수 미보유.
@@ -70,7 +72,7 @@ class BaseDiagnosticRepository(ABC):
         server_public_ids: list[str] | None = None,
         job_type: str | None = None,
         limit: int = 200,
-    ) -> list["DiagnosticJobRecord"]:
+    ) -> list[DiagnosticJobRecord]:
         """최근 N일 보고서 발행 이력. scope·server_public_ids·job_type 필터 옵션. created_at DESC.
 
         모든 상태(succeeded/failed) 포함. server_public_ids 지정 시 input_params JSONB ANY 매칭

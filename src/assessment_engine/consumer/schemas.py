@@ -80,7 +80,7 @@ class Metric(BaseModel):
 
 
 # 네임스페이스 = {metric명: Metric}. metric명(cpu.time 등)은 dict 키라 dot 무관.
-Namespace = dict[str, Metric]
+type Namespace = dict[str, Metric]
 
 
 # ---------------------------------------------------------------------------
@@ -292,7 +292,7 @@ class InventoryInput(AgentMessageBase):
         if not isinstance(v, (list, tuple)):
             # ValueError 만 ValidationError 로 수렴한다 — TypeError 는 model_validate_json 밖으로 새어
             # 핸들러의 검증 실패 로그를 건너뛴다.
-            raise ValueError(f"expected list of IP strings, got {type(v).__name__}")
+            raise ValueError(f"expected list of IP strings, got {type(v).__name__}")  # noqa: TRY004
         for item in cast("list[object] | tuple[object, ...]", v):
             ip_interface(str(item))
         return original

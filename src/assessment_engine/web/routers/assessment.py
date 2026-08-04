@@ -49,7 +49,9 @@ async def get_assessment(
     ),
     public_id: str | None = Query(None, description="쉼표 구분 서버 public_id(UUID) — 있으면 유일 지정."),
     window_days: int = Query(
-        _WINDOW_FLOOR_DAYS, ge=_WINDOW_FLOOR_DAYS, le=90,
+        _WINDOW_FLOOR_DAYS,
+        ge=_WINDOW_FLOOR_DAYS,
+        le=90,
         description="평가 창(일). 최소 14(계약 3절 — 짧으면 관측 부족 과소 사이징). 연장만 안전 방향.",
     ),
     end: datetime | None = Query(None, description="윈도우 종료 시각(ISO 8601, tz-aware 권장). 기본 현재."),

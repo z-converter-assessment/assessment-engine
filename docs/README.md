@@ -42,7 +42,7 @@ reference/ (지금 어떻게 도나):
 guides/ (어떻게 하나):
 - `deploy.md` · `migrate.md` · `release.md` — 배포·스키마 마이그레이션·릴리즈 절차.
 - `local-dev.md` · `testing.md` · `ci-setup.md` — 로컬 개발·테스트·CI 활성.
-- `wrap-up.md` · `conventions.md` · `dependencies.md` — 기능 마무리 워크플로·코드 규약·의존성 관리.
+- `pre-pr-checklist.md` · `conventions.md` · `dependencies.md` — PR 발행 전 체크리스트·코드 규약·의존성 관리.
 
 explanation/ (왜):
 - `tradeoffs.md` — 의식적 설계 한계.

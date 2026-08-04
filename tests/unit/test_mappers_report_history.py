@@ -1,4 +1,5 @@
 """report_history mapper — DiagnosticJobRecord (job_type='customer_report'|'engineer_report')
+
 → 보고서 이력 row dict 변환 단위 테스트.
 
 분기 풍부 (T13):
@@ -8,12 +9,15 @@
 """
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 import pytest
 
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
-from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 
 def _rec(
@@ -45,7 +49,7 @@ def _rec(
 
 
 @pytest.mark.parametrize(
-    "job_type, expected_view, expected_label",
+    ("job_type", "expected_view", "expected_label"),
     [
         ("customer_report", "customer", "고객 보고서"),
         ("engineer_report", "engineer", "엔지니어 보고서"),

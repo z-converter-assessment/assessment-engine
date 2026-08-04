@@ -15,13 +15,10 @@ result JSONB 구조·키 단일 진실은 `diagnostic.report_result`.
 
 import dataclasses
 
-from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV as REPORT_KIND_ENV
-
 # result 구조 계약(키·dict 조립)은 diagnostic.report_result 단일 진실 — web view_models 에 의존하지
 # 않는 중립 모듈에 분리.
 from assessment_engine.json_types import JsonObject, json_list, json_obj
-from assessment_engine.web.services.serialization_util import parse_dt as _dt
-from assessment_engine.web.services.serialization_util import to_jsonable as _to_jsonable
+from assessment_engine.web.services.serialization import parse_dt, to_jsonable
 from assessment_engine.web.view_models.attention import (
     ActionTargets,
     AttentionRow,
@@ -69,7 +66,7 @@ from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGr
 # ReportSummary (server scope 보고서 base — EnvironmentReportSummary.base 직렬화·복원에 사용)
 # ──────────────────────────────────────────────────────────────────────────
 def report_summary_to_dict(vm: ReportSummary) -> JsonObject:
-    return _to_jsonable(vm)
+    return to_jsonable(vm)
 
 
 def _drop_unknown_fields(cls: type, data: JsonObject) -> JsonObject:
@@ -114,8 +111,8 @@ def report_summary_from_dict(d: JsonObject) -> ReportSummary:
     data["rows"] = [_report_row_from_dict(r) for r in json_list(data, "rows")]
     totals = data.get("totals")
     data["totals"] = _build(ReportTotals, totals) if totals else ReportTotals(0, 0.0, 0)
-    data["generated_at"] = _dt(data.get("generated_at"))
-    data["anchor_at"] = _dt(data.get("anchor_at"))
+    data["generated_at"] = parse_dt(data.get("generated_at"))
+    data["anchor_at"] = parse_dt(data.get("anchor_at"))
     return _build(ReportSummary, data)
 
 
@@ -123,7 +120,7 @@ def report_summary_from_dict(d: JsonObject) -> ReportSummary:
 # EnvironmentReportSummary (환경 + 단일서버 보고서 — reports/environment.html, servers/single_report.html)
 # ──────────────────────────────────────────────────────────────────────────
 def env_report_to_dict(vm: EnvironmentReportSummary) -> JsonObject:
-    return _to_jsonable(vm)
+    return to_jsonable(vm)
 
 
 def env_report_from_dict(d: JsonObject) -> EnvironmentReportSummary:
@@ -168,16 +165,16 @@ def env_report_from_dict(d: JsonObject) -> EnvironmentReportSummary:
     ]
     data["attention_hosts"] = [_build(AttentionHostItem, a) for a in json_list(data, "attention_hosts")]
     data["capacity_imminent"] = [_build(CapacityImminentItem, c) for c in json_list(data, "capacity_imminent")]
-    data["anchor_at"] = _dt(data.get("anchor_at"))
-    data["generated_at"] = _dt(data.get("generated_at"))
+    data["anchor_at"] = parse_dt(data.get("anchor_at"))
+    data["generated_at"] = parse_dt(data.get("generated_at"))
     si = data.get("server_inventory")
     if si:
         sid = dict(si)
         sid["ip_internal"] = [_build(IpAddr, a) for a in json_list(sid, "ip_internal")]
         sid["ip_external"] = [_build(IpAddr, a) for a in json_list(sid, "ip_external")]
-        sid["boot_time"] = _dt(sid.get("boot_time"))
-        sid["agent_started_at"] = _dt(sid.get("agent_started_at"))
-        sid["last_seen_at"] = _dt(sid.get("last_seen_at"))
+        sid["boot_time"] = parse_dt(sid.get("boot_time"))
+        sid["agent_started_at"] = parse_dt(sid.get("agent_started_at"))
+        sid["last_seen_at"] = parse_dt(sid.get("last_seen_at"))
         data["server_inventory"] = _build(ServerInventorySnapshot, sid)
     mb = data.get("memory_breakdown")
     if mb:
@@ -268,7 +265,7 @@ def _attention_from_dict(d: JsonObject) -> AttentionSignals:
 
 def _attention_row_from_dict(d: JsonObject) -> AttentionRow:
     data = dict(d)
-    data["meta_at"] = _dt(data.get("meta_at"))
+    data["meta_at"] = parse_dt(data.get("meta_at"))
     return _build(AttentionRow, data)
 
 

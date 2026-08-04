@@ -5,13 +5,18 @@
 보고서 발행은 enqueue → 즉시 mark_succeeded (running/failed 상태 전이 없음, #C1).
 """
 
+from typing import TYPE_CHECKING
+
 import pytest
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
-from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
-from assessment_engine.json_types import JsonObject
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
+    from assessment_engine.json_types import JsonObject
 
 pytestmark = pytest.mark.asyncio
 
@@ -84,7 +89,8 @@ async def test_enqueue_different_scope_same_hash_independent(
     b = await diagnostic_repo.enqueue(_make_create(scope="environment", input_hash="d" * 64))
     assert b is not None
     await db_session.commit()
-    assert a is not None and b is not None
+    assert a is not None
+    assert b is not None
     assert a != b
 
 
@@ -98,7 +104,8 @@ async def test_enqueue_different_job_type_same_hash_independent(
     e = await diagnostic_repo.enqueue(_make_create(input_hash="j" * 64, job_type="engineer_report"))
     assert e is not None
     await db_session.commit()
-    assert c is not None and e is not None
+    assert c is not None
+    assert e is not None
     assert c != e
 
 

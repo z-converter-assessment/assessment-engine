@@ -3,11 +3,12 @@ import json
 from datetime import datetime
 
 from assessment_engine.json_types import JsonObject, json_list
+from assessment_engine.service_classifier import MatchedPort
 from assessment_engine.web.services.mappers.server import (
     DYNAMIC_PORT_MIN,
     enrich_server_detail,
 )
-from assessment_engine.web.services.serialization_util import json_default as _json_default
+from assessment_engine.web.services.serialization import json_default
 from assessment_engine.web.view_models.metric import (
     CpuCoreSnapshot,
     CpuSnapshot,
@@ -23,7 +24,6 @@ from assessment_engine.web.view_models.server import (
     DiskItem,
     IpAddr,
     ListenPortItem,
-    MatchedPort,
     ServerDetailResponse,
     ServiceItem,
     VolumeItem,
@@ -66,7 +66,7 @@ def _error_signal_from_dict(e: JsonObject) -> ErrorSignal:
 
 
 def server_detail_to_json(v: ServerDetailResponse) -> str:
-    return json.dumps(dataclasses.asdict(v), default=_json_default)
+    return json.dumps(dataclasses.asdict(v), default=json_default)
 
 
 def server_detail_from_json(raw: str) -> ServerDetailResponse:
@@ -119,7 +119,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
 
 
 def dashboard_to_json(v: MetricDashboard) -> str:
-    return json.dumps(dataclasses.asdict(v), default=_json_default)
+    return json.dumps(dataclasses.asdict(v), default=json_default)
 
 
 def dashboard_from_json(raw: str) -> MetricDashboard:

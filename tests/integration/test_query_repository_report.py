@@ -10,6 +10,7 @@
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -18,10 +19,12 @@ from assessment_engine.db.dtos.inbound import (
     FilesystemEntry,
     NetIoEntry,
 )
-from assessment_engine.db.repositories.collect_repository import CollectRepository
-from assessment_engine.db.repositories.query.query_repository import QueryRepository
 from tests.approx import approx
 from tests.factories import _DISK_DEVICE_ID, _IFACE_ID, make_inventory, make_metrics
+
+if TYPE_CHECKING:
+    from assessment_engine.db.repositories.collect_repository import CollectRepository
+    from assessment_engine.db.repositories.query.query_repository import QueryRepository
 
 pytestmark = pytest.mark.asyncio
 
@@ -100,11 +103,14 @@ async def test_report_aggregate_returns_iowait_and_inventory(
     )
     assert len(rows) == 1
     r = rows[0]
-    assert r.iowait_p95_pct is not None and r.iowait_p95_pct > 0
-    assert r.iowait_peak_pct is not None and r.iowait_peak_pct >= r.iowait_p95_pct
+    assert r.iowait_p95_pct is not None
+    assert r.iowait_p95_pct > 0
+    assert r.iowait_peak_pct is not None
+    assert r.iowait_peak_pct >= r.iowait_p95_pct
     assert r.cpu_cores == 4
     assert r.mem_total_bytes == 8 * 1024**3
-    assert r.block_devices and r.block_devices[0]["size_bytes"] == 100 * 10**9
+    assert r.block_devices
+    assert r.block_devices[0]["size_bytes"] == 100 * 10**9
     assert r.boot_time is not None
 
 
@@ -127,8 +133,14 @@ async def test_report_aggregate_returns_reproduction_columns(
             rtc_utc=True,
             boot={"kernel_cmdline": "ro quiet", "root_ref_type": "label", "grub_install_target": None},
             nonblock_mounts=[
-                {"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
-                 "options": ["rw", "nosuid"], "fs_freq": 0, "fs_passno": 0}
+                {
+                    "source": "tmpfs",
+                    "target": "/run",
+                    "fstype": "tmpfs",
+                    "options": ["rw", "nosuid"],
+                    "fs_freq": 0,
+                    "fs_passno": 0,
+                }
             ],
         )
     )
@@ -225,13 +237,19 @@ async def test_report_disk_io_baseline_iops_and_throughput(
     iops, throughput_kbps = bl.iops_baseline, bl.throughput_kbps_baseline
     iops_p95, iops_peak, kbps_p95, kbps_peak = bl.iops_p95, bl.iops_peak, bl.kbps_p95, bl.kbps_peak
     # 분당 50+30=80 ops + 1분 간격 -> IOPS = 80/60 ~= 1.33. floor int 변환
-    assert iops is not None and iops >= 1
-    assert throughput_kbps is not None and throughput_kbps > 0
+    assert iops is not None
+    assert iops >= 1
+    assert throughput_kbps is not None
+    assert throughput_kbps > 0
     # p95/peak는 시점 rate 기반 — baseline 이상 (모든 시점 동일 rate라 p95 ≈ peak ≈ baseline)
-    assert iops_p95 is not None and iops_p95 > 0
-    assert iops_peak is not None and iops_peak >= iops_p95
-    assert kbps_p95 is not None and kbps_p95 > 0
-    assert kbps_peak is not None and kbps_peak >= kbps_p95
+    assert iops_p95 is not None
+    assert iops_p95 > 0
+    assert iops_peak is not None
+    assert iops_peak >= iops_p95
+    assert kbps_p95 is not None
+    assert kbps_p95 > 0
+    assert kbps_peak is not None
+    assert kbps_peak >= kbps_p95
 
 
 async def test_report_disk_io_baseline_missing_data_returns_empty(
@@ -268,11 +286,17 @@ async def test_report_net_io_baseline_rx_tx(collect_repo: CollectRepository, que
     rx_kbps, tx_kbps = bl.rx_kbps_baseline, bl.tx_kbps_baseline
     rx_p95, rx_peak, tx_p95, tx_peak = bl.rx_p95, bl.rx_peak, bl.tx_p95, bl.tx_peak
     # 분당 60000 bytes / 60s / 1024 ~= 0.97 kB/s rx
-    assert rx_kbps is not None and rx_kbps > 0
-    assert tx_kbps is not None and tx_kbps > 0
+    assert rx_kbps is not None
+    assert rx_kbps > 0
+    assert tx_kbps is not None
+    assert tx_kbps > 0
     assert rx_kbps > tx_kbps  # rx 60KB/min > tx 30KB/min
-    assert rx_p95 is not None and rx_peak is not None and rx_peak >= rx_p95
-    assert tx_p95 is not None and tx_peak is not None and tx_peak >= tx_p95
+    assert rx_p95 is not None
+    assert rx_peak is not None
+    assert rx_peak >= rx_p95
+    assert tx_p95 is not None
+    assert tx_peak is not None
+    assert tx_peak >= tx_p95
 
 
 # ─── 합산: 5 SQL이 같은 server_ids·period 입력 일관 동작 ──────────────────
@@ -315,7 +339,8 @@ async def test_report_memory_breakdown_pct_split(collect_repo: CollectRepository
     assert mb.used_pct == approx(37.5, abs=0.1)
     assert mb.available_pct == approx(62.5, abs=0.1)
     assert mb.cached_pct == approx(12.5, abs=0.1)
-    assert mb.buffers_pct is not None and 0 < mb.buffers_pct < 5
+    assert mb.buffers_pct is not None
+    assert 0 < mb.buffers_pct < 5
 
 
 async def test_report_cpu_breakdown_delta_split(collect_repo: CollectRepository, query_repo: QueryRepository):
@@ -382,7 +407,8 @@ async def test_report_aggregate_counter_reset_segments_summed(
     cpu_p95 = rows[0].cpu_p95_pct
     # counter_agg: total delta = 3000+2000=5000, idle delta = 2400+1000=3400 -> 1-3400/5000 = 32%.
     # reset 점프(naive 50% 또는 비정상 spike)로 부풀지 않음.
-    assert cpu_p95 is not None and 30.0 <= cpu_p95 <= 34.0
+    assert cpu_p95 is not None
+    assert 30.0 <= cpu_p95 <= 34.0
 
 
 async def test_report_disk_io_baseline_counter_reset_segments_summed(
@@ -424,7 +450,8 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(
     iops_baseline = d[sid].iops_baseline
     # counter_agg: reads delta = (150-0)+(100-0)=250 over ~5분 관측. naive last-first=100-0=100 이면 과소.
     # reset 음수 점프(150->0)가 IOPS 를 음수/0 으로 왜곡하지 않고 양수 baseline 산출.
-    assert iops_baseline is not None and iops_baseline > 0
+    assert iops_baseline is not None
+    assert iops_baseline > 0
 
 
 # ─── ADR 0052 신 신호 report_aggregate 집계 ──────────────────────────────
@@ -432,6 +459,7 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(
 
 async def test_report_aggregate_adr0052_signals(collect_repo: CollectRepository, query_repo: QueryRepository):
     """ADR 0052 신 신호가 report_aggregate 로 집계되는지 — steal p95·burst·D-state·swap paging·await·
+
     drop%·retrans%·history_hours. 같은 5분 버킷 다중 시점으로 counter_agg delta 성립.
 
     runway(바이트/inode)는 fill-rate 최소 span 게이트가 있어 긴-span 전용 테스트로 분리
@@ -496,21 +524,29 @@ async def test_report_aggregate_adr0052_signals(collect_repo: CollectRepository,
     assert len(rows) == 1
     r = rows[0]
     # CPU 신뢰도 신호
-    assert r.cpu_steal_p95_pct is not None and r.cpu_steal_p95_pct > 0
-    assert r.cpu_burst_ratio is not None and r.cpu_burst_ratio > 0
-    assert r.history_hours is not None and r.history_hours > 0
+    assert r.cpu_steal_p95_pct is not None
+    assert r.cpu_steal_p95_pct > 0
+    assert r.cpu_burst_ratio is not None
+    assert r.cpu_burst_ratio > 0
+    assert r.history_hours is not None
+    assert r.history_hours > 0
     # D-state + swap paging (메모리 근본원인 판별)
-    assert r.procs_blocked_p95 is not None and r.procs_blocked_p95 >= 2.5
+    assert r.procs_blocked_p95 is not None
+    assert r.procs_blocked_p95 >= 2.5
     assert r.mem_swap_paging is True
     # 디스크 I/O await (물리 device op_time delta, 양 OS 통일)
-    assert r.disk_await_p95_ms is not None and r.disk_await_p95_ms > 0
+    assert r.disk_await_p95_ms is not None
+    assert r.disk_await_p95_ms > 0
     # 네트워크 품질 (드롭·재전송)
-    assert r.net_drop_pct is not None and r.net_drop_pct > 0
-    assert r.net_retrans_pct is not None and r.net_retrans_pct > 0
+    assert r.net_drop_pct is not None
+    assert r.net_drop_pct > 0
+    assert r.net_retrans_pct is not None
+    assert r.net_retrans_pct > 0
 
 
 async def test_report_aggregate_runway_long_span(collect_repo: CollectRepository, query_repo: QueryRepository):
     """용량/inode runway 는 fill-rate 최소 span(RS_DISK_RATE_MIN_SPAN_DAYS ~1.25일) 넘는 관측에서만 산출 —
+
     짧은 span 외삽(노이즈) 배제. 가용 이력 전체 span(bucket <= end, 하한 없음, F10) 기반이라 period 창과 무관.
 
     2일 span + free/inode 감소 추세 -> byte·inode runway 양수. (짧은 span 은 None: adr0052_signals 참조.)
@@ -536,8 +572,10 @@ async def test_report_aggregate_runway_long_span(collect_repo: CollectRepository
         )
         await collect_repo.record_metrics(sid, m)
     r = (await query_repo.report_aggregate([sid], period_days=14, end=end))[0]
-    assert r.disk_capacity_runway_days is not None and r.disk_capacity_runway_days >= 0
-    assert r.disk_inode_runway_days is not None and r.disk_inode_runway_days >= 0
+    assert r.disk_capacity_runway_days is not None
+    assert r.disk_capacity_runway_days >= 0
+    assert r.disk_inode_runway_days is not None
+    assert r.disk_inode_runway_days >= 0
 
 
 async def test_report_aggregate_adr0052_signals_absent_are_none(
@@ -565,6 +603,7 @@ async def test_report_aggregate_percore_p95_max_reflects_busy_core(
     query_repo: QueryRepository,
 ):
     """cpu_percore_p95_max = 가장 바쁜 코어의 p95. 코어0 90%·코어1 5% -> max ~90(집계 평균은 낮음).
+
     server_cpu_core_5m cagg 코어별 counter_agg delta 로 코어별 util% 산출.
     """
     from assessment_engine.db.dtos.inbound import CpuCoreEntry
@@ -609,7 +648,8 @@ async def test_report_aggregate_percore_p95_max_reflects_busy_core(
     assert len(rows) == 1
     r = rows[0]
     # 가장 바쁜 코어(0) p95 ~90 반영 — 단일스레드 보호(RS_CPU_PERCORE_HOLD=85) 발화선 위
-    assert r.cpu_percore_p95_max is not None and r.cpu_percore_p95_max >= 85.0
+    assert r.cpu_percore_p95_max is not None
+    assert r.cpu_percore_p95_max >= 85.0
 
 
 async def test_report_aggregate_percore_none_when_absent(collect_repo: CollectRepository, query_repo: QueryRepository):
@@ -635,7 +675,8 @@ async def test_report_aggregate_runqueue_and_oom(collect_repo: CollectRepository
         await collect_repo.record_metrics(sid, m)
     rows = await query_repo.report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=10))
     r = rows[0]
-    assert r.procs_running_p95 is not None and r.procs_running_p95 >= 7.5
+    assert r.procs_running_p95 is not None
+    assert r.procs_running_p95 >= 7.5
     assert r.oom_occurred is True
 
 
@@ -695,5 +736,7 @@ async def test_report_aggregate_await_conntrack_inode(collect_repo: CollectRepos
     r = (await query_repo.report_aggregate([sid], period_days=1, end=end))[0]
     assert r.disk_await_p95_ms is not None, "물리 device op_time delta 로 await 채워져야 함"
     assert 24.0 <= r.disk_await_p95_ms <= 26.0, f"await 25ms 근방 기대, got {r.disk_await_p95_ms}"
-    assert r.conntrack_ratio is not None and 0.83 <= r.conntrack_ratio <= 0.85, f"got {r.conntrack_ratio}"
-    assert r.disk_inode_used_pct is not None and 94.0 <= r.disk_inode_used_pct <= 96.0, f"got {r.disk_inode_used_pct}"
+    assert r.conntrack_ratio is not None
+    assert 0.83 <= r.conntrack_ratio <= 0.85, f"got {r.conntrack_ratio}"
+    assert r.disk_inode_used_pct is not None
+    assert 94.0 <= r.disk_inode_used_pct <= 96.0, f"got {r.disk_inode_used_pct}"

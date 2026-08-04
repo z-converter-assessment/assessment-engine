@@ -40,7 +40,7 @@ def test_group_by_dim_groups_by_key():
 
 
 @pytest.mark.parametrize(
-    "cur, prev, dt, expected",
+    ("cur", "prev", "dt", "expected"),
     [
         (200, 100, 10.0, 10.0),  # (200-100)/10
         (100, 100, 10.0, 0.0),
@@ -54,7 +54,7 @@ def test_delta_rate(cur: int | None, prev: int | None, dt: float, expected: floa
 
 
 @pytest.mark.parametrize(
-    "raw, room, expected",
+    ("raw", "room", "expected"),
     [
         (None, 50.0, None),
         (10.0, 50.0, 10.0),  # raw < room
@@ -107,7 +107,8 @@ def test_compute_cpu_returns_unset_pcts_without_prev():
     cur = _cpu_pair(datetime.now(UTC), 100, 900)
     snap = compute_cpu(cur, None)
     assert snap is not None
-    assert snap.usage_pct is None and snap.user_pct is None
+    assert snap.usage_pct is None
+    assert snap.user_pct is None
 
 
 def test_compute_cpu_calculates_percent_from_seconds_delta():
@@ -199,7 +200,7 @@ def test_compute_cpu_windows_coalesce_null_components():
 
 
 @pytest.mark.parametrize(
-    "cur, prev, expected",
+    ("cur", "prev", "expected"),
     [
         (_BOOT_A, _BOOT_A, False),  # 동일
         (_BOOT_A, _BOOT_B, True),  # 다름 → reset
@@ -215,9 +216,7 @@ def test_is_counter_reset(cur: datetime | None, prev: datetime | None, expected:
 # ─── compute_mem ──────────────────────────────────────────────────────────
 
 
-def _mem_pair(
-    total: int | None, available: int | None, cached: int | None, buffers: int | None
-) -> MetricPairRaw:
+def _mem_pair(total: int | None, available: int | None, cached: int | None, buffers: int | None) -> MetricPairRaw:
     # total 축은 mem_limit_bytes, 회수가능 세부는 mem_cached_bytes/mem_buffered_bytes (모두 By).
     return MetricPairRaw(
         collected_at=datetime.now(UTC),
@@ -427,15 +426,15 @@ def test_compute_mounts_filters_virtual():
 
 
 @pytest.mark.parametrize(
-    "kernel,expected",
+    ("kernel", "expected"),
     [
-        ("5.15.0-91-generic", True),   # Linux 4.20+ = 지원
-        ("4.20.1", True),              # 정확히 경계
-        ("4.19.99", False),            # 경계 직전 = 미지원
+        ("5.15.0-91-generic", True),  # Linux 4.20+ = 지원
+        ("4.20.1", True),  # 정확히 경계
+        ("4.19.99", False),  # 경계 직전 = 미지원
         ("3.10.0-1160.el7.x86_64", False),  # centos7 = 구조적 미지원
-        (None, None),                  # 커널 미상 = 판정 보류
-        ("", None),                    # 빈 문자열 = 판정 보류
-        ("garbage", None),             # 파싱 불가 = 판정 보류
+        (None, None),  # 커널 미상 = 판정 보류
+        ("", None),  # 빈 문자열 = 판정 보류
+        ("garbage", None),  # 파싱 불가 = 판정 보류
     ],
 )
 def test_psi_supported(kernel: str | None, expected: bool | None):
@@ -446,8 +445,12 @@ def test_saturation_signals_old_kernel_psi_not_applicable():
     """구커널(Linux <4.20)의 PSI 는 Windows 와 동일 not_applicable — "수집 대기" 오인 방지(4-2)."""
     sat = SaturationRaw(psi_cpu=None, psi_mem=None, psi_io=None)
     signals = build_saturation_signals(
-        os_family="linux", kernel_version="3.10.0-1160.el7.x86_64",
-        run_queue_total=None, cores=2, steal_pct=None, sat=sat,
+        os_family="linux",
+        kernel_version="3.10.0-1160.el7.x86_64",
+        run_queue_total=None,
+        cores=2,
+        steal_pct=None,
+        sat=sat,
     )
     cpu_psi = next(s for s in signals["cpu"] if s.key == "cpu_psi")
     assert cpu_psi.state == "not_applicable"
@@ -458,8 +461,12 @@ def test_saturation_signals_new_kernel_psi_no_data_when_unmeasured():
     """신커널(4.20+)인데 PSI 값 미수집이면 not_applicable 아닌 no_data(수집 대기) — 구커널과 구분(4-2)."""
     sat = SaturationRaw(psi_cpu=None)
     signals = build_saturation_signals(
-        os_family="linux", kernel_version="5.15.0",
-        run_queue_total=None, cores=2, steal_pct=None, sat=sat,
+        os_family="linux",
+        kernel_version="5.15.0",
+        run_queue_total=None,
+        cores=2,
+        steal_pct=None,
+        sat=sat,
     )
     cpu_psi = next(s for s in signals["cpu"] if s.key == "cpu_psi")
     assert cpu_psi.state == "no_data"
@@ -469,8 +476,12 @@ def test_saturation_signals_unknown_kernel_psi_falls_through():
     """커널 미상이면 PSI 판정 보류 — 값 있으면 measured, 없으면 no_data(N/A 강제 안 함)."""
     sat = SaturationRaw(psi_cpu=12.5)
     signals = build_saturation_signals(
-        os_family="linux", kernel_version=None,
-        run_queue_total=None, cores=2, steal_pct=None, sat=sat,
+        os_family="linux",
+        kernel_version=None,
+        run_queue_total=None,
+        cores=2,
+        steal_pct=None,
+        sat=sat,
     )
     cpu_psi = next(s for s in signals["cpu"] if s.key == "cpu_psi")
     assert cpu_psi.state == "measured"

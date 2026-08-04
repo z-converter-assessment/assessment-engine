@@ -12,15 +12,17 @@
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from sqlalchemy import Row, text
 
 from assessment_engine.db.dtos.inbound import TaskCreate
-from assessment_engine.db.repositories.collect_repository import CollectRepository
-from assessment_engine.db.repositories.query.query_repository import QueryRepository
 from tests.factories import make_inventory, make_task_result_update
+
+if TYPE_CHECKING:
+    from assessment_engine.db.repositories.collect_repository import CollectRepository
+    from assessment_engine.db.repositories.query.query_repository import QueryRepository
 
 pytestmark = pytest.mark.asyncio
 
@@ -146,9 +148,7 @@ async def test_complete_task_stores_task_policy(collect_repo: CollectRepository)
         update = make_task_result_update(public_id=pid, task_policy=policy)
         assert await collect_repo.complete_task(update) is True
         row = (
-            await collect_repo.session.execute(
-                text("SELECT task_policy FROM tasks WHERE public_id = :p"), {"p": pid}
-            )
+            await collect_repo.session.execute(text("SELECT task_policy FROM tasks WHERE public_id = :p"), {"p": pid})
         ).scalar_one()
         assert row is policy
 
@@ -344,9 +344,7 @@ async def test_expire_overdue_tasks_empty_list_returns_zero(collect_repo: Collec
     assert await collect_repo.expire_overdue_tasks([]) == 0
 
     status = (
-        await collect_repo.session.execute(
-            text("SELECT status FROM tasks WHERE public_id=:pid"), {"pid": pid}
-        )
+        await collect_repo.session.execute(text("SELECT status FROM tasks WHERE public_id=:pid"), {"pid": pid})
     ).scalar_one()
     assert status == "pending"
 
@@ -361,9 +359,7 @@ async def test_expire_overdue_tasks_ignores_fresh_deadline(collect_repo: Collect
 
     assert await collect_repo.expire_overdue_tasks([sid]) == 0
     status = (
-        await collect_repo.session.execute(
-            text("SELECT status FROM tasks WHERE public_id=:pid"), {"pid": pid}
-        )
+        await collect_repo.session.execute(text("SELECT status FROM tasks WHERE public_id=:pid"), {"pid": pid})
     ).scalar_one()
     assert status == "pending"
 
