@@ -55,11 +55,11 @@ RUN uv sync --frozen --no-dev --no-editable        # project 만 추가
 
 ## compose 3 파일
 
-base(prod-safe) 위에 dev override 또는 prod overlay 하나를 얹는다.
+base 위에 dev override 또는 prod overlay 하나를 얹는다.
 
 | 파일 | 역할 |
 |------|------|
-| `docker-compose.yml` | prod-safe base. 앱 서비스 `build:` 없음, GHCR 이미지 핀 pull, bind mount 없음. 볼륨 env 바인딩(`PGDATA_HOST`·`MQ_DATA_HOST`) |
+| `docker-compose.yml` | 공통 base. 앱 서비스 `build:` 없음, GHCR 이미지 핀 pull, bind mount 없음. 볼륨 env 바인딩(`PGDATA_HOST`·`MQ_DATA_HOST`) |
 | `docker-compose.override.yml` | dev 전용. 소스 빌드·`./src` bind mount·hot reload. 파일명 규칙으로 base 에 자동 머지 |
 | `docker-compose.prod.yml` | prod overlay. file-secret 배선(`secrets:` 최상위 + 서비스 참조)만 얹는다. `COMPOSE_FILE` 로 명시해야 붙는다 |
 

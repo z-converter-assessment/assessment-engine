@@ -52,6 +52,6 @@ Browser -> Router -> deps.get_task_service -> TaskService -> broker_channel (tas
 
 ## SSR + AJAX 하이브리드 (설계 결정)
 
-페이지 자체는 SSR로 즉시 first paint(`서버 목록`, `상세`, `보고서`). 차트는 페이지 로드 후 AJAX(`/api/servers/{id}/metrics/chart`), 실시간 메트릭은 30초 polling(`/metrics/latest`)으로 갱신.
+페이지 자체는 SSR로 즉시 first paint(`서버 목록`, `상세`, `보고서`). 차트는 페이지 로드 후 AJAX(`/api/servers/{id}/metrics/chart`), 실시간 메트릭은 polling(`/metrics/latest`)으로 갱신.
 
 근거: SPA 도구 미도입 → 빠른 시연·운영. 동적 영역만 JS로 격리 — `static/js/pages/{page}.js` 외부 파일 (CLAUDE.md F5 "Frontend JS 외부화 의무").

@@ -36,7 +36,7 @@
 
 ## PUB/SUB 채널
 
-현재 사용하는 PUB/SUB 채널 없음. 서버 상세 실시간 메트릭과 4탭 현재 상태는 브라우저 30초 polling(`setInterval`)으로 `/metrics/latest` 를 재요청한다 — Redis PUB/SUB 푸시 메커니즘은 사용하지 않는다.
+현재 사용하는 PUB/SUB 채널 없음. 서버 상세 실시간 메트릭과 4탭 현재 상태는 브라우저 polling 으로 `/metrics/latest` 를 재요청한다 — Redis PUB/SUB 푸시 메커니즘은 사용하지 않는다 (`docs/explanation/tradeoffs.md` T5).
 
 ---
 
@@ -58,13 +58,13 @@
 2. DELETE cache:metrics:{server_id}      — 캐시 즉시 무효화
 ```
 
-브라우저는 30초 polling(`setInterval`)으로 `/metrics/latest` AJAX 재요청 → 캐시 MISS → DB 조회 → 새 캐시 SET.
+브라우저 polling 이 `/metrics/latest` 를 재요청 → 캐시 MISS → DB 조회 → 새 캐시 SET.
 
 ### cache-aside race (알려진 한계)
 
 web의 `get_latest_metric`이 cache MISS 후 DB query를 마쳤지만 SET을 수행하기 전에 consumer가 새 metrics 커밋 + DELETE를 끝낼 수 있다. 이 경우 web의 SET이 stale 데이터를 60s TTL로 캐싱.
 
-실용적 영향은 최대 1회 표시 지연 (다음 30초 polling 주기에 회복). exactly-once 캐시 일관성 대신 단순성 선택. `docs/explanation/tradeoffs.md` T2.
+실용적 영향은 최대 1회 표시 지연 (다음 polling 주기에 회복). exactly-once 캐시 일관성 대신 단순성 선택. `docs/explanation/tradeoffs.md` T2.
 
 ---
 
@@ -141,7 +141,7 @@ cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_ser
 약화되는 보장:
 - 멱등성 1단: 평시 1회 RTT 차단 → 장애 시 매번 DB INSERT 시도 + UNIQUE 충돌 흡수. 트래픽 규모에서 영향 미미.
 - list 화면 online: Redis 300s TTL 기반 → DB `last_seen_at` 기반. 정밀도 거의 동일, DB N개 행 비교 부하 추가.
-- 실시간 메트릭 polling: 캐시 MISS 로 매 30초 요청이 DB 직접 조회. 응답 정상, 부하만 증가.
+- 실시간 메트릭 polling: 캐시 MISS 로 매 요청이 DB 직접 조회. 응답 정상, 부하만 증가.
 
 약화되지 않는 보장: 데이터 정확성. 멱등성 fail-open은 1단 차단을 잃지만 시계열 metric 7개 테이블의 `(server_id, [dim,] collected_at)` UNIQUE 제약이 중복 INSERT를 silent no-op으로 흡수.
 
@@ -175,4 +175,4 @@ INFO stats | grep evicted_keys                 # evict 누적 (T11: 멱등성 �
 | 새 inventory 반영 안 됨 | consumer cache DELETE 실패 — `DEL cache:inventory:{id}` 수동 |
 | 같은 message_id 중복 행 | Redis 키 만료/evict — DB UNIQUE 2단이 흡수, 중복 행 없으면 정상 |
 | 온라인 뱃지 깜빡임 | TTL(300s) 안 inventory·metrics 5분 연속 미수신 — 에이전트 다운·네트워크 단절 확인 |
-| 실시간 메트릭 갱신 안 됨 | 브라우저 30초 polling(`setInterval`)이 `/metrics/latest` 재요청 — 네트워크 탭에서 주기 요청 확인 |
+| 실시간 메트릭 갱신 안 됨 | 브라우저 polling 이 `/metrics/latest` 재요청 — 네트워크 탭에서 주기 요청 확인 |
