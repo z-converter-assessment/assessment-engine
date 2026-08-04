@@ -28,7 +28,7 @@ _CACHED_ENTRYPOINTS = (
 
 
 @pytest.fixture(autouse=True)
-def unit_test_secrets(monkeypatch):
+def unit_test_secrets(monkeypatch: pytest.MonkeyPatch):
     """필수 비밀번호를 env 로 준다. 검증 자체를 다루는 테스트는 delenv 로 걷어낸다."""
     for key, value in _UNIT_TEST_SECRETS.items():
         monkeypatch.setenv(key, value)

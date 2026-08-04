@@ -12,6 +12,7 @@ from assessment_engine.db.dtos.outbound import (
     ReportRowRaw,
     ServerDetail,
 )
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.attention import (
     _UTIL_COLOR_GAUGE,
     _UTIL_COLOR_NONE,
@@ -55,8 +56,8 @@ def _raw(
     os_version: str | None = "22.04",
     os_codename: str | None = "jammy",
     kernel_version: str | None = "5.15",
-    net_interfaces: list[dict] | None = None,
-    services: list[dict] | None = None,
+    net_interfaces: list[JsonObject] | None = None,
+    services: list[JsonObject] | None = None,
     cpu_avg: float | None = None,
     cpu_p95: float | None = None,
     cpu_peak: float | None = None,
@@ -69,7 +70,7 @@ def _raw(
     mem_pages_input_rate_p95: float | None = None,
     cpu_cores: int | None = 2,
     mem_total_kb: int | None = 2 * 1024 * 1024,  # 테스트 편의 단위(KiB) — 아래에서 v2 mem_total_bytes 로 환산
-    block_devices: list[dict] | None = None,
+    block_devices: list[JsonObject] | None = None,
     boot_time: datetime | None = None,
     worst_mount: str | None = None,
     worst_used: float | None = None,
@@ -173,7 +174,7 @@ def _raw(
         ("insufficient_data", "normal", "정상"),
     ],
 )
-def test_risk_mapping_all_recommendations(rec, risk_level, risk_label):
+def test_risk_mapping_all_recommendations(rec: str, risk_level: str, risk_label: str):
     level, label, badge = _RISK_FROM_RECOMMENDATION[rec]
     assert level == risk_level
     assert label == risk_label
@@ -303,7 +304,15 @@ def test_report_totals_handles_null_fields():
 # ─── build_environment_overview ──────────────────────────────────────────
 
 
-def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None):
+def _detail(
+    *,
+    id_: int,
+    hostname: str,
+    cpu_cores: int,
+    mem_total_kb: int,
+    disk_size: int,
+    role_unit: str | None = None,
+):
     # mem_total_kb 는 테스트 편의 단위(KiB) — v2 ServerDetail.mem_total_bytes 로 환산.
     return ServerDetail(
         id=id_,
@@ -397,7 +406,7 @@ def test_environment_overview_utilization_default_empty():
         (None, _UTIL_COLOR_NONE),  # 표본 부재 — 단일 회색
     ],
 )
-def test_environment_overview_utilization_bar_color(pct, expected_color):
+def test_environment_overview_utilization_bar_color(pct: float | None, expected_color: str):
     details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024 * 1024, disk_size=10**9)]
     util = EnvironmentUtilizationRaw(
         cpu_avg_pct=pct,
@@ -426,7 +435,7 @@ def test_environment_overview_utilization_bar_color(pct, expected_color):
         (None, 0.0),  # 표본 부재
     ],
 )
-def test_environment_overview_utilization_dash_length(pct, expected_dash):
+def test_environment_overview_utilization_dash_length(pct: float | None, expected_dash: float):
     details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024 * 1024, disk_size=10**9)]
     util = EnvironmentUtilizationRaw(
         cpu_avg_pct=pct,
@@ -515,7 +524,7 @@ def test_risk_donut_segments_empty_total():
         ("insufficient_data", "insufficient_data"),
     ],
 )
-def test_donut_segment_from_rec_mapping(rec, expected_key):
+def test_donut_segment_from_rec_mapping(rec: str, expected_key: str):
     assert _DONUT_SEGMENT_FROM_REC[rec] == expected_key
 
 
@@ -779,7 +788,12 @@ def test_capacity_warning_item_fields():
         (50.0, 60.0, False, []),  # 비도달
     ],
 )
-def test_capacity_warning_item_active_causes(cpu_p95, mem_p95, mem_swap_paging, expected_causes):
+def test_capacity_warning_item_active_causes(
+    cpu_p95: float | None,
+    mem_p95: float | None,
+    mem_swap_paging: bool,
+    expected_causes: list[str],
+):
     """active_causes = 발화 trigger 의 os-neutral 원인 라벨(고정 순서)."""
     raw = _raw(cpu_p95=cpu_p95, mem_p95=mem_p95, mem_swap_paging=mem_swap_paging)
     item = to_capacity_warning_item(raw)
@@ -865,7 +879,7 @@ def test_period_assessment_unmeasured_when_counter_absent():
         ("rocky", "9.6", False),
     ],
 )
-def test_os_eol_matching(os_id, os_version, should_match):
+def test_os_eol_matching(os_id: str, os_version: str, should_match: bool):
     raw = _raw(os_id=os_id, os_version=os_version)
     item = to_os_eol_warning_item(raw, _NOW)
     assert (item is not None) == should_match
@@ -918,7 +932,7 @@ def test_windows_2012_r2_fires():
         ("2000-01-01", "2000-01-01", "2036-01-01", "paid_only"),
     ],
 )
-def test_classify_eol_boundaries(support, eol, extended, expected):
+def test_classify_eol_boundaries(support: str | None, eol: str, extended: str | None, expected: str):
     """경계 3개 -> 4상태 판정. 카탈로그 의존 없이 규칙만 고정한다."""
     assert _classify_eol(support, eol, extended, _NOW.date()) == expected
 
@@ -955,7 +969,7 @@ def test_agent_unstable_item_fields():
     "os_id, os_version",
     [("centos", "7"), ("rhel", "7"), ("ubuntu", "18.04")],
 )
-def test_resolve_os_eol_known_eol_distros(os_id, os_version):
+def test_resolve_os_eol_known_eol_distros(os_id: str, os_version: str):
     # 2026 기준 모두 EOL 경과 -> (eol_iso, label) 반환 (None 아님).
     assert resolve_os_eol(os_id, os_version, None, _NOW.date()) is not None
 
@@ -984,7 +998,7 @@ def test_resolve_os_eol_known_eol_distros(os_id, os_version):
         ({"cpu_p95": 50.0, "mem_p95": 85.0}, "정상"),
     ],
 )
-def test_diagnosis_priority(kwargs, expected):
+def test_diagnosis_priority(kwargs: Any, expected: str):
     """우선순위: 스왑 > I/O > saturation > mem 압박 > cpu 압박 > 변동성(peak>헤드룸) > 미사용 > 여유 > 정상."""
     raw = _raw(**kwargs)
     item = to_report_row_item(raw, True, _NOW)
@@ -1053,7 +1067,7 @@ def _host(status: recommendation.HostStatus) -> recommendation.HostAssessment:
         ("insufficient", "표본 부족 — 관측 지속"),
     ],
 )
-def test_recommendation_action_fixed_phrases(status, expected):
+def test_recommendation_action_fixed_phrases(status: recommendation.HostStatus, expected: str):
     assert _build_recommendation_action(_host(status), _rs()) == expected
 
 

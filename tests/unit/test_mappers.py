@@ -53,7 +53,7 @@ from assessment_engine.web.services.mappers.shared import (
         (100.0, "danger"),
     ],
 )
-def test_usage_severity(pct, severity):
+def test_usage_severity(pct: float | None, severity: str):
     assert _usage_severity(pct) == severity
 
 
@@ -69,7 +69,7 @@ def test_usage_badge_class_none_returns_empty():
         (95.0, "badge-danger"),
     ],
 )
-def test_usage_badge_class(pct, expected):
+def test_usage_badge_class(pct: float, expected: str):
     assert _usage_badge_class(pct) == expected
 
 
@@ -195,7 +195,7 @@ def test_list_item_os_display():
         (None, None),
     ],
 )
-def test_windows_legacy_version_from_build(kernel_version, expected):
+def test_windows_legacy_version_from_build(kernel_version: str | None, expected: str | None):
     assert windows_legacy_version_from_build(kernel_version) == expected
 
 
@@ -225,7 +225,7 @@ def test_list_item_os_display_windows_legacy_from_build():
         ("", None),
     ],
 )
-def test_windows_short_label_from_product_name(product_name, expected):
+def test_windows_short_label_from_product_name(product_name: str | None, expected: str | None):
     assert windows_short_label_from_product_name(product_name) == expected
 
 

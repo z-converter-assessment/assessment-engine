@@ -10,6 +10,7 @@ from pathlib import Path
 
 import pytest
 from jsonschema import Draft202012Validator
+from jsonschema.exceptions import ValidationError as JsonSchemaError
 from pydantic import ValidationError
 
 from assessment_engine.consumer.schemas import (
@@ -20,6 +21,7 @@ from assessment_engine.consumer.schemas import (
     NonblockMountInfo,
     TaskResultInput,
 )
+from assessment_engine.json_types import JsonObject
 
 _CONTRACTS = Path(__file__).resolve().parents[2] / "docs/reference/contracts"
 _EXAMPLES = json.loads((_CONTRACTS / "wire-examples.json").read_text())
@@ -30,6 +32,12 @@ _MODEL_BY_TYPE = {
     "task.result": TaskResultInput,
     "error": ErrorInput,
 }
+def _schema_errors(msg: JsonObject) -> list[JsonSchemaError]:
+    """정본 JSON Schema 위반 목록. jsonschema 가 iter_errors 를 타입 없이 선언해 여기서 한 번 확정한다."""
+    validator = Draft202012Validator(_SCHEMA)
+    return list(validator.iter_errors(msg))  # pyright: ignore[reportUnknownMemberType]
+
+
 _CASES = [(name, msg) for name, msg in _EXAMPLES.items() if not name.startswith("_")]
 
 
@@ -39,14 +47,14 @@ def test_wire_schema_is_valid() -> None:
 
 
 @pytest.mark.parametrize("name,msg", _CASES, ids=[c[0] for c in _CASES])
-def test_v2_example_matches_schema(name: str, msg: dict) -> None:
+def test_v2_example_matches_schema(name: str, msg: JsonObject) -> None:
     """계약 예시 6종이 정본 JSON Schema 를 만족."""
-    errors = sorted(Draft202012Validator(_SCHEMA).iter_errors(msg), key=lambda e: e.json_path)
+    errors = sorted(_schema_errors(msg), key=lambda e: e.json_path)
     assert not errors, "\n".join(f"{e.json_path}: {e.message}" for e in errors)
 
 
 @pytest.mark.parametrize("name,msg", _CASES, ids=[c[0] for c in _CASES])
-def test_v2_example_validates(name: str, msg: dict) -> None:
+def test_v2_example_validates(name: str, msg: JsonObject) -> None:
     """계약 예시 6종(linux/windows metrics·inventory + task.result + error)이 인바운드 스키마로 파싱."""
     model = _MODEL_BY_TYPE[msg["message_type"]]
     model.model_validate(msg)
@@ -107,7 +115,7 @@ def test_schema_version_required() -> None:
 def test_schema_version_major_gate(version: str, accepted: bool) -> None:
     """major 일치만 통과. 두 정본이 같은 입력에 같은 판정을 내리는지 함께 확인한다."""
     msg = _EXAMPLES["error"] | {"schema_version": version}
-    schema_ok = not list(Draft202012Validator(_SCHEMA).iter_errors(msg))
+    schema_ok = not _schema_errors(msg)
     try:
         ErrorInput.model_validate(msg)
         pydantic_ok = True

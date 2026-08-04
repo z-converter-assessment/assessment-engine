@@ -35,8 +35,8 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 env: Environment = templates.env
 # jinja2 는 globals·filters 의 값 타입을 우리가 볼 수 있는 형태로 주지 않는다. 실제 계약은 임의 값이라
 # 여기서 한 번 확정해 받고 이후는 이 두 이름으로만 넣는다.
-env_globals = cast("dict[str, Any]", env.globals)  # pyright: ignore[reportUnknownMemberType]
-env_filters = cast("dict[str, Any]", env.filters)  # pyright: ignore[reportUnknownMemberType]
+env_globals = cast("dict[str, Any]", env.globals)
+env_filters = cast("dict[str, Any]", env.filters)
 env_filters["kst"] = kst
 env_filters["disksize"] = disksize
 env_filters["storagesize"] = storagesize

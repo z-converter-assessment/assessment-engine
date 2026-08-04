@@ -35,7 +35,7 @@ from assessment_engine.web.services.device_filters import (
         (None, True),  # placeholder — 제외
     ],
 )
-def test_is_virtual_interface(kind, expected):
+def test_is_virtual_interface(kind: str | None, expected: bool):
     assert is_virtual_interface(kind) is expected
 
 
@@ -58,7 +58,7 @@ def test_is_virtual_interface(kind, expected):
         ("", False),
     ],
 )
-def test_is_physical_disk(dtype, expected):
+def test_is_physical_disk(dtype: str | None, expected: bool):
     assert is_physical_disk(dtype) is expected
 
 
@@ -77,7 +77,7 @@ def test_is_physical_disk(dtype, expected):
         (None, False),
     ],
 )
-def test_is_lvm_disk(dtype, expected):
+def test_is_lvm_disk(dtype: str | None, expected: bool):
     assert is_lvm_disk(dtype) is expected
 
 
@@ -92,7 +92,7 @@ def test_is_lvm_disk(dtype, expected):
         (None, False),
     ],
 )
-def test_is_partition(dtype, expected):
+def test_is_partition(dtype: str | None, expected: bool):
     assert is_partition(dtype) is expected
 
 
@@ -106,7 +106,7 @@ def test_is_partition(dtype, expected):
         (None, False),
     ],
 )
-def test_is_swap(dtype, expected):
+def test_is_swap(dtype: str | None, expected: bool):
     assert is_swap(dtype) is expected
 
 
@@ -133,7 +133,7 @@ def test_is_swap(dtype, expected):
         (None, None, True),
     ],
 )
-def test_is_data_volume(fstype, mountpoint, expected):
+def test_is_data_volume(fstype: str | None, mountpoint: str | None, expected: bool):
     assert is_data_volume(fstype, mountpoint) is expected
 
 

@@ -12,6 +12,7 @@ from datetime import UTC, datetime
 import pytest
 
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
 
 
@@ -19,8 +20,8 @@ def _rec(
     *,
     job_type: str,
     scope: str,
-    input_params: dict,
-    result: dict | None = None,
+    input_params: JsonObject,
+    result: JsonObject | None = None,
 ) -> DiagnosticJobRecord:
     """DiagnosticJobRecord 최소 fixture — report_history 변환 검증용."""
     return DiagnosticJobRecord(
@@ -52,7 +53,7 @@ def _rec(
         ("ai_diagnostic", "customer", "고객 보고서"),
     ],
 )
-def test_view_label_from_job_type(job_type, expected_view, expected_label):
+def test_view_label_from_job_type(job_type: str, expected_view: str, expected_label: str):
     rec = _rec(
         job_type=job_type,
         scope="server",

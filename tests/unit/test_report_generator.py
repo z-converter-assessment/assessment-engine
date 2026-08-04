@@ -5,11 +5,13 @@ env_report_to_dict(실제 ViewModel 직렬화)는 디스패치 테스트 범위 
 """
 
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
 from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services import report_generator
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_generator import (
@@ -20,7 +22,7 @@ from assessment_engine.web.services.report_generator import (
 _ANCHOR_ISO = "2026-05-12T00:00:00+00:00"
 
 
-def _record(scope, input_params):
+def _record(scope: str, input_params: JsonObject) -> MagicMock:
     rec = MagicMock()
     rec.scope = scope
     rec.input_params = input_params
@@ -32,9 +34,12 @@ def _empty_attention():
 
 
 @pytest.fixture(autouse=True)
-def _stub_serializer(monkeypatch):
+def _stub_serializer(monkeypatch: pytest.MonkeyPatch):
     # env_report_to_dict 는 실제 ViewModel 직렬화 — 디스패치 분기 테스트는 dict 변환을 stub.
-    monkeypatch.setattr(report_generator, "env_report_to_dict", lambda vm: {"vm": "snap"})
+    def _stub(vm: object) -> JsonObject:
+        return {"vm": "snap"}
+
+    monkeypatch.setattr(report_generator, "env_report_to_dict", _stub)
 
 
 @pytest.mark.asyncio
@@ -151,9 +156,17 @@ async def test_build_child_prefetched_reports_matches_per_server():
     qs.repo.report_memory_breakdown_batch = AsyncMock(return_value={})
     qs.repo.report_cpu_breakdown_batch = AsyncMock(return_value={})
 
-    captured: dict = {}
+    captured: JsonObject = {}
 
-    async def fake_single(pid, *, view, time_range, anchor_at, attention, prefetch):
+    async def fake_single(
+        pid: str,
+        *,
+        view: str,
+        time_range: str,
+        anchor_at: datetime,
+        attention: object,
+        prefetch: object,
+    ) -> MagicMock:
         captured[pid] = prefetch
         return MagicMock()
 
@@ -197,7 +210,7 @@ async def test_report_trend_uses_valid_metric_types():
 
     seen: list[str] = []
 
-    async def _mt(metric_type, *args, **kwargs):
+    async def _mt(metric_type: str, *args: Any, **kwargs: Any) -> list[Any]:
         seen.append(metric_type)
         return []
 
