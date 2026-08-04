@@ -2,7 +2,7 @@
 
 FROM ghcr.io/astral-sh/uv:0.11.16 AS uv
 
-FROM python:3.12-slim AS builder
+FROM python:3.14-slim AS builder
 
 # uv 는 hardlink 로 캐시를 연결하려다 레이어 경계에서 실패한다.
 # 가상환경 안 스크립트에 절대경로 shebang 이 박혀 builder 와 runtime 의 경로가 같아야 한다.
@@ -24,14 +24,14 @@ COPY src ./src
 RUN uv sync --frozen --no-dev --no-editable
 
 
-FROM python:3.12-slim AS runtime
+FROM python:3.14-slim AS runtime
 
 ENV PYTHONUNBUFFERED=1 \
     PATH="/opt/venv/bin:$PATH"
 
 # alembic 은 cwd 의 alembic.ini 를 찾는데 설정 파일이 패키지 안에 있어 못 만난다. 이미지가 값을 들고
 # 있어야 compose 없이 docker run 으로도 마이그레이션 명령이 돈다.
-ENV ALEMBIC_CONFIG=/opt/venv/lib/python3.12/site-packages/assessment_engine/_alembic.ini
+ENV ALEMBIC_CONFIG=/opt/venv/lib/python3.14/site-packages/assessment_engine/_alembic.ini
 
 WORKDIR /app
 

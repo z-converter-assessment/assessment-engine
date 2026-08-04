@@ -13,9 +13,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
-
-# testcontainers 는 타입 스텁을 배포하지 않는다.
-from testcontainers.postgres import PostgresContainer  # pyright: ignore[reportMissingTypeStubs]
+from testcontainers.community.postgres import PostgresContainer
 
 _REPO_ROOT = Path(__file__).parent.parent
 

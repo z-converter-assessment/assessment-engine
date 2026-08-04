@@ -222,7 +222,7 @@ class StorageNode:
     inode_pct: float | None = None
     inode_label: str = ""  # "1%"
     inode_class: str = ""
-    children: list["StorageNode"] = field(default_factory=list["StorageNode"])
+    children: list[StorageNode] = field(default_factory=list["StorageNode"])
     # 게이지(usage_pct) 있는 행에만 설정 — 트리 depth 들여쓰기를 상쇄해 모든 게이지 시작 x 를 통일하는
     # .stree-info 폭(px). None = 게이지 없음(폭 고정 불요, 자연 크기). mapper precompute(P3 계산 회피).
     gauge_info_width_px: int | None = None

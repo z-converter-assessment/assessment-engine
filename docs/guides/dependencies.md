@@ -28,7 +28,7 @@ PEP 735 가 PEP 621 의 `[project.optional-dependencies]` 보다 정공 — dev 
 
 ### Python 버전
 
-`requires-python` 과 `[tool.ruff].target-version` 은 같은 minor 를 가리켜야 한다 — drift 시 ruff 가 옛 syntax 를 잘못 허용·거부한다. 올리는 절차는 4절 "Python 버전 변경".
+`requires-python` · `[tool.ruff].target-version` · `[tool.pyright].pythonVersion` · `.python-version` 이 같은 minor 를 가리켜야 한다 — drift 시 ruff 가 옛 syntax 를 잘못 허용·거부하고 pyright 가 다른 표준 라이브러리 시그니처를 본다. 올리는 절차는 4절 "Python 버전 변경".
 
 ## 3. `uv.lock`
 
@@ -78,17 +78,23 @@ uv lock
 
 ```toml
 # pyproject.toml
-requires-python = ">=3.13"           # 1. 운영 의존성 호환 범위 변경
+requires-python = ">=3.15"           # 1. 운영 의존성 호환 범위
 
 [tool.ruff]
-target-version = "py313"             # 2. ruff modernize 룰 정합
+target-version = "py315"             # 2. ruff modernize 룰 정합
+
+[tool.pyright]
+pythonVersion = "3.15"               # 3. 표준 라이브러리 시그니처 기준
 ```
 
 ```bash
-uv sync --group dev                  # 3. lockfile 재-resolve (Python 3.13 wheel 선택)
+uv python pin 3.15                   # 4. .python-version (uv 가 쓰는 인터프리터)
+uv lock && uv sync --all-groups      # 5. lockfile 재-resolve (해당 minor wheel 선택)
 ```
 
 같은 minor 가 워크플로에도 박혀 있어 함께 고친다 — `ci.yml` 은 job 마다 `setup-python` 을 따로 두므로 전 job 을 훑고, `alembic-check.yml`·`release.yml` 도 같은 값을 갖는다. 이미지 쪽은 `docs/reference/docker.md` 가 소유한다.
+
+의존성 floor 는 실제로 resolve 된 버전으로 올린다 — 검증한 조합과 선언이 갈리면 lockfile 없이 설치한 환경이 테스트 안 된 조합을 받는다.
 
 ## 5. dependabot 미사용 정책
 
