@@ -6,7 +6,7 @@
   1) 두 시점의 boot_time이 다르면 시스템 재부팅 → delta 계산 건너뛰기 (None)
      agent_started_at만 다르면 에이전트 재시작이고 카운터는 그대로라 정상 계산
   2) boot_time 둘 다 NULL(child 시계열)이면 d < 0 휴리스틱 fallback (CLAUDE.md #C1)
-- 시점 값은 그대로 변환 (mem, mount usage) — reset 무관. 단위는 By (v2).
+- 시점 값은 그대로 변환 (mem, mount usage) — reset 무관. 단위는 By.
 """
 
 import re

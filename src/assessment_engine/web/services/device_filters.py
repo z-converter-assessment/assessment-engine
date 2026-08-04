@@ -87,5 +87,5 @@ def disk_total_bytes(block_devices: list[JsonObject]) -> int:
 
 
 def swap_total_bytes(block_devices: list[JsonObject]) -> int:
-    """스왑 총량(bytes) = sum block_device(type==swap) size_bytes. v2 는 swap 을 block_device 노드로 표현."""
+    """스왑 총량(bytes) = sum block_device(type==swap) size_bytes. swap 은 block_device 노드로 표현된다."""
     return sum((d.get("size_bytes") or 0) for d in (block_devices or []) if is_swap(d.get("type")))

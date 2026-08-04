@@ -5,7 +5,7 @@ Windows 고유값이 InventoryInput/MetricsInput wire 검증을 통과하고 DTO
 memory.usage buffered/cached 미발행 · PSI 부재로 system.pressure null), gptid/mbrsig block_device 식별자,
 NDIS 긴 net interface 이름(net_interfaces[].name), MAC 안정키(net_interface id, id_type=mac).
 
-v2 는 상태/축 부재를 point 미발행 또는 value null 로 표현 — 엔진이 이를 0 으로 날조하지 않고 None 보존해야 한다
+계약은 상태/축 부재를 point 미발행 또는 value null 로 표현한다 — 엔진이 이를 0 으로 날조하지 않고 None 보존해야 한다
 (#B·#C1). 스키마를 좁히는 변경(예: 특정 state required, pressure not-null)이 Windows 호환을 깨면 본 테스트가 잡는다.
 """
 
@@ -15,7 +15,7 @@ from assessment_engine.consumer.mappers import to_inventory_create, to_metric_cr
 from assessment_engine.consumer.schemas import InventoryInput, MetricsInput
 from assessment_engine.json_types import JsonObject
 
-_MAC = "02:42:ac:11:00:03"  # net_interface 안정키 (id, id_type=mac). v1 mac_addresses 폐기
+_MAC = "02:42:ac:11:00:03"  # net_interface 안정키 (id, id_type=mac)
 _NET_DEV = f"mac:{_MAC}"  # metrics network.io device 축 = "mac:"+MAC (inventory id 와 조인 정합)
 # metrics device 축 = inventory (id_type):(id) 재구성값.
 _DISK0 = "gptid:{3484c6ca-d135-4483-a716-9207f855c8db}"  # PhysicalDrive0 (GPT signature)
@@ -48,10 +48,10 @@ def _windows_inventory() -> JsonObject:
         "kernel_version": "14393",
         "cpu_cores": 4,
         "cpu_model": "Intel(R) Core(TM) i7",
-        "mem_total_bytes": 8589934592,  # v2 By (v1 mem_total_kb 폐기)
+        "mem_total_bytes": 8589934592,  # 계약 단위 By
         "ip_external": None,
         # 정규화 block_device — Windows 물리 디스크(type=disk, gptid/mbrsig 식별자) + 볼륨(type=volume).
-        # swap 은 v1 컬럼이 아니라 type=swap 노드 (여기선 미포함).
+        # swap 은 block_devices 의 type=swap 노드다 (여기선 미포함).
         "block_devices": [
             {
                 "name": "PhysicalDrive0", "type": "disk", "size_bytes": 256000000000,
@@ -110,8 +110,8 @@ def _windows_metrics() -> JsonObject:
             },
             "memory.limit": {"type": "gauge", "unit": "By", "points": [{"attr": {}, "value": 8589934592}]},
         },
-        # Windows 물리 디스크별 큐(disk.pending_operations gauge) — v1 saturation.disk_queue 대체.
-        # v2 는 device별 보존 (v1 per-device max 축약 sat_disk_queue 폐기).
+        # Windows 물리 디스크별 큐 = disk.pending_operations gauge.
+        # 디스크 큐는 device 축을 보존한다 (per-device 축약 없음).
         "system.disk": {
             "disk.io": {
                 "type": "counter", "unit": "By",
@@ -155,7 +155,7 @@ def _windows_metrics() -> JsonObject:
 def test_windows_inventory_wire_parses() -> None:
     data = InventoryInput.model_validate_json(json.dumps(_windows_inventory()))
     assert data.os_family == "windows"
-    # v2 MAC = net_interface id (id_type=mac). v1 mac_addresses 폐기.
+    # MAC = net_interface id (id_type=mac).
     assert data.net_interfaces[0].id == _MAC and data.net_interfaces[0].id_type == "mac"
     assert data.listen_ports[0].uid is None  # POSIX uid 부재
     assert data.block_devices[0].name == "PhysicalDrive0" and data.block_devices[0].id_type == "gptid"
@@ -167,8 +167,8 @@ def test_windows_inventory_to_dto_preserves_mac() -> None:
     data = InventoryInput.model_validate_json(json.dumps(_windows_inventory()))
     dto = to_inventory_create(data)
     assert dto.os_family == "windows"
-    assert dto.mem_total_bytes == 8589934592  # v2 By
-    # MAC 은 v2 net_interfaces[].id(id_type=mac)로 JSONB 손실 없이 매핑 (v1 mac_addresses 폐기).
+    assert dto.mem_total_bytes == 8589934592  # 단위 By
+    # MAC 은 net_interfaces[].id(id_type=mac) 로 JSONB 손실 없이 매핑된다.
     ni = dto.net_interfaces[0]
     assert ni["id"] == _MAC and ni["id_type"] == "mac"
     assert ni["name"] == "Ethernet0" and ni["kind"] == "physical" and ni["gateway"] == "10.0.0.1"
@@ -208,7 +208,7 @@ def test_windows_metrics_to_dto() -> None:
     assert dto.cpu_run_queue is None  # 미측정 경로 (value null 보존)
     assert dto.mem_available_bytes == 4000000000
     assert dto.mem_cached_bytes is None and dto.mem_buffered_bytes is None  # Windows 1:1 대응 부재
-    # 디스크 큐 = device별 disk.pending_operations 보존 (v1 sat_disk_queue per-device max 축약 폐기).
+    # 디스크 큐 = device 별 disk.pending_operations (축약 없음).
     pending = {e.device_id: e.pending_ops for e in dto.disk_io}
     assert pending == {_DISK0: 1.5, _DISK1: 3.0}
 
@@ -217,7 +217,7 @@ def test_windows_metrics_saturation_measured_path() -> None:
     """perflib 실측 시 cpu.run_queue(Processor Queue Length)·paging.operations(Pages/sec)가 DTO 로 손실 없이 전파.
 
     미측정 경로(위, value null)와 대비 — 엔진이 세 축을 os-aware 소비하려면 ingest 가 raw 값을 보존해야 한다.
-    v1 saturation(sat_cpu_run_queue·mem_paging_rate·sat_disk_queue) 폐기 — v2 는 cpu.run_queue gauge +
+    포화 신호는 cpu.run_queue gauge +
     per-device disk.pending_operations + paging.operations counter raw 저장. rate/임계는 엔진 SQL/recommendation 몫.
     """
     payload = _windows_metrics()

@@ -383,7 +383,7 @@ class ReportRowRaw:
     """Assessment 보고서 한 행의 raw stats — repository가 반환 (P1).
 
     표시 파생(role/is_online/recommendation/os_display 등)은 service mapper에서 ReportRowItem으로.
-    USE Method (Utilization/Saturation/Errors) 기반 — v2 신호 (run_queue·paging·await·steal·conntrack).
+    USE Method (Utilization/Saturation/Errors) 기반 — 신호는 run_queue·paging·await·steal·conntrack.
     """
 
     server_id: int

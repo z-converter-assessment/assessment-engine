@@ -28,14 +28,14 @@ def _raw(
     cpu_peak: float | None = None,
     mem_p95: float | None = None,
     cpu_cores: int | None = 2,
-    mem_total_bytes: int | None = 2 * 1024**3,  # v2 By (v1 mem_total_kb 폐기)
+    mem_total_bytes: int | None = 2 * 1024**3,  # 계약 단위 By
     procs_running_p95: float | None = None,
     mem_swap_paging: bool = False,
     disk_await_p95_ms: float | None = None,
     net_retrans_pct: float | None = None,
     net_drop_pct: float | None = None,
 ) -> ReportRowRaw:
-    """right-sizing API 테스트용 최소 v2 ReportRowRaw 빌더.
+    """right-sizing API 테스트용 최소 ReportRowRaw 빌더.
 
     본 파일 전용(자기완결) — 시계열/inventory wire 계약이 아니라 report_aggregate 산출 outbound DTO 다.
     크기는 `mem_total_bytes`(By), 인터페이스는 `net_interfaces` 로 채운다. 포화 신호 축은
@@ -87,7 +87,7 @@ def _under_mem_root():
         procs_running_p95=6.0,  # cpu 포화
         mem_swap_paging=True,  # 메모리 page-out (근본원인 판별)
         disk_await_p95_ms=25.0,  # disk io_bound
-        mem_total_bytes=8 * 1024**3,  # v2 By: 8 GiB -> mem_total_mb 8192
+        mem_total_bytes=8 * 1024**3,  # 단위 By: 8 GiB -> mem_total_mb 8192
     )
 
 
@@ -156,11 +156,11 @@ def test_independent_under_actions_all_present():
 def test_optimal_maintain_no_actions():
     """정상 — kind=maintain, actions/suppressed 빈 배열. 목표 사양 == 현재(축소·증설 여지 없음).
 
-    v2 사이징(ADR 0054): CPU 목표 70%(p95), 메모리 목표 80%(near-peak). near-peak 미측정 시 p95 폴백.
+    사이징 목표: CPU 70%(p95), 메모리 목표 80%(near-peak). near-peak 미측정 시 p95 폴백.
     """
     e = build_right_sizing_entry(
         # cpu 65% -> 목표 ceil(65*4/70)=4=현재 / mem 85% -> 목표 ceil(2048*85/80)=2176 > 현재 2048(축소 불가):
-        # 둘 다 optimal. (v2 mem 목표 80%라 75%면 목표 1920<현재 -> over 로 새므로 near-peak 80% 위인 85% 사용)
+        # 둘 다 optimal. (mem 목표 80%라 75%면 목표 1920<현재 -> over 로 새므로 near-peak 80% 위인 85% 사용)
         _raw(os_family="linux", cpu_p95=65.0, mem_p95=85.0, cpu_cores=4, procs_running_p95=1.0),
         is_online=True,
     )

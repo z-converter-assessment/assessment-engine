@@ -1,8 +1,8 @@
-"""device_filters.py — block_device `type`·fstype·net_interface `kind` 기반 device 분류 (v2).
+"""device_filters.py — block_device `type`·fstype·net_interface `kind` 기반 device 분류.
 
-v2 는 major/minor 조인·kind 기반 disk 분류를 폐기하고 lsblk 평면 DAG 노드의 `type`
+device 계층은 lsblk 평면 DAG 노드의 `type`
 (disk/part/lvm/crypt/raid/mpath/dynamic/swap) 과 fstype/mountpoint 로 계층을 가른다.
-부모-자식 조인은 노드 `parent`(부모 id)로 하므로 v1 `find_parent_disk`(major/minor) 는 대응 개념 없음.
+부모-자식 조인은 노드 `parent`(부모 id) 다.
 """
 
 import pytest
@@ -174,7 +174,7 @@ def test_disk_total_bytes_zero_when_empty():
     assert disk_total_bytes([]) == 0
 
 
-# --- swap_total_bytes — 스왑 총량(type=swap 합, v2 는 swap 을 block_device 노드로 표현) ---
+# --- swap_total_bytes — 스왑 총량(type=swap 합. swap 은 block_device 노드로 표현된다) ---
 
 
 def test_swap_total_bytes_sums_swap_nodes_only():

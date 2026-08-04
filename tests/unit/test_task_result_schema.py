@@ -6,7 +6,7 @@
 - 페이로드 wire JSON -> model_validate_json -> field 매핑
 - 알려지지 않은 failure_reason / 임의 status 도 강제 규칙(max_length·minLength)만 통과시켜 silent pass
 - 회귀 가드 — 옛 구조 형식("task_result" underscore / "task_public_id" 키 / boot_time required) 거부.
-  단 status 는 v2 에서 free string 으로 넓혀 'failed' 등 임의값은 거부 아닌 silent pass.
+  단 status 는 free string 이라 'failed' 등 임의값은 거부 아닌 silent pass.
 """
 
 import json
@@ -139,7 +139,7 @@ def test_agent_id_nullable_for_task_result() -> None:
     다른 메시지 타입은 agent_id required. worker 는 결과를 task_id 로 매칭하므로 agent_id 생략 수용.
     """
     payload = make_task_result_payload()
-    del payload["agent_id"]  # worker 발행 현실 — 식별자 미산출 (v2 factory 는 default agent_id 를 실으므로 제거)
+    del payload["agent_id"]  # worker 발행 현실 — 식별자 미산출 (factory 는 default agent_id 를 실으므로 제거)
     assert "agent_id" not in payload
     data = _validate(payload)
     assert data.agent_id is None
@@ -166,10 +166,10 @@ def test_legacy_message_type_underscore_rejected() -> None:
 
 
 def test_arbitrary_status_silent_pass() -> None:
-    """v2 — status 는 free string(minLength 1, max 32)라 옛 'failed' 등 임의값 silent pass.
+    """status 는 free string(minLength 1, max 32)이라 'failed' 등 임의값이 silent pass 한다.
 
-    v1 은 Literal('success'/'failure')로 'failed' 를 거부(D5 회귀 가드)했으나, v2 wire 계약은
-    permissive free string 으로 넓혔다 — agent status 어휘 진화 시 유효 메시지 DLQ 회피. 거부 아닌 수용.
+    Literal 로 좁히지 않는 이유는 agent status 어휘가 늘 때 유효 메시지가 DLQ 로 가기 때문이다.
+    거부가 아니라 수용이 계약이다.
     """
     payload = make_task_result_payload(status="failure")
     payload["status"] = "failed"

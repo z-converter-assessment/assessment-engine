@@ -1,4 +1,4 @@
-"""unit_converter.py — 단위 변환 함수 단위 테스트 (v2 wire 계약).
+"""unit_converter.py — 단위 변환 함수 단위 테스트 (wire 계약 단위).
 
 공개 함수 = bytes_to_gb / bytes_to_gib / usage_pct.
 메모리/스왑은 By 단위 binary GiB(bytes_to_gib), disk IO rate 는 counter_agg 사전집계라
@@ -30,7 +30,7 @@ def test_bytes_to_gb(b: int | None, expected: float | None):
     assert bytes_to_gb(b) == expected
 
 
-# ─── bytes_to_gib (v2: 메모리/스왑 binary GiB, By 단위) ──────────────────────
+# ─── bytes_to_gib (메모리/스왑 binary GiB, By 단위) ──────────────────────
 
 
 @pytest.mark.parametrize(

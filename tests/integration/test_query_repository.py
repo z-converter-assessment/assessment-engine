@@ -4,7 +4,7 @@
 - inventory query (resolve_server_id, list_servers, get_server)
 - _latest_per_dimension n=1/n=2 (get_storage, get_network, latest_dashboard)
 - collection_status
-- metric_chart(metric_trend 위임) dispatcher — v2 MetricType 전량 dispatch + SQL 정상 실행
+- metric_chart(metric_trend 위임) dispatcher — MetricType 전량 dispatch + SQL 정상 실행
 - metric_trend 결과 정확성 (CPU LAG delta, fs.usage 시점 값, rate/dim, reset 흡수)
 """
 
@@ -34,8 +34,8 @@ def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
 pytestmark = pytest.mark.asyncio
 
 
-# v2 MetricType 전량 (types.MetricType Literal 과 동기화 — dispatch 커버, #F9).
-# v1 폐기: load.1m/5m/15m(소스 부재 -> cpu.run_queue), swap.usage_percent, disk.queue(-> disk.io_saturation).
+# MetricType 전량 (types.MetricType Literal 과 동기화 — dispatch 커버, #F9).
+# 포화 축은 cpu.run_queue·disk.io_saturation 이 담당한다.
 _ALL_METRIC_TYPES: list[MetricType] = [
     "cpu.usage_percent",
     "cpu.user_percent",
@@ -98,11 +98,11 @@ async def _seed_one_server_with_metrics(
         ts = base_ts + timedelta(minutes=i)
         m = make_metrics(
             collected_at=ts,
-            # CPU seconds 누적 — LAG delta가 양수가 되도록 시점마다 증가 (v2 s counter)
+            # CPU seconds 누적 — LAG delta가 양수가 되도록 시점마다 증가 (s counter)
             cpu_user_s=1000 + i * 100,
             cpu_idle_s=8000 + i * 800,
             disk_io=[
-                # v2: device_id 안정키(dimension), ops/io_bytes counter (sectors*512 -> io_bytes)
+                # device_id 안정키(dimension), ops/io_bytes counter (sectors*512 -> io_bytes)
                 DiskIoEntry(
                     device_id="sda",
                     device_name="sda",
@@ -116,7 +116,7 @@ async def _seed_one_server_with_metrics(
                 ),
             ],
             filesystems=[
-                # v2: mountpoint + used/free bytes (used=total-avail, free=avail), 실 fs=ext4
+                # mountpoint + used/free bytes (used=total-avail, free=avail), 실 fs=ext4
                 FilesystemEntry(
                     mountpoint="/",
                     fstype="ext4",
@@ -410,7 +410,7 @@ async def test_metric_chart_disk_io_saturation_returns_await(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """disk.io_saturation — v2 await(ms) 양 OS 통일(구 disk.queue 대체). Σ(Δop_time)/Σ(Δops)*1000.
+    """disk.io_saturation — await(ms) 로 양 OS 통일. Σ(Δop_time)/Σ(Δops)*1000.
     시드 op_time/ops 델타 + io_time_s(device util >= RS_DISKIO_UTIL_MIN 게이트 통과 — 60s 간격에 Δ40s=0.67).
 
     device_id 는 물리 디스크 필터(`_PHYS_DISK_SQL_FILTER`)가 조인하는 "name:{block_devices.name}" 규약 —
@@ -616,7 +616,7 @@ async def test_metric_chart_cpu_reset_excludes_counter_decrease(
     """metric_chart(metric_trend 위임) — CPU counter reset(재부팅 후 jiffies 0 재시작 = 값 감소)은
     d_total>0 필터로 제외 → 그 버킷 차트 missing.
 
-    v2 는 boot_time 차트 gate 폐기(metric.py) — reset 은 delta 부호로 흡수. 값이 감소하면 d_total<=0
+    차트는 boot_time gate 없이 delta 부호로 reset 을 흡수한다(metric.py). 값이 감소하면 d_total<=0
     이라 그 시점(재부팅 첫 측정)이 valid 에서 빠진다. 시점 1은 정상 누적 → 정상 percent.
     """
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-rst-cpu-1"))
@@ -662,7 +662,7 @@ async def test_metric_chart_rate_clamps_counter_decrease(
 ):
     """rate 차트(rate/dim) — counter reset(값 감소)은 GREATEST(delta,0)로 0 클램프.
 
-    v2 는 boot_time 차트 gate 폐기 — child 시계열(disk_io)은 boot_time 미보유라 reset 을 GREATEST(delta,0)
+    차트는 boot_time gate 를 두지 않는다 — child 시계열(disk_io)은 boot_time 미보유라 reset 을 GREATEST(delta,0)
     로 흡수한다. 재부팅으로 카운터가 감소해도 음수 rate/spike 대신 0 을 낸다.
     """
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-rst-rate-1"))
@@ -1068,7 +1068,7 @@ async def test_environment_utilization_returns_averages(
             cpu_idle_s=70,
             mem_limit_bytes=100,
             mem_available_bytes=50,
-            # v2: used=total-avail=60, free=avail=40 → used/(used+free)=60%
+            # used=total-avail=60, free=avail=40 → used/(used+free)=60%
             filesystems=[FilesystemEntry(mountpoint="/", fstype="ext4", used_bytes=60, free_bytes=40)],
             disk_io=[],
             net_io=[],

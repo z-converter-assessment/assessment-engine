@@ -23,10 +23,10 @@ from assessment_engine.web.view_models.topology import NetworkTopology
 
 
 def _iface(cidr: str, kind: str = "physical", gateway: str | None = None) -> JsonObject:
-    """CIDR 문자열 -> v2 구조화 net_interface dict. family(ipv4/ipv6) 자동 판정, prefix 파싱 불가는 None.
+    """CIDR 문자열 -> 구조화 net_interface dict. family(ipv4/ipv6) 자동 판정, prefix 파싱 불가는 None.
 
     테스트 편의 헬퍼 — agent 는 이미 구조화된 InterfaceInfo 를 발행하나, 케이스별 주소·kind·gateway 를
-    간결히 지정하려고 CIDR 문자열을 dict 로 변환한다. v2 는 주소를 인터페이스별 addresses 리스트에 nested 로
+    간결히 지정하려고 CIDR 문자열을 dict 로 변환한다. 주소는 인터페이스별 addresses 리스트에 nested 로
     담고(주소별 family/prefix), gateway·kind 는 인터페이스 레벨.
     """
     addr, _, prefix_s = cidr.partition("/")

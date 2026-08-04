@@ -95,7 +95,7 @@ def test_task_result_v2_policy() -> None:
 
 
 def test_schema_version_required() -> None:
-    """schema_version 없으면 거부 (v1 flag-day cutover)."""
+    """schema_version 없으면 거부 — 계약 버전 게이트가 envelope 필수."""
     bad = {k: v for k, v in _EXAMPLES["error"].items() if k != "schema_version"}
     with pytest.raises(ValidationError):
         ErrorInput.model_validate(bad)
