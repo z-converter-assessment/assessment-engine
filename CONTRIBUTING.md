@@ -34,7 +34,8 @@ make dev      # 컨테이너 기동 (web http://localhost:8000)
 ## 3. 검증
 
 ```bash
-make lint         # ruff
+make lint         # ruff format --check + ruff check
+make format       # ruff format 적용
 make typecheck    # pyright + tsc(정적 JS)
 make test         # 전체
 ```
