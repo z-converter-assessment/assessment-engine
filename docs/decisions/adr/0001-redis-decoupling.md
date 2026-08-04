@@ -33,7 +33,6 @@
 | 5 | 메트릭 캐시 | `cache:metrics:{server_id}` | 60s | web GET/SET, consumer DEL | `/api/v1/.../metrics/latest` 5xx |
 | 6 | public_id → server_id | `cache:resolve:{public_id}` | 없음 | web `resolve_server_id` | 모든 detail 라우트 5xx |
 | 7 | PUB/SUB | `metrics.events` 채널 | — | consumer publish, web subscribe | SSE 끊김 (사용자는 자동 재연결 안내 받음) |
-| 8 | 인증 토큰 | `token:{token}` | 1h | 미사용 (config 키만 정의) | — |
 
 → 8 중 7개 역할이 활성. 1~7 모두 fail-close.
 

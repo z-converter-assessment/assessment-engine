@@ -39,7 +39,7 @@ pytest 설정은 `pyproject.toml` `[tool.pytest.ini_options]`.
 
 Fixture 계층:
 ```
-tests/conftest.py             — session: _postgres_container, engine / function: db_session (테스트마다 rollback)
+fixture 는 `tests/conftest.py`·`tests/unit/conftest.py`·`tests/integration/conftest.py` 세 층에 있다.
 tests/unit/conftest.py        — autouse: 필수 비밀번호 env 주입, Composition Root lru_cache 초기화
 tests/integration/conftest.py — function: collect_repo, query_repo, diagnostic_repo (TRUNCATE 격리)
 tests/factories.py            — wire 계약 형태 데이터 빌더 (함수 목록은 해당 파일)

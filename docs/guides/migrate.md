@@ -1,6 +1,6 @@
 # Alembic 마이그레이션
 
-정책: CLAUDE.md #C4. 본 문서는 Alembic 도구 사용법·절차·트러블슈팅 단일 진실. 모든 환경(dev·staging·prod·테스트) Alembic 마이그레이션 1개 진실로 schema 관리.
+정책: CLAUDE.md #C4. 본 문서는 Alembic 도구 사용법·절차·트러블슈팅 단일 진실. 모든 환경(dev·prod·테스트) Alembic 마이그레이션 1개 진실로 schema 관리.
 
 ## 본 프로젝트의 Alembic
 
@@ -17,15 +17,6 @@ ORM(`Base.metadata`)과 DB schema의 diff를 `src/assessment_engine/migrations/v
 
 패키지 안에 두어 별도 포장 설정 없이 이미지에 동봉된다. `_alembic.ini` 의 `script_location` 이 자기 위치 기준 상대경로라 두 파일이 같은 디렉토리에 있어야 한다.
 
-```
-src/assessment_engine/
-├── _alembic.ini          ← 설정 (sqlalchemy.url은 env.py가 런타임 주입)
-└── migrations/
-    ├── env.py            ← Base.metadata + asyncpg 비동기 패턴 + WebSettings().database_url 주입
-    ├── script.py.mako    ← 신규 revision 템플릿
-    ├── versions/         ← 마이그레이션 파일 (revision id 순 자동 생성)
-    └── README
-```
 
 호스트에서 직접 실행할 때는 설정 경로를 환경변수로 준다. 컨테이너는 이미지가 `ALEMBIC_CONFIG` 를 들고 있어 그냥 `alembic <명령>` 으로 쓴다 — compose 없이 `docker run` 해도 성립한다.
 
@@ -42,7 +33,7 @@ docker-compose에 `migrate` 서비스가 정의되어 있다. 동작:
 3. 종료 (restart 안 함)
 4. web·consumer·worker 가 `migrate` 종료 후에만 기동 (`depends_on: service_completed_successfully`)
 
-즉 `docker compose up` 한 번이면 schema가 항상 최신. 환경(dev/staging/prod) 무관 — 같은 컨테이너·같은 절차.
+즉 `docker compose up` 한 번이면 schema가 항상 최신. 환경 무관 — 같은 컨테이너·같은 절차.
 
 `docker compose run --rm migrate <alembic 명령>` 형태로 일회성 작업도 가능 (current·history·downgrade 등).
 
@@ -157,16 +148,7 @@ cat /tmp/migration.sql
 make migrate
 ```
 
-## DEV·PROD 동일 책임 매트릭스
-
-| 작업 | 명령 |
-|------|------|
-| Schema 생성 | migrate 컨테이너 `alembic upgrade head` (자동) |
-| 컬럼 추가 | `make migration M="설명"` + migrate가 자동 적용 |
-| Hypertable 변환 | 마이그레이션 파일에 `op.execute("SELECT create_hypertable(...)")` 수동 |
-| 검증 | pytest (testcontainers + alembic) + staging smoke test |
-
-모든 환경이 같은 마이그레이션 파일을 적용하므로 drift 가능성이 코드 단에서 차단된다. `alembic check`가 PR 단계에서 한 번 더 검증.
+모든 환경이 같은 마이그레이션 파일을 적용하므로 drift 가능성이 코드 단에서 차단된다. `alembic check` 가 PR 마다 그 정합을 본다.
 
 ## Backward compatibility — 무중단 deploy 시 schema 변경 단계 (#C4)
 

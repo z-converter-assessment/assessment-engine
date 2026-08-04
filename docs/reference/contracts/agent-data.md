@@ -323,25 +323,10 @@ Windows 비대칭: PSI 전체 null / lvm_vgs 금지 / cpu.blocked null / memory.
 
 ---
 
-## I. USE 매핑 (Layer 2, 엔진 해석 — wire 아님)
+## I. USE 해석의 자리
 
-| 자원 | 축 | 산출 |
-|------|---|------|
-| CPU | U | 1 - rate(cpu.time[idle]) / Σrate(cpu.time) |
-| CPU | S | pressure(cpu,some) 우선, 없으면 cpu.run_queue/cpu_cores |
-| CPU | 인과 | cpu.blocked(D-state) = disk->cpu 인과 게이트 |
-| Memory | U | 1 - memory.usage[available]/memory.limit |
-| Memory | S | pressure(memory) 우선, 없으면 paging.operations[out] rate \| commit.usage/commit.limit |
-| Disk | U | rate(disk.io_time) (busy 비율) |
-| Disk | S | Δdisk.operation_time/Δdisk.operations(await) 우선, disk.pending_operations 보조 |
-| Disk | E | rate(disk.errors) |
-| Network | U | rate(network.io)/network.link.speed (speed null 시 미산출) |
-| Network | E | rate(network.errors)+dropped+tcp.retransmits+conntrack |
-
-14일 saturation canonical = `pressure.stall.time`(counter 적분). saturation(14일) = Δstall.time/Δwall(시간가중 평균 압박, 표본 손실 0). `ratio`(avg10 점표본)를 14일 창에 쓰면 표본 사이 stall 손실·평활 편향 -> 실시간 참고용만.
-E축은 사이징 숫자 미반영 — 자원 fault 시 그 자원 U/S confidence 하향(steal_biased 동형) + attention 경보로만.
-
----
+wire 는 raw counter·gauge 사실만 싣는다. 그것을 USE 축(Utilization/Saturation/Errors)으로 읽는 것은 엔진 몫이고
+판정 명세는 `docs/reference/right-sizing.md` 가 갖는다 — 계약이 바뀌지 않아도 해석은 바뀔 수 있다.
 
 ## J. task.result / error body
 
@@ -388,6 +373,5 @@ v2 envelope + 평면 body. `additionalProperties:false`.
 
 - counter reset(재부팅·agent재시작·wraparound)은 값-감소로 나타난다. 게이트 = envelope `boot_time`(재부팅) + `agent_started_at`(agent 재시작) — 시계열 테이블 공통 저장, 변화 시 reset 정밀 식별.
 - 엔진 집계 = TimescaleDB continuous aggregate + timescaledb_toolkit `counter_agg` 가 값-감소 기준 reset 을 일률 처리. hand-rolled LAG + boot_time gate 부활 금지.
-- 멱등성 2단 = `safe_set_nx(idempotent:{message_id}, 24h)` 1단 fail-open + 시계열 자연키 UNIQUE + `on_conflict_do_nothing` 2단.
 
 routing key(broker 토폴로지)는 `message_type`(body 판별자)과 별개 — `docs/reference/rabbitmq.md`.

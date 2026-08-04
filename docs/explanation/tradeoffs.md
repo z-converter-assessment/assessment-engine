@@ -521,3 +521,26 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 언제 다시 봐야 하는가
 - 에이전트 저장소와 CI 를 연동할 수 있게 되면 -> C 소스에서 발행 필드 목록을 추출해 예시·스키마와 대조하는 게이트 추가.
 - 실 환경에서 원인 불명의 축 유실이 관측되면 -> 그 시점에 메시지를 캡처해 예시 파일을 갱신하고, 같은 유형을 잡는 경계 fixture 를 추가.
+
+---
+
+## T22. broker 는 단일 credential + plain AMQP 로 운영한다
+
+> 관련 문서: `docs/reference/rabbitmq.md`
+
+무엇을
+- RabbitMQ 접속은 단일 user 하나가 collector·worker·engine 역할을 모두 갖는다. 역할별 권한 분리를 두지 않았다.
+- 전송은 plain AMQP(5672)다. TLS(5671)를 켜지 않았다.
+
+왜 이대로 두나
+- 큐를 동적으로 declare 한다. `agent.tasks.{agent_id}` 가 task 발행마다 생기므로 least-privilege 를 걸면 configure 권한을 어디까지 열지가 매번 판단 대상이 된다.
+- TLS 는 내부 CA 발급·인증서 분배·갱신이 따라온다. broker 와 엔진이 같은 내부망 안에 있어 그 비용에 상응하는 위협 감소가 지금은 작다.
+- 관리 UI·`rabbitmqadmin` 직접 디버깅이 TLS 핸드셰이크 없이 그대로 된다.
+
+포기한 것 / 한계
+- credential 하나가 새면 발행·소비·토폴로지 변경이 모두 가능하다. 역할별 회수가 안 된다.
+- 같은 내부망 안에서 트래픽을 볼 수 있는 위치라면 메시지 본문이 평문으로 보인다.
+
+언제 다시 봐야 하는가
+- broker 가 엔진과 다른 네트워크 구간에 놓이면 -> TLS 를 먼저 켠다.
+- 에이전트 credential 을 고객사별로 나눠야 하는 요구가 생기면 -> 역할별 user 로 분리한다. 그 시점에 초기 셋업용 admin 을 one-shot 으로 쓰고 회수하는 절차를 `docs/guides/deploy.md` 에 신설한다.

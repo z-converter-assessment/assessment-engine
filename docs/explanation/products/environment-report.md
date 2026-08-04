@@ -104,7 +104,7 @@ OS 지원 종료 3대
 
 5분류·트리거 조건·임계·벤더 출처 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. host_status 판정 순서 = under -> insufficient -> idle -> over -> optimal (`rollup_host`/`classify_host`, 상세 right-sizing.md 3절, 임계 상수는 `recommendation.py`).
 
-Windows (원칙 P2): 포화 3축 모두 perflib 실측 — CPU=Processor Queue Length(`cpu_saturated`), 메모리=Pages Input/sec p95 >= 20(Linux swap page-out 대응, 정적 pagefile 점유는 신호 아님), 디스크 I/O=await(IOCTL ReadTime/WriteTime, 구세대 viostor 미부착 시 큐 깊이 폴백). perflib 미부착 축만 coverage_gap 으로 부분 평가(T14). 상세 `docs/reference/right-sizing.md` 5절.
+Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverage_gap 으로 부분 평가한다 (임계·신호원은 `docs/reference/right-sizing.md`).
 
 분류 표시 (customer·engineer 공통): 자원 적정성 한국어 분류명(LABEL_KO) 단일. 내부 risk_level(high/attention/normal)은 조치 필요 호스트 선정·강조용으로만 쓰고, 화면 라벨로 노출하지 않는다 (영어 enum·평행 어휘 금지).
 
@@ -149,11 +149,6 @@ Windows (원칙 P2): 포화 3축 모두 perflib 실측 — CPU=Processor Queue L
 3. 14일 윈도우 내 일회성 부하 — 단발 부하 (월 1회 배치 등) 가 그 윈도우 안에 들면 평상 부하로 오인. 외부 윈도우 (30일·90일)·요일/시간대 분리 미적용.
 4. 정성 요약의 표현 한정 — 결정론 템플릿이라 운영자가 추가 컨텍스트 (예: "이 서버는 신규 도입 한 달째"·"비용 절감 우선") 를 요약에 반영 불가.
 5. 인쇄 색상 — 브라우저 인쇄 시 색 처리가 브라우저별 다름. 흑백 PDF 에서 위험도 색이 비슷해 보일 수 있음. `print` CSS 에서 별도 처리.
-
-## 한계 해결 후보 (재논의 시점)
-
-- 워크로드 역할별 임계 분기 → 별도 ADR.
-- 통계 윈도우 옵션 (7d·14d·30d) UI 토글 → 현재 14일 default 만 노출.
 
 ## 관련 문서·코드
 

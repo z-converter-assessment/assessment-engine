@@ -132,21 +132,11 @@
 
 ## 환경변수와 비밀번호
 
-설정은 `.env` 하나로 들어간다. 어느 템플릿을 복사했는지가 환경을 정한다 — `.env.dev.example` 이면
-dev(핫리로드), `.env.example` 이면 배포용이다. 그 안의 `COMPOSE_FILE` 이 어떤 compose 파일을 합칠지도 정한다.
+설정은 `.env` 하나로 들어간다. 어느 템플릿을 복사했는지가 환경을 정한다 — `.env.dev.example` 이면 dev(핫리로드), `.env.example` 이면 배포용이고, 그 안의 `COMPOSE_FILE` 이 어떤 compose 파일을 합칠지도 함께 정한다.
 
 비밀번호에는 기본값이 없다. 미설정·뻔한 값·채널 중복은 환경과 무관하게 기동 시점에 거부된다.
-주입 경로는 둘인데 환경에 따라 다르다.
 
-| | 채널 | 값을 만드는 주체 |
-|---|------|----------------|
-| dev | `.env` 평문 (`POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`) | 템플릿에 이미 값이 들어 있다 — 그대로 쓴다 |
-| 배포 | `secrets/*` 파일 -> 컨테이너 `/run/secrets/*` | `bootstrap.sh` 가 없는 것만 생성 |
-
-비밀번호를 바꿀 때는 `rotate-secret.sh` 를 쓴다 — secret 파일만 갈아끼우면 서버 계정 쪽은 그대로라 접속이 끊긴다.
-
-키 카탈로그·채널 우선순위·기동 검증 기준은 `docs/reference/contracts/env.md`, secret 파일 생성과 교체 절차는
-`docs/guides/deploy.md` 2·4·5절이 갖는다.
+키 카탈로그·채널 우선순위·기동 검증 기준은 `docs/reference/contracts/env.md`, secret 파일 생성과 교체는 `docs/guides/deploy.md`.
 
 ---
 

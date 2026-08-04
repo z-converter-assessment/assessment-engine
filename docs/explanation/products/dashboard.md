@@ -99,7 +99,7 @@ list에서 N대 선택 → 다음 액션 활성화:
 - 자원 적정성 평가 막대: 분류 카운트 막대 (`overview.risk_donut`). 평가 대상 N대 표기.
 - 서버별 자원 적정성 표: 전 서버(자원 부족·과다 할당·유휴·정상·표본 부족) 한 표에 — 호스트·사양(CPU·메모리·디스크)·분류(근본원인 병합)·권고(자원별 독립 처방)·네트워크 상태·디스크 I/O 상태·신뢰도. 초과 행은 더보기/접기 토글.
 - 구간·앵커 선택: `?time_range=`(15분~30일) + 기준 시각 override. 변경 즉시 `assessment.js` 가 `?fragment=result` 로 본문 swap. 기본 윈도우는 `DIAGNOSTIC_DEFAULT_TIME_RANGE`(14d) — 보고서·서버 목록 분류 표준 평가(`recommendation.WINDOW_DAYS`=14일)와 동일. 본 평가 페이지만 대시보드 중 윈도우 override 허용(#F10).
-- Windows (원칙 P2): 포화 3축 모두 perflib 실측(CPU=Processor Queue Length·메모리=Pages Input/sec·디스크 I/O=await) — perflib 미부착 축만 coverage_gap 부분 평가. 상세 `docs/reference/right-sizing.md` 5절·`docs/reference/web/services.md` "OS 분기" 절.
+- Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverage_gap 으로 부분 평가한다 (임계·신호원은 `docs/reference/right-sizing.md`).
 
 답: "환경 안 자원 부족·자원 과다 서버는 누구이고, 무엇부터 손대야 하나?"
 
@@ -157,7 +157,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 
 1. 활용률 도넛은 환경 평균만 — 분포(p50·p95)는 미노출. 양극화 환경에서 misleading (`docs/explanation/products/environment-report.md` 한계와 동일 패턴).
 2. 행별 권장 단일 라벨 — recommendation 분류 1개만 표시. 다중 신호(예: CPU 정상 + 메모리 부족)는 우선순위 평가 후 1개만.
-3. 실시간 현황은 30초 polling 갱신 — server push(SSE/WebSocket) 미도입. 주기 사이 변화는 다음 fetch까지 미반영.
+3. 실시간 갱신 지연 — `docs/explanation/tradeoffs.md` T5.
 
 ## 관련 문서·코드
 

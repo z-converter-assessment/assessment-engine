@@ -34,12 +34,7 @@ PEP 735 가 PEP 621 의 `[project.optional-dependencies]` 보다 정공 — dev 
 
 `uv sync` 또는 `uv lock` 호출 시 자동 생성·갱신. 사람이 직접 편집 X.
 
-구조 (개략):
-- `[[package]]` 블록 — transitive 의존성 별 entry (이름·버전·source·해시).
-- `[package.dependencies]` — 그 package 가 의존하는 것들.
-- `[package.dev-dependencies]` — `[dependency-groups].dev` 매핑.
-
-git diff 보면 큰 lockfile 변경이 흔함 — transitive 트리 resolver 결과라 사용자 의도와 무관한 변경 다수. 운영자 review 어려움 — `pyproject.toml` 변경 + `uv lock` 결과로만 신뢰.
+`uv sync`·`uv lock` 이 생성·갱신하며 사람이 편집하지 않는다.
 
 ## 4. 운영 명령 카탈로그
 
@@ -126,32 +121,6 @@ git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 보안 알림은 GitHub Dependabot alerts 로 수신한다 (Security 탭). 자동 PR 을 여는 security updates·version updates 는 둘 다 비활성 — 위 사유가 양쪽에 동일하게 적용된다. 설정 상태와 조회 명령은 `docs/guides/ci-setup.md` 4.2 가 소유한다.
 
 CI 단계의 의존성 CVE 자동 gate 는 두지 않는다 — CVE 평가·대응(수정본 유무 판단·bump·예외 수용)은 alert 를 보고 운영자가 판단한다.
-
-## 6. 흐름·체크리스트
-
-### 새 의존성 추가 시
-
-1. `uv add <package>` (또는 `uv add --group dev <package>`)
-2. `pyproject.toml` + `uv.lock` 동시 갱신 자동
-3. `make setup` 으로 venv 설치
-4. import + 동작 검증
-5. commit (두 파일 함께)
-
-### 의존성 bump 시
-
-1. `uv lock --upgrade-package <name>` 또는 `uv lock --upgrade` (전체)
-2. `uv.lock` diff review (transitive 영향 확인)
-3. `make setup`
-4. `make test` (전체 회귀 검증)
-5. commit (`pyproject.toml` + `uv.lock`)
-
-### lockfile drift 대응
-
-증상: `pyproject.toml` 의 의존성과 `uv.lock` 이 어긋난 상태. `uv lock --check` 로 확인한다.
-
-원인: `pyproject.toml` 만 편집하고 `uv.lock` 을 갱신하지 않음.
-
-해결: `uv lock` 호출 -> `uv.lock` 갱신 -> commit.
 
 ## 관련 문서·코드
 

@@ -81,7 +81,6 @@ class WebSettings(BaseSettings):
     # TTL (seconds)
     redis_ttl_idempotent: int = 86400  # 24h — 재발행 메시지 중복 차단
     redis_ttl_online: int = 300  # 5min — 오프라인 판단. 운영 신호 "통신 끊김" 임계(gap_minutes=5) 와 단일 진실.
-    redis_ttl_token: int = 3600  # 1h  — 인증 토큰
     redis_ttl_last_agent_start: int = 86400  # 24h — 직전 agent_started_at 캐시 (재시작 감지용)
     redis_ttl_agent_restarts: int = 3600  # 1h  — 슬라이딩 윈도우 카운터
     redis_ttl_time_invariant_warned: int = 3600  # 1h  — 시계 invariant 위반 로그 쿨다운 (스팸 방지)
@@ -94,7 +93,6 @@ class WebSettings(BaseSettings):
     redis_key_cache_resolve: str = "cache:resolve:{}"
     redis_key_idempotent: str = "idempotent:{}"
     redis_key_online: str = "online:{}"
-    redis_key_token: str = "token:{}"
     redis_key_last_agent_start: str = "last_agent_start:{}"
     redis_key_agent_restarts: str = "agent_restarts:{}"
     # {agent_id} 쿨다운 마커 — agent_id 가 식별 단일 키 (#C1)

@@ -164,7 +164,7 @@ Self-audit 메타 인용 제외:
 - [2.10] 동일 시나리오 분기(같은 setup + 다른 입력·기대값)는 `@pytest.mark.parametrize`. 중복 함수 0건.
 
 레이어 결정 (test-write 흡수):
-- unit (`tests/unit/`): DB·Redis·외부 의존 없는 함수·dataclass·계산.
+- 레이어 결정은 `docs/guides/testing.md` 1절.
 - integration (`tests/integration/`): Repository · DB query · Schema 통합.
 - 실 VM 동반 E2E: 본 repo 범위 밖 (OpenStack 공급 환경, pytest 범위 외).
 

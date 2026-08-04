@@ -77,7 +77,7 @@ base 는 환경 색을 담지 않는다. prod 하드닝(강 secret·외부 secre
 |--------|--------|------|
 | `postgres` | `timescale/timescaledb-ha:pg16` | 메인 DB + TimescaleDB all-in-one |
 | `rabbitmq` | `rabbitmq:3.13-management-alpine` | 메시지 브로커 (AMQP + 관리 UI) |
-| `redis` | `redis:7-alpine` | 캐시·온라인 TTL·PUB/SUB |
+| `redis` | `redis:7-alpine` | 캐시·온라인 TTL·멱등성 키 |
 | `migrate` | GHCR pull (dev: override 로컬 빌드) | 마이그레이션 1회 실행 후 종료 |
 | `web` | GHCR pull (dev: override 로컬 빌드) | FastAPI SSR + API + StaticFiles |
 | `consumer` | GHCR pull (dev: override 로컬 빌드) | aio-pika 컨슈머 (server.* + task.result 큐) |
