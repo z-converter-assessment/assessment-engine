@@ -77,6 +77,30 @@ docker compose exec redis redis-cli              # Redis 접속
 docker compose exec rabbitmq rabbitmqctl -p assessment list_queues name messages_ready   # 큐 적재량
 ```
 
+### 화면 캡처
+
+렌더된 페이지를 PNG 로 찍고 브라우저 콘솔 에러를 함께 걷는다. 표시 계층이 실제 브라우저에서 어떻게 그려지는지는 띄워 봐야 알고, 화면이 멀쩡해 보여도 차트 로더가 조용히 죽은 경우를 이 콘솔 수집이 잡는다.
+
+```bash
+pnpm install                                     # 최초 1회
+pnpm exec playwright install --with-deps chromium  # 최초 1회 — 브라우저 실물은 npm 패키지가 아니다
+pnpm run screenshot shots --server <public_id>   # 표준 페이지 세트 캡처
+```
+
+두 번째 줄이 별도인 이유는 브라우저가 150MB 안팎이라 npm 패키지에 담기지 않기 때문이다. `--with-deps` 는 실행에 필요한 시스템 라이브러리를 apt 로 받으므로 sudo 를 묻는다.
+
+| 옵션 | 기본값 | 뜻 |
+|------|--------|-----|
+| `--base <url>` | `http://localhost:8000` | 기준 오리진 |
+| `--server <id>` | 없음 | public_id. 주면 개요·목록·환경·서버 상세 탭까지 표준 세트를 일괄 캡처 |
+| `--vw` · `--vh` | 1440 · 1000 | 뷰포트 크기. full-page 라 세로는 스크롤 전체가 담긴다 |
+| `--settle <ms>` | 2500 | load 후 차트가 그려질 때까지 대기 |
+| `--scale <n>` | 2 | 픽셀 배율. 텍스트 선명도 |
+
+`--server` 대신 URL 을 직접 나열하면 그 경로만 찍는다. 결과는 `<outDir>/<페이지이름>.png` 이고, 터미널에는 페이지별 HTTP 상태와 콘솔 에러가 나온다.
+
+서버가 응답해야 하고 DB 에 데이터가 있어야 볼 것이 나온다.
+
 ---
 
 ## 흔한 트러블
