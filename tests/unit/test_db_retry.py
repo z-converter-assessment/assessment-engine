@@ -20,23 +20,29 @@ def _mock_session_factory():
     return MagicMock(return_value=cm)
 
 
-def _sa_error(cls):
+def _sa_error(cls: type[DBAPIError]) -> DBAPIError:
     """SQLAlchemy DBAPI 계열 예외 인스턴스 (statement, params, orig)."""
     return cls("stmt", {}, Exception("orig"))
 
 
-def _deadlock_error():
+class _SqlstateError(Exception):
+    """asyncpg 예외 대역 — _db_retry 가 보는 것은 orig.sqlstate 하나다."""
+
+    def __init__(self, message: str, sqlstate: str) -> None:
+        super().__init__(message)
+        self.sqlstate = sqlstate
+
+
+def _deadlock_error() -> DBAPIError:
     """asyncpg deadlock — base DBAPIError(OperationalError 아님) + orig sqlstate 40P01."""
-    orig = Exception("deadlock detected")
-    orig.sqlstate = "40P01"
-    return DBAPIError("stmt", {}, orig)
+    return DBAPIError("stmt", {}, _SqlstateError("deadlock detected", "40P01"))
 
 
 async def test_db_retry_success_commits_once():
     factory = _mock_session_factory()
     calls = 0
 
-    async def fn(repo):
+    async def fn(repo: object) -> str:
         nonlocal calls
         calls += 1
         return "ok"
@@ -51,7 +57,7 @@ async def test_db_retry_retries_operational_error_then_raises():
     factory = _mock_session_factory()
     calls = 0
 
-    async def fn(repo):
+    async def fn(repo: object) -> str:
         nonlocal calls
         calls += 1
         raise _sa_error(OperationalError)
@@ -67,7 +73,7 @@ async def test_db_retry_integrity_error_no_retry():
     factory = _mock_session_factory()
     calls = 0
 
-    async def fn(repo):
+    async def fn(repo: object) -> str:
         nonlocal calls
         calls += 1
         raise _sa_error(IntegrityError)
@@ -87,7 +93,7 @@ async def test_db_retry_permanent_dbapi_error_no_retry():
     factory = _mock_session_factory()
     calls = 0
 
-    async def fn(repo):
+    async def fn(repo: object) -> str:
         nonlocal calls
         calls += 1
         raise _sa_error(ProgrammingError)
@@ -108,7 +114,7 @@ async def test_db_retry_retries_deadlock():
     factory = _mock_session_factory()
     calls = 0
 
-    async def fn(repo):
+    async def fn(repo: object) -> str:
         nonlocal calls
         calls += 1
         if calls == 1:

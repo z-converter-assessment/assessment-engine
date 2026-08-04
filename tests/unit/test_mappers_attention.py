@@ -3,10 +3,13 @@
 capacity-weighted 평균·top_n 피크·포화 카운트(realtime) + 분류순·심각도 정렬·효율 집계(action targets) 검증.
 """
 
+import dataclasses
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.attention import (
     _NET_CONGESTED_COLOR,
     _UTIL_COLOR_GAUGE,
@@ -23,7 +26,7 @@ _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 # ─── 헬퍼 ────────────────────────────────────────────────────────────────
 
 
-def _snap(hostname: str, public_id: str, **kw) -> dict:
+def _snap(hostname: str, public_id: str, **kw: Any) -> JsonObject:
     """realtime 스냅샷 dict — build_environment_realtime 입력 1건.
 
     필수 키(hostname/public_id)만 고정, 나머지 값·가중치는 kw 로 주입(미지정은 dict 미포함 = get None).
@@ -33,12 +36,12 @@ def _snap(hostname: str, public_id: str, **kw) -> dict:
     return d
 
 
-def _raw(**kw) -> ReportRowRaw:
+def _raw(**kw: Any) -> ReportRowRaw:
     """ReportRowRaw 최소 구성 — 모든 신호 축 None 기본, kw 로 발화 축만 채움.
 
     tests/factories·conftest 수정 금지 규약 상 인라인 구성(지정 파일 한정 편집).
     """
-    d = dict(
+    d = ReportRowRaw(
         server_id=1,
         public_id="a",
         hostname="h",
@@ -89,14 +92,13 @@ def _raw(**kw) -> ReportRowRaw:
         procs_running_p95=None,
         oom_occurred=False,
     )
-    d.update(kw)
-    return ReportRowRaw(**d)
+    return dataclasses.replace(d, **kw)
 
 
 # ─── build_environment_realtime — capacity-weighted 평균 ─────────────────
 
 
-def _two_snaps() -> list[dict]:
+def _two_snaps() -> list[JsonObject]:
     """CPU 코어 가중이 서로 다른 2 스냅샷 — capacity-weighted 와 단순평균이 갈리게 구성."""
     return [
         _snap(

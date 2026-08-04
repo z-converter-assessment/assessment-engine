@@ -1,12 +1,14 @@
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aio_pika
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from starlette.responses import Response
 
 from assessment_engine.cache.redis import close_pool
 from assessment_engine.log_config import setup_logging
@@ -18,7 +20,7 @@ from assessment_engine.web.routers.reports import reference_router, reports_rout
 from assessment_engine.web.routers.right_sizing import right_sizing_router
 from assessment_engine.web.routers.tasks import tasks_router
 from assessment_engine.web.settings import get_diagnostic_settings, get_web_settings
-from assessment_engine.web.templating import templates
+from assessment_engine.web.templating.setup import env_globals
 
 
 @asynccontextmanager
@@ -79,7 +81,7 @@ app = FastAPI(title="ZConverter Assessment Portal", lifespan=lifespan)
 
 
 @app.middleware("http")
-async def disable_html_cache(request, call_next):
+async def disable_html_cache(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """SSR(text/html) + dev 한정 static asset 에 `Cache-Control: no-store` 적용.
 
     HTML: 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저 HTTP cache·BFCache 로
@@ -91,7 +93,7 @@ async def disable_html_cache(request, call_next):
     dev = getattr(request.app.state, "dev_assets", False)
     # dev — 매 요청 asset_v 재발급: 정적 자원 URL(`?v=`)이 매번 바뀌어 브라우저 disk cache·304 까지 회피.
     if dev:
-        templates.env.globals["asset_v"] = format(int(time.time() * 1000), "x")
+        env_globals["asset_v"] = format(int(time.time() * 1000), "x")
     response = await call_next(request)
     ct = response.headers.get("content-type", "")
     if ct.startswith("text/html") or (dev and request.url.path.startswith("/static/")):

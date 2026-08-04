@@ -13,36 +13,23 @@ hypothesis property 기반 테스트는 unit 안에 있다 — 생성 횟수 배
 
 ## 2. 실행
 
+일상 실행은 `make test`·`make test-unit`·`make test-integration` 이다 (`make help`). 통합은 Docker 가 필요하다 — testcontainers 가 TimescaleDB 를 자동으로 띄운다.
+
+아래는 make 타깃이 없는 변형이다.
+
 ```bash
-# 1. dev 의존성 설치 (최초 1회) — uv.lock 기준 reproducible install
-uv sync --frozen --group dev
-
-# 2. 전체 (unit + integration)
-uv run pytest
-
-# 3. 단위만 (DB 무관)
-uv run pytest tests/unit/
-
-# 4. 통합만 (Docker 필요 — testcontainers가 TimescaleDB 자동 spawn)
-uv run pytest tests/integration/
-
-# 5. property 생성 횟수 1/10 — develop CI 와 같은 배율
+# property 생성 횟수 1/10 — develop 워크플로와 같은 배율
 HYPOTHESIS_SCALE=0.1 uv run pytest tests/unit/
 
-# 6. 커버리지 측정
-uv run pytest tests/unit/ --cov=assessment_engine
-
-# 7. 단일 파일 / 단일 함수
+# 단일 파일 / 단일 함수
 uv run pytest tests/integration/test_query_repository.py
 uv run pytest tests/integration/test_query_repository.py::test_metric_chart_dispatcher_all_types
 
-# 8. 자세한 출력
+# 자세한 출력
 uv run pytest -v
 ```
 
-unit 소요는 property 테스트가 지배한다. `HYPOTHESIS_SCALE` 은 각 테스트가 선언한 `max_examples` 에 곱하는 배율이고(기본 1, 하한 50 예제 — `tests/hypothesis_scale.py`), CI 는 이 값을 base 브랜치로 가른다 — main 승격은 선언값 전량, develop 통합은 1/10.
-
-커버리지는 CI 에서 재지 않는다 — 임계값 게이트가 없어 결과를 판정에 쓰지 않기 때문이다. 필요하면 위 명령으로 로컬에서 측정한다.
+unit 소요는 property 테스트가 지배한다. `HYPOTHESIS_SCALE` 은 각 테스트가 선언한 `max_examples` 에 곱하는 배율이고(기본 1, 하한 50 예제 — `tests/hypothesis_scale.py`), 검증 워크플로는 이 값을 base 브랜치로 가른다 — main 승격은 선언값 전량, develop 통합은 1/10.
 
 CI 자동 실행: PR 을 올리면 `.github/workflows/ci.yml` 이 테스트를 돌린다. base 별 발화 범위는 `docs/guides/ci-setup.md` 3.4.
 

@@ -83,7 +83,8 @@
 | `bootstrap.sh` | 배포 VM 1회성 구성 | raw URL 로 받는 파일이라 경로가 운영 절차에 고정 |
 | `deploy.sh` | 엔진 rollout | 위와 같음 |
 | `rotate-secret.sh` | DB·broker 계정 비밀번호 교체 | 위와 같음 |
-| `README.md` | 본 문서 | GitHub 이 루트에서 렌더 |
+| `Makefile` | 개발 명령 단일 진입점 (`make help`) | make 가 실행 디렉토리에서 찾는다 |
+| `README.md` · `CONTRIBUTING.md` | 제품 소개 · 개발 참여 진입점 | GitHub 이 루트에서 렌더하고 PR 화면에 링크 |
 | `.gitignore` · `.dockerignore` · `.claudeignore` | 각 도구의 제외 목록 | 도구가 컨텍스트 루트에서 읽음 |
 
 프론트엔드 설정이 섞여 보이지만 별도 프로젝트가 아니다. 번들러도 빌드 산출물도 없고, FastAPI 가 내보내는 OpenAPI 에서 TS 타입을 생성해 `tsc --checkJs` 로 클라이언트 JS 를 검사하는 용도다. 서빙되는 JS 는 빌드를 거치지 않고 `src/assessment_engine/web/static/` 에서 그대로 나간다.
@@ -154,13 +155,12 @@ dev(핫리로드), `.env.example` 이면 배포용이다. 그 안의 `COMPOSE_FI
 dev = base + `docker-compose.override.yml` 핫리로드. 코드 수정이 컨테이너 restart 없이 반영된다.
 
 ```bash
-cp .env.dev.example .env
-docker compose up -d      # web http://localhost:8000
-docker compose down       # 종료 (볼륨 보존)
+make setup     # python + node 개발 의존성
+make dev       # 기동 (web http://localhost:8000) — .env 없으면 dev 템플릿에서 생성
+make help      # 명령 목록
 ```
 
-코드 반영·의존성 관리는 `docs/guides/local-dev.md`, 호스트 venv 준비와 테스트 실행은 `docs/guides/testing.md`,
-lint 는 `docs/guides/conventions.md`, ORM·migrations 정합 확인은 `docs/guides/migrate.md` 가 갖는다.
+작업 순서와 각 단계의 문서 위치는 `CONTRIBUTING.md` 가 갖는다.
 
 ---
 

@@ -42,10 +42,8 @@ jobs:
       - name: ruff check
         run: uv run ruff check .
 
-      # tests 는 픽스처가 dict 리터럴을 넘기는 방식 탓에 위반이 남아 있어 범위 밖이다.
-      # 편집기는 pyproject 의 include 대로 전체를 보고, 게이트만 src 로 좁힌다.
-      - name: pyright (src)
-        run: uv run pyright src
+      - name: pyright
+        run: uv run pyright
 
       - name: hadolint Dockerfile
         uses: hadolint/hadolint-action@2332a7b74a6de0dda2e2221d575162eba76ba5e5 # v3.3.0
@@ -73,9 +71,7 @@ jobs:
       - name: Install project (frozen)
         run: uv sync --frozen --group dev
 
-      # property 테스트 생성 횟수는 base 브랜치로 가른다 — main 승격은 선언값 전량, develop 통합은
-      # 1/10. 커버리지는 CI 에서 재지 않는다: 임계값 게이트가 없어 결과를 판정에 쓰지 않으면서
-      # 측정 비용만 매 PR 나갔다. 필요하면 로컬에서 `uv run pytest --cov=assessment_engine`.
+      # property 테스트 생성 횟수는 base 브랜치로 가른다 — main 승격은 선언값 전량, develop 통합은 1/10.
       - name: pytest unit
         env:
           HYPOTHESIS_SCALE: ${{ github.base_ref == 'main' && '1' || '0.1' }}
@@ -152,7 +148,7 @@ jobs:
     name: pytest (integration)
     runs-on: ubuntu-latest
     needs: [test-unit]
-    # main PR 에서만 — 컨테이너 기동이 필요해 무겁다. develop 게이트는 단위 테스트까지.
+    # main PR 에서만 — 컨테이너 기동이 필요해 무겁다. develop PR 의 CI 는 단위 테스트까지.
     if: github.base_ref == 'main'
     timeout-minutes: 15
     steps:

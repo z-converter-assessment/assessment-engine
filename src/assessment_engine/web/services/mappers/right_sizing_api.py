@@ -9,6 +9,8 @@ stats 원자료·임계 상수로 numeric(파싱 계약).
 from __future__ import annotations
 
 from assessment_engine import recommendation
+from assessment_engine.db.dtos.outbound import ReportRowRaw
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
@@ -50,7 +52,7 @@ def _sizeable_recommendation(kind: str, ra: recommendation.ResourceAssessment) -
     return None
 
 
-def _net_signal(value: float | None, threshold: float, *, inclusive: bool = False) -> dict:
+def _net_signal(value: float | None, threshold: float, *, inclusive: bool = False) -> JsonObject:
     """네트워크 품질 신호 1개 — 값·임계·초과여부·측정여부. resource saturation 블록과 대칭.
 
     inclusive = conntrack(>= 임계) 여부. retrans/drop 은 > 임계. 미측정(value None)이면 exceeded=None.
@@ -61,7 +63,7 @@ def _net_signal(value: float | None, threshold: float, *, inclusive: bool = Fals
     return {"value": round(value, 3), "threshold": threshold, "exceeded": exceeded, "measured": True}
 
 
-def _cpu_resource(raw, stats, host) -> dict:
+def _cpu_resource(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment) -> JsonObject:
     ra = host.resources["cpu"]
     return {
         "status": ra.status,
@@ -77,7 +79,7 @@ def _cpu_resource(raw, stats, host) -> dict:
     }
 
 
-def _memory_resource(raw, stats, host) -> dict:
+def _memory_resource(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment) -> JsonObject:
     ra = host.resources["memory"]
     return {
         "status": ra.status,
@@ -93,7 +95,7 @@ def _memory_resource(raw, stats, host) -> dict:
     }
 
 
-def _disk_resource(raw, stats, host) -> dict:
+def _disk_resource(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment) -> JsonObject:
     cap = host.resources["disk_capacity"]
     io = host.resources["disk_io"]
     # 현재 배정 디스크 총량 — block_devices type=disk size_bytes 합(disk_total_bytes 단일 산식, 양 OS).
@@ -133,16 +135,16 @@ def _disk_resource(raw, stats, host) -> dict:
 _TARGET_KEY: dict[str, str] = {"cpu": "target_cores", "memory": "target_mb", "disk_capacity": "target_gb"}
 
 
-def _action(kind: str, ra: recommendation.ResourceAssessment, op: str) -> dict:
+def _action(kind: str, ra: recommendation.ResourceAssessment, op: str) -> JsonObject:
     """조치 1건 — 자원·연산·타입 목표(있으면)·표시. 목표 수치는 타입별 키(target_cores/_mb/_gb)로 직접 파싱 가능."""
-    a: dict = {"resource": kind, "op": op, "target_display": recommendation.resource_prescription(kind, ra) or None}
+    a: JsonObject = {"resource": kind, "op": op, "target_display": recommendation.resource_prescription(kind, ra) or None}
     key = _TARGET_KEY.get(kind)
     if key and ra.sizing_target is not None:
         a[key] = ra.sizing_target
     return a
 
 
-def _recommendation(host, stats, rec: recommendation.Recommendation) -> dict:
+def _recommendation(host: recommendation.HostAssessment, stats: recommendation.ResourceStats, rec: recommendation.Recommendation) -> JsonObject:
     """종합 권고 구조 (파싱용 견고 포맷) — 이 하나만 보고 조치를 결정한다.
 
     actions = 관측된 under 자원 전부(자원별 독립, 인과에 의한 억제 없음 — assessment API sizing.axes 와 동일
@@ -186,7 +188,7 @@ def _recommendation(host, stats, rec: recommendation.Recommendation) -> dict:
     }
 
 
-def build_right_sizing_entry(raw, is_online: bool, hostname_ambiguous: bool = False) -> dict:
+def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool = False) -> JsonObject:
     """ReportRowRaw + is_online -> right-sizing 판정 dict (자원 3축 사이징 + 네트워크 품질).
 
     분류·근본원인·신뢰도·권고 전부 rollup_host 종합에서 파생 — 보고서/자원평가 화면과 값 정합(재계산 0).

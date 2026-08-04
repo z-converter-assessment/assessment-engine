@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "assessment-engine"
 # 릴리스 시 `uv version --bump <part>` 로 올린다.
-version = "1.2.2"
+version = "1.2.3"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.136.0",
@@ -30,7 +30,6 @@ dependencies = [
 dev = [
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
-    "pytest-cov>=5.0",
     "testcontainers[postgres]>=4.14.2",
     "ruff>=0.15.13",
     "hypothesis>=6.156.5",
@@ -52,11 +51,24 @@ filterwarnings = [
 [tool.pyright]
 # 타입 검사 강도를 편집기 설정이 아니라 저장소에 둔다 — Pylance 와 pyright CLI 가 같은 파일을 읽으므로
 # 편집기에서 통과한 것이 CLI 에서도 통과한다. .vscode/settings.json 은 어떤 도구를 쓸지만 정한다.
-typeCheckingMode = "basic"
-include = ["src", "tests"]
+typeCheckingMode = "strict"
+# 검사 범위는 여기서만 정한다 — Makefile·워크플로는 인자 없이 `pyright` 를 부른다.
+include = ["src", "scripts", "tests"]
 # uv 가 만드는 가상환경. CLI 가 활성 인터프리터 대신 이 경로의 의존성을 보게 한다.
 venvPath = "."
 venv = ".venv"
+
+# strict 프리셋이 켜지만 이 저장소가 채택하지 않는 규칙 — 사유는 ADR 0062.
+reportPrivateUsage = "none"
+reportUnusedFunction = "none"
+reportUnusedClass = "none"
+reportUnnecessaryIsInstance = "none"
+
+# strict 프리셋이 끄지만 위반 0 이라 켜 두는 규칙 — 죽은 코드·낡은 억제 주석을 잡는다.
+reportUnreachable = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+reportPropertyTypeMismatch = "error"
+reportUninitializedInstanceVariable = "error"
 
 [tool.ruff]
 line-length = 120

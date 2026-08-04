@@ -45,19 +45,16 @@ git diff 보면 큰 lockfile 변경이 흔함 — transitive 트리 resolver 결
 
 ### 일상 (운영자 관점)
 
-```bash
-# dev 의존성 + 운영 의존성 모두 설치 (가장 흔함)
-uv sync --group dev
+설치는 `make setup` 이다 — lockfile 을 그대로 쓰는 frozen install 이라 워크플로와 같은 버전 집합이 깔린다. 검사·테스트도 make 타깃이 있다 (`make help`).
 
-# CI 와 동일한 frozen install (lockfile 그대로 — reproducible)
-uv sync --frozen --group dev
+아래는 make 타깃이 없는 변형이다.
+
+```bash
+# lockfile 을 재해석해 설치 (범위 안에서 새 버전을 잡을 수 있다)
+uv sync --group dev
 
 # 운영 의존성만 (Docker prod 이미지 빌드 시점)
 uv sync --no-dev
-
-# 단일 명령 실행 (의존성 자동 sync 포함)
-uv run pytest
-uv run ruff check .
 ```
 
 alembic 은 설정 파일이 패키지 안에 있어 호출 측이 경로를 줘야 한다 — 명령 형태는 `docs/guides/migrate.md` "명령" 절.
@@ -80,7 +77,7 @@ uv lock --upgrade-package fastapi
 # 모든 의존성 최신 resolve (큰 변경, PR review 부담)
 uv lock --upgrade
 
-# pyproject.toml 수동 편집 후 lockfile 동기화 (dependabot PR merge 후 흐름)
+# pyproject.toml 수동 편집 후 lockfile 동기화
 uv lock
 ```
 
@@ -121,13 +118,14 @@ uv lock --upgrade-package fastapi
 uv lock --upgrade
 
 # 4. 테스트 + commit
-uv sync --group dev
-uv run pytest
+make setup && make test
 git add pyproject.toml uv.lock
 git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 ```
 
-보안 알림은 GitHub Dependabot alerts + security updates (UI 활성, 자동 PR 없음 — 알림만)로 수신. CI 단계의 의존성 CVE 자동 gate 는 두지 않는다 — CVE 평가·대응(수정본 유무 판단·bump·예외 수용)은 Dependabot alerts 로 운영자가 판단.
+보안 알림은 GitHub Dependabot alerts 로 수신한다 (Security 탭). 자동 PR 을 여는 security updates·version updates 는 둘 다 비활성 — 위 사유가 양쪽에 동일하게 적용된다. 설정 상태와 조회 명령은 `docs/guides/ci-setup.md` 4.2 가 소유한다.
+
+CI 단계의 의존성 CVE 자동 gate 는 두지 않는다 — CVE 평가·대응(수정본 유무 판단·bump·예외 수용)은 alert 를 보고 운영자가 판단한다.
 
 ## 6. 흐름·체크리스트
 
@@ -135,7 +133,7 @@ git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 
 1. `uv add <package>` (또는 `uv add --group dev <package>`)
 2. `pyproject.toml` + `uv.lock` 동시 갱신 자동
-3. `uv sync --group dev` 로 venv 설치
+3. `make setup` 으로 venv 설치
 4. import + 동작 검증
 5. commit (두 파일 함께)
 
@@ -143,8 +141,8 @@ git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 
 1. `uv lock --upgrade-package <name>` 또는 `uv lock --upgrade` (전체)
 2. `uv.lock` diff review (transitive 영향 확인)
-3. `uv sync --group dev`
-4. `uv run pytest` (전체 회귀 검증)
+3. `make setup`
+4. `make test` (전체 회귀 검증)
 5. commit (`pyproject.toml` + `uv.lock`)
 
 ### lockfile drift 대응

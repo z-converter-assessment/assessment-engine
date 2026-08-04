@@ -13,7 +13,8 @@ def get_pool() -> ConnectionPool:
     global _pool
     pool = _pool
     if pool is None:
-        pool = ConnectionPool.from_url(
+        # redis 는 from_url 의 **kwargs 를 타입 없이 선언한다 — 인자 이름별 검증이 성립하지 않는다.
+        pool = ConnectionPool.from_url(  # pyright: ignore[reportUnknownMemberType]
             WebSettings().redis_url,  # pyright: ignore[reportCallIssue]
             decode_responses=True,
             socket_timeout=5,  # F6 — 명령 timeout (fail-open 경계)

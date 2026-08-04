@@ -9,6 +9,9 @@ DB URL은 WebSettings.database_url (asyncpg). alembic.ini의 sqlalchemy.url은 �
 모든 ORM 모델 import 의무 — 안 그러면 Base.metadata에 누락되어 autogenerate가 drop 처리.
 """
 
+# 아래 모델 import 는 이름을 쓰지 않고 등록 부수효과만 취한다 — 검사기의 미사용 판정을 파일 단위로 끈다.
+# pyright: reportUnusedImport=false
+
 import asyncio
 from logging.config import fileConfig
 
@@ -16,6 +19,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
+from sqlalchemy.sql.schema import SchemaItem
 
 from assessment_engine.config import WebSettings
 from assessment_engine.db.models import (  # noqa: F401  — Base.metadata 등록
@@ -61,7 +65,9 @@ def run_migrations_offline() -> None:
         context.run_migrations()
 
 
-def _include_object(object_, name, type_, reflected, compare_to):
+def _include_object(
+    object_: SchemaItem, name: str | None, type_: str, reflected: bool, compare_to: SchemaItem | None
+) -> bool:
     """autogenerate 비교 시 TimescaleDB 자동 생성 객체 제외.
 
     `create_hypertable`이 partition 키 정렬용으로 `{table}_collected_at_idx`를 자동 생성.

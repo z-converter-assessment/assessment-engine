@@ -4,6 +4,9 @@ OS별 raw 신호를 통일 축으로 정규화하는 3 helper 의 판정·미관
 판정 순서는 test_right_sizing_model.py 단일 진실 — 본 파일은 helper 단위(신호 -> bool|None)만.
 """
 
+from typing import Any
+
+from assessment_engine.json_types import JsonObject
 from assessment_engine.recommendation import (
     CPU_RUN_QUEUE_PER_CORE_SATURATION,
     DISK_QUEUE_PER_DISK_SATURATION,
@@ -21,7 +24,9 @@ from assessment_engine.recommendation import (
     HostAssessment,
     MountSizing,
     ResourceAssessment,
+    ResourceKind,
     ResourceStats,
+    ResourceStatus,
     assess_mount_capacity,
     cpu_saturated,
     cpu_saturation_index,
@@ -37,9 +42,9 @@ from assessment_engine.recommendation import (
 _GIB = 1024**3
 
 
-def _stats(**overrides) -> ResourceStats:
+def _stats(**overrides: Any) -> ResourceStats:
     """기본 Linux 미포화 stats — 각 test 가 override 로 신호 활성화."""
-    base: dict = {
+    base: JsonObject = {
         "cpu_p95_pct": 40.0,
         "cpu_peak_pct": 50.0,
         "cpu_load_15m_max": 0.5,
@@ -56,7 +61,7 @@ def _stats(**overrides) -> ResourceStats:
     return ResourceStats(**base)
 
 
-def _win(**overrides) -> ResourceStats:
+def _win(**overrides: Any) -> ResourceStats:
     """Windows 기본 stats — load/iowait/swap 는 Linux 축이라 무의미, run_queue/paging/disk_queue 로 판정."""
     base = {
         "os_family": "windows",
@@ -199,7 +204,7 @@ def test_mem_pressure_active_os_aware():
 # ─── 포화 축 미관측 판정 — cpu/memory/disk_io 한정 (network·disk_capacity 제외) ───
 
 
-def _ra(kind: str, status: str, *, coverage_gap: bool = False) -> ResourceAssessment:
+def _ra(kind: ResourceKind, status: ResourceStatus, *, coverage_gap: bool = False) -> ResourceAssessment:
     return ResourceAssessment(kind, status, confidence=ConfidenceNote(coverage_gap=coverage_gap))
 
 

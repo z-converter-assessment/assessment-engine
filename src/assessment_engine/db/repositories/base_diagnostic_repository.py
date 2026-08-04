@@ -2,6 +2,7 @@ from abc import ABC, abstractmethod
 
 from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
+from assessment_engine.json_types import JsonObject
 
 # 진단 평가 윈도우 타입·상수(TimeRange/DIAGNOSTIC_RANGE_DAYS/DIAGNOSTIC_DEFAULT_TIME_RANGE)는
 # db/repositories/query/types.py 단일 진실 (#F10) — repo 인터페이스 계층에 표시/윈도우 상수 미보유.
@@ -33,7 +34,7 @@ class BaseDiagnosticRepository(ABC):
     async def get_by_id(self, job_id: str) -> DiagnosticJobRecord | None: ...
 
     @abstractmethod
-    async def mark_succeeded(self, job_id: str, result: dict) -> None:
+    async def mark_succeeded(self, job_id: str, result: JsonObject) -> None:
         """status → succeeded, result 저장, finished_at=now(), progress_stage=NULL."""
         ...
 

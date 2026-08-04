@@ -24,10 +24,10 @@ _WINDOW_FLOOR_DAYS = 14
 class AssessmentExportRequest(BaseModel):
     """export 필터 — GET /api/assessment 쿼리와 동일 필드(쉼표 문자열 대신 배열). 미지정 시 전체 서버."""
 
-    hostname: list[str] = Field(default_factory=list)
-    ip: list[str] = Field(default_factory=list)
-    public_id: list[str] = Field(default_factory=list)
-    pair: list[str] = Field(default_factory=list)  # "hostname~discriminator" 토큰
+    hostname: list[str] = Field(default_factory=list[str])
+    ip: list[str] = Field(default_factory=list[str])
+    public_id: list[str] = Field(default_factory=list[str])
+    pair: list[str] = Field(default_factory=list[str])  # "hostname~discriminator" 토큰
     window_days: int = Field(default=_WINDOW_FLOOR_DAYS, ge=_WINDOW_FLOOR_DAYS, le=90)
     end: datetime | None = None
 

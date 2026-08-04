@@ -13,6 +13,7 @@ import json
 
 from assessment_engine.consumer.mappers import to_inventory_create, to_metric_create
 from assessment_engine.consumer.schemas import InventoryInput, MetricsInput
+from assessment_engine.json_types import JsonObject
 
 _MAC = "02:42:ac:11:00:03"  # net_interface 안정키 (id, id_type=mac). v1 mac_addresses 폐기
 _NET_DEV = f"mac:{_MAC}"  # metrics network.io device 축 = "mac:"+MAC (inventory id 와 조인 정합)
@@ -21,7 +22,7 @@ _DISK0 = "gptid:{3484c6ca-d135-4483-a716-9207f855c8db}"  # PhysicalDrive0 (GPT s
 _DISK1 = "mbrsig:2579770672"  # 두 번째 물리 디스크 (MBR signature)
 
 
-def _meta() -> dict:
+def _meta() -> JsonObject:
     return {
         "schema_version": "1.0",
         "agent_id": "00000000-0000-4000-8000-000000000001",
@@ -35,7 +36,7 @@ def _meta() -> dict:
     }
 
 
-def _windows_inventory() -> dict:
+def _windows_inventory() -> JsonObject:
     return {
         **_meta(),
         "message_type": "inventory",
@@ -79,7 +80,7 @@ def _windows_inventory() -> dict:
     }
 
 
-def _windows_metrics() -> dict:
+def _windows_metrics() -> JsonObject:
     return {
         **_meta(),
         "message_type": "metrics",

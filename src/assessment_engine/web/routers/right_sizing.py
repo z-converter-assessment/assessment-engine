@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 from fastapi import APIRouter, Depends, Query
 
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.deps import get_service
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.view_models.right_sizing_api import RightSizingResponse
@@ -47,7 +48,7 @@ async def get_right_sizing(
     window_days: int = Query(14, ge=1, le=30, description="평가 윈도우(일). 기본 14 = 자원 적정성 표준 창."),
     end: datetime | None = Query(None, description="윈도우 종료 시각(ISO 8601, tz-aware 권장). 기본 현재."),
     service: QueryService = Depends(get_service),
-):
+) -> JsonObject:
     """서버 자원 적정성 판정 (프로비저닝 가이드) — CPU·메모리·디스크 3축 사이징 + 네트워크 품질.
 
     외부 자동화가 소비하는 API라 자기 인벤토리가 아는 hostname/ip 로 고른다(내부 public_id 는 몰라도 됨 — 알면

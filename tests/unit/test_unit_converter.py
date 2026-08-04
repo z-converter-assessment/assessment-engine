@@ -26,7 +26,7 @@ from assessment_engine.web.services.unit_converter import (
         (1_073_741_824, 1.0),  # 1 GiB = 1024^3 B -> 1.0 GB (round 2자리, bytes_to_gib 와 동일 base)
     ],
 )
-def test_bytes_to_gb(b, expected):
+def test_bytes_to_gb(b: int | None, expected: float | None):
     assert bytes_to_gb(b) == expected
 
 
@@ -42,7 +42,7 @@ def test_bytes_to_gb(b, expected):
         (8 * 1024**3, 8.0),
     ],
 )
-def test_bytes_to_gib(b, expected):
+def test_bytes_to_gib(b: int | None, expected: float | None):
     assert bytes_to_gib(b) == expected
 
 
@@ -61,5 +61,5 @@ def test_bytes_to_gib(b, expected):
         (-10, 100, 0.0),  # 음수는 0으로 clamp (max 0.0)
     ],
 )
-def test_usage_pct(used, total, expected):
+def test_usage_pct(used: int | None, total: int | None, expected: float | None):
     assert usage_pct(used, total) == expected

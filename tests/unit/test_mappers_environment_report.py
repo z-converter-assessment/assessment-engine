@@ -7,8 +7,7 @@
 """
 
 from datetime import UTC, datetime
-
-import pytest
+from decimal import Decimal
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import MetricSeries
@@ -22,6 +21,7 @@ from assessment_engine.web.view_models.attention import (
     EnvironmentOverview,
 )
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
+from tests.approx import approx
 
 
 def test_provisioning_segment_defs_single_truth():
@@ -160,12 +160,12 @@ def test_to_environment_report_precomputes_classification_pct():
         action=ActionTargets(),
     )
     by_key = {c.key: c for c in result.classification_dist}
-    assert by_key["optimal"].pct == pytest.approx(66.7, abs=0.1)
-    assert by_key["under_provisioned"].pct == pytest.approx(33.3, abs=0.1)
+    assert by_key["optimal"].pct == approx(66.7, abs=0.1)
+    assert by_key["under_provisioned"].pct == approx(33.3, abs=0.1)
     # 미해당 segment 는 pct 0
     assert by_key["idle"].pct == 0.0
     # pct 합 == 100 (insufficient_data 제외하면 100, 모두 합치면 100)
-    assert sum(c.pct for c in result.classification_dist) == pytest.approx(100.0, abs=0.1)
+    assert sum(c.pct for c in result.classification_dist) == approx(100.0, abs=0.1)
 
 
 def test_to_environment_report_classification_dist_empty_rows_zero_pct():
@@ -215,7 +215,7 @@ def test_to_environment_report_classification_dist_empty_rows_zero_pct():
 # ---------- build_metric_trend ----------
 
 
-def _series(pairs: list[tuple[datetime, float | None]]) -> list[MetricSeries]:
+def _series(pairs: list[tuple[datetime, float | Decimal | None]]) -> list[MetricSeries]:
     """MetricSeries list 헬퍼 — collected_at·value 만 build_metric_trend 가 사용."""
     return [MetricSeries(collected_at=t, value=v, dimension=None) for t, v in pairs]
 
@@ -243,8 +243,6 @@ def test_build_metric_trend_merges_three_series_on_timestamps():
 def test_build_metric_trend_rounds_to_one_decimal_and_keeps_none():
     """value 는 float 변환 + 소수 1자리 반올림, None 표본은 그대로 None (차트 gap)."""
     t1 = datetime(2026, 5, 12, 0, 0, tzinfo=UTC)
-    from decimal import Decimal
-
     cpu = _series([(t1, Decimal("12.34"))])
     mem = _series([(t1, None)])
     disk = _series([(t1, 99.96)])

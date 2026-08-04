@@ -18,6 +18,7 @@ from assessment_engine.db.dtos.inbound import (
     TaskResultUpdate,
 )
 from assessment_engine.db.dtos.outbound import TaskRow
+from assessment_engine.json_types import JsonObject
 from assessment_engine.service_classifier import compute_service_categories
 
 _DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=UTC)
@@ -51,11 +52,11 @@ def make_inventory(
     mem_total_bytes: int | None = 8 * 1024**3,  # v2 By (v1 kB 폐기)
     boot_time: datetime | None = _DEFAULT_BOOT_TIME,
     agent_started_at: datetime | None = _DEFAULT_AGENT_STARTED_AT,
-    block_devices: list[dict] | None = None,
-    net_interfaces: list[dict] | None = None,
-    lvm_vgs: list[dict] | None = None,
-    services: list[dict] | None = None,
-    listen_ports: list[dict] | None = None,
+    block_devices: list[JsonObject] | None = None,
+    net_interfaces: list[JsonObject] | None = None,
+    lvm_vgs: list[JsonObject] | None = None,
+    services: list[JsonObject] | None = None,
+    listen_ports: list[JsonObject] | None = None,
     arch: str | None = None,
     bits: int | None = None,
     boot_firmware: str | None = None,
@@ -64,8 +65,8 @@ def make_inventory(
     product_name: str | None = None,
     timezone: str | None = None,
     rtc_utc: bool | None = None,
-    boot: dict | None = None,
-    nonblock_mounts: list[dict] | None = None,
+    boot: JsonObject | None = None,
+    nonblock_mounts: list[JsonObject] | None = None,
 ) -> ServerInventoryCreate:
     """기본값은 placeholder 가 아니라 정상 수집된 inventory 다.
 
@@ -263,7 +264,7 @@ def make_task_result_payload(
     os_version: str | None = None,
     message_id: str = "550e8400-e29b-41d4-a716-446655440099",
     schema_version: str = "1.0",
-) -> dict:
+) -> JsonObject:
     """task.result wire JSON — `TaskResultInput.model_validate_json` 에 그대로 넣는다.
 
     `boot_time`·`agent_started_at` 기본값이 None 인 것은 발행 측 worker 가 수집 캐시와 분리돼

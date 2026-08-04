@@ -10,14 +10,20 @@ from typing import Literal
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import (
+    CpuBreakdownRaw,
+    MemoryBreakdownRaw,
+    MountUsageRaw,
     NetworkWithIo,
+    ReportRowRaw,
     ServerDetail,
     ServerSummary,
     StorageWithUsage,
 )
+from assessment_engine.json_types import JsonObject, json_list, json_str_list
 from assessment_engine.service_classifier import (
     SIGNATURE_CATEGORIES,
     SINGLE_INSTANCE_CATEGORIES,
+    MatchedPort,
     classify,
     detect_listen_categories,
     is_baseline_service,
@@ -37,6 +43,7 @@ from assessment_engine.web.services.mappers.shared import (
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
     lookup_os_eol,
+    os_eol_display,
     os_id_to_distro,
     spec_display_line,
     windows_legacy_version_from_build,
@@ -98,7 +105,7 @@ def _usage_badge_class(pct: float | None) -> str:
 # ─── raw dict → typed ViewModel 단일 변환 진입점 ──────────────────────────
 
 
-def _to_ip_addrs(net_interfaces: list[dict]) -> list[IpAddr]:
+def _to_ip_addrs(net_interfaces: list[JsonObject]) -> list[IpAddr]:
     """net_interface 노드 목록 → IpAddr(value=CIDR, is_ipv4). IPv4 우선 정렬(안정), loopback 제외.
 
     v2 노드는 kind 는 인터페이스 레벨, 주소는 nested addresses[]({address,prefix,family}) — 다중 IP 호스트는
@@ -108,7 +115,7 @@ def _to_ip_addrs(net_interfaces: list[dict]) -> list[IpAddr]:
     for iface in net_interfaces or []:
         if iface.get("kind") == "loopback":
             continue  # 표시 무의미
-        for a in iface.get("addresses") or []:
+        for a in json_list(iface, "addresses"):
             addr = a.get("address", "")
             prefix = a.get("prefix")
             value = f"{addr}/{prefix}" if prefix is not None else addr
@@ -123,7 +130,7 @@ def _ext_ip_addrs(ips: list[str] | None) -> list[IpAddr]:
 
 
 def build_network_interfaces(
-    net_interfaces: list[dict], link_speed_by_iface: dict[str, int] | None = None
+    net_interfaces: list[JsonObject], link_speed_by_iface: dict[str, int] | None = None
 ) -> list[NetworkInterfaceInfo]:
     """네트워크 인터페이스 정적 정보(MAC·MTU·속도·게이트웨이·DNS·주소) — "네트워크 정보" 카드 소비(P2).
 
@@ -150,23 +157,24 @@ def build_network_interfaces(
                 is_ipv4=a.get("family") == "ipv4",
                 origin=a.get("origin") or "",
             )
-            for a in iface.get("addresses") or []
+            for a in json_list(iface, "addresses")
         ]
         items.append(
             NetworkInterfaceInfo(
                 name=iface.get("name", ""),
-                mac=iface.get("id", "") if iface.get("id_type") == "mac" else "",
+                # .get(key, "") 는 키가 있고 값이 None 이면 None 을 돌려준다 — id 는 nullable 이라 or 로 받는다.
+                mac=(iface.get("id") or "") if iface.get("id_type") == "mac" else "",
                 mtu=iface.get("mtu"),
                 speed_mbps=speed_mbps,
                 gateway=iface.get("gateway") or "",
-                dns=list(iface.get("dns") or []),
+                dns=json_str_list(iface, "dns"),
                 addresses=sorted(addresses, key=lambda a: not a.is_ipv4),
             )
         )
     return items
 
 
-def _to_volumes(block_devices: list[dict]) -> list[VolumeItem]:
+def _to_volumes(block_devices: list[JsonObject]) -> list[VolumeItem]:
     """block_devices(lsblk) 중 마운트된 데이터 볼륨 노드 → VolumeItem(파일시스템) 목록 (가상·부트 제외, mount ASC).
 
     물리 디스크(type=disk)와 별개 축 — 양 OS 일관 표시 (fstype 명시). 마운트된 노드(mountpoint 有)만.
@@ -181,7 +189,7 @@ def _to_volumes(block_devices: list[dict]) -> list[VolumeItem]:
     return sorted(volumes, key=lambda v: v.mount)
 
 
-def _to_disk_item(d: dict) -> DiskItem | None:
+def _to_disk_item(d: JsonObject) -> DiskItem | None:
     """물리 디스크(block_device type=disk) 아니면 None."""
     name = d.get("name", "")
     if not is_physical_disk(d.get("type")):
@@ -192,7 +200,7 @@ def _to_disk_item(d: dict) -> DiskItem | None:
     )
 
 
-def _to_listen_port_item(p: dict) -> ListenPortItem:
+def _to_listen_port_item(p: JsonObject) -> ListenPortItem:
     port = p.get("port", 0)
     return ListenPortItem(
         proto=p.get("proto", ""),
@@ -205,7 +213,7 @@ def _to_listen_port_item(p: dict) -> ListenPortItem:
     )
 
 
-def _to_service_item(s: dict, listen_ports: list[dict] | None = None) -> ServiceItem:
+def _to_service_item(s: JsonObject, listen_ports: list[JsonObject] | None = None) -> ServiceItem:
     """listen_ports가 주어지면 매핑된 포트를 채움 (detail). 없으면 빈 리스트 (list 화면)."""
     unit = s.get("unit", "")
     return ServiceItem(
@@ -218,8 +226,8 @@ def _to_service_item(s: dict, listen_ports: list[dict] | None = None) -> Service
 
 
 def _services_or_none(
-    raw: list[dict] | None,
-    listen_ports: list[dict] | None = None,
+    raw: list[JsonObject] | None,
+    listen_ports: list[JsonObject] | None = None,
 ) -> list[ServiceItem] | None:
     """services는 None을 보존 (non-systemd 호스트 = unknown 표시 대상 아님)."""
     if raw is None:
@@ -248,7 +256,9 @@ def _os_display(
     return " ".join(parts) or "-"
 
 
-def build_server_inventory(detail, is_online: bool, raw=None) -> ServerInventorySnapshot:
+def build_server_inventory(
+    detail: ServerDetail, is_online: bool, raw: ReportRowRaw | None = None
+) -> ServerInventorySnapshot:
     """ServerDetail(+선택적 ReportRowRaw) -> 개별 보고서 인벤토리 (충실 표시 — 전체 IP(IPv4/IPv6)·하드웨어·
     식별자, 생략·왜곡 0). raw 는 ReportRowRaw — server_inventory 재현 필드(arch/bits/boot_firmware/
     secure_boot/edition/timezone) 보강용, 없으면 그 필드들만 None(환경/N대 등 raw 미보유 스코프 대비)."""
@@ -284,7 +294,7 @@ def build_server_inventory(detail, is_online: bool, raw=None) -> ServerInventory
     )
 
 
-def build_memory_breakdown(raw) -> MemoryBreakdown:
+def build_memory_breakdown(raw: MemoryBreakdownRaw) -> MemoryBreakdown:
     return MemoryBreakdown(
         used_pct=raw.used_pct,
         available_pct=raw.available_pct,
@@ -293,7 +303,7 @@ def build_memory_breakdown(raw) -> MemoryBreakdown:
     )
 
 
-def build_cpu_breakdown(raw) -> CpuBreakdown:
+def build_cpu_breakdown(raw: CpuBreakdownRaw) -> CpuBreakdown:
     return CpuBreakdown(user_pct=raw.user_pct, system_pct=raw.system_pct, iowait_pct=raw.iowait_pct)
 
 
@@ -301,21 +311,25 @@ def build_cpu_breakdown(raw) -> CpuBreakdown:
 
 
 def to_server_list_item(
-    dto: ServerSummary, raw_period=None, today: date | None = None, error_hosts: set[int] | None = None
+    dto: ServerSummary,
+    raw_period: ReportRowRaw | None = None,
+    today: date | None = None,
+    error_hosts: set[int] | None = None,
 ) -> ServerListItem:
     """ServerSummary -> ServerListItem. raw_period(ReportRowRaw)가 있으면 권장 조치 분류 채움.
 
     분류 라벨은 recommendation.LABEL_KO, provisioning_class(raw enum)는 shared._DONUT_SEGMENT_FROM_REC 경유 (P2 단일 진실).
     raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
-    today 주어지면 OS EOL 3상태 판정(lookup_os_eol) — 카탈로그 매칭 여부로 "지원 중"과 "미상(판정 불가)" 분리.
+    today 주어지면 OS 지원 단계 판정(lookup_os_eol) — 카탈로그 매칭 여부로 판정 결과와 "미상(판정 불가)" 분리.
     카탈로그 미수록(oracle 외 tencent 등)·미매칭을 "지원 중"으로 단정하지 않는다.
     """
-    # OsEolInfo 또는 미매칭 시 None. os_eol 은 매칭 iso(경과·미래 무관), status 는 eol/extended/supported/unknown.
+    # OsEolInfo 또는 미매칭 시 None. os_eol 은 매칭 iso(경과·미래 무관), status 는 판정 4단계 또는 unknown.
     info = lookup_os_eol(dto.os_id, dto.os_version, dto.kernel_version, today) if today else None
     if info is None:
         os_eol, os_eol_status = "", ("unknown" if today else "")
     else:
         os_eol, os_eol_status = info.eol_iso, info.status
+    os_eol_disp = os_eol_display(os_eol_status, os_eol)
     # 물리 디스크 총량 — disk_total_bytes 단일 산식(type=disk 합, 목록·상세·보고서 일관).
     _disk_bytes = disk_total_bytes(dto.block_devices)
     _disk_gb = bytes_to_gb(_disk_bytes) if _disk_bytes else None
@@ -369,6 +383,10 @@ def to_server_list_item(
         spec_display=spec_display,
         os_eol=os_eol,
         os_eol_status=os_eol_status,
+        os_eol_label=os_eol_disp.label,
+        os_eol_css=os_eol_disp.css,
+        os_eol_title=os_eol_disp.title,
+        os_eol_sort=os_eol_disp.sort,
         recommendation_label=rec_label,
         provisioning_class=seg_key,
         has_operational_event=error_hosts is not None and dto.id in error_hosts,
@@ -376,7 +394,7 @@ def to_server_list_item(
     )
 
 
-def storage_layers_gb(block_devices: list[dict]) -> tuple[float | None, float | None, float | None]:
+def storage_layers_gb(block_devices: list[JsonObject]) -> tuple[float | None, float | None, float | None]:
     """스토리지 블록 계층 3분 (GB) 단일 산식 — (배정 블록, 볼륨 배정, 미할당). block_devices(lsblk) 트리 기준.
 
     배정 = disk_total_bytes(type=disk size_bytes 합). 볼륨 배정 = 마운트된 데이터 볼륨 노드 size_bytes 합(블록크기).
@@ -431,7 +449,7 @@ _STREE_INFO_TARGET_PX = 340  # depth 0 기준 게이지 시작 목표 x(=.stree-
 _STREE_INFO_MIN_PX = 160  # 깊은 중첩에서도 정보 컬럼 완전붕괴 방지 — 그 이상 깊이는 정렬 근사치로 degrade
 
 
-def _rotational_label(rotational) -> str:
+def _rotational_label(rotational: object) -> str:
     """rotational -> HDD/SSD (미상 None 은 빈 문자열). Windows·Linux 통일 디바이스 특성."""
     if rotational is True:
         return "HDD"
@@ -440,7 +458,7 @@ def _rotational_label(rotational) -> str:
     return ""
 
 
-def _ptable_label(pt) -> str:
+def _ptable_label(pt: object) -> str:
     if not pt:
         return ""
     p = str(pt).lower()
@@ -451,7 +469,7 @@ def _ptable_label(pt) -> str:
     return str(pt)
 
 
-def _raid_level_num(raid_level) -> str:
+def _raid_level_num(raid_level: object) -> str:
     """raid_level -> 숫자 문자열 ("raid5"/"5"/5 -> "5"). 판독 불가 시 빈 문자열."""
     if raid_level is None:
         return ""
@@ -459,7 +477,7 @@ def _raid_level_num(raid_level) -> str:
     return s if s else ""
 
 
-def _storage_node_meta(d: dict, kind: str) -> tuple[str, list[str]]:
+def _storage_node_meta(d: JsonObject, kind: str) -> tuple[str, list[str]]:
     """계층별 자기 속성만 -> (meta 한 줄, badges). 없는 축은 생략 (device_filters 계층 귀속)."""
     parts: list[str] = []
     badges: list[str] = []
@@ -492,7 +510,7 @@ def _storage_node_meta(d: dict, kind: str) -> tuple[str, list[str]]:
     return " · ".join(parts), badges
 
 
-def _attach_fs_usage(node: StorageNode, fs) -> None:
+def _attach_fs_usage(node: StorageNode, fs: MountUsageRaw) -> None:
     """마운트 노드에 파일시스템 사용량 2축(bytes + inode) precompute. inode 미측정(Windows)이면 inode 축 None."""
     total = (fs.used_bytes + fs.free_bytes) if (fs.used_bytes is not None and fs.free_bytes is not None) else None
     node.usage_pct = usage_pct(fs.used_bytes, total)
@@ -510,7 +528,7 @@ def _attach_fs_usage(node: StorageNode, fs) -> None:
 _SPANNING_KINDS = ("raid", "mpath", "dynamic")
 
 
-def _member_ref_node(c: dict, array_home: dict[str | None, str]) -> StorageNode:
+def _member_ref_node(c: JsonObject, array_home: dict[str | None, str]) -> StorageNode:
     """이미 다른 디스크 아래 배치된 배열(RAID/멀티패스) 참조 스텁 — 빈 디스크 오인 방지.
 
     kind_label 에 배열 종류(RAID1 등)를 직접 담아 칩만 봐도 "이 디스크도 그 배열 소속"임을 알 수 있게 한다 —
@@ -529,12 +547,12 @@ def _member_ref_node(c: dict, array_home: dict[str | None, str]) -> StorageNode:
 
 
 def _build_storage_node(
-    d: dict,
-    children_map: dict,
-    fs_by_dev: dict,
-    fs_by_mount: dict,
+    d: JsonObject,
+    children_map: dict[str | None, list[JsonObject]],
+    fs_by_dev: dict[str, MountUsageRaw],
+    fs_by_mount: dict[str, MountUsageRaw],
     vg_free_gb: dict[str, float | None],
-    visited: set,
+    visited: set[str | None],
     root_disk: str,
     array_home: dict[str | None, str],
     depth: int = 0,
@@ -556,7 +574,7 @@ def _build_storage_node(
     mp = d.get("mountpoint")
     if mp and not is_swap(kind) and is_data_volume(d.get("fstype"), mp):
         node.mount = mp
-        if fs := (fs_by_dev.get(did) or fs_by_mount.get(mp)):
+        if fs := ((fs_by_dev.get(did) if did else None) or fs_by_mount.get(mp)):
             _attach_fs_usage(node, fs)
             if node.usage_pct is not None:
                 # 게이지 있는 행만 — depth 들여쓰기(_STREE_INDENT_PX/행)를 .stree-info 폭 축소로 상쇄해
@@ -602,7 +620,7 @@ def _build_storage_node(
     return node
 
 
-def build_storage_tree(block_devices: list[dict], lvm_vgs: list[dict], filesystems: list) -> list[StorageNode]:
+def build_storage_tree(block_devices: list[JsonObject], lvm_vgs: list[JsonObject], filesystems: list[MountUsageRaw]) -> list[StorageNode]:
     """스토리지 레이아웃 트리 — block_devices(lsblk) parent 그래프를 물리 디스크 루트로 조립.
 
     각 계층 노드는 자기 계층 속성만(device_filters 원칙): 디스크=특성·배정, 파티션/LV=fstype·mount·VG,
@@ -611,7 +629,7 @@ def build_storage_tree(block_devices: list[dict], lvm_vgs: list[dict], filesyste
     """
     devs = list(block_devices or [])
     by_id = {d.get("id"): d for d in devs if d.get("id")}
-    children_map: dict = {}
+    children_map: dict[str | None, list[JsonObject]] = {}
     for d in devs:
         children_map.setdefault(d.get("parent"), []).append(d)
 
@@ -621,7 +639,7 @@ def build_storage_tree(block_devices: list[dict], lvm_vgs: list[dict], filesyste
         name: bytes_to_gb(v.get("free_bytes")) for v in (lvm_vgs or []) if (name := v.get("name"))
     }
 
-    visited: set = set()
+    visited: set[str | None] = set()
     # 배열 id -> 최초 배치 디스크명 (구성원 참조 스텁 안내용). id 미발행 device 는 None 키로 들어온다.
     array_home: dict[str | None, str] = {}
     roots = [
@@ -766,7 +784,9 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     known: list[ServiceItem] = []
 
     # 카테고리 단위 포트 집계 단일 진실 — listen 소켓을 카테고리로 직접 분류한 결과.
-    listen_dicts = [{"proto": lp.proto, "port": lp.port, "comm": lp.comm} for lp in detail.listen_ports]
+    listen_dicts: list[JsonObject] = [
+        {"proto": lp.proto, "port": lp.port, "comm": lp.comm} for lp in detail.listen_ports
+    ]
     listen_by_cat = detect_listen_categories(listen_dicts)
     # 카드는 "실행 중인 서비스 카테고리" 요약 — 카테고리당 뱃지 1개(롤업). 같은 카테고리 유닛들의 matched_ports
     # (단일 규칙: pid 소유 포트 정확 귀속 + pid 없는 포트만 카테고리 fallback) union + 카테고리 listen 보강.
@@ -778,7 +798,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
             by_cat.setdefault(svc.category, []).append(svc)
 
     for category, svcs in by_cat.items():
-        ports: list = []
+        ports: list[MatchedPort] = []
         for svc in svcs:  # 유닛별 정확 귀속 포트 union
             for p in svc.ports:
                 key = f"{p.proto}:{p.port}"
@@ -807,7 +827,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     for category, ports in listen_by_cat.items():
         if category in known_categories:
             continue
-        deduped_ports: list = []
+        deduped_ports: list[MatchedPort] = []
         for p in ports:
             key = f"{p.proto}:{p.port}"
             if key in seen_chip_keys:
@@ -852,8 +872,8 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
 
 
 def workload_category_counter(
-    services: list[dict] | None,
-    listen_ports: list[dict] | None = None,
+    services: list[JsonObject] | None,
+    listen_ports: list[JsonObject] | None = None,
 ) -> Counter[str]:
     """호스트 워크로드 카테고리 카운터 — services 이름 분류 ∪ listen 소켓 탐지 (ADR 0032).
 
@@ -883,8 +903,8 @@ def workload_category_counter(
 
 
 def workload_services_by_category(
-    services: list[dict] | None,
-    listen_ports: list[dict] | None = None,
+    services: list[JsonObject] | None,
+    listen_ports: list[JsonObject] | None = None,
 ) -> dict[str, list[str]]:
     """카테고리별 특징 서비스명 목록 — workload_category_counter 와 동일 기준(baseline 제외 + classify, unknown 제외).
 
@@ -906,7 +926,7 @@ def workload_services_by_category(
     return by_cat
 
 
-def infer_role(services: list[dict] | None, listen_ports: list[dict] | None = None) -> str:
+def infer_role(services: list[JsonObject] | None, listen_ports: list[JsonObject] | None = None) -> str:
     """호스트 대표 역할 — `workload_category_counter` 최빈 카테고리. 비면 "unknown"."""
     counter = workload_category_counter(services, listen_ports)
     if not counter:

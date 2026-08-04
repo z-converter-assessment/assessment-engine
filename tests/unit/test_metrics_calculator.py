@@ -24,6 +24,7 @@ from assessment_engine.web.services.metrics_calculator import (
     compute_mounts,
     compute_net_io,
 )
+from tests.approx import approx
 
 _BOOT_A = datetime(2026, 1, 1, tzinfo=UTC)
 _BOOT_B = datetime(2026, 5, 9, tzinfo=UTC)
@@ -48,7 +49,7 @@ def test_group_by_dim_groups_by_key():
         (200, None, 10.0, None),
     ],
 )
-def test_delta_rate(cur, prev, dt, expected):
+def test_delta_rate(cur: int | None, prev: int | None, dt: float, expected: float | None):
     assert _delta_rate(cur, prev, dt) == expected
 
 
@@ -61,7 +62,7 @@ def test_delta_rate(cur, prev, dt, expected):
         (10.0, -5.0, 0.0),  # room 음수 → 0
     ],
 )
-def test_clip_to_remaining(raw, room, expected):
+def test_clip_to_remaining(raw: float | None, room: float, expected: float | None):
     assert _clip_to_remaining(raw, room) == expected
 
 
@@ -69,7 +70,12 @@ def test_clip_to_remaining(raw, room, expected):
 
 
 def _cpu_pair(
-    t: datetime, user, idle, *, boot_time: datetime | None = None, agent_started_at: datetime | None = None
+    t: datetime,
+    user: float,
+    idle: float,
+    *,
+    boot_time: datetime | None = None,
+    agent_started_at: datetime | None = None,
 ) -> MetricPairRaw:
     # v2: CPU 시간은 seconds counter(cpu_*_s), 메모리는 By(mem_*_bytes). swap/load 컬럼 폐기.
     return MetricPairRaw(
@@ -111,8 +117,9 @@ def test_compute_cpu_calculates_percent_from_seconds_delta():
     prev = _cpu_pair(t1, 100, 900)
     cur = _cpu_pair(t2, 200, 1700)
     snap = compute_cpu(cur, prev)
-    assert snap.usage_pct == pytest.approx(11.1, abs=0.1)
-    assert snap.user_pct == pytest.approx(100 / 900 * 100, abs=0.1)
+    assert snap is not None
+    assert snap.usage_pct == approx(11.1, abs=0.1)
+    assert snap.user_pct == approx(100 / 900 * 100, abs=0.1)
 
 
 def test_compute_cpu_handles_counter_reset():
@@ -121,6 +128,7 @@ def test_compute_cpu_handles_counter_reset():
     prev = _cpu_pair(t1, 200, 1700)
     cur = _cpu_pair(t1 + timedelta(seconds=60), 100, 900)  # 감소
     snap = compute_cpu(cur, prev)
+    assert snap is not None
     assert snap.usage_pct is None
 
 
@@ -130,6 +138,7 @@ def test_compute_cpu_returns_none_when_boot_time_changed():
     prev = _cpu_pair(t1, 100, 900, boot_time=_BOOT_A)
     cur = _cpu_pair(t1 + timedelta(seconds=60), 200, 1700, boot_time=_BOOT_B)
     snap = compute_cpu(cur, prev)
+    assert snap is not None
     assert snap.usage_pct is None
     assert snap.user_pct is None
 
@@ -142,10 +151,11 @@ def test_compute_cpu_normal_when_only_agent_restart():
     prev = _cpu_pair(t1, 100, 900, boot_time=_BOOT_A, agent_started_at=agent1)
     cur = _cpu_pair(t1 + timedelta(seconds=60), 200, 1700, boot_time=_BOOT_A, agent_started_at=agent2)
     snap = compute_cpu(cur, prev)
+    assert snap is not None
     assert snap.usage_pct is not None  # 정상 계산
 
 
-def _win_cpu_pair(t: datetime, user, system, idle) -> MetricPairRaw:
+def _win_cpu_pair(t: datetime, user: float, system: float, idle: float) -> MetricPairRaw:
     """Windows cpu_stat — nice/iowait/irq/softirq/steal 은 OS 개념 부재로 None (#C1)."""
     return MetricPairRaw(
         collected_at=t,
@@ -180,8 +190,8 @@ def test_compute_cpu_windows_coalesce_null_components():
     cur = _win_cpu_pair(t1 + timedelta(seconds=60), 300, 150, 1500)
     snap = compute_cpu(cur, prev)
     assert snap is not None
-    assert snap.usage_pct == pytest.approx(33.3, abs=0.1)  # null 전파로 N/A 되지 않음
-    assert snap.user_pct == pytest.approx(200 / 900 * 100, abs=0.1)
+    assert snap.usage_pct == approx(33.3, abs=0.1)  # null 전파로 N/A 되지 않음
+    assert snap.user_pct == approx(200 / 900 * 100, abs=0.1)
     assert snap.iowait_pct is None  # Windows iowait 미측정 보존
 
 
@@ -198,14 +208,16 @@ def test_compute_cpu_windows_coalesce_null_components():
         (None, None, False),  # 둘 다 NULL (옛 데이터)
     ],
 )
-def test_is_counter_reset(cur, prev, expected):
+def test_is_counter_reset(cur: datetime | None, prev: datetime | None, expected: bool):
     assert is_counter_reset(cur, prev) is expected
 
 
 # ─── compute_mem ──────────────────────────────────────────────────────────
 
 
-def _mem_pair(total, available, cached, buffers) -> MetricPairRaw:
+def _mem_pair(
+    total: int | None, available: int | None, cached: int | None, buffers: int | None
+) -> MetricPairRaw:
     # v2: total 축은 mem_limit_bytes, 회수가능 세부는 mem_cached_bytes/mem_buffered_bytes (모두 By).
     return MetricPairRaw(
         collected_at=datetime.now(UTC),
@@ -233,17 +245,19 @@ def test_compute_mem_returns_none_when_total_missing():
 def test_compute_mem_basic():
     """total=1000B, available=400B → used=600B (60%)"""
     snap = compute_mem(_mem_pair(1000, 400, 100, 50))
-    assert snap.usage_pct == pytest.approx(60.0, abs=0.1)
-    assert snap.cached_pct == pytest.approx(10.0, abs=0.1)
-    assert snap.buffers_pct == pytest.approx(5.0, abs=0.1)
+    assert snap is not None
+    assert snap.usage_pct == approx(60.0, abs=0.1)
+    assert snap.cached_pct == approx(10.0, abs=0.1)
+    assert snap.buffers_pct == approx(5.0, abs=0.1)
 
 
 def test_compute_mem_clips_cached_when_overflow():
     """cached가 used 이후 남은 공간보다 크면 잘린다 (stacked bar 100% 초과 방지)."""
     # used=99%, cached_raw=10%, remaining=1% → cached_pct=1%
     snap = compute_mem(_mem_pair(total=10000, available=100, cached=1000, buffers=500))
-    assert snap.usage_pct == pytest.approx(99.0, abs=0.1)
-    assert snap.cached_pct == pytest.approx(1.0, abs=0.1)
+    assert snap is not None
+    assert snap.usage_pct == approx(99.0, abs=0.1)
+    assert snap.cached_pct == approx(1.0, abs=0.1)
     assert snap.buffers_pct == 0.0
 
 
@@ -251,7 +265,14 @@ def test_compute_mem_clips_cached_when_overflow():
 
 
 def _disk(
-    device_id, t, ops_read, ops_write, io_read=0, io_write=0, *, boot_time: datetime | None = None
+    device_id: str,
+    t: datetime,
+    ops_read: int,
+    ops_write: int,
+    io_read: int = 0,
+    io_write: int = 0,
+    *,
+    boot_time: datetime | None = None,
 ) -> DiskIoRaw:
     # v2: 안정키 device_id, ops_*(operations counter), io_*_bytes(By counter). device type(kind) 축 폐기.
     return DiskIoRaw(
@@ -279,6 +300,7 @@ def test_compute_disk_io_groups_by_device():
         _disk("sda1", t1, 0, 0),
     ]
     result = compute_disk_io(rows)
+    assert result is not None
     # 단일 flat 리스트, device_id 문자열 정렬 (dm-0 < sda < sda1).
     assert [s.device for s in result] == ["dm-0", "sda", "sda1"]
 
@@ -287,6 +309,7 @@ def test_compute_disk_io_single_row_returns_none_rates():
     """페어가 없으면 rate 계산 불가 → None."""
     t1 = datetime.now(UTC)
     result = compute_disk_io([_disk("sda", t1, 100, 50)])
+    assert result is not None
     assert result[0].read_iops is None
     assert result[0].write_iops is None
 
@@ -300,6 +323,7 @@ def test_compute_disk_io_returns_none_on_system_reboot():
         _disk("sda", t1, 100, 50, boot_time=_BOOT_A),
     ]
     result = compute_disk_io(rows)
+    assert result is not None
     assert result[0].read_iops is None
     assert result[0].write_iops is None
     assert result[0].read_kbps is None
@@ -309,7 +333,14 @@ def test_compute_disk_io_returns_none_on_system_reboot():
 
 
 def _net(
-    iface_id, t, rx, tx, rxp=0, txp=0, *, boot_time: datetime | None = None
+    iface_id: str,
+    t: datetime,
+    rx: int,
+    tx: int,
+    rxp: int = 0,
+    txp: int = 0,
+    *,
+    boot_time: datetime | None = None,
 ) -> NetIoRaw:
     # v2: 안정키 iface_id(mac:..), rx/tx_bytes(By counter). kind 축은 inventory 조인으로 이관(NetIoRaw 부재).
     return NetIoRaw(
@@ -335,10 +366,10 @@ def test_compute_net_io_rate():
     ]
     snap = compute_net_io(rows)[0]
     # rx_kbps = 10240 / 1024 / 10 = 1.0 KB/s
-    assert snap.rx_kbps == pytest.approx(1.0, abs=0.1)
-    assert snap.tx_kbps == pytest.approx(0.5, abs=0.1)
-    assert snap.rx_pps == pytest.approx(10.0, abs=0.1)
-    assert snap.tx_pps == pytest.approx(5.0, abs=0.1)
+    assert snap.rx_kbps == approx(1.0, abs=0.1)
+    assert snap.tx_kbps == approx(0.5, abs=0.1)
+    assert snap.rx_pps == approx(10.0, abs=0.1)
+    assert snap.tx_pps == approx(5.0, abs=0.1)
 
 
 def test_compute_net_io_returns_none_on_system_reboot():
@@ -385,6 +416,7 @@ def test_compute_mounts_filters_virtual():
         ),
     ]
     result = compute_mounts(rows)
+    assert result is not None
     paths = [m.mount for m in result]
     assert "/" in paths
     assert "/proc" not in paths
@@ -406,7 +438,7 @@ def test_compute_mounts_filters_virtual():
         ("garbage", None),             # 파싱 불가 = 판정 보류
     ],
 )
-def test_psi_supported(kernel, expected):
+def test_psi_supported(kernel: str | None, expected: bool | None):
     assert _psi_supported(kernel) == expected
 
 

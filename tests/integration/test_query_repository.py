@@ -11,6 +11,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
@@ -19,6 +20,7 @@ from assessment_engine.db.dtos.inbound import (
 )
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.query.query_repository import QueryRepository
+from assessment_engine.db.repositories.query.types import EnvironmentMetricType, MetricType
 from tests.factories import _DISK_DEVICE_ID, agent_id_for, make_inventory, make_metrics
 
 
@@ -34,7 +36,7 @@ pytestmark = pytest.mark.asyncio
 
 # v2 MetricType 전량 (types.MetricType Literal 과 동기화 — dispatch 커버, #F9).
 # v1 폐기: load.1m/5m/15m(소스 부재 -> cpu.run_queue), swap.usage_percent, disk.queue(-> disk.io_saturation).
-_ALL_METRIC_TYPES = [
+_ALL_METRIC_TYPES: list[MetricType] = [
     "cpu.usage_percent",
     "cpu.user_percent",
     "cpu.system_percent",
@@ -70,7 +72,7 @@ _ALL_METRIC_TYPES = [
 # EnvironmentMetricType 전량 (types.EnvironmentMetricType Literal 과 동기화 — dispatch 커버, #F9).
 # collapse=True(환경 스케일 합산/count) 경로 전용 — server_ids=[1대]로도 dispatch SQL 자체는 검증 가능
 # (환경 전체 서버 대상 실행은 router 통합 테스트 영역).
-_ALL_ENV_METRIC_TYPES = [
+_ALL_ENV_METRIC_TYPES: list[EnvironmentMetricType] = [
     "cpu.usage_percent",
     "cpu.saturation_hosts",
     "mem.usage_percent",
@@ -247,7 +249,7 @@ async def test_collection_status_reports_both_timestamps(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-cs-1", n_points=2)
+    sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-cs-1", n_points=2)
     status = await query_repo.get_collection_status(sid)
     assert status is not None
     assert status.last_inventory_at is not None
@@ -331,7 +333,7 @@ async def test_latest_dashboard_skips_future_timestamp_rows(
     # disk_io/net_io/filesystem 도 미래행을 최신으로 잡지 않음
     assert all(d.collected_at < future_ts for d in dash.disk_io)
     assert all(n.collected_at < future_ts for n in dash.net_io)
-    assert all(mu.collected_at < future_ts for mu in dash.filesystems)
+    assert all(mu.collected_at is not None and mu.collected_at < future_ts for mu in dash.filesystems)
 
 
 # ─── metric_chart dispatcher — 17개 metric_type 모두 무사 dispatch ────────
@@ -339,7 +341,7 @@ async def test_latest_dashboard_skips_future_timestamp_rows(
 
 @pytest.mark.parametrize("metric_type", _ALL_METRIC_TYPES)
 async def test_metric_chart_dispatcher_all_types(
-    metric_type: str,
+    metric_type: MetricType,
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
@@ -359,7 +361,7 @@ async def test_metric_chart_dispatcher_all_types(
 
 @pytest.mark.parametrize("metric_type", _ALL_ENV_METRIC_TYPES)
 async def test_metric_trend_env_dispatcher_all_types(
-    metric_type: str,
+    metric_type: EnvironmentMetricType,
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
@@ -736,6 +738,7 @@ async def test_reboot_events_classifies_boot_time_change_as_reboot(
 
     # agent_id 단일 키 (#C1) — make_inventory 가 composite_id 라벨로 파생한 값과 일치.
     sid = await collect_repo.find_server_id(agent_id_for("q-rb-1"))
+    assert sid is not None
     events = await query_repo.reboot_events(
         sid,
         start=base_ts - timedelta(minutes=1),
@@ -775,6 +778,7 @@ async def test_reboot_events_classifies_agent_only_change_as_restart(
 
     # agent_id 단일 키 (#C1) — make_inventory 가 composite_id 라벨로 파생한 값과 일치.
     sid = await collect_repo.find_server_id(agent_id_for("q-rb-2"))
+    assert sid is not None
     events = await query_repo.reboot_events(
         sid,
         start=base_ts - timedelta(minutes=1),
@@ -886,7 +890,7 @@ async def test_metric_snapshots_cursor_pagination(
 async def test_resolve_server_ids_batch_returns_dict(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """N개 public_id → {public_id: server_id} 단일 SQL."""
     sid_a = await collect_repo.upsert_server(make_inventory(composite_id="q-batch-a"))
@@ -910,7 +914,7 @@ async def test_resolve_server_ids_batch_returns_dict(
 async def test_resolve_server_ids_skips_missing(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """미존재 public_id는 dict에서 누락 — caller가 missing 분기."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-batch-missing"))

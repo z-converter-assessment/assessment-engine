@@ -19,8 +19,10 @@ IPv4 only: 그래프는 physical+bond_master 인터페이스의 IPv4 주소만. 
 
 import ipaddress
 from collections import defaultdict
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
+from assessment_engine.db.dtos.outbound import ServerDetail
+from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import is_virtual_interface
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
@@ -43,7 +45,7 @@ _CAVEATS = [
 ]
 
 
-def _subnet_host_sort_key(host):
+def _subnet_host_sort_key(host: SubnetHost) -> tuple[int, int]:
     """서브넷 내 호스트 정렬 키 — IP 숫자 오름차순, 파싱 불가(빈 IP)는 후순위."""
     try:
         return (0, int(ipaddress.ip_address(host.ip)))
@@ -51,7 +53,9 @@ def _subnet_host_sort_key(host):
         return (1, 0)
 
 
-def build_network_topology(hosts, online_by_id: dict[int, bool] | None = None) -> NetworkTopology:
+def build_network_topology(
+    hosts: list[ServerDetail], online_by_id: dict[int, bool] | None = None
+) -> NetworkTopology:
     """hosts: ServerDetail/DTO 리스트 (public_id·hostname·os_family·net_interfaces 사용).
 
     net_interfaces 는 [{kind, gateway, addresses:[{address, prefix, family}]}]. physical+bond_master 의 IPv4 주소만 채택.
@@ -63,7 +67,7 @@ def build_network_topology(hosts, online_by_id: dict[int, bool] | None = None) -
     host_id: dict[str, int | None] = {}  # public_id -> 내부 id (온라인 조회 online_by_id 키)
     host_meta: dict[str, tuple[str, str]] = {}  # public_id -> (hostname, os_family)
     host_roles: dict[str, list[str]] = {}  # public_id -> 주요 워크로드 카테고리(시그니처만, 환경 개요 도넛·서버 목록 뱃지와 동일 기준)
-    host_ifaces: dict[str, list[dict]] = {}  # public_id -> 물리 인터페이스 요약 dict (그래프 노드 툴팁 JSON)
+    host_ifaces: dict[str, list[JsonObject]] = {}  # public_id -> 물리 인터페이스 요약 dict (그래프 노드 툴팁 JSON)
 
     for h in hosts:
         pid = str(h.public_id)
@@ -71,9 +75,9 @@ def build_network_topology(hosts, online_by_id: dict[int, bool] | None = None) -
         host_meta[pid] = (h.hostname, h.os_family or "unknown")
         # 시그니처 워크로드만(SIGNATURE_CATEGORIES) — file·mail·infra·remote 등 baseline·관리는 토폴로지 뱃지 노이즈라 제외.
         host_roles[pid] = sorted(
-            c for c in (getattr(h, "service_categories", None) or []) if c in SIGNATURE_CATEGORIES
+            c for c in cast("list[str]", getattr(h, "service_categories", None) or []) if c in SIGNATURE_CATEGORIES
         )
-        ifaces: list[dict] = []
+        ifaces: list[JsonObject] = []
         seen_nets: set[str] = set()  # 호스트 스코프 — 여러 인터페이스/주소가 같은 서브넷 잡아도 멤버십 1회
         for iface_info in h.net_interfaces or []:
             if is_virtual_interface(iface_info.get("kind")):
@@ -91,7 +95,7 @@ def build_network_topology(hosts, online_by_id: dict[int, bool] | None = None) -
                     "gateway": gateway,
                 }
             )
-            for a in iface_info.get("addresses") or []:
+            for a in json_list(iface_info, "addresses"):
                 if a.get("family") != "ipv4":
                     continue  # IPv4 only (IPv6 은 그래프 제외)
                 addr = a.get("address")
@@ -154,7 +158,7 @@ def build_network_topology(hosts, online_by_id: dict[int, bool] | None = None) -
 
     # 3계층 뷰: gateway(라우터) + subnet 노드 + gateway->subnet 엣지가 기본 표시(라우팅 골격) ->
     # host 노드/host->subnet 엣지는 "collapsed" 로 시작, subnet 클릭 시 펼침 (대규모 호스트 hairball 회피).
-    elements: list[dict] = []
+    elements: list[JsonObject] = []
     graph_hosts: set[str] = set()
     host_edges: list[tuple[str, str]] = []
     # 게이트웨이 노드는 "공유"(2+ 서브넷)일 때만 승격 — 서브넷당 1:1 gateway 는 유추 가능(대개 .1)이라 그래프
@@ -217,7 +221,7 @@ def build_network_topology(hosts, online_by_id: dict[int, bool] | None = None) -
     subnets: list[SubnetGroup] = []
     for net_key in ordered_nets:
         members = seg_member[net_key]
-        hosts_list = []
+        hosts_list: list[SubnetHost] = []
         for pid in surviving[net_key]:
             hostname, os_family = host_meta[pid]
             m = members.get(pid)

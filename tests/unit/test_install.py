@@ -24,7 +24,7 @@ from assessment_engine.web.services.task_service import _extract_zdm_host
         ("http://zdm.example.com:8000/p", "zdm.example.com:8000"),
     ],
 )
-def test_extract_zdm_host(raw, expected):
+def test_extract_zdm_host(raw: str, expected: str):
     assert _extract_zdm_host(raw) == expected
 
 
@@ -56,7 +56,7 @@ def test_install_request_with_valid_zdm():
         "127.0.0.1",
     ],
 )
-def test_install_request_accepts_valid_ips(ip):
+def test_install_request_accepts_valid_ips(ip: str):
     req = InstallRequest(
         target_public_ids=["00000000-0000-0000-0000-000000000001"],
         zdm_ip=ip,
@@ -74,7 +74,7 @@ def test_install_request_accepts_valid_ips(ip):
         "http://host ; rm",  # URL prefix 라도 공백 포함
     ],
 )
-def test_install_request_rejects_invalid_zdm_target(bad_value):
+def test_install_request_rejects_invalid_zdm_target(bad_value: str):
     """IP/hostname/URL 셋 다 fail 인 비정상 형식만 차단 (validator 신규 의도)."""
     with pytest.raises(ValidationError):
         InstallRequest(
@@ -94,7 +94,7 @@ def test_install_request_rejects_invalid_zdm_target(bad_value):
         "https://zdm.example.com",  # HTTPS URL
     ],
 )
-def test_install_request_accepts_ip_hostname_url(ok_value):
+def test_install_request_accepts_ip_hostname_url(ok_value: str):
     """IP/hostname/HTTP(S) URL 셋 다 허용 — 운영 환경마다 ZDM 형태 다름."""
     req = InstallRequest(
         target_public_ids=["00000000-0000-0000-0000-000000000001"],
@@ -123,7 +123,7 @@ def test_install_request_empty_ip_becomes_none():
         "user with space@example.com",
     ],
 )
-def test_install_request_rejects_invalid_emails(bad_user):
+def test_install_request_rejects_invalid_emails(bad_user: str):
     with pytest.raises(ValidationError):
         InstallRequest(
             target_public_ids=["00000000-0000-0000-0000-000000000001"],

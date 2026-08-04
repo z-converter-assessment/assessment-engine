@@ -11,6 +11,7 @@ import pytest
 from pydantic import ValidationError
 
 from assessment_engine.consumer.schemas import InventoryInput
+from assessment_engine.json_types import JsonObject
 
 
 def _iface(
@@ -21,7 +22,7 @@ def _iface(
     family: str = "ipv4",
     kind: str = "physical",
     gateway: str = "10.0.1.1",
-) -> dict:
+) -> JsonObject:
     """v2 net_interface — address/prefix/family 는 중첩 addresses[] 로. 단일 주소 편의 빌더."""
     return {
         "name": name,
@@ -33,7 +34,7 @@ def _iface(
     }
 
 
-def _inventory(net_interfaces: list[dict], ip_external=None) -> dict:
+def _inventory(net_interfaces: list[JsonObject], ip_external: list[str] | None = None) -> JsonObject:
     return {
         "schema_version": "1.0",
         "message_type": "inventory",

@@ -5,12 +5,15 @@ downsize_prescribable · ConfidenceNote). 합성 ResourceStats 입력으로 분�
 기존 assess/classify(단일 분류)는 test_recommendation.py 가 커버 — 본 파일은 신 모델만.
 """
 
+import dataclasses
+from typing import Any
+
 from assessment_engine import recommendation as r
 
 
-def _stats(**kw) -> r.ResourceStats:
+def _stats(**kw: Any) -> r.ResourceStats:
     """필수 축을 None/기본으로 채우고 kw 로 덮는 헬퍼 (ResourceStats 필수 필드가 많아 편의)."""
-    base = dict(
+    base = r.ResourceStats(
         cpu_p95_pct=None,
         cpu_peak_pct=None,
         cpu_load_15m_max=None,
@@ -22,8 +25,7 @@ def _stats(**kw) -> r.ResourceStats:
         iowait_p95_pct=None,
         net_avg_kbytes_per_s=None,
     )
-    base.update(kw)
-    return r.ResourceStats(**base)
+    return dataclasses.replace(base, **kw)
 
 
 # ─── CPU ───
@@ -304,7 +306,7 @@ def test_root_cause_mem_cpu_no_swap_independent():
 # ─── 다운사이즈 처방 게이트 ───
 
 
-def _over_cpu_stats(**kw) -> r.ResourceStats:
+def _over_cpu_stats(**kw: Any) -> r.ResourceStats:
     return _stats(cpu_p95_pct=10.0, cpu_cores=8, procs_running_p95=0.5, **kw)
 
 

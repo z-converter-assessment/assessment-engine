@@ -7,13 +7,16 @@ properties)가 rollup_host 를 덮고, 본 스위트는 그 위 API 표현 계�
 """
 
 import json
+from typing import Any
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from hypothesis.strategies import DrawFn
 
 from assessment_engine import recommendation as R
 from assessment_engine.contract import API_CONTRACT_VERSION
 from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.assessment_api import (
     build_assessment_entry,
     build_assessment_envelope,
@@ -27,7 +30,7 @@ _DIAG_AXES = {"cpu", "memory", "disk", "disk_io", "network"}
 _ROOT_CAUSE_AXES = _DIAG_AXES | {None}
 
 
-def _opt(strat):
+def _opt(strat: st.SearchStrategy[Any]) -> st.SearchStrategy[Any]:
     return st.one_of(st.none(), strat)
 
 
@@ -37,12 +40,12 @@ _mem_bytes = st.sampled_from([512, 1024, 2048, 4096, 8192, 16384, 32768, 65536])
 
 
 @st.composite
-def _interfaces(draw):
+def _interfaces(draw: DrawFn) -> list[JsonObject]:
     """net_interfaces — 물리/가상 혼합, ipv4 주소 유무. primary_ip·reproduction 경로 자극."""
     n = draw(st.integers(min_value=0, max_value=3))
-    out = []
+    out: list[JsonObject] = []
     for i in range(n):
-        addrs = []
+        addrs: list[JsonObject] = []
         if draw(st.booleans()):
             addrs.append({"address": f"10.0.{i}.5", "prefix": 24, "family": "ipv4", "origin": "static"})
         out.append({
@@ -55,10 +58,10 @@ def _interfaces(draw):
 
 
 @st.composite
-def _block_devices(draw):
+def _block_devices(draw: DrawFn) -> list[JsonObject]:
     """block_devices — disk/partition, size_bytes 합이 disk_total_bytes(사이징 base). mountpoint 로 device_ref 조인."""
     n = draw(st.integers(min_value=0, max_value=3))
-    out = []
+    out: list[JsonObject] = []
     for i in range(n):
         out.append({
             "id": f"by-path:pci-0000:00:0{i}", "id_type": "by-path", "name": f"sd{chr(97 + i)}",
@@ -71,7 +74,7 @@ def _block_devices(draw):
 
 
 @st.composite
-def _report_row(draw) -> ReportRowRaw:
+def _report_row(draw: DrawFn) -> ReportRowRaw:
     return ReportRowRaw(
         server_id=draw(st.integers(min_value=1, max_value=10_000)),
         public_id=draw(st.uuids().map(str)),
@@ -126,9 +129,9 @@ def _report_row(draw) -> ReportRowRaw:
 
 
 @st.composite
-def _mounts(draw) -> list[MountCapacityRaw]:
+def _mounts(draw: DrawFn) -> list[MountCapacityRaw]:
     n = draw(st.integers(min_value=0, max_value=3))
-    out = []
+    out: list[MountCapacityRaw] = []
     for i in range(n):
         out.append(MountCapacityRaw(
             mountpoint=draw(st.sampled_from(["/", "/data", "/mnt/x", f"/m{i}"])),
@@ -144,7 +147,9 @@ def _mounts(draw) -> list[MountCapacityRaw]:
 
 @settings(max_examples=examples(3000))
 @given(_report_row(), _mounts(), st.booleans(), st.booleans())
-def test_entry_contract_invariants(raw, mounts, is_online, ambiguous):
+def test_entry_contract_invariants(
+    raw: ReportRowRaw, mounts: list[MountCapacityRaw], is_online: bool, ambiguous: bool
+):
     """어떤 유효 입력에도 서버 항목 계약이 성립 (위반 = 확정 버그)."""
     entry = build_assessment_entry(raw, mounts, is_online, ambiguous)
 
@@ -203,7 +208,7 @@ def test_entry_contract_invariants(raw, mounts, is_online, ambiguous):
 
 @settings(max_examples=examples(1500))
 @given(_report_row(), _mounts(), st.booleans())
-def test_entry_deterministic(raw, mounts, is_online):
+def test_entry_deterministic(raw: ReportRowRaw, mounts: list[MountCapacityRaw], is_online: bool):
     """동일 입력 -> byte-identical 출력 (순수 함수)."""
     e1 = build_assessment_entry(raw, mounts, is_online, False)
     e2 = build_assessment_entry(raw, mounts, is_online, False)
@@ -212,7 +217,7 @@ def test_entry_deterministic(raw, mounts, is_online):
 
 @settings(max_examples=examples(1000))
 @given(st.lists(st.tuples(_report_row(), _mounts(), st.booleans()), max_size=5))
-def test_envelope_contract(rows):
+def test_envelope_contract(rows: list[tuple[ReportRowRaw, list[MountCapacityRaw], bool]]):
     """envelope(4.1) — count==len(servers), contract_version, warnings 3키, JSON 직렬."""
     servers = [build_assessment_entry(raw, mounts, online, False) for raw, mounts, online in rows]
     result = {

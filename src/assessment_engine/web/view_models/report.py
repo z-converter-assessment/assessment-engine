@@ -14,7 +14,7 @@ class ReportWorkloadGroup:
     category: str
     names_label: str = ""
     # ["80/tcp", "443/tcp"] — 카테고리 귀속 listen 포트 (mapper precompute, P3)
-    ports: list[str] = field(default_factory=list)
+    ports: list[str] = field(default_factory=list[str])
 
 
 @dataclass
@@ -133,27 +133,32 @@ class ReportRowItem:
 
     # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (shared.build_host_confidence_notes).
     # 분류는 가진 데이터로 완결(원칙1), 신뢰도 저하 요인만 본 채널로 분리 노출(원칙2). 템플릿은 list 렌더만 (P3).
-    confidence_notes: list[str] = field(default_factory=list)
+    confidence_notes: list[str] = field(default_factory=list[str])
 
     # 구동 서비스 (P-A 구성 계층) — 개별 서버 보고서(single_report)에서만 렌더. N대 표·환경 보고서는 미사용.
     # customer: workload_groups (카테고리별 제품명) / engineer: listen_ports_detail(Listen 포트 카드).
     # mapper 가 service_classifier 로 precompute (P2), 템플릿은 순수 렌더 (P3).
-    workload_groups: list[ReportWorkloadGroup] = field(default_factory=list)
-    listen_ports_detail: list[ReportListenItem] = field(default_factory=list)
+    workload_groups: list[ReportWorkloadGroup] = field(default_factory=list[ReportWorkloadGroup])
+    listen_ports_detail: list[ReportListenItem] = field(default_factory=list[ReportListenItem])
     # 특징 워크로드 카테고리 집합 (baseline OS 서비스 제외) — 환경 개요 서비스 뱃지(workload_category_counter)와
     # 동일 소스. 환경 보고서 서비스 구성 카드 total_count 가 이걸 써 개요 뱃지와 카운트 정합(#E7 aggregate 정책).
-    workload_categories: list[str] = field(default_factory=list)
+    workload_categories: list[str] = field(default_factory=list[str])
     # workload_categories 를 시그니처(SIGNATURE_CATEGORIES)만으로 좁힌 부분집합 — 세부 서버 목록 "구동 서비스"
     # 열 전용. 서버 목록 뱃지·환경 개요 주요 워크로드 도넛과 동일 기준(mapper 단일 진실, 화면 간 정합).
-    signature_workload_categories: list[str] = field(default_factory=list)
+    signature_workload_categories: list[str] = field(default_factory=list[str])
     # 카테고리별 특징 서비스명 (baseline·unknown 제외) — 서비스 구성 breakdown 이 total 과 같은 소스를 쓰게(정합).
-    workload_services: dict[str, list[str]] = field(default_factory=dict)
+    workload_services: dict[str, list[str]] = field(default_factory=dict[str, list[str]])
 
     # OS 지원 종료 — ServerListItem 과 동일 4상태 판정(lookup_os_eol, mapper 가 report 기준 시각(now)으로 계산
     # — live "오늘"이 아니라 정적 스냅샷 발행 시점 기준, #C1 스냅샷 불변). os_eol=매칭 iso(경과·미래 무관),
-    # os_eol_status: "eol"/"extended"(연장지원)/"supported"/"unknown"(카탈로그 미수록·미매칭 — 판정 불가).
+    # os_eol_status: "ended"/"paid_only"/"security_only"/"full"/"unknown"(카탈로그 미수록·미매칭 — 판정 불가).
     os_eol: str = ""
     os_eol_status: str = ""
+    # 표시 파생 — mappers.shared.os_eol_display 단일 진실 (P2). 템플릿은 분기 없이 꺼내 쓴다.
+    os_eol_label: str = ""
+    os_eol_css: str = ""
+    os_eol_title: str = ""
+    os_eol_sort: int = 0
     # 운영 이벤트 — 보고서 창(window) 내 에러 발생 유무(OOM kill·MCE·메모리 손상·net/disk 에러 5축 중 1+).
     # ServerListItem.has_operational_event(전기간)과 달리 이 보고서의 window_days 창에 한정(latest_errors,
     # since=window_start) — 세부 서버 목록(N대 선택 보고서 전용)만 채움, 환경 전체 보고서는 N+1 회피로 미채움.
@@ -186,9 +191,9 @@ class ReportSummary:
     avg_mem_p95_pct: float | None = None
     totals: ReportTotals = field(default_factory=lambda: ReportTotals(0, 0, 0))
     # 양식 A 정성 요약 — mapper에서 자동 생성 (P2). 컨설턴트가 고객 보고서 첨부 시 활용.
-    summary_bullets: list[str] = field(default_factory=list)
+    summary_bullets: list[str] = field(default_factory=list[str])
     # 양식 A 상단 역할 분포 — {"web": 8, "db": 5, "cache": 3, ...}. service_classifier 카테고리 집계.
-    role_distribution: dict[str, int] = field(default_factory=dict)
+    role_distribution: dict[str, int] = field(default_factory=dict[str, int])
     # N대 선택 맥락 (P-A 구성) — 이 묶음이 무엇인지 한 줄 요약. mapper precompute (P3 정렬 회피).
     # os_family_summary: "Linux 2 / Windows 1" · workload_summary: "web 2, db 1". 환경 보고서는 미사용(막대 사용).
     os_family_summary: str = ""

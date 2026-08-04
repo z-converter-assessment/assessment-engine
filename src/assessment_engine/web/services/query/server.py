@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
+from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.web.services.cache_serializer import (
     server_detail_from_json,
     server_detail_to_json,
@@ -89,7 +90,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         )
         # net baseline 주입 — build_resource_stats 의 유휴 판정이 net 사용 (도넛·보고서와 정합).
         await self._inject_net_baseline(raws_period, page_server_ids, recommendation.WINDOW_DAYS, now)
-        raws_by_id: dict[int, object] = {r.server_id: r for r in raws_period}
+        raws_by_id: dict[int, ReportRowRaw] = {r.server_id: r for r in raws_period}
 
         last_tasks = await cast("_TaskSibling", self).latest_tasks_by_servers(page_server_ids)
 
@@ -123,9 +124,14 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
             items = [i for i in items if i.os_distro == os_distro]
         if classification:
             items = [i for i in items if i.provisioning_class == classification]
-        # 3상태 필터 — eol(경과) / supported(매칭+미래) / unknown(판정 불가). 미매칭을 supported 로 뭉개지 않음.
-        if os_eol in ("eol", "supported", "unknown"):
-            items = [i for i in items if i.os_eol_status == os_eol]
+        # 3분기 필터 — eol(무상 패치 종료) / supported(패치 유지) / unknown(판정 불가).
+        # 미매칭을 supported 로 뭉개지 않는다. 판정 4단계를 필터에서는 셋으로 접는다.
+        if os_eol == "unknown":
+            items = [i for i in items if i.os_eol_status == "unknown"]
+        elif os_eol == "eol":
+            items = [i for i in items if i.os_eol_status in ("paid_only", "ended")]
+        elif os_eol == "supported":
+            items = [i for i in items if i.os_eol_status in ("full", "security_only")]
         # 1차 online(온라인 우선) · 2차 hostname ASC. online 판정은 Redis 기반이라 DB ORDER BY 불가 →
         # service 레이어 정렬(P2). repo 는 hostname ASC raw 반환(2차 기준 보존).
         items.sort(key=lambda i: (not i.is_online, i.hostname.lower()))
@@ -158,15 +164,16 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         sid = detail.id
         uptime = await self.repo.report_uptime_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
         restart = await self.repo.report_agent_restart_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
-        # 인벤토리 표시 — 미래 EOL·연장지원도 노출(lookup, today-gate 없음). 완전 종료 / 연장지원 / 종료 예정 3분기.
+        # 인벤토리 표시 — 미래 EOL 도 노출(lookup, today-gate 없음). 판정 4단계를 그대로 문구로 옮긴다.
         info = lookup_os_eol(detail.os_id, detail.os_version, detail.kernel_version, end_dt.date())
         os_eol_label = None
         if info is not None:
             _phase = {
-                "eol": "지원 종료됨",
-                "extended": "메인스트림 종료(연장지원 중)",
-                "supported": "지원 종료 예정",
-            }.get(info.status, "지원 종료 예정")
+                "ended": "패치 없음",
+                "paid_only": "무상 패치 종료(연장 지원 단계)",
+                "security_only": "보안 패치만",
+                "full": "지원 중",
+            }.get(info.status, "지원 중")
             os_eol_label = f"EOL {info.eol_iso} · {_phase}"
         return ServerStabilitySignals(
             reboot_count=uptime.get(sid, 0),

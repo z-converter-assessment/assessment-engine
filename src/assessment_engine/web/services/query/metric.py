@@ -8,6 +8,7 @@ from assessment_engine.db.repositories.query.types import (
     TIME_RANGE_TD,
     AggFunc,
     BucketSize,
+    EnvironmentMetricType,
     MetricType,
     TimeRange,
 )
@@ -75,7 +76,7 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
 
     async def get_environment_metric_chart(
         self,
-        metric_type: str,
+        metric_type: EnvironmentMetricType,
         time_range: TimeRange,
         bucket: BucketSize,
         end: datetime | None = None,

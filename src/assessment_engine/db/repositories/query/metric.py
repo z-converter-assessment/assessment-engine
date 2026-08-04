@@ -44,9 +44,11 @@ from assessment_engine.db.repositories.query.types import (
     TIME_RANGE_TD,
     AggFunc,
     BucketSize,
+    EnvironmentMetricType,
     MetricType,
     TimeRange,
 )
+from assessment_engine.json_types import JsonObject
 
 # table 매핑 — types.py 가 ORM import 안 하므로 여기서 __tablename__ 결합.
 _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
@@ -636,12 +638,12 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
     async def metric_trend(
         self,
-        metric_type: str,
+        metric_type: MetricType | EnvironmentMetricType,
         start: datetime,
         end: datetime,
         bucket: BucketSize,
         server_ids: list[int] | None = None,
-        agg: str = "avg",
+        agg: AggFunc = "avg",
         dimension: str | None = None,
         collapse: bool = True,
     ) -> list[MetricSeries]:
@@ -654,7 +656,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         bi, bucket_td = _BUCKET_INFO[bucket]
         ae = _AGG[agg]
         sid = "AND server_id = ANY(:server_ids)" if server_ids else ""
-        params: dict = {"start": start, "end": end}
+        params: JsonObject = {"start": start, "end": end}
 
         if metric_type in _CPU_NUMERATOR:
             num = _CPU_NUMERATOR[metric_type]

@@ -15,6 +15,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
@@ -39,7 +40,7 @@ async def test_upsert_server_inserts_new(collect_repo: CollectRepository):
 
 async def test_upsert_server_stores_machine_id(
     collect_repo: CollectRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """machine_id 표시 컬럼 저장 (ADR 0027) — agent_id 식별과 별개, 표시 전용 nullable."""
     inv = make_inventory(
@@ -59,7 +60,7 @@ async def test_upsert_server_stores_machine_id(
 
 async def test_upsert_server_overwrites_fields_on_conflict(
     collect_repo: CollectRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """ON CONFLICT DO UPDATE — 같은 agent_id 의 다른 필드가 덮어씀."""
     aid = "00000000-0000-4000-8000-000000000003"
@@ -79,7 +80,7 @@ async def test_upsert_server_overwrites_fields_on_conflict(
 
 async def test_upsert_server_same_agent_id_converges_across_reboot(
     collect_repo: CollectRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """agent_id 단일 UNIQUE 키 — 같은 agent_id 면 composite_id·hostname 이 바뀌어도 한 row 로 수렴 (ADR 0049).
 
@@ -182,7 +183,7 @@ async def test_ensure_server_id_auto_registers_when_missing(
 
 async def test_ensure_server_id_uses_existing_without_fallback(
     collect_repo: CollectRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """기존 server_id 사용. fallback은 미사용 — 데이터가 fallback 값으로 덮이지 않음."""
     aid = "00000000-0000-4000-8000-000000000032"
@@ -385,7 +386,7 @@ async def test_record_metrics_per_device_unique(
 
 async def test_record_metrics_persists_boot_time_envelope(
     collect_repo: CollectRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """boot_time/agent_started_at은 envelope(server_metrics)에만 저장 (v2).
 
@@ -432,7 +433,7 @@ async def test_record_metrics_persists_boot_time_envelope(
 
 async def test_upsert_server_history_appended_on_change(
     collect_repo: CollectRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """C5 명시 select(_INVENTORY_COMPARE_COLS) 후에도 변경 감지 동일 — history 한 행 append.
 
@@ -456,7 +457,7 @@ async def test_upsert_server_history_appended_on_change(
 
 async def test_upsert_server_history_not_appended_when_unchanged(
     collect_repo: CollectRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """비교 컬럼 동일 + collected_at만 다름 (1h 주기 재발행 시뮬) → history 추가 없음."""
     aid = "00000000-0000-4000-8000-000000000042"
@@ -478,7 +479,7 @@ async def test_upsert_server_history_not_appended_when_unchanged(
 
 async def test_upsert_server_history_appended_on_boot_change(
     collect_repo: CollectRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """_inventory_changed 가 boot(JSONB) 변경을 감지 → history append (재현 필드도 변경 감지 대상)."""
     aid = "00000000-0000-4000-8000-000000000043"
@@ -504,7 +505,7 @@ async def test_upsert_server_history_appended_on_boot_change(
 
 async def test_upsert_server_persists_reproduction_columns(
     collect_repo: CollectRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """_inventory_row/_append_inventory_history 가 재현 컬럼을 server_inventory + history 양쪽에 기록."""
     aid = "00000000-0000-4000-8000-000000000044"

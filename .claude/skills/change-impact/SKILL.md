@@ -1,6 +1,6 @@
 ---
 name: change-impact
-description: TRIGGER when a change touches one of the coupled change types and you need the simultaneous-update locations — 시계열/inventory 컬럼 추가, 신규 routing key, EXCHANGE/ROUTING_KEY 값 변경, 메시지 페이로드 schema 변경, recommendation 분류 임계·신호·OS 분기, 환경변수 추가, ViewModel 파생 필드, 신규 JSON API 엔드포인트, 보고서 스냅샷 nested 필드, 신규 조건부 UI 섹션, 신규 외부 의존·의존성, 신규 차트 MetricType, 비동기 보고서 발행, install task lifecycle. Invoked by /pr --base main or mid-change when the type matches.
+description: TRIGGER when a change touches one of the coupled change types and you need the simultaneous-update locations — 시계열/inventory 컬럼 추가, 신규 routing key, EXCHANGE/ROUTING_KEY 값 변경, 메시지 페이로드 schema 변경, recommendation 분류 임계·신호·OS 분기, 환경변수 추가, ViewModel 파생 필드, 신규 JSON API 엔드포인트, 보고서 스냅샷 nested 필드, 신규 조건부 UI 섹션, 신규 외부 의존·의존성, 신규 차트 MetricType, 비동기 보고서 발행, install task lifecycle. Invoked by /pr (develop 게이트) or mid-change when the type matches.
 ---
 
 # 변경 영향도 체크리스트

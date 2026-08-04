@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
+from assessment_engine.json_types import json_list
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES, detect_listen_categories
 from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
 from assessment_engine.web.services.mappers.server import (
@@ -29,6 +30,7 @@ from assessment_engine.web.services.mappers.shared import (
     SaturationAxisDisplay,
     build_host_confidence_notes,
     lookup_os_eol,
+    os_eol_display,
     resolve_os_eol,
     saturation_axis_displays,
 )
@@ -72,7 +74,7 @@ _REBOOT_UNSTABLE_COUNT = 3  # reboot_count >= 3 — Agent 불안정 신호 (#F10
 # ─── KPI 집계 ───
 
 
-def compute_report_avg_p95(rows: list) -> tuple[float | None, float | None]:
+def compute_report_avg_p95(rows: list[ReportRowItem]) -> tuple[float | None, float | None]:
     """ReportRowItem list에서 CPU·메모리 p95 평균을 계산 (양식 A KPI).
 
     None 항목은 제외 후 산술 평균. 모두 None이면 None 반환 (divide-by-zero 회피).
@@ -84,7 +86,7 @@ def compute_report_avg_p95(rows: list) -> tuple[float | None, float | None]:
     return avg_cpu, avg_mem
 
 
-def compute_report_totals_from_raw(raws: list) -> ReportTotals:
+def compute_report_totals_from_raw(raws: list[ReportRowRaw]) -> ReportTotals:
     """ReportRowRaw list -> 묶음 자원 총량. cpu_cores·mem_total_bytes·디스크 총량 합산 (P2).
 
     양식 A 상단의 마이그레이션 capacity 산정 입력 — "총 N대 = 총 X vCPU·Y GB·Z TB".
@@ -100,7 +102,7 @@ def compute_report_totals_from_raw(raws: list) -> ReportTotals:
     )
 
 
-def build_role_distribution(raws: list) -> dict[str, int]:
+def build_role_distribution(raws: list[ReportRowRaw]) -> dict[str, int]:
     """ReportRowRaw list -> 역할별 서버 수 dict. 양식 A 상단 표시용 (호스트 대표 역할, listen 보강)."""
     counter: Counter[str] = Counter()
     for r in raws:
@@ -141,7 +143,10 @@ def _top_phrase(labels: list[str]) -> str:
 
 
 def build_report_summary_bullets(
-    rows: list, raws: list | None = None, view: ReportView = "customer", today: date | None = None
+    rows: list[ReportRowItem],
+    raws: list[ReportRowRaw] | None = None,
+    view: ReportView = "customer",
+    today: date | None = None,
 ) -> list[str]:
     """자동 분석 요약 문장 생성 — 정량 신호 기반 정성 요약 (P2).
 
@@ -795,6 +800,7 @@ def to_report_row_item(
     """
     info = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
     os_eol, os_eol_status = ("", "unknown") if info is None else (info.eol_iso, info.status)
+    os_eol_disp = os_eol_display(os_eol_status, os_eol)
     stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
     # rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생한다 (화면 간 분류 정합).
     host = recommendation.rollup_host(stats)
@@ -836,13 +842,17 @@ def to_report_row_item(
         kernel_version=raw.kernel_version,
         os_eol=os_eol,
         os_eol_status=os_eol_status,
+        os_eol_label=os_eol_disp.label,
+        os_eol_css=os_eol_disp.css,
+        os_eol_title=os_eol_disp.title,
+        os_eol_sort=os_eol_disp.sort,
         has_operational_event=has_operational_event,
         internal_ip=next(
             (
                 a.get("address")
                 for i in raw.net_interfaces or []
                 if not is_virtual_interface(i.get("kind"))  # physical + bond_master (topology·상세와 동일 술어)
-                for a in i.get("addresses") or []
+                for a in json_list(i, "addresses")
                 if a.get("family") == "ipv4"
             ),
             None,

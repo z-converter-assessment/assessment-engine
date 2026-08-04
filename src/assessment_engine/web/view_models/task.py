@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from datetime import datetime
 
+from assessment_engine.json_types import JsonObject
+
 
 @dataclass
 class TaskSummaryItem:
@@ -46,4 +48,4 @@ class TaskDetailItem:
     completed_at: datetime | None
     stdout_tail: str | None
     stderr_tail: str | None
-    params: dict | None = None  # install task 발행 파라미터 ({zdm_ip, zdm_user} 등) — modal 노출
+    params: JsonObject | None = None  # install task 발행 파라미터 ({zdm_ip, zdm_user} 등) — modal 노출

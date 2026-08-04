@@ -466,7 +466,7 @@ class ResourceAssessment:
 
     kind: ResourceKind
     status: ResourceStatus
-    triggers: list[str] = field(default_factory=list)
+    triggers: list[str] = field(default_factory=list[str])
     sizing_target: int | None = None  # 목표 크기 (cpu=코어, memory=MB). None=사이징 불가/불요
     sizing_floor: int | None = None  # 정확 목표 불가(포화 주도) 시 안전 상향 하한 — API recommended never-null
     confidence: ConfidenceNote = field(default_factory=ConfidenceNote)
@@ -483,7 +483,7 @@ class HostAssessment:
     resources: dict[str, ResourceAssessment]
     root_cause: str | None = None  # 원인 자원 kind
     # root 의 증상으로 추정되는 kind — 근본원인 표시(root_cause_display)용 라벨일 뿐, 처방 억제에는 안 쓴다(ADR 0055).
-    symptom_of_root: list[str] = field(default_factory=list)
+    symptom_of_root: list[str] = field(default_factory=list[str])
     host_status: HostStatus = "optimal"  # 정렬·배지용 호스트 요약 (조치는 root_cause·자원별에서)
     network_congested: bool = False  # 네트워크 품질 경고 (사이징 아님, 별도 플래그)
     # 창 대비 관측 비율 — 신뢰도 '창 대비 관측 부족' 노트 입력(30h 절대바닥과 별개 축)
@@ -813,7 +813,7 @@ def assess_network(stats: ResourceStats) -> ResourceAssessment:
     if conntrack is not None and conntrack >= RS_CONNTRACK_SATURATION_RATIO:
         triggers.append("net_conntrack")  # 연결테이블 고갈 임박 — 신규 연결 드롭 위험(NAT·프록시·방화벽)
     if triggers:
-        parts = []
+        parts: list[str] = []
         if retrans is not None:
             parts.append(f"재전송 {retrans:.1f}%")
         if drop is not None:

@@ -6,11 +6,17 @@ stop_event 종료를 검증. 실제 claim/expire SQL 은 통합 테스트(test_t
 
 import asyncio
 import contextlib
-from contextlib import asynccontextmanager
+from collections.abc import AsyncGenerator, Callable
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import Any, cast
 
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.config import WorkerSettings
+from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+from assessment_engine.web.services.diagnostic_service import DiagnosticService
+from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import (
     TaskNotConfigured,
     _resolve_install_dispatch,
@@ -21,16 +27,21 @@ from assessment_engine.worker.task_reaper import run_task_reaper
 from assessment_engine.worker.worker_lifecycle import graceful_drain
 
 
+def _no_query_service() -> AbstractAsyncContextManager[QueryService]:
+    """이 경로는 보고서를 만들지 않으므로 QueryService 를 열지 않아야 한다."""
+    raise AssertionError("query_service_factory 가 호출되면 안 되는 경로다")
+
+
 class _FakeDiag:
     """DiagnosticService 대역 — recover/claim 을 프로그래밍 가능하게."""
 
-    def __init__(self, *, recover_raises=False, claim_raises=False):
+    def __init__(self, *, recover_raises: bool = False, claim_raises: bool = False) -> None:
         self.recover_raises = recover_raises
         self.claim_raises = claim_raises
         self.recover_calls = 0
         self.claim_calls = 0
 
-    async def recover_stale(self, stale_seconds):
+    async def recover_stale(self, stale_seconds: int) -> int:
         self.recover_calls += 1
         if self.recover_raises:
             raise RuntimeError("db down at startup")
@@ -67,7 +78,7 @@ async def test_report_worker_survives_startup_recover_failure():
     stop.set()  # 루프 진입 전 종료 조건 (recover 가드만 실행)
     diag = _FakeDiag(recover_raises=True)
     await run_report_worker(
-        diag_service=diag, query_service_factory=None,
+        diag_service=cast(DiagnosticService, diag), query_service_factory=_no_query_service,
         poll_interval_sec=0.01, stale_seconds=1, stop_event=stop,
     )
     assert diag.recover_calls == 1  # 시도했고, 예외는 삼켜짐(await 이 raise 안 함)
@@ -79,7 +90,7 @@ async def test_report_worker_stops_on_event():
     stop = asyncio.Event()
     diag = _FakeDiag()
     task = asyncio.create_task(run_report_worker(
-        diag_service=diag, query_service_factory=None,
+        diag_service=cast(DiagnosticService, diag), query_service_factory=_no_query_service,
         poll_interval_sec=0.01, stale_seconds=1, stop_event=stop,
     ))
     await asyncio.sleep(0.05)  # 몇 차례 claim 돌게
@@ -94,7 +105,7 @@ async def test_report_worker_survives_claim_failure():
     stop = asyncio.Event()
     diag = _FakeDiag(claim_raises=True)
     task = asyncio.create_task(run_report_worker(
-        diag_service=diag, query_service_factory=None,
+        diag_service=cast(DiagnosticService, diag), query_service_factory=_no_query_service,
         poll_interval_sec=0.01, stale_seconds=1, stop_event=stop,
     ))
     await asyncio.sleep(0.05)
@@ -107,7 +118,7 @@ async def test_report_worker_survives_claim_failure():
 
 
 class _FakeRepo:
-    def __init__(self, *, raises=False):
+    def __init__(self, *, raises: bool = False) -> None:
         self.raises = raises
         self.calls = 0
 
@@ -128,14 +139,33 @@ class _FakeSession:
     async def __aenter__(self):
         return self
 
-    async def __aexit__(self, *exc):
+    async def __aexit__(self, *exc: object) -> bool:
         return False
 
 
-def _session_factory():
+def _collect(messages: list[str]) -> Callable[[Any], None]:
+    """loguru sink — 기록된 메시지 문자열만 모은다."""
+
+    def _sink(message: Any) -> None:
+        messages.append(str(message.record["message"]))
+
+    return _sink
+
+
+def _repo_factory(repo: object) -> Callable[[AsyncSession], BaseCollectRepository]:
+    """reaper 가 세션마다 부르는 repo 팩토리 — 대역 하나를 그대로 돌려준다."""
+
+    def _factory(_s: AsyncSession) -> BaseCollectRepository:
+        return cast(BaseCollectRepository, repo)
+
+    return _factory
+
+
+def _session_factory() -> Callable[[], AbstractAsyncContextManager[AsyncSession]]:
     @asynccontextmanager
-    async def _factory():
-        yield _FakeSession()
+    async def _factory() -> AsyncGenerator[AsyncSession]:
+        yield cast(AsyncSession, _FakeSession())
+
     return _factory
 
 
@@ -144,7 +174,7 @@ async def test_task_reaper_survives_tick_failure():
     stop = asyncio.Event()
     repo = _FakeRepo(raises=True)
     task = asyncio.create_task(run_task_reaper(
-        session_factory=_session_factory(), collect_repo_factory=lambda _s: repo,
+        session_factory=_session_factory(), collect_repo_factory=_repo_factory(repo),
         interval_sec=0.01, stop_event=stop,
     ))
     await asyncio.sleep(0.05)
@@ -159,7 +189,7 @@ async def test_task_reaper_stops_on_event():
     repo = _FakeRepo()
     sess_factory = _session_factory()
     task = asyncio.create_task(run_task_reaper(
-        session_factory=sess_factory, collect_repo_factory=lambda _s: repo,
+        session_factory=sess_factory, collect_repo_factory=_repo_factory(repo),
         interval_sec=0.01, stop_event=stop,
     ))
     await asyncio.sleep(0.05)
@@ -182,8 +212,8 @@ async def test_graceful_drain_completes_within_timeout():
         return "ok"
 
     task = asyncio.create_task(quick())
-    messages = []
-    sink_id = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+    messages: list[str] = []
+    sink_id = logger.add(_collect(messages), level="WARNING")
     try:
         await graceful_drain(
             task, stop, shutdown_timeout_sec=1.0, timeout_warning="should-not-fire",
@@ -207,8 +237,8 @@ async def test_graceful_drain_cancels_on_timeout():
         await never.wait()
 
     task = asyncio.create_task(stuck())
-    messages = []
-    sink_id = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+    messages: list[str] = []
+    sink_id = logger.add(_collect(messages), level="WARNING")
     try:
         await graceful_drain(
             task, stop, shutdown_timeout_sec=0.02, timeout_warning="drain overrun requeue",

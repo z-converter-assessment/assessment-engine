@@ -8,10 +8,24 @@
 
 | 도구 | 대상 | 설정 | 실행 |
 |------|------|------|------|
-| ruff | lint (E·F·I·B·UP) | `[tool.ruff]` | `uv run ruff check .` |
-| pyright | 타입 | `[tool.pyright]` | `uv run pyright` (게이트는 `uv run pyright src`) |
+| ruff | lint (E·F·I·B·UP) | `[tool.ruff]` | `make lint` |
+| pyright | 타입 | `[tool.pyright]` | `make typecheck` |
 
-ruff 는 CI(`ci.yml`)가 PR 마다 `ruff check` 를 돌린다 — 포맷은 게이트가 아니다. pyright 는 `src` 만 게이트다. `tests` 는 픽스처가 dict 리터럴을 넘기고 반환에 `| None` 이 붙은 함수 결과를 바로 쓰는 방식 탓에 위반이 남아 있어 범위 밖이다. 편집기는 `[tool.pyright].include` 대로 전체를 보므로 테스트 코드도 실시간 검사는 받는다.
+`make typecheck` 는 파이썬 타입과 정적 JS 타입을 함께 본다. 검사 범위는 `[tool.pyright].include` 한 곳이 정하고 명령은 경로 인자를 넘기지 않는다 — 편집기와 CLI 와 워크플로가 같은 범위를 본다.
+
+ruff 는 검증 워크플로(`ci.yml`)가 PR 마다 `ruff check` 를 돌린다 — 포맷은 게이트가 아니다.
+
+pyright 강도는 `strict` 다. 명시 선언은 두 묶음뿐 — 이 저장소가 채택하지 않는 규칙 4개를 `none` 으로, strict 가 끄지만 위반 0 이라 켜 두는 규칙 4개를 `error` 로. 규칙별 채택·거부 사유는 ADR 0062 가 단일 진실이다. 새 규칙을 켤 때도 같은 기준을 쓴다 — 위반을 남긴 채 켜지 않는다.
+
+외부 패키지가 타입을 주지 않는 자리는 억제를 호출부마다 흩지 말고 타입 있는 얇은 래퍼 한 곳에 가둔다 (`tests/approx.py` 가 그 예다). 호출부마다 억제하면 그 줄의 실제 오류까지 함께 묻힌다.
+
+wire·JSONB 원본을 담는 자리는 `assessment_engine.json_types.JsonObject` 를 쓴다. 계약 밖 필드가 도착해도 통과시켜야 하므로 원본은 열린 채로 두고 읽는 쪽이 필요한 축만 좁힌다. JSON 이 아닌 dict(MQ 큐 선언 인자·SQLAlchemy 컬럼-값 맵·in-memory 인덱스)에는 쓰지 않는다 — 이름이 거짓이 된다.
+
+그 원본에서 중첩 배열·객체를 꺼낼 때는 같은 모듈의 `json_list`·`json_obj`·`json_str_list` 를 쓴다. `d.get(key) or []` 로 꺼내면 빈 리터럴이 원소 타입을 잃은 채 결과 타입을 정한다. 세 헬퍼는 형태가 아니면 빈 값으로 읽으므로 호출부 가드가 필요 없다.
+
+dataclass·Pydantic 의 기본값 팩토리는 `field(default_factory=list[X])` 처럼 선언과 같은 제네릭 별칭을 쓴다. 인자 없는 `list`·`dict` 는 원소 타입이 없는 생성자라 선언과 이어지지 않는다 — 제네릭 별칭도 호출 가능해 런타임 동작은 같다.
+
+테스트 픽스처는 dict 로 기본값을 조립해 `**` 로 넘기지 않는다. 그렇게 하면 값 타입이 전 필드의 합집합이 되어 어떤 인자도 맞지 않는다. dataclass 는 `dataclasses.replace(base, **overrides)` 로 base 를 실제 타입으로 한 번 만들고 덮어쓰기만 넘긴다. `T | None` 을 돌려주는 호출은 `assert x is not None` 으로 좁힌 뒤 쓴다 — 그 테스트가 전제하던 것을 명시하는 효과도 있다.
 
 저장소가 공유하는 편집기 설정은 `.vscode/` 두 파일이다. `settings.json` 은 워크스페이스 우선순위로 개인 설정을 덮으므로 팀이 통일해야 할 것만 담는다 (ruff 포맷터·저장 시 포맷·import 정렬·pytest 활성화). `extensions.json` 은 추천일 뿐 강제가 아니며, 이 저장소에 검사 대상이 있는 확장만 올린다.
 

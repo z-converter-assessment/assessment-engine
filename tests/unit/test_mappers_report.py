@@ -1,6 +1,8 @@
 """report·overview·attention 관련 mapper — 본 세션(v3~v5) 추가 함수 단위 테스트."""
 
+import dataclasses
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -10,6 +12,7 @@ from assessment_engine.db.dtos.outbound import (
     ReportRowRaw,
     ServerDetail,
 )
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.attention import (
     _UTIL_COLOR_GAUGE,
     _UTIL_COLOR_NONE,
@@ -33,6 +36,7 @@ from assessment_engine.web.services.mappers.report import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_FROM_REC,
+    _classify_eol,
     lookup_os_eol,
     resolve_os_eol,
 )
@@ -44,55 +48,55 @@ _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
 def _raw(
     *,
-    server_id=1,
-    public_id="a",
-    hostname="h",
-    os_family=None,
-    os_id="ubuntu",
-    os_version="22.04",
-    os_codename="jammy",
-    kernel_version="5.15",
-    net_interfaces=None,
-    services=None,
-    cpu_avg=None,
-    cpu_p95=None,
-    cpu_peak=None,
-    mem_avg=None,
-    mem_p95=None,
-    mem_peak=None,
-    iowait_p95=None,
-    iowait_peak=None,
-    cpu_run_queue_p95=None,
-    mem_pages_input_rate_p95=None,
-    cpu_cores=2,
-    mem_total_kb=2 * 1024 * 1024,  # 테스트 편의 단위(KiB) — 아래에서 v2 mem_total_bytes 로 환산
-    block_devices=None,
-    boot_time=None,
-    worst_mount=None,
-    worst_used=None,
-    reboot_count=0,
-    disk_iops=None,
-    disk_throughput=None,
-    net_rx=None,
-    net_tx=None,
-    cpu_sufficiency=None,
-    mem_sufficiency=None,
+    server_id: int = 1,
+    public_id: str = "a",
+    hostname: str = "h",
+    os_family: str | None = None,
+    os_id: str | None = "ubuntu",
+    os_version: str | None = "22.04",
+    os_codename: str | None = "jammy",
+    kernel_version: str | None = "5.15",
+    net_interfaces: list[JsonObject] | None = None,
+    services: list[JsonObject] | None = None,
+    cpu_avg: float | None = None,
+    cpu_p95: float | None = None,
+    cpu_peak: float | None = None,
+    mem_avg: float | None = None,
+    mem_p95: float | None = None,
+    mem_peak: float | None = None,
+    iowait_p95: float | None = None,
+    iowait_peak: float | None = None,
+    cpu_run_queue_p95: float | None = None,
+    mem_pages_input_rate_p95: float | None = None,
+    cpu_cores: int | None = 2,
+    mem_total_kb: int | None = 2 * 1024 * 1024,  # 테스트 편의 단위(KiB) — 아래에서 v2 mem_total_bytes 로 환산
+    block_devices: list[JsonObject] | None = None,
+    boot_time: datetime | None = None,
+    worst_mount: str | None = None,
+    worst_used: float | None = None,
+    reboot_count: int = 0,
+    disk_iops: int | None = None,
+    disk_throughput: float | None = None,
+    net_rx: float | None = None,
+    net_tx: float | None = None,
+    cpu_sufficiency: float | None = None,
+    mem_sufficiency: float | None = None,
     # ADR 0052 신 모델 입력 raw
-    procs_blocked_p95=None,
-    mem_swap_paging=False,
-    disk_await_p95_ms=None,
-    disk_capacity_runway_days=None,
-    disk_inode_runway_days=None,
-    net_retrans_pct=None,
-    net_drop_pct=None,
-    history_hours=None,
-    cpu_burst_ratio=None,
-    cpu_trend_slope=None,
-    mem_trend_slope=None,
-    cpu_steal_p95=None,
-    cpu_percore_p95_max=None,
-    procs_running_p95=None,
-    oom_occurred=False,
+    procs_blocked_p95: float | None = None,
+    mem_swap_paging: bool = False,
+    disk_await_p95_ms: float | None = None,
+    disk_capacity_runway_days: float | None = None,
+    disk_inode_runway_days: float | None = None,
+    net_retrans_pct: float | None = None,
+    net_drop_pct: float | None = None,
+    history_hours: float | None = None,
+    cpu_burst_ratio: float | None = None,
+    cpu_trend_slope: float | None = None,
+    mem_trend_slope: float | None = None,
+    cpu_steal_p95: float | None = None,
+    cpu_percore_p95_max: float | None = None,
+    procs_running_p95: float | None = None,
+    oom_occurred: bool = False,
 ) -> ReportRowRaw:
     return ReportRowRaw(
         server_id=server_id,
@@ -170,7 +174,7 @@ def _raw(
         ("insufficient_data", "normal", "정상"),
     ],
 )
-def test_risk_mapping_all_recommendations(rec, risk_level, risk_label):
+def test_risk_mapping_all_recommendations(rec: str, risk_level: str, risk_label: str):
     level, label, badge = _RISK_FROM_RECOMMENDATION[rec]
     assert level == risk_level
     assert label == risk_label
@@ -237,7 +241,7 @@ def test_report_row_windows_swap_not_high_risk():
     이용률 92%(>=90)라 양 OS 모두 mem_util 로 under(high)지만, 포화 원인 라벨이 갈린다:
     Linux 는 swap page-out -> '메모리 부족 (스왑 발생)', Windows 는 pages_input 미발행이라 util 만 -> '메모리 압박'.
     """
-    stats = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=92.0, mem_peak=95.0, mem_swap_paging=True)
+    stats: dict[str, Any] = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=92.0, mem_peak=95.0, mem_swap_paging=True)
     linux = to_report_row_item(_raw(os_family="linux", **stats), True, _NOW)
     windows = to_report_row_item(_raw(os_family="windows", **stats), True, _NOW)
     assert linux.risk_level == "high"  # mem_util(92>=90) + swap page-out -> under
@@ -300,7 +304,15 @@ def test_report_totals_handles_null_fields():
 # ─── build_environment_overview ──────────────────────────────────────────
 
 
-def _detail(*, id_, hostname, cpu_cores, mem_total_kb, disk_size, role_unit=None):
+def _detail(
+    *,
+    id_: int,
+    hostname: str,
+    cpu_cores: int,
+    mem_total_kb: int,
+    disk_size: int,
+    role_unit: str | None = None,
+):
     # mem_total_kb 는 테스트 편의 단위(KiB) — v2 ServerDetail.mem_total_bytes 로 환산.
     return ServerDetail(
         id=id_,
@@ -394,7 +406,7 @@ def test_environment_overview_utilization_default_empty():
         (None, _UTIL_COLOR_NONE),  # 표본 부재 — 단일 회색
     ],
 )
-def test_environment_overview_utilization_bar_color(pct, expected_color):
+def test_environment_overview_utilization_bar_color(pct: float | None, expected_color: str):
     details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024 * 1024, disk_size=10**9)]
     util = EnvironmentUtilizationRaw(
         cpu_avg_pct=pct,
@@ -423,7 +435,7 @@ def test_environment_overview_utilization_bar_color(pct, expected_color):
         (None, 0.0),  # 표본 부재
     ],
 )
-def test_environment_overview_utilization_dash_length(pct, expected_dash):
+def test_environment_overview_utilization_dash_length(pct: float | None, expected_dash: float):
     details = [_detail(id_=1, hostname="x", cpu_cores=1, mem_total_kb=1024 * 1024, disk_size=10**9)]
     util = EnvironmentUtilizationRaw(
         cpu_avg_pct=pct,
@@ -512,7 +524,7 @@ def test_risk_donut_segments_empty_total():
         ("insufficient_data", "insufficient_data"),
     ],
 )
-def test_donut_segment_from_rec_mapping(rec, expected_key):
+def test_donut_segment_from_rec_mapping(rec: str, expected_key: str):
     assert _DONUT_SEGMENT_FROM_REC[rec] == expected_key
 
 
@@ -776,7 +788,12 @@ def test_capacity_warning_item_fields():
         (50.0, 60.0, False, []),  # 비도달
     ],
 )
-def test_capacity_warning_item_active_causes(cpu_p95, mem_p95, mem_swap_paging, expected_causes):
+def test_capacity_warning_item_active_causes(
+    cpu_p95: float | None,
+    mem_p95: float | None,
+    mem_swap_paging: bool,
+    expected_causes: list[str],
+):
     """active_causes = 발화 trigger 의 os-neutral 원인 라벨(고정 순서)."""
     raw = _raw(cpu_p95=cpu_p95, mem_p95=mem_p95, mem_swap_paging=mem_swap_paging)
     item = to_capacity_warning_item(raw)
@@ -862,48 +879,78 @@ def test_period_assessment_unmeasured_when_counter_absent():
         ("rocky", "9.6", False),
     ],
 )
-def test_os_eol_matching(os_id, os_version, should_match):
+def test_os_eol_matching(os_id: str, os_version: str, should_match: bool):
     raw = _raw(os_id=os_id, os_version=os_version)
     item = to_os_eol_warning_item(raw, _NOW)
     assert (item is not None) == should_match
 
 
-def test_windows_ambiguous_build_prefers_longer_supported_cycle():
-    """빌드 17763 은 SAC(1809, support=eol=2020-11-10)·LTSC(2019, support=2024·eol=2029) 양쪽에 매핑.
-    후보 전부 support 경과·일부만 eol 경과 -> extended(연장지원) 판정, 대표 라벨·날짜는 LTSC(eol 최장)."""
+def test_windows_ambiguous_build_takes_least_severe_candidate():
+    """빌드 17763 은 SAC(1809)·LTSC(2019) 양쪽에 매핑. 후보 판정이 갈리면 심각도 최소를 택한다 —
+    불확실할 때 과소지원으로 오판하지 않는 쪽. 대표 라벨·날짜는 eol 최장(LTSC)."""
     info = lookup_os_eol("windows", None, "17763.4644", _NOW.date())
     assert info is not None
     assert info.label == "Windows Server 2019"
     assert info.eol_iso == "2029-01-09"
     assert info.support_iso == "2024-01-09"
-    assert info.status == "extended"
+    assert info.status == "security_only"
 
 
-def test_windows_2019_not_falsely_flagged_eol_passed():
-    """회귀: 빌드 우선순위 버그로 정상 지원 중(연장지원)인 Server 2019 가 완전 EOL 로 발화되던 문제.
-    extended 는 보안 패치 유지라 resolve_os_eol(발화용)이 None 이어야 한다."""
+def test_windows_2019_security_only_does_not_fire():
+    """security_only 는 무상 보안 패치가 유지되므로 발화(resolve_os_eol)하지 않는다."""
     assert resolve_os_eol("windows", None, "17763.4644", _NOW.date()) is None
 
 
-def test_windows_2012_r2_fully_eol_fires():
-    """빌드 9600(2012 R2, support 2018·eol 2023) — 둘 다 경과. status=eol, 발화."""
+def test_windows_2012_r2_fires():
+    """빌드 9600(2012 R2) — 무상 패치가 끝났고 ESU 날짜가 남아 있다."""
     info = lookup_os_eol("windows", None, "9600.1", _NOW.date())
-    assert info is not None and info.status == "eol"
+    assert info is not None and info.status == "paid_only"
+    assert info.extended_support_iso is not None
     assert resolve_os_eol("windows", None, "9600.1", _NOW.date()) is not None
 
 
-def test_windows_2022_supported():
-    """빌드 20348(2022, support 2026-10·eol 2031) — 2026-05 기준 둘 다 미도래. status=supported."""
+@pytest.mark.parametrize(
+    ("support", "eol", "extended", "expected"),
+    [
+        # 경계 셋이 다 있는 경우 — 시간 순서대로 네 단계를 지난다 (기준일 2026-05-12)
+        ("2030-01-01", "2035-01-01", "2040-01-01", "full"),
+        ("2000-01-01", "2030-01-01", "2035-01-01", "security_only"),
+        ("2000-01-01", "2000-06-01", "2035-01-01", "paid_only"),
+        ("2000-01-01", "2000-06-01", "2001-01-01", "ended"),
+        # 경계 결측 — 없는 경계는 그 구간이 존재하지 않는다
+        (None, "2030-01-01", "2035-01-01", "full"),  # support 없음 (debian)
+        (None, "2000-01-01", "2035-01-01", "paid_only"),
+        ("2000-01-01", "2030-01-01", None, "security_only"),  # 유상 경로 없음 (rocky)
+        (None, "2000-01-01", None, "ended"),  # 둘 다 없음 (fedora)
+        (None, "2030-01-01", None, "full"),
+        # 경계 동일값 — <= 라 그날 당일에 다음 단계로 넘어간다
+        ("2026-05-12", "2030-01-01", None, "security_only"),
+        ("2000-01-01", "2026-05-12", "2035-01-01", "paid_only"),
+        ("2000-01-01", "2000-06-01", "2026-05-12", "ended"),
+        # support == eol — security_only 구간이 0 이다 (ubuntu 24.04)
+        ("2030-01-01", "2030-01-01", "2036-01-01", "full"),
+        ("2000-01-01", "2000-01-01", "2036-01-01", "paid_only"),
+    ],
+)
+def test_classify_eol_boundaries(support: str | None, eol: str, extended: str | None, expected: str):
+    """경계 3개 -> 4상태 판정. 카탈로그 의존 없이 규칙만 고정한다."""
+    assert _classify_eol(support, eol, extended, _NOW.date()) == expected
+
+
+def test_windows_2022_full_support():
+    """빌드 20348(2022) — support·eol 둘 다 미도래라 기능 업데이트까지 받는 단계."""
     info = lookup_os_eol("windows", None, "20348.2340", _NOW.date())
-    assert info is not None and info.status == "supported"
+    assert info is not None and info.status == "full"
 
 
-def test_linux_has_no_extended_state():
-    """Linux 카탈로그는 support 미수록 -> extended 없이 eol/supported 2상태(기존 동작 유지)."""
-    supported = lookup_os_eol("ubuntu", "22.04", "5.15", _NOW.date())
-    assert supported is not None and supported.status == "supported" and supported.support_iso is None
-    eol = lookup_os_eol("centos", "7.9", "3.10", _NOW.date())
-    assert eol is not None and eol.status == "eol"
+def test_linux_carries_all_boundaries():
+    """Linux 도 경계 셋을 싣는다 — ubuntu 는 support·extendedSupport 가 모두 있고,
+    유상 연장 경로가 없는 배포(fedora·centos)는 무상 종료가 곧 ended 다."""
+    ubuntu = lookup_os_eol("ubuntu", "22.04", "5.15", _NOW.date())
+    assert ubuntu is not None
+    assert ubuntu.support_iso is not None and ubuntu.extended_support_iso is not None
+    ended = lookup_os_eol("centos", "7.9", "3.10", _NOW.date())
+    assert ended is not None and ended.status == "ended" and ended.extended_support_iso is None
 
 
 def test_agent_unstable_item_fields():
@@ -922,7 +969,7 @@ def test_agent_unstable_item_fields():
     "os_id, os_version",
     [("centos", "7"), ("rhel", "7"), ("ubuntu", "18.04")],
 )
-def test_resolve_os_eol_known_eol_distros(os_id, os_version):
+def test_resolve_os_eol_known_eol_distros(os_id: str, os_version: str):
     # 2026 기준 모두 EOL 경과 -> (eol_iso, label) 반환 (None 아님).
     assert resolve_os_eol(os_id, os_version, None, _NOW.date()) is not None
 
@@ -951,7 +998,7 @@ def test_resolve_os_eol_known_eol_distros(os_id, os_version):
         ({"cpu_p95": 50.0, "mem_p95": 85.0}, "정상"),
     ],
 )
-def test_diagnosis_priority(kwargs, expected):
+def test_diagnosis_priority(kwargs: Any, expected: str):
     """우선순위: 스왑 > I/O > saturation > mem 압박 > cpu 압박 > 변동성(peak>헤드룸) > 미사용 > 여유 > 정상."""
     raw = _raw(**kwargs)
     item = to_report_row_item(raw, True, _NOW)
@@ -991,8 +1038,8 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
 # ─── _build_recommendation_action (양식 A 권고 컬럼 단일 진실) ─────────────
 
 
-def _rs(**kw):
-    base = dict(
+def _rs(**kw: Any) -> recommendation.ResourceStats:
+    base = recommendation.ResourceStats(
         cpu_p95_pct=None,
         cpu_peak_pct=None,
         cpu_load_15m_max=None,
@@ -1003,11 +1050,10 @@ def _rs(**kw):
         iowait_p95_pct=None,
         net_avg_kbytes_per_s=None,
     )
-    base.update(kw)
-    return recommendation.ResourceStats(**base)
+    return dataclasses.replace(base, **kw)
 
 
-def _host(status: str) -> recommendation.HostAssessment:
+def _host(status: recommendation.HostStatus) -> recommendation.HostAssessment:
     """신 모델 host_status 만 지정한 최소 HostAssessment (비-under 조치 테스트용 — resources 불요)."""
     return recommendation.HostAssessment(resources={}, host_status=status)
 
@@ -1021,7 +1067,7 @@ def _host(status: str) -> recommendation.HostAssessment:
         ("insufficient", "표본 부족 — 관측 지속"),
     ],
 )
-def test_recommendation_action_fixed_phrases(status, expected):
+def test_recommendation_action_fixed_phrases(status: recommendation.HostStatus, expected: str):
     assert _build_recommendation_action(_host(status), _rs()) == expected
 
 

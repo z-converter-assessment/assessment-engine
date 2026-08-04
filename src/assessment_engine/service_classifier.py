@@ -14,6 +14,8 @@ Windows SCM 이름은 정규화 없이 들어와(MSSQLSERVER / MSSQL$INSTANCE / 
 
 from dataclasses import dataclass
 
+from assessment_engine.json_types import JsonObject
+
 
 @dataclass
 class MatchedPort:
@@ -432,7 +434,7 @@ def _match_keyword(text: str) -> str | None:
     return None
 
 
-def _attributed_ports(unit: str, listen_ports: list[dict], pid: int | None = None) -> list[dict]:
+def _attributed_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = None) -> list[JsonObject]:
     """unit 에 귀속된 listen_port dict 목록.
 
     pid 제공 시(agent 가 services 에 pid 발행) 동일 pid 소켓을 정확 join — services<->listen_ports 확정 귀속.
@@ -444,7 +446,7 @@ def _attributed_ports(unit: str, listen_ports: list[dict], pid: int | None = Non
     타 소켓을 흡입 -> 최저 well-known 포트로 오분류(예: 전 systemd 소켓 remote)되는 누출을 차단. 매니저 placeholder
     는 특정 유닛 소유 증거가 아니므로 귀속 대상 아님. systemd-resolved 등 자기 comm 데몬은 정상 매칭(영향 0).
     """
-    result: list[dict] = []
+    result: list[JsonObject] = []
     seen: set[tuple[str, int]] = set()
 
     if pid is not None:
@@ -476,7 +478,7 @@ def _attributed_ports(unit: str, listen_ports: list[dict], pid: int | None = Non
     return result
 
 
-def classify(unit: str, listen_ports: list[dict] | None = None, pid: int | None = None) -> str:
+def classify(unit: str, listen_ports: list[JsonObject] | None = None, pid: int | None = None) -> str:
     """서비스 unit -> 카테고리. 다중 신호 (name -> comm -> port), 미매칭 시 "unknown".
 
     listen_ports 미제공(목록 화면 등 경량 SELECT) 시 name 신호만 사용. pid 제공 시 services<->listen_ports
@@ -504,7 +506,7 @@ def classify(unit: str, listen_ports: list[dict] | None = None, pid: int | None 
     return "unknown"
 
 
-def matched_ports(unit: str, listen_ports: list[dict], pid: int | None = None) -> list[MatchedPort]:
+def matched_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = None) -> list[MatchedPort]:
     """서비스 유닛에 연관된 listen 포트 — 단일 규칙(전 화면 공유).
 
     포트 귀속 규칙:
@@ -538,7 +540,7 @@ def matched_ports(unit: str, listen_ports: list[dict], pid: int | None = None) -
     return result
 
 
-def detect_listen_categories(listen_ports: list[dict]) -> dict[str, list[MatchedPort]]:
+def detect_listen_categories(listen_ports: list[JsonObject]) -> dict[str, list[MatchedPort]]:
     """listen 소켓을 카테고리로 직접 분류 — services unit 과 무관 (ADR 0032, T15 보완).
 
     per-unit 분류(`classify`)가 pid join 으로 정확해진 뒤에도, 어떤 service unit 에도 속하지 않는
@@ -589,12 +591,12 @@ def is_baseline_service(name: str | None) -> bool:
     return any(kw in t for kw in _BASELINE_KEYWORDS)
 
 
-def is_baseline_socket(p: dict) -> bool:
+def is_baseline_socket(p: JsonObject) -> bool:
     """listen 소켓이 baseline(관리·OS 기본) 인가 — comm 또는 port 기준. 특징 워크로드 필터."""
     return is_baseline_service(p.get("comm")) or p.get("port", 0) in _BASELINE_PORTS
 
 
-def compute_service_categories(services: list[dict] | None, listen_ports: list[dict] | None) -> list[str]:
+def compute_service_categories(services: list[JsonObject] | None, listen_ports: list[JsonObject] | None) -> list[str]:
     """ingest 사전계산 — 호스트 "특징 워크로드" 카테고리 키 집합 (정렬·dedup, "unknown"·baseline 제외).
 
     services unit 이름 분류(`classify`: name->comm->port) ∪ listen 소켓 직접 분류(`detect_listen_categories`).

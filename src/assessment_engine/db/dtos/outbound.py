@@ -1,6 +1,9 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
+
+from assessment_engine.json_types import JsonObject
 
 
 @dataclass
@@ -18,7 +21,7 @@ class ServerSummary:
     cpu_cores: int | None
     mem_total_bytes: int | None
     ip_external: list[str] | None
-    block_devices: list[dict]  # 인벤토리 스토리지 트리 (size 합산용)
+    block_devices: list[JsonObject]  # 인벤토리 스토리지 트리 (size 합산용)
     # 서비스 뱃지 — ingest 사전계산 카테고리 키 집합(service_classifier 단일 진실). services JSONB 는 목록 미로드(경량).
     service_categories: list[str]
     last_seen_at: datetime | None  # Redis online TTL fallback 용도
@@ -45,12 +48,12 @@ class ServerDetail:
     mem_total_bytes: int | None
     boot_time: datetime | None
     agent_started_at: datetime | None
-    net_interfaces: list[dict]  # [{name,id,id_type,kind,speed_mbps,addresses:[...],gateway}]
+    net_interfaces: list[JsonObject]  # [{name,id,id_type,kind,speed_mbps,addresses:[...],gateway}]
     ip_external: list[str] | None
-    block_devices: list[dict]  # 스토리지 트리 (type=swap 노드 포함 — swap 용량은 여기서)
-    lvm_vgs: list[dict]  # [{name,size_bytes,free_bytes,..}] — 확장여력
-    services: list[dict] | None
-    listen_ports: list[dict]
+    block_devices: list[JsonObject]  # 스토리지 트리 (type=swap 노드 포함 — swap 용량은 여기서)
+    lvm_vgs: list[JsonObject]  # [{name,size_bytes,free_bytes,..}] — 확장여력
+    services: list[JsonObject] | None
+    listen_ports: list[JsonObject]
     last_seen_at: datetime | None
     # ingest 사전계산 워크로드 카테고리(service_classifier 단일 진실, E7) — 토폴로지 노드 역할 주석 등 소비.
     service_categories: list[str] | None = None
@@ -83,7 +86,7 @@ class TaskRow:
     duration_ms: int | None
     stdout_tail: str | None
     stderr_tail: str | None
-    params: dict | None = None  # install task 발행 파라미터
+    params: JsonObject | None = None  # install task 발행 파라미터
     # 응답 마감 — mapper 가 경과 pending 을 "응답 시간 초과"로 파생 (install 외 None)
     deadline_at: datetime | None = None
 
@@ -192,9 +195,10 @@ class DashboardRaw:
     kernel_version: str | None = None  # PSI 지원(Linux 4.20+) 판정 입력 — 구커널 N/A 분기용
     # 물리 device/interface 필터 입력 (raw passthrough, P1) — build_dashboard 가 {id_type}:{id} 합성해
     # disk_io/net_io 를 물리 계층으로 좁힌다 (I/O 활동 축 = 물리 디스크·인터페이스 단일 규칙, device_filters).
-    block_devices: list[dict] | None = None
-    net_interfaces: list[dict] | None = None
-    cpu_cores: list[CpuCoreRaw] = field(default_factory=list)  # 코어당 최대 2행 — 단일스레드 병목 실시간 표시
+    block_devices: list[JsonObject] | None = None
+    net_interfaces: list[JsonObject] | None = None
+    # 코어당 최대 2행 — 단일스레드 병목 실시간 표시
+    cpu_cores: list[CpuCoreRaw] = field(default_factory=list[CpuCoreRaw])
 
 
 # ---------- Storage / Network 풍부화 DTOs ----------
@@ -205,8 +209,8 @@ class StorageWithUsage:
     server_id: int
     public_id: str
     hostname: str
-    block_devices: list[dict]  # 인벤토리 스토리지 트리 (type=swap 포함)
-    lvm_vgs: list[dict]  # 확장여력
+    block_devices: list[JsonObject]  # 인벤토리 스토리지 트리 (type=swap 포함)
+    lvm_vgs: list[JsonObject]  # 확장여력
     filesystems: list[MountUsageRaw]  # 마운트별 최신 사용량 시계열
     inventory_at: datetime | None
     os_family: str | None = None  # OS 분기 표시(Windows PSI N/A 등, #E6 data-os-family)
@@ -217,14 +221,14 @@ class NetworkWithIo:
     server_id: int
     public_id: str
     hostname: str
-    net_interfaces: list[dict]
+    net_interfaces: list[JsonObject]
     ip_external: list[str] | None
     net_io: list[NetIoRaw]  # 인터페이스당 최대 2행 (delta 계산용)
     inventory_at: datetime | None
     os_family: str | None = None  # OS 분기 표시(conntrack N/A 등, #E6 data-os-family)
     # iface_id -> 최신 link_speed_bps(bit/s) — 인벤토리 speed_mbps null(virtio·Windows NT5.2) 폴백용
     # (latest_link_speed 재사용, environment.py 와 동일 목적).
-    link_speed_by_iface: dict[str, int] = field(default_factory=dict)
+    link_speed_by_iface: dict[str, int] = field(default_factory=dict[str, int])
 
 
 @dataclass
@@ -307,7 +311,7 @@ class ErrorFleetRaw:
     corrupted_bytes: int | None = None  # 현재 EDAC hardware corrupted (>0=메모리 손상)
     net_error_count: int = 0  # rx_errors+tx_errors 창내 증가분 (전 iface 합)
     disk_error_count: int = 0  # server_disk_error count 창내 증가분 (전 device/kind 합)
-    disk_error_kinds: list[str] = field(default_factory=list)  # 발생 종류 "kind/class" (예 mdraid/degraded)
+    disk_error_kinds: list[str] = field(default_factory=list[str])  # 발생 종류 "kind/class" (예 mdraid/degraded)
     last_error_at: datetime | None = None  # 창 안 최근 에러 관측 표본 시각 (approx 시점 컨텍스트)
 
 
@@ -365,7 +369,8 @@ class CpuBreakdownRaw:
 @dataclass
 class MetricSeries:
     collected_at: datetime
-    value: float | None
+    # SQL avg·sum 은 numeric 을 Decimal 로 준다 — raw 그대로 싣고 표시 변환은 매퍼가 한다.
+    value: float | Decimal | None
     dimension: str | None
     kind: str | None = None  # per-dimension 차트 필터용 (물리/가상 선별은 query 시 inventory 조인). 환경 합산선 None.
 
@@ -389,8 +394,8 @@ class ReportRowRaw:
     os_version: str | None
     os_codename: str | None
     kernel_version: str | None
-    net_interfaces: list[dict] | None
-    services: list[dict] | None  # service_classifier 입력 (role 추론용)
+    net_interfaces: list[JsonObject] | None
+    services: list[JsonObject] | None  # service_classifier 입력 (role 추론용)
     last_seen_at: datetime | None
 
     # USE Method Utilization (p95 + avg + peak)
@@ -403,7 +408,7 @@ class ReportRowRaw:
     mem_near_peak_pct: float | None = None  # near-peak(버킷별 max 의 p95) — 메모리 사이징 통계(비탄력 피크 대표)
 
     # service_classifier listen 신호 (개별 보고서 구동 서비스 표시·role 보강).
-    listen_ports: list[dict] | None = None
+    listen_ports: list[JsonObject] | None = None
 
     # I/O wait (cpu iowait 시간 / total non-idle 비율) — Linux 디스크 병목 참고 신호
     iowait_p95_pct: float | None = None
@@ -416,8 +421,8 @@ class ReportRowRaw:
     # Inventory 합계 산정용 — query_service.get_report가 totals 계산 시 사용
     cpu_cores: int | None = None
     mem_total_bytes: int | None = None
-    block_devices: list[dict] | None = None  # 합계 산정 위해 size_bytes 합산
-    lvm_vgs: list[dict] | None = None  # 확장여력 (용량 처방)
+    block_devices: list[JsonObject] | None = None  # 합계 산정 위해 size_bytes 합산
+    lvm_vgs: list[JsonObject] | None = None  # 확장여력 (용량 처방)
     # OS 재현 서술자 (assessment API reproduction) — server_inventory 컬럼 pass-through.
     arch: str | None = None
     bits: int | None = None
@@ -428,8 +433,8 @@ class ReportRowRaw:
     product_name: str | None = None
     timezone: str | None = None
     rtc_utc: bool | None = None
-    boot: dict | None = None  # {kernel_cmdline,root_ref_type,grub_install_target}
-    nonblock_mounts: list[dict] | None = None  # [{source,target,fstype,options,fs_freq,fs_passno}]
+    boot: JsonObject | None = None  # {kernel_cmdline,root_ref_type,grub_install_target}
+    nonblock_mounts: list[JsonObject] | None = None  # [{source,target,fstype,options,fs_freq,fs_passno}]
     boot_time: datetime | None = None  # uptime_days = now - boot_time
 
     # 서버 안 가장 채워진 마운트의 used%(most-full, fs cagg) — 디스크 이용률 KPI. 임박(runway)과 별개 축.
@@ -530,11 +535,11 @@ class DiagnosticJobRecord:
     id: str
     job_type: str
     scope: str
-    input_params: dict
+    input_params: JsonObject
     input_hash: str
     status: str
     progress_stage: str | None
-    result: dict | None
+    result: JsonObject | None
     error_message: str | None
     created_at: datetime
     started_at: datetime | None

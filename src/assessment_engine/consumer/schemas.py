@@ -6,7 +6,7 @@ metrics/inventory = envelope + system.* datapoint-array + inventory 배열. task
 
 from datetime import datetime
 from ipaddress import ip_address, ip_interface
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
@@ -22,8 +22,6 @@ class MessageBase(BaseModel):
 
     # 에이전트 계약 버전(contract.AGENT_CONTRACT_VERSION). 형식 major.minor.
     schema_version: str = Field(pattern=r"^\d+\.\d+$")
-    # agent_id — 호스트 식별 단일 키(불변 UUID). DB UNIQUE·MQ 라우팅. task.result 한정 nullable(task_id 매칭).
-    agent_id: UUID
     message_id: UUID
     collected_at: AwareDatetime
     # composite_id — SHA-256 감사·표시용(식별 미사용). "" -> None 정규화.
@@ -50,6 +48,17 @@ class MessageBase(BaseModel):
         return None if v == "" else v
 
 
+class AgentMessageBase(MessageBase):
+    """agent 프로세스가 직접 발행해 agent_id 가 반드시 실리는 메시지.
+
+    task.result 는 worker 컨텍스트라 agent_id 가 없어 본 클래스를 상속하지 않는다 — 상속으로 nullable
+    override 를 하면 기반 클래스의 `UUID` 선언이 거짓이 된다.
+    """
+
+    # agent_id — 호스트 식별 단일 키(불변 UUID). DB UNIQUE·MQ 라우팅.
+    agent_id: UUID
+
+
 # ---------------------------------------------------------------------------
 # system.* datapoint-array (metrics)
 # ---------------------------------------------------------------------------
@@ -58,7 +67,7 @@ class MessageBase(BaseModel):
 class Datapoint(BaseModel):
     model_config = ConfigDict(extra="ignore")
     # attr — 차원 구분(device/state/direction/resource/scope/window/source/cpu/kind/class). 생략=단일 스칼라.
-    attr: dict[str, str | int] = Field(default_factory=dict)
+    attr: dict[str, str | int] = Field(default_factory=dict[str, str | int])
     # value — number 또는 null(측정불가, 0 과 구분).
     value: float | None = None
 
@@ -67,7 +76,7 @@ class Metric(BaseModel):
     model_config = ConfigDict(extra="ignore")
     type: Literal["counter", "gauge"]
     unit: str = Field(max_length=32)
-    points: list[Datapoint] = Field(default_factory=list)
+    points: list[Datapoint] = Field(default_factory=list[Datapoint])
 
 
 # 네임스페이스 = {metric명: Metric}. metric명(cpu.time 등)은 dict 키라 dot 무관.
@@ -79,7 +88,7 @@ Namespace = dict[str, Metric]
 # ---------------------------------------------------------------------------
 
 
-class MetricsInput(MessageBase):
+class MetricsInput(AgentMessageBase):
     message_type: Literal["metrics"]
 
     # 필수 4 네임스페이스 (키 present, 값은 object|null 허용).
@@ -169,7 +178,7 @@ class NetInterfaceInfo(BaseModel):
     id_type: str | None = Field(default=None, max_length=16)
     kind: str | None = Field(default=None, max_length=32)
     speed_mbps: int | None = Field(default=None, ge=0)
-    addresses: list[NetAddressInfo] = Field(default_factory=list)
+    addresses: list[NetAddressInfo] = Field(default_factory=list[NetAddressInfo])
     gateway: str | None = Field(default=None, max_length=64)
     # 레이아웃 상세 (reproduction, agent 확장). bond_mode raw(엔진 정규화).
     mtu: int | None = Field(default=None, ge=0)
@@ -240,7 +249,7 @@ class NonblockMountInfo(BaseModel):
     fs_passno: int | None = None
 
 
-class InventoryInput(MessageBase):
+class InventoryInput(AgentMessageBase):
     message_type: Literal["inventory"]
 
     hostname: str = Field(min_length=1, max_length=255)
@@ -266,24 +275,27 @@ class InventoryInput(MessageBase):
     boot: BootInfo | None = None
     nonblock_mounts: list[NonblockMountInfo] | None = None
 
-    block_devices: list[BlockDeviceInfo] = Field(default_factory=list)
-    net_interfaces: list[NetInterfaceInfo] = Field(default_factory=list)
-    lvm_vgs: list[LvmVgInfo] = Field(default_factory=list)  # Linux 전용(Windows 미발행)
+    block_devices: list[BlockDeviceInfo] = Field(default_factory=list[BlockDeviceInfo])
+    net_interfaces: list[NetInterfaceInfo] = Field(default_factory=list[NetInterfaceInfo])
+    lvm_vgs: list[LvmVgInfo] = Field(default_factory=list[LvmVgInfo])  # Linux 전용(Windows 미발행)
     services: list[InventoryServiceInfo] | None = None
-    listen_ports: list[InventoryListenPortInfo] = Field(default_factory=list)
+    listen_ports: list[InventoryListenPortInfo] = Field(default_factory=list[InventoryListenPortInfo])
 
     @field_validator("ip_external", mode="before")
     @classmethod
     def _validate_ip_external(cls, v: object) -> object:
+        # 검증만 하고 값은 그대로 돌려준다 — 아래 isinstance 로 좁혀진 이름을 반환하면
+        # 원소 타입이 미상인 채 반환 타입에 실린다.
+        original = v
         if v is None:
-            return v
+            return original
         if not isinstance(v, (list, tuple)):
             # ValueError 만 ValidationError 로 수렴한다 — TypeError 는 model_validate_json 밖으로 새어
             # 핸들러의 검증 실패 로그를 건너뛴다.
             raise ValueError(f"expected list of IP strings, got {type(v).__name__}")
-        for item in v:
+        for item in cast("list[object] | tuple[object, ...]", v):
             ip_interface(str(item))
-        return v
+        return original
 
 
 # ---------------------------------------------------------------------------
@@ -291,7 +303,7 @@ class InventoryInput(MessageBase):
 # ---------------------------------------------------------------------------
 
 
-class ErrorInput(MessageBase):
+class ErrorInput(AgentMessageBase):
     message_type: Literal["error"]
     error_code: str = Field(min_length=1, max_length=64)
     error_message: str

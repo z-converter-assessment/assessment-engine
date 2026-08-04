@@ -31,7 +31,7 @@ from assessment_engine.service_classifier import (
         ("", "unknown"),
     ],
 )
-def test_classify(unit, expected):
+def test_classify(unit: str, expected: str):
     assert classify(unit) == expected
 
 
@@ -63,7 +63,7 @@ def test_classify_case_insensitive():
         ("fluent-bit.service", "monitor"),
     ],
 )
-def test_classify_extended_catalog(unit, expected):
+def test_classify_extended_catalog(unit: str, expected: str):
     assert classify(unit) == expected
 
 
@@ -78,7 +78,7 @@ def test_classify_extended_catalog(unit, expected):
         (3100, "monitor"),  # loki
     ],
 )
-def test_detect_listen_categories_extended_ports(port, expected):
+def test_detect_listen_categories_extended_ports(port: int, expected: str):
     # 호스트 레벨 port 신호 — comm 부재(Windows 권한 부족 등)에도 포트로 분류.
     from assessment_engine.service_classifier import detect_listen_categories
 
@@ -97,7 +97,7 @@ def test_detect_listen_categories_extended_ports(port, expected):
         ("MSSQL$PROD", "db"),  # named instance 변형 (mssql substring)
     ],
 )
-def test_classify_windows_scm_name(unit, expected):
+def test_classify_windows_scm_name(unit: str, expected: str):
     assert classify(unit) == expected
 
 

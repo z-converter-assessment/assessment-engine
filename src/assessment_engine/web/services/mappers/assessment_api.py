@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from assessment_engine import recommendation
 from assessment_engine.contract import API_CONTRACT_VERSION
+from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
+from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     build_host_confidence_notes,
@@ -22,7 +24,7 @@ from assessment_engine.web.services.mappers.shared import (
 
 
 # ─── identity ──────────────────────────────────────────────
-def _identity(raw, is_online: bool, hostname_ambiguous: bool) -> dict:
+def _identity(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool) -> JsonObject:
     return {
         "public_id": raw.public_id,
         "hostname": raw.hostname,
@@ -42,11 +44,11 @@ _BOND_MODE_MAP = {
 }
 
 
-def _norm_bond_mode(v):
-    return _BOND_MODE_MAP.get(v) if v is not None else None
+def _norm_bond_mode(v: object) -> str | None:
+    return _BOND_MODE_MAP.get(v) if isinstance(v, str) else None
 
 
-def _norm_raid_level(v):
+def _norm_raid_level(v: object) -> int | None:
     """raid 레벨 문자열/숫자 -> int|null. 비수치(linear/multipath 등) -> null(계약 int enum)."""
     if v is None:
         return None
@@ -67,13 +69,13 @@ _BLOCK_DEVICE_KEYS = (
 )
 
 
-def _repro_block_device(d: dict) -> dict:
+def _repro_block_device(d: JsonObject) -> JsonObject:
     out = {k: d.get(k) for k in _BLOCK_DEVICE_KEYS}
     out["raid_level"] = _norm_raid_level(d.get("raid_level"))
     return out
 
 
-def _repro_interface(i: dict, link_speeds: dict[str, int] | None = None) -> dict:
+def _repro_interface(i: JsonObject, link_speeds: dict[str, int] | None = None) -> JsonObject:
     # speed_mbps null(Windows NT5.2/virtio 는 inventory 미발행) 시 metrics link.speed(bit/s)로 폴백 — reproduction
     # 정확도(agent 확정 규약). iface 안정 id 로 매칭. link.speed 도 null(virtio)이면 그대로 null.
     speed = i.get("speed_mbps")
@@ -88,7 +90,7 @@ def _repro_interface(i: dict, link_speeds: dict[str, int] | None = None) -> dict
         "addresses": [
             {"address": a.get("address"), "prefix": a.get("prefix"),
              "family": a.get("family"), "origin": a.get("origin")}
-            for a in i.get("addresses") or []
+            for a in json_list(i, "addresses")
         ],
         "gateway": i.get("gateway"), "dns": i.get("dns"), "routes": i.get("routes"),
         "bond_mode": _norm_bond_mode(i.get("bond_mode")), "vlan_id": i.get("vlan_id"),
@@ -96,7 +98,7 @@ def _repro_interface(i: dict, link_speeds: dict[str, int] | None = None) -> dict
     }
 
 
-def _repro_lvm_vg(v: dict) -> dict:
+def _repro_lvm_vg(v: JsonObject) -> JsonObject:
     return {
         "name": v.get("name"), "vg_uuid": v.get("vg_uuid"),
         "size_bytes": v.get("size_bytes"), "free_bytes": v.get("free_bytes"),
@@ -104,7 +106,7 @@ def _repro_lvm_vg(v: dict) -> dict:
     }
 
 
-def _reproduction(raw, link_speeds: dict[str, int] | None = None) -> dict:
+def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) -> JsonObject:
     """재현 팩트 — 현 인벤토리를 계약 OUTPUT 형태로 reshape.
 
     os 재현 서술자(arch/bits/boot_firmware 등)·boot·nonblock_mounts 는 server_inventory 전용 컬럼에서,
@@ -141,7 +143,7 @@ def _reproduction(raw, link_speeds: dict[str, int] | None = None) -> dict:
 
 
 # ─── sizing (axes[]) ───────────────────────────────────────
-def _axis_size(current, ra, stats):
+def _axis_size(current: int | float, ra: recommendation.ResourceAssessment, stats: recommendation.ResourceStats):
     """cpu/memory 축 판정 -> (recommended, action, estimate_quality). recommended never-null(current 폴백).
 
     under: 정확 목표 있으면 exact, floor 있으면 floor, 둘 다 없으면 uncertain(방어).
@@ -164,7 +166,7 @@ def _axis_size(current, ra, stats):
     return current, "keep", "exact"
 
 
-def _device_ref(raw, mountpoint):
+def _device_ref(raw: ReportRowRaw, mountpoint: str | None) -> str | None:
     """마운트포인트 -> reproduction block_device id (트리 조인). fs 얹힌 노드가 mountpoint 를 가짐."""
     for d in raw.block_devices or []:
         if d.get("mountpoint") == mountpoint:
@@ -172,9 +174,9 @@ def _device_ref(raw, mountpoint):
     return None
 
 
-def _sizing(raw, stats, host, mounts) -> dict:
+def _sizing(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment, mounts: list[MountCapacityRaw]) -> JsonObject:
     """사이징 축 배열 — cpu/memory(호스트 1축) + disk(마운트별 N축). 소비자 전 원소 순회 + max(current,recommended)."""
-    axes: list[dict] = []
+    axes: list[JsonObject] = []
     for kind, unit, current in (("cpu", "vcpus", stats.cpu_cores), ("memory", "mib", stats.mem_total_mb)):
         if current is None:
             continue  # base 수량(코어/총 RAM) 미상 -> 축 생략(recommended never-null 보장, disk 축과 대칭)
@@ -204,7 +206,7 @@ def _sizing(raw, stats, host, mounts) -> dict:
 
 
 # ─── assessment ────────────────────────────────────────────
-def _assessment(host) -> dict:
+def _assessment(host: recommendation.HostAssessment) -> JsonObject:
     """호스트 종합 판정 — classification(도메인 Recommendation, 계약 enum 과 동일 값) + confidence + data_quality.
 
     confidence: insufficient_data -> low / 하향 사유 있으면 medium / 없으면 high. 불변식(high 아니면 notes 최소 1).
@@ -230,7 +232,7 @@ def _assessment(host) -> dict:
 _DIAG_AXES = ("cpu", "memory", "disk_capacity", "disk_io", "network")
 
 
-def _diag_util(kind: str, raw) -> dict:
+def _diag_util(kind: str, raw: ReportRowRaw) -> JsonObject:
     """utilization eval/sizing — eval=판정 p95, sizing=축별 사이징 통계(cpu p95, memory near-peak, 비사이징 null)."""
     if kind == "cpu":
         p = round(raw.cpu_p95_pct, 1) if raw.cpu_p95_pct is not None else None
@@ -243,7 +245,7 @@ def _diag_util(kind: str, raw) -> dict:
     return {"eval_pct": None, "sizing_pct": None}
 
 
-def _diag_resource(kind: str, ra, raw, stats) -> dict:
+def _diag_resource(kind: str, ra: recommendation.ResourceAssessment, raw: ReportRowRaw, stats: recommendation.ResourceStats) -> JsonObject:
     axis = "disk" if kind == "disk_capacity" else kind
     return {
         "axis": axis,
@@ -254,7 +256,7 @@ def _diag_resource(kind: str, ra, raw, stats) -> dict:
     }
 
 
-def _root_cause_axis(host):
+def _root_cause_axis(host: recommendation.HostAssessment):
     """근본원인 축 소문자 enum (disk_capacity -> disk) | null."""
     rc = host.root_cause
     if rc is None:
@@ -262,7 +264,7 @@ def _root_cause_axis(host):
     return "disk" if rc == "disk_capacity" else rc
 
 
-def _diagnostics(raw, stats, host) -> dict:
+def _diagnostics(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment) -> JsonObject:
     return {
         "root_cause": _root_cause_axis(host),
         "root_cause_detail": recommendation.root_cause_display(host) or None,
@@ -276,9 +278,9 @@ def _diagnostics(raw, stats, host) -> dict:
 
 
 def build_assessment_entry(
-    raw, mounts, is_online: bool, hostname_ambiguous: bool = False,
+    raw: ReportRowRaw, mounts: list[MountCapacityRaw], is_online: bool, hostname_ambiguous: bool = False,
     link_speeds: dict[str, int] | None = None,
-) -> dict:
+) -> JsonObject:
     """ReportRowRaw + per-mount 용량 + online -> /api/assessment 서버 항목 (계약 4.2).
 
     분류/사이징/근본원인 전부 rollup_host 종합에서 파생 — 화면/right-sizing API 와 값 정합(재계산 0).
@@ -296,14 +298,14 @@ def build_assessment_entry(
 
 
 def build_assessment_envelope(
-    result: dict,
+    result: JsonObject,
     *,
     generated_at: str,
     window_days: int,
     window_start: str,
     window_end: str,
-    filters: dict,
-) -> dict:
+    filters: JsonObject,
+) -> JsonObject:
     """계약 4.1 최상위 envelope — GET /api/assessment 와 POST export 가 공유(byte-identical 구조).
 
     result = QueryService.get_assessment 반환(servers + ambiguous_hostnames/unresolved_pairs/unmatched_filters).

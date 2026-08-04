@@ -8,10 +8,12 @@ enqueue_report(pending) -> 워커 claim_pending/finish/recover. 본 테스트는
 import hashlib
 import json
 from datetime import UTC, datetime
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, build_report_result
 from assessment_engine.web.services.diagnostic_service import (
     DiagnosticService,
@@ -95,7 +97,7 @@ def test_build_report_result_with_aux():
 
 
 @pytest.fixture
-def stub_session_factory():
+def stub_session_factory() -> MagicMock:
     """async context manager session factory — repo 호출은 외부 mock 으로 캡처."""
     session = AsyncMock()
     session.commit = AsyncMock()
@@ -106,11 +108,11 @@ def stub_session_factory():
 
 
 @pytest.fixture
-def stub_diag_repo():
+def stub_diag_repo() -> AsyncMock:
     return AsyncMock()
 
 
-def _service(session_factory, diag_repo):
+def _service(session_factory: MagicMock, diag_repo: AsyncMock) -> DiagnosticService:
     return DiagnosticService(
         session_factory=session_factory,
         diagnostic_repo_factory=lambda s: diag_repo,
@@ -119,7 +121,11 @@ def _service(session_factory, diag_repo):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("view", ["customer", "engineer"])
-async def test_emit_report_marks_succeeded(view, stub_session_factory, stub_diag_repo):
+async def test_emit_report_marks_succeeded(
+    view: str,
+    stub_session_factory: MagicMock,
+    stub_diag_repo: AsyncMock,
+):
     """발행 — customer/engineer 동일: enqueue 후 즉시 mark_succeeded(result=build_report_result), commit."""
     stub_diag_repo.enqueue = AsyncMock(return_value="job-1")
     stub_diag_repo.mark_succeeded = AsyncMock()
@@ -148,7 +154,10 @@ async def test_emit_report_marks_succeeded(view, stub_session_factory, stub_diag
 
 
 @pytest.mark.asyncio
-async def test_emit_report_server_single_adds_singular_key(stub_session_factory, stub_diag_repo):
+async def test_emit_report_server_single_adds_singular_key(
+    stub_session_factory: MagicMock,
+    stub_diag_repo: AsyncMock,
+):
     """server scope 1대 — input_params 에 server_public_ids(복수) + server_public_id(단수) 둘 다."""
     stub_diag_repo.enqueue = AsyncMock(return_value="single-job")
     stub_diag_repo.mark_succeeded = AsyncMock()
@@ -169,7 +178,10 @@ async def test_emit_report_server_single_adds_singular_key(stub_session_factory,
 
 
 @pytest.mark.asyncio
-async def test_emit_report_child_jobs_stored_in_result(stub_session_factory, stub_diag_repo):
+async def test_emit_report_child_jobs_stored_in_result(
+    stub_session_factory: MagicMock,
+    stub_diag_repo: AsyncMock,
+):
     """selection N대 — child_jobs 맵은 input_hash 미포함(더블클릭 dedup 보존), result 에만 보관."""
     stub_diag_repo.enqueue = AsyncMock(return_value="sel-job")
     stub_diag_repo.mark_succeeded = AsyncMock()
@@ -191,7 +203,10 @@ async def test_emit_report_child_jobs_stored_in_result(stub_session_factory, stu
 
 
 @pytest.mark.asyncio
-async def test_emit_report_active_conflict_returns_existing(stub_session_factory, stub_diag_repo):
+async def test_emit_report_active_conflict_returns_existing(
+    stub_session_factory: MagicMock,
+    stub_diag_repo: AsyncMock,
+):
     """더블클릭 — enqueue 충돌(None) → get_active_by_hash 회수 + rollback. mark_succeeded·commit 없음."""
     stub_diag_repo.enqueue = AsyncMock(return_value=None)
     stub_diag_repo.get_active_by_hash = AsyncMock(return_value="active-job")
@@ -218,7 +233,10 @@ async def test_emit_report_active_conflict_returns_existing(stub_session_factory
 
 
 @pytest.mark.asyncio
-async def test_enqueue_report_pending_no_mark_succeeded(stub_session_factory, stub_diag_repo):
+async def test_enqueue_report_pending_no_mark_succeeded(
+    stub_session_factory: MagicMock,
+    stub_diag_repo: AsyncMock,
+):
     """비동기 발행 — parent 를 pending 으로 enqueue + commit, mark_succeeded 안 함(워커가 생성)."""
     stub_diag_repo.enqueue = AsyncMock(return_value="parent-1")
     stub_diag_repo.mark_succeeded = AsyncMock()
@@ -240,7 +258,10 @@ async def test_enqueue_report_pending_no_mark_succeeded(stub_session_factory, st
 
 
 @pytest.mark.asyncio
-async def test_enqueue_report_active_conflict_returns_existing(stub_session_factory, stub_diag_repo):
+async def test_enqueue_report_active_conflict_returns_existing(
+    stub_session_factory: MagicMock,
+    stub_diag_repo: AsyncMock,
+):
     """더블클릭 — enqueue None → get_active_by_hash 회수 + rollback (같은 job 합류, commit 없음)."""
     stub_diag_repo.enqueue = AsyncMock(return_value=None)
     stub_diag_repo.get_active_by_hash = AsyncMock(return_value="active-parent")
@@ -260,25 +281,33 @@ async def test_enqueue_report_active_conflict_returns_existing(stub_session_fact
 
 
 @pytest.mark.asyncio
-async def test_enqueue_and_emit_same_input_hash(stub_session_factory, stub_diag_repo):
+async def test_enqueue_and_emit_same_input_hash(
+    stub_session_factory: MagicMock,
+    stub_diag_repo: AsyncMock,
+):
     """enqueue_report(parent)·emit_report(동기 child) 가 같은 입력에 같은 input_hash — 멱등 정합 의무."""
-    captured = []
+    captured: list[DiagnosticJobCreate] = []
 
-    def _capture(create):
+    def _capture(create: DiagnosticJobCreate) -> str:
         captured.append(create)
         return "j"
 
     stub_diag_repo.enqueue = AsyncMock(side_effect=_capture)
     stub_diag_repo.mark_succeeded = AsyncMock()
     service = _service(stub_session_factory, stub_diag_repo)
-    common = dict(view="engineer", scope="server", server_public_ids=["a"], time_range="7d", anchor_at=_FIXED_ANCHOR)
+    common: dict[str, Any] = dict(
+        view="engineer", scope="server", server_public_ids=["a"], time_range="7d", anchor_at=_FIXED_ANCHOR
+    )
     await service.enqueue_report(**common)
     await service.emit_report(kind=REPORT_KIND_ENV, snapshot={}, **common)
     assert captured[0].input_hash == captured[1].input_hash
 
 
 @pytest.mark.asyncio
-async def test_claim_pending_commits_and_returns(stub_session_factory, stub_diag_repo):
+async def test_claim_pending_commits_and_returns(
+    stub_session_factory: MagicMock,
+    stub_diag_repo: AsyncMock,
+):
     """claim_pending — repo.claim_next_pending 위임 + running 마킹 커밋 후 record 반환."""
     rec = MagicMock()
     stub_diag_repo.claim_next_pending = AsyncMock(return_value=rec)
@@ -290,7 +319,10 @@ async def test_claim_pending_commits_and_returns(stub_session_factory, stub_diag
 
 
 @pytest.mark.asyncio
-async def test_recover_stale_delegates(stub_session_factory, stub_diag_repo):
+async def test_recover_stale_delegates(
+    stub_session_factory: MagicMock,
+    stub_diag_repo: AsyncMock,
+):
     """recover_stale — repo.recover_stale_running(stale_seconds) 위임 + commit, 복구 건수 반환."""
     stub_diag_repo.recover_stale_running = AsyncMock(return_value=3)
     session = stub_session_factory.return_value
@@ -302,7 +334,10 @@ async def test_recover_stale_delegates(stub_session_factory, stub_diag_repo):
 
 
 @pytest.mark.asyncio
-async def test_finish_failed_delegates(stub_session_factory, stub_diag_repo):
+async def test_finish_failed_delegates(
+    stub_session_factory: MagicMock,
+    stub_diag_repo: AsyncMock,
+):
     """finish_failed — repo.mark_failed(job_id, error) 위임 (error 는 워커가 sanitize 후 전달)."""
     stub_diag_repo.mark_failed = AsyncMock()
     service = _service(stub_session_factory, stub_diag_repo)
