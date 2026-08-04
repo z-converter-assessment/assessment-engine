@@ -307,7 +307,7 @@ Pagination 정책:
 
 ## F5. 자동화 변환 — 책임 분담
 
-원칙: 자동화 변환(sed · `Edit replace_all` · 디렉토리 mv · Python 일괄 갱신) 직후 검증을 2 채널로 분담. 로컬 훅은 두지 않는다 — 우회 가능한 자리라 강제 수단이 못 된다(`docs/guides/conventions.md` 2절).
+원칙: 자동화 변환(sed · `Edit replace_all` · 디렉토리 mv · Python 일괄 갱신) 직후 검증을 2 채널로 분담. 로컬 훅은 두지 않는다 — 우회 가능한 자리라 강제 수단이 못 된다(`docs/guides/conventions.md` 5절).
 - 메인 세션 — 자가 검증. 변환 직후 매 회 의무 (아래 4 항목).
 - 에이전트 (code-reviewer / schema-contract-auditor) — 본 절 맥락(변환 직후 점검)에서는 사용자 명시 요청(`리뷰해줘`·`스키마 일관성 확인` 등) 시에만 발동. PR 게이트의 코드 리뷰는 별개 채널이며 배치는 `docs/guides/pre-pr-checklist.md` 0절이 정한다 (develop PR = `/pr` 이 code-reviewer 발동).
 
@@ -336,7 +336,7 @@ Pagination 정책:
 금지:
 - `except Exception` 광범위 catch — 예외 타입 명시(`OperationalError`/`IntegrityError`/`RedisError`/`asyncio.TimeoutError` 등). 불가피하면 reraise + 컨텍스트 로그.
 - 영구 오류(`IntegrityError`·4xx) 재시도. 일시 장애(`OperationalError`·deadlock(40P01)·5xx·timeout)만 백오프.
-- timeout 없는 외부 호출 — `asyncio.wait_for` 또는 클라이언트 옵션(`aiohttp.ClientTimeout`·asyncpg `command_timeout`·redis `socket_timeout`) 의무.
+- timeout 없는 외부 호출 — `asyncio.wait_for` 또는 클라이언트 옵션(`httpx.Timeout`·asyncpg `command_timeout`·redis `socket_timeout`) 의무.
 
 소비자 측 상세 매트릭스: `docs/reference/consumer.md` "DB 재시도 정책" + "메시지 자체 결함 → DLQ" 절.
 

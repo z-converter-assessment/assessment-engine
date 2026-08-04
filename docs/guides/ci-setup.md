@@ -146,9 +146,7 @@ Dependabot 은 워크플로가 아니라 플랫폼 기능이다. 러너에서 �
 | Dependabot security updates | 비활성 | 켜면 취약점 건에 자동 수정 PR |
 | Dependabot version updates | 비활성 | 켜면 취약점과 무관한 정기 버전 올림 PR |
 
-자동 PR 을 여는 두 항목을 끈다. 둘 다 lockfile 을 갱신해 PR 을 여는 동작이라 같은 제약을 받는다 — `uv.lock` 이 자동 갱신 대상이 아니라서 PR 이 머지되면 drift 가 누적되고 다음 PR 의 CI 가 실패한다.
-
-따라서 취약점 대응은 alert 를 받아 사람이 수행한다. 대상 패키지를 `uv lock --upgrade-package <name>` 으로 올리고, 하한을 고정해야 하면 `pyproject.toml` 에 직접 선언해 그 줄에 근거를 남긴다 — 전이 의존이라도 직접 선언하면 핀을 걸 자리가 생긴다.
+자동 PR 을 여는 두 항목을 끄는 사유와 그 대신 쓰는 절차는 `docs/guides/dependencies.md` 5절이 갖는다.
 
 상태 조회는 API 로 한다.
 

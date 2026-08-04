@@ -315,7 +315,7 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 - `.env.production` / `.env.development` 같은 환경별 .env 동시 보유 — 활성 파일 모호
 - prod 에서 코드 bind mount 유지 — 컨테이너 안 `.env` 노출 + 코드 변조 위험
 - base 에 환경 색 담기 — base 는 dev·prod 공통 정의만 갖는다. env 채널은 dev override 가, file-secret 채널은 `docker-compose.prod.yml` 이 각자 채운다
-- secret 을 git·이미지 컨텍스트에 커밋 — `.gitignore` 의 `.env` 무시 규칙과 `.dockerignore` 의 allowlist 를 무너뜨리지 않는다 (14절)
+- secret 을 git·이미지 컨텍스트에 커밋 — `.gitignore` 의 `.env` 무시 규칙과 `.dockerignore` 의 allowlist 를 무너뜨리지 않는다
 - 컨테이너 안에서 `/app/.env` 를 직접 read 하는 코드 추가 — pydantic-settings 의 `env_file` 폴백 외 직접 read 금지
 - `secrets_dir` 강제 활성화 — 디렉토리 부재 시 noisy 경고. `os.path.isdir` 분기로 None fallback 유지
 

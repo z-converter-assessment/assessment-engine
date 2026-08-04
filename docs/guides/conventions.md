@@ -144,4 +144,3 @@ Warning 은 순서대로 시도한다.
 - CLAUDE.md #F7 — 로깅 정책
 - CLAUDE.md #C3 — Redis fail-open `safe_*` helper 의무
 - CLAUDE.md #F9 — 변경 영향도 체크리스트
-- `docs/decisions/adr/0063-modern-python-baseline.md` — 현재 기준선을 정한 결정
