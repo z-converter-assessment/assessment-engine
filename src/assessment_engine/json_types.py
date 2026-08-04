@@ -5,7 +5,7 @@
 축만 좁혀 쓴다. 계약은 docs/reference/contracts/agent-data.md 가 기준.
 
 값 타입이 열려 있어 `d.get(key) or []` 같은 관용구는 원소 타입을 잃는다. 중첩 배열·객체를 꺼내는
-자리는 아래 두 헬퍼를 경유해 그 자리에서 형태를 확정한다.
+자리는 아래 세 헬퍼를 경유해 그 자리에서 형태를 확정한다.
 """
 
 from typing import Any, cast
