@@ -12,6 +12,8 @@ from pathlib import Path
 from typing import Literal, NamedTuple
 
 from assessment_engine import recommendation
+from assessment_engine.db.dtos.outbound import ReportRowRaw
+from assessment_engine.json_types import JsonObject
 from assessment_engine.service_classifier import SERVICE_CATALOG
 from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
@@ -141,7 +143,7 @@ def build_host_confidence_notes(host: recommendation.HostAssessment) -> list[str
     return notes
 
 
-def primary_ip(raw) -> str | None:
+def primary_ip(raw: ReportRowRaw) -> str | None:
     """물리(physical/bond_master) 인터페이스의 첫 IPv4 — API identity.primary_ip. topology/상세와 동일 술어(P2 공용)."""
     for i in raw.net_interfaces or []:
         if is_virtual_interface(i.get("kind")):
@@ -152,7 +154,7 @@ def primary_ip(raw) -> str | None:
     return None
 
 
-def spec_display_line(cpu_cores: int | None, mem_total_bytes: int | None, block_devices: list[dict] | None) -> str:
+def spec_display_line(cpu_cores: int | None, mem_total_bytes: int | None, block_devices: list[JsonObject] | None) -> str:
     """정적 배정 사양 한 줄("4코어 · 8.00GB · 100GB") — 서버 목록·환경 자원 평가 compact 표 공용(P2 단일 진실).
 
     실무정석: 값은 2진(GiB, 2^30)이되 라벨은 "GB"(free -h·df -h·클라우드 콘솔 관습) — OS·RAM·OpenStack
@@ -184,7 +186,7 @@ def resource_confidence_notes(c: recommendation.ConfidenceNote) -> list[str]:
     return notes
 
 
-def saturation_dict(signal: str, value: float | None, threshold: float | None, unit: str, saturated: bool | None) -> dict:
+def saturation_dict(signal: str, value: float | None, threshold: float | None, unit: str, saturated: bool | None) -> JsonObject:
     """포화 신호 1건 — raw numeric(파싱 계약). network.signals 와 동형, value 미측정 시 null. API 공용."""
     return {
         "signal": signal,
@@ -196,7 +198,7 @@ def saturation_dict(signal: str, value: float | None, threshold: float | None, u
     }
 
 
-def saturation_block(kind: str, stats) -> dict:
+def saturation_block(kind: str, stats: recommendation.ResourceStats) -> JsonObject:
     """자원별 포화 신호 — os-aware raw 수치(계약용 numeric). right-sizing/assessment API 공용(P2 단일 진실)."""
     win = stats.os_family == "windows"
     if kind == "cpu":
@@ -301,7 +303,7 @@ DIAGNOSTIC_RANGE_LABEL_KR: dict[str, str] = {
 # 정적 JSON 을 모듈 로드 시 1회 읽는다. 판정이 이미지 안에서 닫혀 있어야 같은 이미지가 언제 돌든
 # 같은 결과를 낸다. 갱신 = 스냅샷 재실행 + commit.
 _EOL_CATALOG_PATH = Path(__file__).parent / "os_eol_catalog.json"
-_EOL_CATALOG: dict[str, list[dict]] = json.loads(_EOL_CATALOG_PATH.read_text(encoding="utf-8"))
+_EOL_CATALOG: dict[str, list[JsonObject]] = json.loads(_EOL_CATALOG_PATH.read_text(encoding="utf-8"))
 
 # agent os_id(/etc/os-release ID) -> endoflife product slug. 대부분 동일, 예외만 명시.
 # 미등록 os_id 는 None (EOL 판정 불가 침묵). windows 는 build 기반이라 본 dict 밖 별도 분기.

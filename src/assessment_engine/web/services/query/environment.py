@@ -1,12 +1,21 @@
 """환경 개요·실시간·자원평가·토폴로지 조회 mixin."""
 
 from collections import Counter
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import FleetErrorRaw, SaturationRaw
+from assessment_engine.db.dtos.outbound import (
+    EnvironmentUtilizationRaw,
+    FleetErrorRaw,
+    MountCapacityRaw,
+    ReportRowRaw,
+    SaturationRaw,
+    ServerDetail,
+)
 from assessment_engine.db.repositories.query.types import DIAGNOSTIC_RANGE_DAYS, TimeRange
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.assessment_api import build_assessment_entry
 from assessment_engine.web.services.mappers.attention import (
     build_action_targets,
@@ -49,7 +58,12 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         return await self._assemble_realtime(server_ids, details, now)
 
     def _assemble_overview(
-        self, details, util, raws_period, online_by_id: dict[int, bool], full_under: bool = False,
+        self,
+        details: list[ServerDetail],
+        util: EnvironmentUtilizationRaw,
+        raws_period: list[ReportRowRaw],
+        online_by_id: dict[int, bool],
+        full_under: bool = False,
         error_summary: FleetErrorRaw | None = None,
     ) -> EnvironmentOverview:
         """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count.
@@ -80,7 +94,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                 net_cong += 1
         online_count = sum(1 for d in details if online_by_id.get(d.id))
         # 포화 도넛 표본 = 윈도우 내 metric 발행 호스트 수(util.sample_size). util 부재 시 분류된 호스트 수로 폴백.
-        sat_total = util.sample_size if util is not None else len(raws_period)
+        sat_total = util.sample_size
         # 분자(cpu_sat 등)는 raws_period(cagg 버킷) 순회, 분모는 raw 테이블 기준이라 원천이 달라, prod raw 보존
         # < WINDOW_DAYS 구성에서 분자>분모(도넛 비율 >100%) 가능 — 최소 방어로 분모를 최대 분자 이상으로 클램프.
         sat_total = max(sat_total, cpu_sat, mem_sat, disk_sat, net_cong)
@@ -127,7 +141,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         ips: list[str] | None = None,
         public_ids: list[str] | None = None,
         pairs: list[tuple[str, str]] | None = None,
-    ) -> dict:
+    ) -> JsonObject:
         """외부/자동화 소비용 right-sizing 판정 — 필터(hostname·ip·public_id·순서쌍) 매칭 서버의 자원 3축 + 네트워크.
 
         분류·근거·신뢰도·권고 전부 보고서/자원평가와 동일 산식(report_aggregate -> rollup_host). 윈도우는
@@ -144,7 +158,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             hostnames, ips, public_ids, pairs
         )
         matched_ids = [d.id for d in matched_details]
-        raws: list = []
+        raws: list[ReportRowRaw] = []
         online_by_id: dict[int, bool] = {}
         if matched_ids:
             raws = await self.repo.report_aggregate(
@@ -172,7 +186,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         ips: list[str] | None,
         public_ids: list[str] | None,
         pairs: list[tuple[str, str]] | None,
-    ) -> tuple[list, set, list, list, list]:
+    ) -> tuple[list[ServerDetail], set[str], list[str], list[str], list[str]]:
         """필터(hostname/ip/public_id/순서쌍) -> 매칭 서버 details + 안전 경고. get_right_sizing/get_assessment 공용.
 
         매칭/호스트명 충돌 판정은 경량 inventory(get_servers)로 — 비싼 report_aggregate 이전 pushdown(B3).
@@ -192,13 +206,13 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         name_counts = Counter(d.hostname for d in all_details)
         ambiguous = {h for h, c in name_counts.items() if c > 1}
 
-        def _addrs(s):
+        def _addrs(s: ServerDetail) -> Iterator[str | None]:
             return (a.get("address") for i in s.net_interfaces or [] for a in i.get("addresses") or [])
 
-        def _disc_match(s, disc: str) -> bool:
+        def _disc_match(s: ServerDetail, disc: str) -> bool:
             return disc == s.public_id or any(addr == disc for addr in _addrs(s))
 
-        def _match(s) -> bool:
+        def _match(s: ServerDetail) -> bool:
             if not hn and not ipset and not pid and not pairs:
                 return True
             if hn and s.hostname in hn:
@@ -235,7 +249,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         ips: list[str] | None = None,
         public_ids: list[str] | None = None,
         pairs: list[tuple[str, str]] | None = None,
-    ) -> dict:
+    ) -> JsonObject:
         """통합 프로비저닝 어세스먼트(/api/assessment) — identity/reproduction/sizing/assessment/diagnostics.
 
         매칭/윈도우/안전경고는 get_right_sizing 과 동일(_resolve_matches 공용). right-sizing 이 자원 판정만 내는 데
@@ -246,9 +260,9 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             hostnames, ips, public_ids, pairs
         )
         matched_ids = [d.id for d in matched_details]
-        raws: list = []
+        raws: list[ReportRowRaw] = []
         online_by_id: dict[int, bool] = {}
-        mounts_by_id: dict = {}
+        mounts_by_id: dict[int, list[MountCapacityRaw]] = {}
         link_speeds: dict[int, dict[str, int]] = {}
         if matched_ids:
             raws = await self.repo.report_aggregate(
@@ -278,7 +292,9 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             "unmatched_filters": unmatched,
         }
 
-    async def _assemble_realtime(self, server_ids, details, now) -> EnvironmentRealtime:
+    async def _assemble_realtime(
+        self, server_ids: list[int], details: list[ServerDetail], now: datetime
+    ) -> EnvironmentRealtime:
         """각 서버 최신 스냅샷(get_latest_metric) 집계 — 신선한 데이터 있으면 포함(데이터 유무 = 온라인).
 
         표본은 최신 스냅샷 collected_at 이 신선(now-TTL 이내)한 서버만 — stale 메트릭이 현황 평균 왜곡 방지.
@@ -290,7 +306,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         sat_map = await self.repo.latest_saturation(server_ids, fresh_threshold)
         metric_sibling = cast("_MetricSibling", self)
         online = 0
-        snapshots: list[dict] = []
+        snapshots: list[JsonObject] = []
         last_collected = None
         for sid in server_ids:
             d = detail_by_id.get(sid)

@@ -1,6 +1,6 @@
 """보고서 발행 result JSONB 구조 + 발행 helper — web 발행(snapshot 저장) 단일 진실.
 
-web `report_serializer` (ViewModel <-> dict) 가 본 모듈의 키·dict 조립 helper 를 참조.
+web `report_serializer` (ViewModel <-> JsonObject) 가 본 모듈의 키·dict 조립 helper 를 참조.
 report_serializer 는 web view_models 에 의존하므로, 순수 계약(키·dict 조립)만 본 모듈에 분리한다.
 
 result JSONB 구조 (job_type customer_report/engineer_report 공통):
@@ -18,10 +18,12 @@ import hashlib
 import json
 from datetime import UTC, datetime
 
+from assessment_engine.json_types import JsonObject
+
 REPORT_KIND_ENV = "env_report"  # 전 보고서 공통 양식 (EnvironmentReportSummary)
 
 
-def build_report_result(*, kind: str, snapshot: dict, view: str, aux: dict | None = None) -> dict:
+def build_report_result(*, kind: str, snapshot: JsonObject, view: str, aux: JsonObject | None = None) -> JsonObject:
     """발행 시점 보고서 스냅샷 + 부가 정적 데이터를 result JSONB dict 로 묶음."""
     return {
         "kind": kind,
@@ -31,7 +33,7 @@ def build_report_result(*, kind: str, snapshot: dict, view: str, aux: dict | Non
     }
 
 
-def _compute_hash(scope: str, input_params: dict) -> str:
+def _compute_hash(scope: str, input_params: JsonObject) -> str:
     canonical = json.dumps(input_params, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(f"{scope}|{canonical}".encode()).hexdigest()
 

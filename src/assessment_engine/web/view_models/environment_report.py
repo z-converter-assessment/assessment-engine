@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.view_models.attention import (
     ActionTargets,
     AttentionSignals,
@@ -208,7 +209,7 @@ class EnvironmentReportSummary:
     # 구성 계층 (P-A) — OS family(Windows/Linux) 구성 막대. customer·engineer 공통.
     os_family_dist: list[DistributionBar] = field(default_factory=list)
     # 환경 현황 메트릭 카드 5축 (engineer) — {label, value, sub} plain dict (스냅샷 복원 불요, trend 동일).
-    env_metrics: list[dict] = field(default_factory=list)
+    env_metrics: list[JsonObject] = field(default_factory=list)
     os_eol_count: int = 0  # OS 지원 종료 호스트 수 (attention.os_eol_warnings len)
     # OS 지원 종료 OS별 집계 라벨 — "debian 11 2대 · debian 12 3대" (customer 나열, mapper precompute, P3)
     os_eol_breakdown_label: str = ""
@@ -218,11 +219,11 @@ class EnvironmentReportSummary:
     topology: NetworkTopology | None = None
     # 환경 시계열 추이 (engineer) — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷.
     # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].
-    trend: list[dict] = field(default_factory=list)
+    trend: list[JsonObject] = field(default_factory=list)
     # 개별 보고서 전용(single engineer) — 자원 포화 여부 3축(CPU 실행 큐/메모리 페이징/디스크 I/O) 시계열.
     # trend 와 동일 발행 윈도우·bucket, 원자료·임계는 recommendation.cpu_saturated/mem_pressure_active/
     # disk_io_saturated 와 동일(서버 상세 단일 진실 이식). plain dict 이진 0/1(포화/정상) — 그 외 스코프는 빈 list.
-    sat_trend: list[dict] = field(default_factory=list)
+    sat_trend: list[JsonObject] = field(default_factory=list)
     # 통합 조치 대상 표 — 자원 부족/과다 할당/유휴 한 표 (자원 평가 페이지와 동일 build_action_targets·정렬).
     action: ActionTargets = field(default_factory=ActionTargets)
     # 서비스 구성 — 선택 N대 전체의 워크로드 카테고리별 제품명 집합 (뱃지 + 매칭 서비스명). base.rows 의

@@ -9,6 +9,7 @@ Create Date: 2026-07-10
 """
 
 from collections.abc import Sequence
+from typing import Any
 
 import sqlalchemy as sa
 from alembic import op
@@ -24,7 +25,7 @@ depends_on: str | Sequence[str] | None = None
 _TABLES = ("server_inventory", "server_inventory_history")
 
 
-def _columns() -> list[sa.Column]:
+def _columns() -> list[sa.Column[Any]]:
     return [
         sa.Column("arch", sa.String(length=32), nullable=True),
         sa.Column("bits", sa.Integer(), nullable=True),

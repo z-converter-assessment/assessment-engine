@@ -16,6 +16,7 @@ from datetime import datetime
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.repositories.query.types import DIAGNOSTIC_DEFAULT_TIME_RANGE
 from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, build_report_result
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_serializer import env_report_to_dict
@@ -60,7 +61,7 @@ async def build_report_result_for_job(
     query_service: QueryService,
     diag_service: DiagnosticService,
     record: DiagnosticJobRecord,
-) -> dict:
+) -> JsonObject:
     """parent job -> 발행 시점 정적 스냅샷 result dict. child(N대)는 내부 emit. 생성 불가 시 ReportGenerationError.
 
     반환 dict 는 워커가 `mark_succeeded(record.id, <dict>)` 로 저장 — GET `?job={id}` 정적 렌더가 그대로 읽음.

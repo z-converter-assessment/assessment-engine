@@ -14,7 +14,9 @@ net_interfaces 는 구조화 dict [{name, kind, gateway, addresses:[{address, pr
 """
 
 from types import SimpleNamespace
+from typing import cast
 
+from assessment_engine.db.dtos.outbound import ServerDetail
 from assessment_engine.web.services.mappers.topology import build_network_topology
 
 
@@ -36,8 +38,9 @@ def _iface(cidr: str, kind: str = "physical", gateway: str | None = None) -> dic
     }
 
 
-def _host(pid: str, name: str, os_family: str, ifaces: list[dict]) -> SimpleNamespace:
-    return SimpleNamespace(public_id=pid, hostname=name, os_family=os_family, net_interfaces=ifaces)
+def _host(pid: str, name: str, os_family: str, ifaces: list[dict]) -> ServerDetail:
+    """build_network_topology 가 읽는 축만 가진 대역 — public_id·hostname·os_family·net_interfaces."""
+    return cast(ServerDetail, SimpleNamespace(public_id=pid, hostname=name, os_family=os_family, net_interfaces=ifaces))
 
 
 def _subnet_ids(t) -> list[str]:
@@ -183,14 +186,19 @@ def test_gateway_disambiguates_overlapping_subnet():
     assert t.host_count == 4
 
 
-def _host_roles(pid, name, os_family, ifaces, roles):
-    """service_categories(E7) 를 실은 duck-typed 호스트 — _host 는 해당 속성이 없어 roles 테스트용 별도 구성."""
-    return SimpleNamespace(
-        public_id=pid,
-        hostname=name,
-        os_family=os_family,
-        net_interfaces=ifaces,
-        service_categories=roles,
+def _host_roles(
+    pid: str, name: str, os_family: str, ifaces: list[dict], roles: list[str] | None
+) -> ServerDetail:
+    """service_categories(E7) 를 실은 대역 — _host 는 해당 속성이 없어 roles 테스트용 별도 구성."""
+    return cast(
+        ServerDetail,
+        SimpleNamespace(
+            public_id=pid,
+            hostname=name,
+            os_family=os_family,
+            net_interfaces=ifaces,
+            service_categories=roles,
+        ),
     )
 
 
@@ -407,10 +415,10 @@ def test_subnet_host_carries_mtu_speed_origin_and_group_gateway():
 def test_subnet_host_online_status_from_online_by_id():
     """online_by_id(내부 id -> bool) 로 SubnetHost.is_online 채움 — 미전달/미매칭은 기본 False."""
     hosts = [
-        SimpleNamespace(id=1, public_id="a", hostname="hostA", os_family="linux",
-                         net_interfaces=[_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1")]),
-        SimpleNamespace(id=2, public_id="b", hostname="hostB", os_family="linux",
-                         net_interfaces=[_rich_iface("eth0", "10.0.1.11/24", "10.0.1.1")]),
+        cast(ServerDetail, SimpleNamespace(id=1, public_id="a", hostname="hostA", os_family="linux",
+                                           net_interfaces=[_rich_iface("ens3", "10.0.1.10/24", "10.0.1.1")])),
+        cast(ServerDetail, SimpleNamespace(id=2, public_id="b", hostname="hostB", os_family="linux",
+                                           net_interfaces=[_rich_iface("eth0", "10.0.1.11/24", "10.0.1.1")])),
     ]
     t = build_network_topology(hosts, online_by_id={1: True})
     by_pid = {h.public_id: h for sn in t.subnets for h in sn.hosts}

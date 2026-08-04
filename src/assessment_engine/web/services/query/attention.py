@@ -3,6 +3,7 @@
 from datetime import UTC, datetime, timedelta
 
 from assessment_engine import recommendation
+from assessment_engine.db.dtos.outbound import MetricGapWarningRaw, ReportRowRaw
 from assessment_engine.web.services.mappers.attention import (
     to_agent_unstable_item,
     to_gap_warning_item,
@@ -27,7 +28,7 @@ class AttentionQueryMixin(_BaseQueryServiceMixin):
         limit_each: int | None = _ATTENTION_LIMIT_EACH,
         days_until_full_threshold: int = 30,
         end: datetime | None = None,
-        raws: list | None = None,
+        raws: list[ReportRowRaw] | None = None,
     ) -> AttentionSignals:
         """list 화면 운영 신호 카드 — USE Method 외 시스템 운영 이상 3 카탈로그.
 
@@ -63,7 +64,12 @@ class AttentionQueryMixin(_BaseQueryServiceMixin):
         return self._assemble_attention(raws, gap_raws, restart_counts, ref, limit_each)
 
     def _assemble_attention(
-        self, raws_period, gap_raws, restart_counts, now, limit_each: int | None
+        self,
+        raws_period: list[ReportRowRaw],
+        gap_raws: list[MetricGapWarningRaw],
+        restart_counts: dict[int, int],
+        now: datetime,
+        limit_each: int | None,
     ) -> AttentionSignals:
         """gap/os_eol/agent_unstable 3 카탈로그 조립 — raws_period(report_aggregate) 재사용.
 

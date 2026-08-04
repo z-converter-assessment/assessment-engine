@@ -9,10 +9,18 @@ to_capacity_warning_item 은 EnvironmentOverview.under_provisioned_hosts 로 간
 
 import math
 from collections import Counter
+from collections.abc import Callable
 from datetime import UTC, date, datetime
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import FleetErrorRaw, MetricGapWarningRaw
+from assessment_engine.db.dtos.outbound import (
+    EnvironmentUtilizationRaw,
+    FleetErrorRaw,
+    MetricGapWarningRaw,
+    ReportRowRaw,
+    ServerDetail,
+)
+from assessment_engine.json_types import JsonObject
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import (
@@ -128,7 +136,7 @@ def _util_bar(label: str, pct: float | None) -> UtilizationBar:
     return UtilizationBar(label=label, pct=pct, bar_color=_bar_color(pct), dash_length=_dash_length(pct))
 
 
-def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, int]:
+def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list[RiskDonutSegment], int, int]:
     """카테고리별 카운트 -> (RiskDonutSegment list, total, under_count).
 
     risk_counts 예: {"under_provisioned": 1, "over_provisioned": 2, "optimal": 7} (키 = _DONUT_SEGMENT_DEFS 5종).
@@ -137,7 +145,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list, int, i
     risk 분포는 막대(provisioning_dist_bar)로 렌더돼 도넛 중앙 라벨은 없다(옛 중앙 강조 규약 폐기, #E8).
     """
     total = sum(risk_counts.values())
-    segments: list = []
+    segments: list[RiskDonutSegment] = []
     cum_offset = 0.0
     for key, label, _color, description in _DONUT_SEGMENT_DEFS:
         count = risk_counts.get(key, 0)
@@ -190,7 +198,7 @@ def _build_error_fleet(err: FleetErrorRaw | None) -> list[FleetErrorItem]:
     ]
 
 
-def _os_eol_summary(details: list, today) -> tuple[int, int, int, int]:
+def _os_eol_summary(details: list[ServerDetail], today: date) -> tuple[int, int, int, int]:
     """OS 지원 단계 종합 -> (무상 패치 종료, 보안 패치만, 미상, 지원 중). 서버 목록과 동일 판정.
 
     os_id 없는 서버(인벤토리 미수집)는 종합 대상 아님 — 미상(판정 불가)과 구분해 제외.
@@ -213,10 +221,10 @@ def _os_eol_summary(details: list, today) -> tuple[int, int, int, int]:
     return passed, security_only, unknown, supported
 
 
-def _workload_donut_segments(role_sorted: dict[str, int]) -> tuple[list, int]:
+def _workload_donut_segments(role_sorted: dict[str, int]) -> tuple[list[RiskDonutSegment], int]:
     """시그니처 워크로드 인스턴스 분포 -> 누적 도넛 세그먼트 + 총합. 0 카테고리도 세그먼트 유지(범례 노출, E9)."""
     total = sum(role_sorted.values())
-    segments: list = []
+    segments: list[RiskDonutSegment] = []
     cum = 0.0
     for cat, cnt in role_sorted.items():
         dash = _donut_dash(cnt, total)
@@ -231,11 +239,11 @@ def _workload_donut_segments(role_sorted: dict[str, int]) -> tuple[list, int]:
 
 
 def build_environment_overview(
-    details: list,
+    details: list[ServerDetail],
     online_count: int,
-    utilization=None,
-    risk_counts=None,
-    under_provisioned_hosts: list | None = None,
+    utilization: EnvironmentUtilizationRaw | None = None,
+    risk_counts: dict[str, int] | None = None,
+    under_provisioned_hosts: list[CapacityWarningItem] | None = None,
     under_limit: int | None = _UNDER_PROVISIONED_DISPLAY_MAX,
     saturation_counts: dict[str, int] | None = None,
     error_summary: FleetErrorRaw | None = None,
@@ -267,8 +275,8 @@ def build_environment_overview(
         else:
             role_unknown += 1
 
-    util_bars: list = []
-    util_bars_p95: list = []
+    util_bars: list[UtilizationBar] = []
+    util_bars_p95: list[UtilizationBar] = []
     util_sample = 0
     if utilization is not None:
         util_sample = utilization.sample_size
@@ -285,7 +293,7 @@ def build_environment_overview(
             _util_bar("메모리", utilization.mem_p95_pct),
         ]
 
-    risk_segments: list = []
+    risk_segments: list[RiskDonutSegment] = []
     risk_total = 0
     risk_under = 0
     if risk_counts is not None:
@@ -304,7 +312,7 @@ def build_environment_overview(
     workload_segments, _wl_total = _workload_donut_segments(role_sorted)
 
     # 포화 3축 도넛 — 자원 적정성 창 기준 포화 호스트 카운트/표본 (호출자가 raws 순회로 산출).
-    sat_donuts: list = []
+    sat_donuts: list[SaturationDonut] = []
     if saturation_counts is not None:
         _sat_total = saturation_counts.get("total", 0)
         sat_donuts = [
@@ -349,8 +357,8 @@ def build_environment_overview(
 def build_environment_realtime(
     total: int,
     online: int,
-    snapshots: list[dict],
-    last_collected_at,
+    snapshots: list[JsonObject],
+    last_collected_at: datetime | None,
 ) -> EnvironmentRealtime:
     """온라인 서버 최신 스냅샷 snapshots -> EnvironmentRealtime.
 
@@ -403,7 +411,7 @@ def build_environment_realtime(
             return RealtimeLoadCell(value=1.0, display="혼잡", color=_NET_CONGESTED_COLOR)
         return RealtimeLoadCell(value=0.0, display="정상")
 
-    def _cell(value, fmt, exceeded: bool = False) -> RealtimeLoadCell:
+    def _cell(value: float | None, fmt: Callable[[float], str], exceeded: bool = False) -> RealtimeLoadCell:
         """exceeded=True 면 신호 도넛과 동일 임계 초과 강조(빨강, _NET_CONGESTED_COLOR 재사용 — 동일 의미=동일
         hex, E8). 임계 없는 축(CPU·메모리 이용률, 디스크 이용률)은 기본값 False 로 무강조 유지."""
         if value is None:
@@ -413,7 +421,9 @@ def build_environment_realtime(
     def _os_tag(os_family: str | None) -> str:
         return "W" if os_family == "windows" else "L"
 
-    def _os_cell(value, os_family, fmt, exceeded: bool = False) -> RealtimeLoadCell:
+    def _os_cell(
+        value: float | None, os_family: str | None, fmt: Callable[[float], str], exceeded: bool = False
+    ) -> RealtimeLoadCell:
         """페이징 전용 — 값 앞 L/W 접두(shared.saturation_axis_displays 표기 관례).
 
         무정규화 raw rate라 OS 무관 해석 불가 — Linux refault(any>0 압박) vs Windows Pages Input/sec
@@ -489,7 +499,7 @@ def build_environment_realtime(
 # ─── capacity(USE Method) · os_eol/agent_unstable(운영신호) · disk_days(dead) ──
 
 
-def to_capacity_warning_item(raw):
+def to_capacity_warning_item(raw: ReportRowRaw):
     """ReportRowRaw -> CapacityWarningItem. build_action_targets 가 전 분류(under/over/idle/optimal/insufficient)에 대해 호출.
 
     active_causes — rollup_host per-resource 트리거 집합 파생(고정 순서, 카드 편입 classify_host 와 정합).
@@ -555,7 +565,7 @@ def to_capacity_warning_item(raw):
     )
 
 
-def build_action_targets(raws) -> ActionTargets:
+def build_action_targets(raws: list[ReportRowRaw]) -> ActionTargets:
     """서버별 자원 적정성 통합 표 — 전 서버(모든 분류) 한 표에. 최초 정렬 = 분류 순서(부족>과다>유휴>정상>표본) > 심각도.
 
     CapacityWarningItem 단일 행 타입(분류·근본원인·권고·신뢰도). 자원 평가 페이지·환경 보고서 공유 단일 진실.
@@ -583,7 +593,7 @@ def build_action_targets(raws) -> ActionTargets:
     )
 
 
-def to_os_eol_warning_item(raw, now: datetime) -> AttentionRow | None:
+def to_os_eol_warning_item(raw: ReportRowRaw, now: datetime) -> AttentionRow | None:
     """ReportRowRaw -> AttentionRow if EOL 경과(resolve_os_eol 공용 판정), else None.
 
     판정(Windows build / Linux os_version + EOL 경과 비교)은 shared.resolve_os_eol 단일 진실 —

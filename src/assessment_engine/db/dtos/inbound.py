@@ -6,6 +6,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from assessment_engine.json_types import JsonObject
+
 
 @dataclass
 class ServerInventoryCreate:
@@ -29,12 +31,12 @@ class ServerInventoryCreate:
     mem_total_bytes: int | None  # 단위 By(bytes). swap 은 block_devices type=swap 노드
 
     # 정규화 스토리지/네트워크 그래프 — JSONB pass-through(단일행 upsert·history 미러 정합).
-    block_devices: list[dict]  # [{name,type,size_bytes,fstype,mountpoint,parent,id,id_type}]
-    net_interfaces: list[dict]  # [{name,id,id_type,kind,speed_mbps,addresses:[{address,prefix,family}],gateway}]
-    lvm_vgs: list[dict]  # [{name,size_bytes,free_bytes,data_percent,metadata_percent}] (Linux 전용)
+    block_devices: list[JsonObject]  # [{name,type,size_bytes,fstype,mountpoint,parent,id,id_type}]
+    net_interfaces: list[JsonObject]  # [{name,id,id_type,kind,speed_mbps,addresses:[{address,prefix,family}],gateway}]
+    lvm_vgs: list[JsonObject]  # [{name,size_bytes,free_bytes,data_percent,metadata_percent}] (Linux 전용)
     ip_external: list[str] | None
-    services: list[dict] | None  # [{unit,sub,pid,exe}] | None
-    listen_ports: list[dict]  # [{proto,addr,port,uid,pid,comm}]
+    services: list[JsonObject] | None  # [{unit,sub,pid,exe}] | None
+    listen_ports: list[JsonObject]  # [{proto,addr,port,uid,pid,comm}]
     # 서비스 카테고리 집합 (ingest 사전계산). read 경로 뱃지 단일 진실.
     service_categories: list[str]
 
@@ -49,8 +51,8 @@ class ServerInventoryCreate:
     product_name: str | None = None
     timezone: str | None = None
     rtc_utc: bool | None = None
-    boot: dict | None = None
-    nonblock_mounts: list[dict] | None = None
+    boot: JsonObject | None = None
+    nonblock_mounts: list[JsonObject] | None = None
 
 
 # ─── 시계열 nested 행 (datapoint-array -> dataclass 타입 보장) ───
@@ -143,7 +145,7 @@ class TaskCreate:
     target_server_id: int
     target_agent_id: str
     task_type: str
-    params: dict | None
+    params: JsonObject | None
     deadline_at: datetime | None = None
 
 
@@ -226,7 +228,7 @@ class DiagnosticJobCreate:
     """
 
     scope: str
-    input_params: dict
+    input_params: JsonObject
     input_hash: str
     job_type: str = "customer_report"
     requested_by: str | None = None

@@ -6,6 +6,7 @@ graceful_drain(SIGTERM 시 진행 중 1건 drain, 초과 시 cancel)을 한 곳�
 """
 
 import asyncio
+from typing import Any
 
 from loguru import logger
 
@@ -19,7 +20,7 @@ async def sleep_or_stop(stop_event: asyncio.Event, seconds: float) -> None:
 
 
 async def graceful_drain(
-    task: asyncio.Task,
+    task: asyncio.Task[Any],
     stop_event: asyncio.Event,
     shutdown_timeout_sec: float,
     timeout_warning: str,

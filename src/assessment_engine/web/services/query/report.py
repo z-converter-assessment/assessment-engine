@@ -8,6 +8,7 @@ from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget
 from assessment_engine.db.dtos.outbound import (
     CpuBreakdownRaw,
+    EnvironmentUtilizationRaw,
     FleetErrorRaw,
     MemoryBreakdownRaw,
     ReportRowRaw,
@@ -21,6 +22,7 @@ from assessment_engine.db.repositories.query.types import (
     BucketSize,
     TimeRange,
 )
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.attention import build_action_targets
 from assessment_engine.web.services.mappers.environment_report import (
@@ -69,9 +71,9 @@ if TYPE_CHECKING:
 
         def _assemble_overview(
             self,
-            details,
-            util,
-            raws_period,
+            details: list[ServerDetail],
+            util: EnvironmentUtilizationRaw,
+            raws_period: list[ReportRowRaw],
             online_by_id: dict[int, bool],
             full_under: bool = ...,
             error_summary: FleetErrorRaw | None = ...,
@@ -85,7 +87,7 @@ if TYPE_CHECKING:
             limit_each: int | None = ...,
             days_until_full_threshold: int = ...,
             end: datetime | None = ...,
-            raws: list | None = ...,
+            raws: list[ReportRowRaw] | None = ...,
         ) -> AttentionSignals: ...
 
     class _ReportMixinBase(_BaseQueryServiceMixin, _CrossDomainCalls): ...
@@ -127,7 +129,7 @@ class ReportQueryMixin(_ReportMixinBase):
         sid_map = await self.repo.resolve_server_ids(public_ids) if public_ids else {}
         server_ids = [sid_map[p] for p in public_ids if p in sid_map]
 
-        raws_window: list = []
+        raws_window: list[ReportRowRaw] = []
         if server_ids:
             details = await self.repo.get_servers(server_ids)
             # raws 1회 조립 후 get_report·overview·조치 대상 공유 (A2: report_aggregate/net_io 중복 제거).
@@ -399,7 +401,9 @@ class ReportQueryMixin(_ReportMixinBase):
             results.append((pid, summary))
         return results
 
-    async def _build_report_trend(self, time_range: str, end_dt: datetime, server_ids: list[int] | None = None) -> list:
+    async def _build_report_trend(
+        self, time_range: str, end_dt: datetime, server_ids: list[int] | None = None
+    ) -> list[JsonObject]:
         """CPU·메모리·디스크 평균 시계열 추이 — 보고서 3경로 공유.
 
         server_ids=None 이면 전체 환경(env 보고서), 주어지면 선택 N대/1대 한정(selection·single). 버킷 정책 동일.
@@ -411,7 +415,9 @@ class ReportQueryMixin(_ReportMixinBase):
         disk_series = await self.repo.metric_trend("fs.usage_percent", trend_start, end_dt, bucket, server_ids)
         return build_metric_trend(cpu_series, mem_series, disk_series)
 
-    async def _build_report_saturation_trend(self, time_range: str, end_dt: datetime, server_ids: list[int]) -> list:
+    async def _build_report_saturation_trend(
+        self, time_range: str, end_dt: datetime, server_ids: list[int]
+    ) -> list[JsonObject]:
         """CPU 실행 큐·메모리 페이징·디스크 I/O 포화 이진(0/1) 시계열 — 개별 서버 보고서(engineer) 전용.
 
         trend(이용률)와 동일 윈도우·bucket 정책. 서버 1대 스코프 고정(server_ids 필수) — 환경/선택 스코프는
@@ -424,7 +430,9 @@ class ReportQueryMixin(_ReportMixinBase):
         disk_series = await self.repo.metric_trend("disk.saturation", trend_start, end_dt, bucket, server_ids)
         return build_saturation_trend(cpu_series, mem_series, disk_series)
 
-    async def _assemble_report_raws(self, server_ids: list[int], period_days: float, end_dt: datetime) -> list:
+    async def _assemble_report_raws(
+        self, server_ids: list[int], period_days: float, end_dt: datetime
+    ) -> list[ReportRowRaw]:
         """report_aggregate + 4 baseline(uptime·agent_restart·disk_io·net_io) 주입 raws.
 
         보고서 3경로(env·selection·single)가 get_report 세부 행·under_hosts 분류·overview 에 동일
@@ -484,7 +492,7 @@ class ReportQueryMixin(_ReportMixinBase):
         period_days: float = recommendation.WINDOW_DAYS,
         end: datetime | None = None,
         view: ReportView = "customer",
-        raws: list | None = None,
+        raws: list[ReportRowRaw] | None = None,
         fetch_operational_events: bool = False,
     ) -> ReportSummary:
         """Assessment 보고서 — raw → ViewModel + KPI 집계 (P2 단일 변환).

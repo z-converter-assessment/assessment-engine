@@ -6,10 +6,12 @@ stop_event 종료를 검증. 실제 claim/expire SQL 은 통합 테스트(test_t
 
 import asyncio
 import contextlib
+from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from typing import cast
 
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.config import WorkerSettings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
@@ -141,10 +143,11 @@ class _FakeSession:
         return False
 
 
-def _session_factory():
+def _session_factory() -> Callable[[], AbstractAsyncContextManager[AsyncSession]]:
     @asynccontextmanager
-    async def _factory():
-        yield _FakeSession()
+    async def _factory() -> AsyncGenerator[AsyncSession]:
+        yield cast(AsyncSession, _FakeSession())
+
     return _factory
 
 

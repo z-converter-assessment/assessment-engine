@@ -6,6 +6,7 @@
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
+from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.cache.redis import get_redis
@@ -20,7 +21,7 @@ from assessment_engine.web.services.task_service import HttpZdmPackageResolver, 
 
 def get_service(
     db: AsyncSession = Depends(get_db),
-    redis=Depends(get_redis),
+    redis: Redis = Depends(get_redis),
 ) -> QueryService:
     return QueryService(QueryRepository(db), redis)
 
@@ -28,7 +29,7 @@ def get_service(
 def get_task_service(
     request: Request,
     db: AsyncSession = Depends(get_db),
-    redis=Depends(get_redis),
+    redis: Redis = Depends(get_redis),
 ) -> TaskService:
     """TaskService DI — router 는 추상만 본다 (F4).
 

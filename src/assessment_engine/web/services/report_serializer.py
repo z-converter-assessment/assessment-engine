@@ -10,14 +10,16 @@ AttentionSignals.catalog/has_any 는 @property 라 asdict 누락 — 역직렬�
 property 자동 복원 (dict 직접 template 전달 시 `attention.catalog` 접근이 깨짐).
 
 result JSONB 구조·키 단일 진실은 `diagnostic.report_result`.
-본 모듈은 그 구조 안 `snapshot` 의 ViewModel <-> dict 직렬화만 담당.
+본 모듈은 그 구조 안 `snapshot` 의 ViewModel <-> JsonObject 직렬화만 담당.
 """
 
 import dataclasses
 
+from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV as REPORT_KIND_ENV
+
 # result 구조 계약(키·dict 조립)은 diagnostic.report_result 단일 진실 — web view_models 에 의존하지
 # 않는 중립 모듈에 분리.
-from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV as REPORT_KIND_ENV
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.serialization_util import parse_dt as _dt
 from assessment_engine.web.services.serialization_util import to_jsonable as _to_jsonable
 from assessment_engine.web.view_models.attention import (
@@ -66,11 +68,11 @@ from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGr
 # ──────────────────────────────────────────────────────────────────────────
 # ReportSummary (server scope 보고서 base — EnvironmentReportSummary.base 직렬화·복원에 사용)
 # ──────────────────────────────────────────────────────────────────────────
-def report_summary_to_dict(vm: ReportSummary) -> dict:
+def report_summary_to_dict(vm: ReportSummary) -> JsonObject:
     return _to_jsonable(vm)
 
 
-def _drop_unknown_fields(cls: type, data: dict) -> dict:
+def _drop_unknown_fields(cls: type, data: JsonObject) -> JsonObject:
     """저장된 스냅샷에 남아있으나 현재 dataclass 에 없는 키 제거 — 보고서는 발행 시점 정적 스냅샷이라
 
     (C1) 필드를 나중에 빼도 과거 스냅샷의 JSONB 는 옛 키를 그대로 보관한다. `cls(**data)` 가 그 키를
@@ -81,7 +83,7 @@ def _drop_unknown_fields(cls: type, data: dict) -> dict:
     return {k: v for k, v in data.items() if k in known}
 
 
-def _build(cls, data: dict):
+def _build[T](cls: type[T], data: JsonObject) -> T:
     """dict -> dataclass 재구성 단일 진입점 — 모든 nested `cls(**data)` 는 본 helper 경유 의무.
 
     `_drop_unknown_fields` 를 항상 적용해 필드 제거 마이그레이션 후 과거 스냅샷의 잔존 키가 TypeError 로
@@ -96,7 +98,7 @@ def _build(cls, data: dict):
 _LEGACY_OS_EOL_STATUS = {"eol": "ended", "extended": "security_only", "supported": "full"}
 
 
-def _report_row_from_dict(r: dict) -> ReportRowItem:
+def _report_row_from_dict(r: JsonObject) -> ReportRowItem:
     """ReportRowItem 복원 — nested 구동 서비스 2 필드(list[dataclass]) 재구성 포함."""
     data = dict(r)
     data["workload_groups"] = [_build(ReportWorkloadGroup, g) for g in data.get("workload_groups") or []]
@@ -107,7 +109,7 @@ def _report_row_from_dict(r: dict) -> ReportRowItem:
     return _build(ReportRowItem, data)
 
 
-def report_summary_from_dict(d: dict) -> ReportSummary:
+def report_summary_from_dict(d: JsonObject) -> ReportSummary:
     data = dict(d)
     data["rows"] = [_report_row_from_dict(r) for r in data.get("rows") or []]
     totals = data.get("totals")
@@ -120,11 +122,11 @@ def report_summary_from_dict(d: dict) -> ReportSummary:
 # ──────────────────────────────────────────────────────────────────────────
 # EnvironmentReportSummary (환경 + 단일서버 보고서 — reports/environment.html, servers/single_report.html)
 # ──────────────────────────────────────────────────────────────────────────
-def env_report_to_dict(vm: EnvironmentReportSummary) -> dict:
+def env_report_to_dict(vm: EnvironmentReportSummary) -> JsonObject:
     return _to_jsonable(vm)
 
 
-def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
+def env_report_from_dict(d: JsonObject) -> EnvironmentReportSummary:
     data = dict(d)
     data["overview"] = _overview_from_dict(data["overview"])
     data["attention"] = _attention_from_dict(data["attention"])
@@ -190,11 +192,11 @@ def env_report_from_dict(d: dict) -> EnvironmentReportSummary:
     return _build(EnvironmentReportSummary, data)
 
 
-def _period_signal_rows(rows: list[dict] | None) -> list[PeriodSignalRow]:
+def _period_signal_rows(rows: list[JsonObject] | None) -> list[PeriodSignalRow]:
     return [_build(PeriodSignalRow, r) for r in rows or []]
 
 
-def _period_assessment_from_dict(d: dict) -> PeriodAssessment:
+def _period_assessment_from_dict(d: JsonObject) -> PeriodAssessment:
     """PeriodAssessment 복원 — 자원별 util_rows/sat_rows/extra_groups/error_rows 중첩 재구성.
 
     단일 서버 보고서(engineer) 전용 스냅샷 필드 — 서버 상세 페이지의 get_period_assessment 는 항상 라이브
@@ -230,20 +232,20 @@ def _period_assessment_from_dict(d: dict) -> PeriodAssessment:
     )
 
 
-def _storage_node_from_dict(d: dict) -> StorageNode:
+def _storage_node_from_dict(d: JsonObject) -> StorageNode:
     """StorageNode 복원 — children 재귀 트리(storage.html 과 동일 구조)."""
     data = dict(d)
     data["children"] = [_storage_node_from_dict(c) for c in data.get("children") or []]
     return _build(StorageNode, data)
 
 
-def _network_interface_from_dict(d: dict) -> NetworkInterfaceInfo:
+def _network_interface_from_dict(d: JsonObject) -> NetworkInterfaceInfo:
     data = dict(d)
     data["addresses"] = [_build(NetIfaceAddress, a) for a in data.get("addresses") or []]
     return _build(NetworkInterfaceInfo, data)
 
 
-def _overview_from_dict(d: dict) -> EnvironmentOverview:
+def _overview_from_dict(d: JsonObject) -> EnvironmentOverview:
     data = dict(d)
     data["utilization"] = [_build(UtilizationBar, u) for u in data.get("utilization") or []]
     data["utilization_p95"] = [_build(UtilizationBar, u) for u in data.get("utilization_p95") or []]
@@ -255,7 +257,7 @@ def _overview_from_dict(d: dict) -> EnvironmentOverview:
     return _build(EnvironmentOverview, data)
 
 
-def _attention_from_dict(d: dict) -> AttentionSignals:
+def _attention_from_dict(d: JsonObject) -> AttentionSignals:
     # catalog/has_any 는 @property — field 만 재구성하면 자동 복원.
     return AttentionSignals(
         gap_warnings=[_attention_row_from_dict(r) for r in d.get("gap_warnings") or []],
@@ -264,20 +266,20 @@ def _attention_from_dict(d: dict) -> AttentionSignals:
     )
 
 
-def _attention_row_from_dict(d: dict) -> AttentionRow:
+def _attention_row_from_dict(d: JsonObject) -> AttentionRow:
     data = dict(d)
     data["meta_at"] = _dt(data.get("meta_at"))
     return _build(AttentionRow, data)
 
 
-def _capacity_warning_from_dict(d: dict) -> CapacityWarningItem:
+def _capacity_warning_from_dict(d: JsonObject) -> CapacityWarningItem:
     data = dict(d)
     # active_causes 는 list[str] — 스칼라라 별도 복원 불요. 지금 dataclass 에 없는 필드를 들고 있는 과거
     # 스냅샷은 _drop_unknown_fields 가 걸러낸다.
     return _build(CapacityWarningItem, data)
 
 
-def _action_targets_from_dict(d: dict) -> ActionTargets:
+def _action_targets_from_dict(d: JsonObject) -> ActionTargets:
     data = dict(d)
     # hosts = CapacityWarningItem list. 지금 dataclass 에 없는 키는 _drop_unknown_fields 가 걸러낸다.
     data["hosts"] = [_capacity_warning_from_dict(c) for c in data.get("hosts") or []]

@@ -26,6 +26,7 @@ from assessment_engine.diagnostic.report_result import _compute_hash, build_repo
 
 # 발행 result 조립·해시 helper 단일 진실은 diagnostic.report_result — 본 모듈은 호환 re-export.
 from assessment_engine.diagnostic.report_result import _normalize_anchor as _normalize_anchor
+from assessment_engine.json_types import JsonObject
 
 _ENQUEUE_MAX_ATTEMPTS = 2
 
@@ -36,13 +37,13 @@ class ReportEnqueueError(Exception):
 
 def _build_input_params(
     view: str, scope: str, server_public_ids: list[str], time_range: str, anchor_at: datetime
-) -> dict:
+) -> JsonObject:
     """발행 input_params 단일 빌더 — emit_report(동기 child)·enqueue_report(비동기 parent) 동일 구조.
 
     input_hash 결정성 정합 의무: 두 경로가 같은 입력에 같은 hash 를 내야 멱등(active UNIQUE) 일관.
     server scope 1대는 단수 키도 — list_recent SQL 단수 매칭(이력 server 상세 link).
     """
-    params: dict = {
+    params: JsonObject = {
         "view": view,
         "server_public_ids": sorted(server_public_ids),
         "time_range": time_range,
@@ -110,12 +111,12 @@ class DiagnosticService:
         view: str,
         scope: str,
         kind: str,
-        snapshot: dict,
+        snapshot: JsonObject,
         server_public_ids: list[str],
         time_range: str,
         anchor_at: datetime,
-        aux: dict | None = None,
-        child_jobs: dict | None = None,
+        aux: JsonObject | None = None,
+        child_jobs: JsonObject | None = None,
         requested_by: str | None = None,
     ) -> str | None:
         """완성 스냅샷 동기 저장 — 즉시 succeeded INSERT (워커의 child 단일 보고서 발행 경로, ADR 0040).
@@ -213,7 +214,7 @@ class DiagnosticService:
             await session.commit()
             return rec
 
-    async def finish_succeeded(self, job_id: str, result: dict) -> None:
+    async def finish_succeeded(self, job_id: str, result: JsonObject) -> None:
         """워커가 보고서 생성 성공 시 — status=succeeded + result 스냅샷 저장."""
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
