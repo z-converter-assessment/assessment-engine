@@ -118,7 +118,6 @@ Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverag
 ### 규칙 기반 한정
 
 - 분류·권장은 결정론 임계값으로 충분. 자연어 요약은 결정론 템플릿으로 산출.
-- 결정 기록: `docs/decisions/adr/`.
 
 ## 평가 대상 범위의 표현
 
@@ -149,7 +148,6 @@ Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverag
 
 ## 관련 문서·코드
 
-- 진단 규칙 기반 한정(명칭·범위) 결정 기록: `docs/decisions/adr/`
 - `docs/reference/web/routers.md` — 보고서 라우터·view 분기
 - `docs/reference/web/services.md` "Recommendation 분류" — USE Method 임계값 출처
 - `docs/reference/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리

@@ -26,7 +26,7 @@ Browser -> Router -> deps.get_task_service -> TaskService -> broker_channel (tas
 
 ## 의존성 주입 (deps.py — composition root)
 
-3 service 모두 `deps.py`에서 protocol 만 받도록 주입 — 구현 import 는 본 모듈 1곳 (#F4).
+3 service 모두 `deps.py` 에서 protocol 만 받도록 주입 — web 쪽 구현 import 는 본 모듈 1곳이다 (consumer·worker 는 각자 진입점, #F4).
 
 | 헬퍼 | 반환 | 주입 인자 |
 |------|------|-----------|
@@ -39,7 +39,7 @@ Browser -> Router -> deps.get_task_service -> TaskService -> broker_channel (tas
 - `query_repo`는 request-scoped(`get_db`) — 한 요청 안 다중 read에 동일 트랜잭션
 - `collect_repo`·`diagnostic_repo`는 별도 트랜잭션 필요라 `session_factory` + factory 패턴 — service가 트랜잭션 경계 자체 관리. 서버별 독립 commit(task INSERT 실패 1건이 다른 서버 commit에 영향 X). `DiagnosticService`는 request-scoped 세션 미의존이라 워커가 DI 없이 동일 인스턴스 구성 가능
 - `broker_channel`은 lifespan에서 `app.state.broker_channel`에 저장한 영속 channel 재사용 — `TaskService`(install task 발행)가 받아 매 발행마다 connection open/close 안 함 (오버헤드 0). `DiagnosticService`는 보고서를 DB(`diagnostic_jobs`)로 발행·생성(전용 워커 프로세스)이라 broker 미사용
-- 라우터는 `deps.py` 의 `*Dep` 별칭만 받는다 (`Annotated[T, Depends(...)]`). 구체 구현체 import 금지.
+- 라우터는 `deps.py` 의 `*Dep` 별칭만 받는다 (형식은 `docs/guides/conventions.md` 3절). 구현 import 금지.
 
 ## URL 식별자 — public_id (UUID)
 

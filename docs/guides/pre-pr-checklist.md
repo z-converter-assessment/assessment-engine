@@ -94,7 +94,7 @@ Self-audit 메타 인용 제외:
   - Pydantic: `Field(...)` · `model_validator` · `Annotated[..., Field(...)]` · `SecretStr` 정석. `__init_subclass__` · 런타임 dict 수정 X.
   - SQLAlchemy: declarative ORM + `pg_insert(...).on_conflict_do_*` (#C2). raw SQL 은 `text()` + bound param (#C5).
   - asyncpg: 1 transaction = 1 connection. nested 세션·session 공유 X.
-  - FastAPI: `Depends(...)` · `APIRouter` · 라우터 분리. 글로벌 state X.
+  - FastAPI: `Annotated[..., Depends(...)]` · `APIRouter` · 라우터 분리. 글로벌 state X.
   - Jinja2: 필터 · `{% if %}` · `{% for %}` 만 (#E1 P3). 계산 X.
   - aio-pika: `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료 (#F11).
 - [1.2] 추상화는 정석 위치에만. `BaseSettings` · repository protocol · `*Service` 외 ad-hoc abstract 0건.
@@ -265,7 +265,7 @@ Self-audit 메타 인용 제외:
 - Stage 1·2·4 에서 넘어온 후보: CLAUDE.md "본 절 결정" 변경 · ADR 신규/Superseded · tradeoffs T 신규 · 본 feature 가 확립한 새 규약·금지·정석 패턴.
 
 목적:
-- 영구 단일 진실(CLAUDE.md + `docs/decisions/adr/` + `docs/reference/*` + `docs/explanation/tradeoffs.md` + `docs/README.md`) 최종 정합.
+- 영구 단일 진실(CLAUDE.md + `docs/reference/*` + `docs/explanation/tradeoffs.md` + `docs/README.md`) 최종 정합.
 - 본 feature 가 만든 규약·결정이 모두 영구화됐거나, 의도적 미영구화가 명시됨.
 
 체크리스트:
@@ -292,7 +292,7 @@ Self-audit 메타 인용 제외:
 - 수동 Read + Edit. 의식적 결정 단계 — 자동화 X.
 
 산출물:
-- `CLAUDE.md` · `docs/decisions/adr/*` · `docs/reference/*` · `docs/explanation/tradeoffs.md` · `docs/README.md` · `docs/reference/observability.md`.
+- `CLAUDE.md` · `docs/reference/*` · `docs/explanation/tradeoffs.md` · `docs/README.md` · `docs/reference/observability.md`.
 
 통과 기준:
 - 12 항목 OK. Stage 1·2·4 에서 넘어온 후보 모두 처리.

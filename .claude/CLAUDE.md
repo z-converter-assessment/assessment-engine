@@ -92,7 +92,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 8테이블 자�
 
 ## C2. Repository 계층 — 인터페이스 우선 (#F4)
 
-Protocol 인터페이스(`CollectRepository`/`QueryRepository`/`DiagnosticRepository`) · DTO 흐름(Inbound Pydantic·Outbound raw dataclass) · INSERT 통일(`pg_insert` + `on_conflict_do_*`) · `list_servers` 부분 SELECT 정책 · repo 메서드 카탈로그 · asyncpg 함정 · `_chart_*` 패턴: `docs/reference/db/repositories.md` · `docs/reference/db/dtos.md` · `docs/reference/db/timescaledb.md` 단일 진실. `Settings()` 인스턴스 사용 절차는 #F4 단일 진실.
+Protocol 인터페이스(`CollectRepository`/`QueryRepository`/`DiagnosticRepository`) · DTO 흐름(Inbound Pydantic·Outbound raw dataclass) · INSERT 통일(`pg_insert` + `on_conflict_do_*`) · `list_servers` 부분 SELECT 정책 · repo 메서드 카탈로그 · asyncpg 함정 · 차트 SQL 패턴: `docs/reference/db/repositories.md` · `docs/reference/db/dtos.md` · `docs/reference/db/timescaledb.md` 단일 진실. `Settings()` 인스턴스 사용 절차는 #F4 단일 진실.
 
 ## C3. Redis 전략 — fail-open 의무
 
@@ -113,10 +113,10 @@ Protocol 인터페이스(`CollectRepository`/`QueryRepository`/`DiagnosticReposi
 ## C5. 쿼리 안전성
 
 본 절 결정:
-- hypertable 조회는 `WHERE collected_at >= ?` 술어 의무 — partition pruning. 누락 시 모든 chunk full scan. `_chart_*` 헬퍼·repo 메서드 모두 적용. continuous aggregate 조회는 `WHERE bucket >= ?`(동일 pruning).
+- hypertable 조회는 `WHERE collected_at >= ?` 술어 의무 — partition pruning. 누락 시 모든 chunk full scan. 차트·보고서 repo 메서드 모두 적용. continuous aggregate 조회는 `WHERE bucket >= ?`(동일 pruning).
 - 카운터 메트릭(CPU jiffies·disk/net bytes) 집계는 continuous aggregate + timescaledb_toolkit `counter_agg` 사전집계 단일 진실. counter reset(재부팅·agent재시작·wraparound)은 `counter_agg` 가 값-감소 기준 일률 처리 — 보고서 집계(`report_aggregate`·`report_*_baseline`·`report_cpu_breakdown`)에서 hand-rolled LAG + boot_time gate 부활 금지. 차트(`metric_trend`, 동적 버킷)는 목적상 raw 유지.
 - raw SQL의 사용자 입력은 `text()` + bound parameter만. f-string으로 사용자 입력 직접 삽입 금지 — SQL injection + asyncpg statement cache 키 폭증. dispatch table whitelist 상수(Pydantic Literal → enum 매핑 정적 상수)는 f-string 허용.
-- 트랜잭션 경계: consumer는 1 메시지 = 1 트랜잭션 (`session_factory()` 컨텍스트), web은 1 request = 1 세션 (`Depends(get_db)`). autocommit 금지·세션 공유·중첩 금지.
+- 트랜잭션 경계: consumer는 1 메시지 = 1 트랜잭션 (`session_factory()` 컨텍스트), web 은 1 request = 1 세션 (`DbSessionDep`). autocommit 금지·세션 공유·중첩 금지.
 
 ---
 
@@ -152,7 +152,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 
 ### P1. Repository는 raw 데이터만 (절대)
 - raw 단위 그대로 outbound DTO (KB·bytes·jiffies·sectors). Python 레이어에서 delta·percent·단위 변환·임계값 분류·dedup·정렬 금지.
-- SQL 표현식 예외: 차트·보고서 집계 SQL 안에서 percent·delta·집계 가능 (`_chart_*`/`report_aggregate`/`_METRIC_EXPR`). dispatch table whitelist 상수에만 적용, 사용자 입력 f-string 삽입 금지(#C5).
+- SQL 표현식 예외: 차트·보고서 집계 SQL 안에서 percent·delta·집계 가능 (`metric_trend`·`report_aggregate`). dispatch table whitelist 상수에만 적용, 사용자 입력 f-string 삽입 금지(#C5).
 
 ### P2. 서비스 계층이 표현 변환 단일 소스 (절대)
 - Service → mapper → ViewModel 흐름에서 모든 파생 계산 (단위 변환·델타·임계값 분류·dedup·정렬·합계·풀네임).
@@ -260,11 +260,9 @@ Pagination 정책:
 # F. 운영 규약
 
 ## F1. 타입 어노테이션
-- `from __future__ import annotations` 를 쓰지 않는다 — Python 3.14 는 어노테이션을 지연 평가한다(PEP 649). forward-ref 따옴표도 불필요하다.
-- 타입 별칭은 `type X = ...`(PEP 695). 런타임에 별칭 안을 들여다볼 때는 `X.__value__` 를 거친다 — `get_args(X)` 는 빈 튜플을 준다.
-- 상위 메서드를 덮어쓰는 자리는 `@override`(PEP 698). pyright `reportImplicitOverride` 가 강제한다.
-- `if TYPE_CHECKING:` 블록으로 런타임 미사용 타입 import 를 격리한다. ruff `TC` 규칙이 자동 판정하되, 어노테이션을 런타임에 읽는 세 지점은 예외다 — Pydantic 모델 필드, SQLAlchemy `Mapped[...]`, FastAPI endpoint·의존성 callable. 앞의 둘은 `runtime-evaluated-base-classes`·`runtime-evaluated-decorators` 등록으로, 뒤는 per-file 제외로 처리한다 (설정은 `pyproject.toml`).
-- 시그니처는 정직하게 — 실제로 `None` 을 반환하면 `-> T | None` 으로 선언한다. type checker 억제(`# type: ignore[return-value]`)로 거짓 시그니처를 덮지 않는다.
+
+- 시그니처는 정직하게 — 실제로 `None` 을 반환하면 `-> T | None` 으로 선언한다. type checker 억제로 거짓 시그니처를 덮지 않는다.
+- 검사 강도는 낮추지 않는다. 규칙을 켰으면 위반을 0 으로 만들거나, 못 만들 이유를 설정 주석에 적고 제외한다.
 
 정적 검사 도구(ruff format·ruff check·pyright) · 규약과 lint 규칙의 대응 · 편집기 설정 · 경고 대처 · 강제 채널 카탈로그: `docs/guides/conventions.md` 단일 진실.
 

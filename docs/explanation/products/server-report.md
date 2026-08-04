@@ -149,10 +149,9 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 
 ## 관련 문서·코드
 
-- 진단 규칙 기반 한정 결정 기록: `docs/decisions/adr/`
 - `docs/reference/web/routers.md` — `routers/pages/` 패키지(`report_page.py`) 보고서 라우터·view 분기
 - `docs/reference/web/services.md` "Recommendation 분류" — USE Method 임계값 출처
-- `docs/reference/db/timescaledb.md` `_chart_*` 패턴 — counter reset 정밀 식별
+- `docs/reference/db/timescaledb.md` — counter reset 정밀 식별
 - `docs/reference/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리
 - `docs/explanation/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 스냅샷 보존
 - `src/assessment_engine/recommendation.py` — 분류 임계값 상수 카탈로그

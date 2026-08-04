@@ -20,7 +20,7 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 1. code-reviewer 에이전트 1회 (`Agent(subagent_type='code-reviewer')`) — 정석 idiom + 명문 규약(P1-P4·F1-F13·#B·#C5). Error 즉시 수정 / Warning 위임 / Info 보고.
 2. 변경 유형이 결합 목록에 걸리면 `change-impact` skill 로 동시 갱신 위치 확인.
 3. `docs` skill 을 본 feature 가 건드린 영역으로 실행 — 코드 현황 대조·문서 갱신·ADR 정리·doc-auditor 검증까지 그 skill 이 담당한다.
-4. ADR 정합 확인 (차단 게이트). 검사 항목과 명령은 `.claude/agents/doc-auditor.md` 축 B 가 갖는다 — 그 명령을 그대로 돌려 번호 집합과 역참조 Status 를 본다. 결정이 바뀐 건이 있는데 ADR 이 없지는 않은지도 함께 본다. 어긋나면 3 으로 돌려보내고 PR 을 열지 않는다 — 강제 채널이 워크플로에도 훅에도 없어 여기가 유일한 그물이다.
+4. ADR 정합 확인 (차단 게이트). 검사 항목과 명령은 `.claude/agents/doc-auditor.md` 축 B 가 갖는다. 결정이 바뀐 건이 있는데 ADR 이 없지는 않은지도 함께 본다. 어긋나면 3 으로 돌려보내고 PR 을 열지 않는다 — 강제 채널이 워크플로에도 훅에도 없어 여기가 유일한 그물이다.
 5. 이 PR 이 승격 직전이면(머지 후 바로 `develop -> main` 을 열 계획이면) doc-auditor 에이전트를 `origin/main..HEAD` 범위로 1회 (`Agent(subagent_type='doc-auditor')`) — 릴리즈 단위 중복·목적 혼선·ADR 인덱스 정합. 개별로는 맞는 서술이 여러 feature 가 모이면 어긋나고 그건 묶어 봐야 보인다. 지적은 이 PR 안에서 고친다.
 
 lint·단위 테스트·타입 계약·alembic drift 는 PR 발행 후 CI 가 돌린다 — 로컬 재현 없이 CI 결과를 확인한다.
