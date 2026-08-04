@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+    from assessment_engine.db.repositories.collect import CollectRepository
     from assessment_engine.web.services.diagnostic_service import DiagnosticService
     from assessment_engine.web.services.query_service import QueryService
 
@@ -170,11 +170,11 @@ def _collect(messages: list[str]) -> Callable[[Any], None]:
     return _sink
 
 
-def _repo_factory(repo: object) -> Callable[[AsyncSession], BaseCollectRepository]:
+def _repo_factory(repo: object) -> Callable[[AsyncSession], CollectRepository]:
     """reaper 가 세션마다 부르는 repo 팩토리 — 대역 하나를 그대로 돌려준다."""
 
-    def _factory(_s: AsyncSession) -> BaseCollectRepository:
-        return cast("BaseCollectRepository", repo)
+    def _factory(_s: AsyncSession) -> CollectRepository:
+        return cast("CollectRepository", repo)
 
     return _factory
 

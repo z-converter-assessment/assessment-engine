@@ -1,8 +1,10 @@
 # Repository 계층
 
-정책: CLAUDE.md #C2 · #F4. 3개 추상 인터페이스 `BaseCollectRepository`(Consumer) / `BaseQueryRepository`(Web) / `BaseDiagnosticRepository`(보고서 발행·diagnostic_jobs 스냅샷). 구체 구현체 import는 composition root(`web/deps.py` / `consumer/main.py` / `worker/main.py`)만.
+정책: CLAUDE.md #C2 · #F4. 인터페이스는 `typing.Protocol` 셋이다 — `CollectRepository`(Consumer) / `QueryRepository`(Web) / `DiagnosticRepository`(보고서 발행·diagnostic_jobs 스냅샷). 구현은 같은 이름에 `Sql` 접두를 붙이고 `*_sql.py` 에 산다.
 
-## Collect 계층 — `BaseCollectRepository` (Consumer)
+구현은 protocol 을 상속하지 않는다. 구조적 타이핑이라 메서드 모양만 맞으면 되고, 맞는지는 composition root(`web/deps.py` / `consumer/main.py` / `worker/main.py`)가 구현을 protocol 타입 파라미터에 넘기는 자리에서 type checker 가 확인한다. 구체 구현체 import 도 그 세 곳만 한다.
+
+## Collect 계층 — `CollectRepository` (Consumer)
 
 | 메서드 | 설명 |
 |--------|------|
@@ -23,9 +25,9 @@
 - `record_metrics`: 7테이블 모두 `pg_insert(...).on_conflict_do_nothing()` — 자연키 UNIQUE 가 충돌을 흡수한다 (D2 2단 방어). `index_elements=` 를 명시하는 곳은 host 집계(`server_metrics`)·history·placeholder INSERT 뿐이고 자식 6테이블은 bare 형태다.
 - `create_task`: `IntegrityError` 가능 (부분 UNIQUE `uq_tasks_pending_per_server_type`) — service가 catch
 
-## Query 계층 — `BaseQueryRepository` (Web)
+## Query 계층 — `QueryRepository` (Web)
 
-`BaseQueryRepository` 는 server / metric / report / attention / task 5개 sub-ABC 결합이고 자기 메서드는 0개다 — 새 메서드는 해당 sub-base 에 추가한다.
+`QueryRepository` 는 server / metric / report / attention / task 5개 도메인 protocol 결합이고 자기 메서드는 0개다 — 새 메서드는 해당 도메인 protocol 에 추가한다.
 
 | 메서드 | 설명 |
 |--------|------|
@@ -80,9 +82,9 @@
 
 `metric_trend(collapse=False)`(서버 상세 멀티라인) 의 범례 `dimension` 은 raw `id_type:id`(예: `mac:fa:16:3e:df:18:87`) 대신 `LEFT JOIN LATERAL` 로 `server_inventory.block_devices`/`net_interfaces` 조회한 사람이 읽는 `name`(예: `enp3s0`·`PhysicalDrive0`) 으로 치환(`COALESCE(dn.name, dim)`, 미매칭 시 raw 폴백) — Linux 는 id_type=mac 인터페이스가 흔해 MAC 원문 노출 시 가독성이 떨어짐. collapse=True(환경 합산)는 dimension 자체가 없어(단일선) 미적용.
 
-### Task 조회 — `BaseTaskQueryRepository`
+### Task 조회 — `TaskQueryRepository`
 
-운영자 가시성 전용 sub-ABC (modal · timeline · 서버별 최신). 반환은 모두 `TaskRow`.
+운영자 가시성 전용 도메인 protocol (modal · timeline · 서버별 최신). 반환은 모두 `TaskRow`.
 
 | 메서드 | 설명 |
 |--------|------|
@@ -90,7 +92,7 @@
 | `list_recent_tasks(target_server_id, limit, cursor?)` | 한 서버의 task timeline — created_at 역순, cursor 기반 (E2) |
 | `latest_tasks_by_servers(server_ids)` | 서버별 최근 task 1건 — `DISTINCT ON (target_server_id)`, 목록 행 표시 source |
 
-## Diagnostic 계층 — `BaseDiagnosticRepository` (보고서 발행 스냅샷)
+## Diagnostic 계층 — `DiagnosticRepository` (보고서 발행 스냅샷)
 
 `diagnostic_jobs` 테이블에 발행 시점 정적 스냅샷을 INSERT·조회 (#C1).
 

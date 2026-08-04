@@ -26,13 +26,13 @@ Browser -> Router -> deps.get_task_service -> TaskService -> broker_channel (tas
 
 ## 의존성 주입 (deps.py — composition root)
 
-3 service 모두 `deps.py`에서 추상 인터페이스만 받도록 주입 — 구체 구현체 import는 본 모듈 1곳 (#F4).
+3 service 모두 `deps.py`에서 protocol 만 받도록 주입 — 구현 import 는 본 모듈 1곳 (#F4).
 
 | 헬퍼 | 반환 | 주입 인자 |
 |------|------|-----------|
-| `get_service(db, redis)` | `QueryService` | `BaseQueryRepository` (QueryRepository) + redis |
-| `get_task_service(request, db, redis)` | `TaskService` | query_repo + session_factory + `BaseCollectRepository` factory + broker_channel + zdm_resolver + redis |
-| `get_diagnostic_service()` | `DiagnosticService` (web 이 진단 발행·조회를 단일 진입점으로 쓰는 facade — 보고서 발행 enqueue·이력·워커 lifecycle) | session_factory + `BaseDiagnosticRepository` factory |
+| `get_service(db, redis)` | `QueryService` | `QueryRepository` (SqlQueryRepository) + redis |
+| `get_task_service(request, db, redis)` | `TaskService` | query_repo + session_factory + `CollectRepository` factory + broker_channel + zdm_resolver + redis |
+| `get_diagnostic_service()` | `DiagnosticService` (web 이 진단 발행·조회를 단일 진입점으로 쓰는 facade — 보고서 발행 enqueue·이력·워커 lifecycle) | session_factory + `DiagnosticRepository` factory |
 | `resolve_internal_id(server_id, service)` | `int` | path UUID → 정수 PK + 422/404 자동 |
 
 설계 결정:

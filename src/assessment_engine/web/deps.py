@@ -1,6 +1,6 @@
 """Composition root — FastAPI 의존성 주입 진입점.
 
-라우터는 이 모듈의 helper만 import. 구체 구현체(QueryRepository) 직접 import 금지 (F4).
+라우터는 이 모듈의 helper만 import. 구체 구현체(SqlQueryRepository) 직접 import 금지 (F4).
 """
 
 from typing import Annotated
@@ -11,9 +11,9 @@ from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.cache.redis import get_redis
-from assessment_engine.db.repositories.collect_repository import CollectRepository
-from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
-from assessment_engine.db.repositories.query.query_repository import QueryRepository
+from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
+from assessment_engine.db.repositories.diagnostic_sql import SqlDiagnosticRepository
+from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
 from assessment_engine.db.session import get_db, get_session_factory
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
@@ -24,7 +24,7 @@ type RedisDep = Annotated[Redis, Depends(get_redis)]
 
 
 def get_service(db: DbSessionDep, redis: RedisDep) -> QueryService:
-    return QueryService(QueryRepository(db), redis)
+    return QueryService(SqlQueryRepository(db), redis)
 
 
 def get_task_service(request: Request, db: DbSessionDep, redis: RedisDep) -> TaskService:
@@ -36,9 +36,9 @@ def get_task_service(request: Request, db: DbSessionDep, redis: RedisDep) -> Tas
     zdm_resolver 는 request-scoped (redis 가 request-scoped) — 상태 없는 가벼운 wrapper.
     """
     return TaskService(
-        query_repo=QueryRepository(db),
+        query_repo=SqlQueryRepository(db),
         session_factory=get_session_factory(),
-        collect_repo_factory=CollectRepository,
+        collect_repo_factory=SqlCollectRepository,
         broker_channel=request.app.state.broker_channel,
         zdm_resolver=HttpZdmPackageResolver(
             http_client=request.app.state.http_client,
@@ -56,7 +56,7 @@ def get_diagnostic_service() -> DiagnosticService:
     """
     return DiagnosticService(
         session_factory=get_session_factory(),
-        diagnostic_repo_factory=DiagnosticRepository,
+        diagnostic_repo_factory=SqlDiagnosticRepository,
     )
 
 

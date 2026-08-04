@@ -1,5 +1,4 @@
-from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
@@ -10,10 +9,9 @@ if TYPE_CHECKING:
 # db/repositories/query/types.py 단일 진실 (#F10) — repo 인터페이스 계층에 표시/윈도우 상수 미보유.
 
 
-class BaseDiagnosticRepository(ABC):
+class DiagnosticRepository(Protocol):
     """진단 job 영속성 인터페이스. 보고서 발행 이력·진단 job enqueue·조회·확정·retention."""
 
-    @abstractmethod
     async def enqueue(self, job: DiagnosticJobCreate) -> str | None:
         """진단 job INSERT. 새 id (UUID) 반환.
 
@@ -22,7 +20,6 @@ class BaseDiagnosticRepository(ABC):
         """
         ...
 
-    @abstractmethod
     async def get_active_by_hash(
         self,
         scope: str,
@@ -32,15 +29,11 @@ class BaseDiagnosticRepository(ABC):
         """동일 (scope, input_hash, job_type) + status IN ('pending','running') job_id 조회."""
         ...
 
-    @abstractmethod
     async def get_by_id(self, job_id: str) -> DiagnosticJobRecord | None: ...
-
-    @abstractmethod
     async def mark_succeeded(self, job_id: str, result: JsonObject) -> None:
         """status → succeeded, result 저장, finished_at=now(), progress_stage=NULL."""
         ...
 
-    @abstractmethod
     async def claim_next_pending(self) -> DiagnosticJobRecord | None:
         """pending job 1건 원자적 claim — SELECT ... FOR UPDATE SKIP LOCKED + status=running.
 
@@ -50,12 +43,10 @@ class BaseDiagnosticRepository(ABC):
         """
         ...
 
-    @abstractmethod
     async def mark_failed(self, job_id: str, error_message: str) -> None:
         """status → failed, finished_at=now(), error_message 저장(F8 sanitize 후 전달), progress_stage=NULL."""
         ...
 
-    @abstractmethod
     async def recover_stale_running(self, stale_seconds: int) -> int:
         """started_at 이 stale_seconds 초과한 running job 을 pending 으로 복구 (크래시/SIGTERM in-flight 회수).
 
@@ -64,7 +55,6 @@ class BaseDiagnosticRepository(ABC):
         """
         ...
 
-    @abstractmethod
     async def list_recent(
         self,
         days: int,
@@ -80,7 +70,6 @@ class BaseDiagnosticRepository(ABC):
         """
         ...
 
-    @abstractmethod
     async def delete_retention(self, older_than_days: int) -> int:
         """finished_at < now() - days 인 행 DELETE. 삭제 카운트 반환 (보고서 이력 retention)."""
         ...

@@ -6,7 +6,7 @@
 
 책임 경계:
 - DB INSERT + 메시지 publish 캡슐화 — router 는 service 만 호출
-- 추상 `BaseCollectRepository` 의존 (F4) — composition root 에서 구체 주입
+- 추상 `CollectRepository` 의존 (F4) — composition root 에서 구체 주입
 - 트랜잭션 경계는 service 가 관리 (서버별 독립 commit + best-effort publish)
 - ZDM 패키지 메타 (sha256·size) 조회 헬퍼는 본 모듈 상단 `HttpZdmPackageResolver` — install 발행 의존성.
 """
@@ -36,8 +36,8 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
-    from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
+    from assessment_engine.db.repositories.collect import CollectRepository
+    from assessment_engine.db.repositories.query.repository import QueryRepository
     from assessment_engine.json_types import JsonObject
 
 _TASK_TYPE_INSTALL = "zconverter_install"
@@ -173,9 +173,9 @@ class TaskCreated:
 class TaskService:
     def __init__(
         self,
-        query_repo: BaseQueryRepository,
+        query_repo: QueryRepository,
         session_factory: async_sessionmaker[AsyncSession],
-        collect_repo_factory: Callable[[AsyncSession], BaseCollectRepository],
+        collect_repo_factory: Callable[[AsyncSession], CollectRepository],
         broker_channel: AbstractChannel,
         zdm_resolver: BaseZdmPackageResolver,
         redis: Redis,

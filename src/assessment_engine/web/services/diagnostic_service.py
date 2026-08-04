@@ -5,7 +5,7 @@
 - 동기 저장(emit_report) — 완성 스냅샷을 즉시 succeeded 로 저장 (워커의 child 단일 보고서 발행 경로).
 - 워커 lifecycle(claim_pending/finish_succeeded/finish_failed/recover_stale) — job 상태 전이.
 - 발행 이력(list_reports) — customer + engineer 통합.
-- 추상 `BaseDiagnosticRepository`만 의존 (F4).
+- 추상 `DiagnosticRepository`만 의존 (F4).
 
 anchor 정규화(`normalize_anchor`)와 input_hash 계산(`compute_hash`)은 `diagnostic.report_result` 가 갖는다.
 """
@@ -26,8 +26,8 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
-    from assessment_engine.db.repositories.base_diagnostic_repository import (
-        BaseDiagnosticRepository,
+    from assessment_engine.db.repositories.diagnostic import (
+        DiagnosticRepository,
     )
     from assessment_engine.json_types import JsonObject
 
@@ -63,7 +63,7 @@ class DiagnosticService:
     def __init__(
         self,
         session_factory: async_sessionmaker[AsyncSession],
-        diagnostic_repo_factory: Callable[[AsyncSession], BaseDiagnosticRepository],
+        diagnostic_repo_factory: Callable[[AsyncSession], DiagnosticRepository],
     ):
         self.session_factory = session_factory
         self.diagnostic_repo_factory = diagnostic_repo_factory

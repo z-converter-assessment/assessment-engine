@@ -52,6 +52,17 @@ lint 규칙은 취향이 아니라 이 저장소의 명문 규약을 기계가 �
 
 ## 3. 코드 관용구
 
+### 인터페이스
+
+계층 사이 인터페이스는 `typing.Protocol` 로 쓴다. 구현은 protocol 을 상속하지 않는다 — 구조적 타이핑이라 모양만
+맞으면 되고, 맞는지는 구현을 protocol 타입 자리에 넘기는 composition root 에서 type checker 가 확인한다. 상속을
+쓰면 구현이 인터페이스 모듈을 import 해야 해서 의존 방향이 거꾸로 선다.
+
+이름은 역할과 기술을 가른다 — protocol 은 역할 이름(`QueryRepository`), 구현은 기술 접두(`SqlQueryRepository`).
+파일도 같다: `query/server.py` 가 protocol, `query/server_sql.py` 가 구현이다.
+
+구현 메서드에는 `@override` 를 달지 않는다. 상속이 없으므로 재정의가 아니다.
+
 ### FastAPI 의존성
 
 의존성은 기본 인자가 아니라 `Annotated` 로 선언한다. 기본 인자 자리에 함수를 호출하는 옛 스타일은 시그니처의

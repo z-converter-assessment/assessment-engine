@@ -1,4 +1,4 @@
-"""QueryRepository — 보고서·환경 요약 SQL 통합 테스트 (본 세션 v3~v5 추가분).
+"""SqlQueryRepository — 보고서·환경 요약 SQL 통합 테스트 (본 세션 v3~v5 추가분).
 
 검증 영역:
 - report_aggregate — iowait_p95/peak + inventory(cpu_cores·mem_total_bytes·block_devices) + 용량 임박 마운트
@@ -23,14 +23,14 @@ from tests.approx import approx
 from tests.factories import _DISK_DEVICE_ID, _IFACE_ID, make_inventory, make_metrics
 
 if TYPE_CHECKING:
-    from assessment_engine.db.repositories.collect_repository import CollectRepository
-    from assessment_engine.db.repositories.query.query_repository import QueryRepository
+    from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
+    from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
 
 pytestmark = pytest.mark.asyncio
 
 
 async def _seed_server_with_period_metrics(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     composite_id: str,
     n_points: int = 10,
     interval_min: int = 1,
@@ -92,8 +92,8 @@ async def _seed_server_with_period_metrics(
 
 
 async def test_report_aggregate_returns_iowait_and_inventory(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-iowait")
     rows = await query_repo.report_aggregate(
@@ -115,8 +115,8 @@ async def test_report_aggregate_returns_iowait_and_inventory(
 
 
 async def test_report_aggregate_returns_reproduction_columns(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """report_aggregate SELECT 가 server_inventory 재현 9컬럼을 ReportRowRaw 로 왕복 — SELECT 오타·매핑 누락 가드.
 
@@ -163,7 +163,7 @@ async def test_report_aggregate_returns_reproduction_columns(
 # --- report_uptime_stats — boot_time DISTINCT count - 1 ------------------
 
 
-async def test_report_uptime_stats_no_reboot(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_uptime_stats_no_reboot(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-up-stable")
     counts = await query_repo.report_uptime_stats(
         [sid],
@@ -175,8 +175,8 @@ async def test_report_uptime_stats_no_reboot(collect_repo: CollectRepository, qu
 
 
 async def test_report_uptime_stats_counts_reboot_transitions(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """boot_time 2회 변경 -> reboot_count 2 (inventory_history는 boot_time 변경 시 append)."""
     boot1 = datetime(2026, 5, 1, tzinfo=UTC)
@@ -218,8 +218,8 @@ async def test_report_uptime_stats_counts_reboot_transitions(
 
 
 async def test_report_disk_io_baseline_iops_and_throughput(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     sid, _start, end = await _seed_server_with_period_metrics(
         collect_repo,
@@ -253,8 +253,8 @@ async def test_report_disk_io_baseline_iops_and_throughput(
 
 
 async def test_report_disk_io_baseline_missing_data_returns_empty(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """metric 없는 서버 -> dict에서 누락."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="r-disk-empty"))
@@ -269,7 +269,7 @@ async def test_report_disk_io_baseline_missing_data_returns_empty(
 # --- report_net_io_baseline — rx/tx kbps ---------------------------------
 
 
-async def test_report_net_io_baseline_rx_tx(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_net_io_baseline_rx_tx(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     sid, _start, end = await _seed_server_with_period_metrics(
         collect_repo,
         "r-net",
@@ -303,8 +303,8 @@ async def test_report_net_io_baseline_rx_tx(collect_repo: CollectRepository, que
 
 
 async def test_all_report_queries_share_server_ids_and_period(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """get_report·get_inventory_export가 호출하는 4개 SQL이 같은 입력으로 정합 결과."""
     sid, _start, end = await _seed_server_with_period_metrics(
@@ -331,7 +331,7 @@ async def test_all_report_queries_share_server_ids_and_period(
 # --- 개별 보고서 심화 — 메모리 구성 / CPU 분류 ------------------
 
 
-async def test_report_memory_breakdown_pct_split(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_memory_breakdown_pct_split(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     """used/available/cached/buffers 윈도우 평균 (전체 메모리 대비). 기본 mem 8GB·available 5GB."""
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-mem-bd")
     mb = await query_repo.report_memory_breakdown(sid, period_days=1, end=end + timedelta(minutes=1))
@@ -343,7 +343,7 @@ async def test_report_memory_breakdown_pct_split(collect_repo: CollectRepository
     assert 0 < mb.buffers_pct < 5
 
 
-async def test_report_cpu_breakdown_delta_split(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_cpu_breakdown_delta_split(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     """user/system/iowait counter_agg delta 비율. step delta user 100·system 30·iowait 40·idle 600 -> total 770."""
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-cpu-bd")
     cb = await query_repo.report_cpu_breakdown(sid, period_days=1, end=end + timedelta(minutes=1))
@@ -352,7 +352,9 @@ async def test_report_cpu_breakdown_delta_split(collect_repo: CollectRepository,
     assert cb.iowait_pct == approx(40 / 770 * 100, abs=0.5)
 
 
-async def test_report_breakdowns_single_equals_batch(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_breakdowns_single_equals_batch(
+    collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository
+):
     """single(sid) 은 batch([sid])[sid] 의 N=1 특수화 — memory·cpu 두 축 값 완전 동일 (정합성).
 
     단독 보고서(single 경로)와 N대 선택 child(batch prefetch 경로)가 같은 서버에 대해 같은 값을 내야 한다.
@@ -373,8 +375,8 @@ async def test_report_breakdowns_single_equals_batch(collect_repo: CollectReposi
 
 
 async def test_report_aggregate_counter_reset_segments_summed(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """재부팅 counter reset 을 server_metrics_5m cagg counter_agg 가 값-감소 기준 일률 흡수.
 
@@ -412,8 +414,8 @@ async def test_report_aggregate_counter_reset_segments_summed(
 
 
 async def test_report_disk_io_baseline_counter_reset_segments_summed(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """disk ops 카운터 reset(재부팅)을 server_disk_io_5m cagg counter_agg 가 일률 흡수.
 
@@ -457,7 +459,7 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(
 # --- ADR 0052 신 신호 report_aggregate 집계 ------------------------------
 
 
-async def test_report_aggregate_adr0052_signals(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_aggregate_adr0052_signals(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     """ADR 0052 신 신호가 report_aggregate 로 집계되는지 — steal p95·burst·D-state·swap paging·await·
 
     drop%·retrans%·history_hours. 같은 5분 버킷 다중 시점으로 counter_agg delta 성립.
@@ -544,7 +546,7 @@ async def test_report_aggregate_adr0052_signals(collect_repo: CollectRepository,
     assert r.net_retrans_pct > 0
 
 
-async def test_report_aggregate_runway_long_span(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_aggregate_runway_long_span(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     """용량/inode runway 는 fill-rate 최소 span(RS_DISK_RATE_MIN_SPAN_DAYS ~1.25일) 넘는 관측에서만 산출 —
 
     짧은 span 외삽(노이즈) 배제. 가용 이력 전체 span(bucket <= end, 하한 없음, F10) 기반이라 period 창과 무관.
@@ -579,8 +581,8 @@ async def test_report_aggregate_runway_long_span(collect_repo: CollectRepository
 
 
 async def test_report_aggregate_adr0052_signals_absent_are_none(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """신 신호 미발행(옛 agent) 시 신 필드는 None/False graceful — 옛 경로 무손상."""
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-rs0052-absent")
@@ -599,8 +601,8 @@ async def test_report_aggregate_adr0052_signals_absent_are_none(
 
 
 async def test_report_aggregate_percore_p95_max_reflects_busy_core(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """cpu_percore_p95_max = 가장 바쁜 코어의 p95. 코어0 90%·코어1 5% -> max ~90(집계 평균은 낮음).
 
@@ -652,7 +654,9 @@ async def test_report_aggregate_percore_p95_max_reflects_busy_core(
     assert r.cpu_percore_p95_max >= 85.0
 
 
-async def test_report_aggregate_percore_none_when_absent(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_aggregate_percore_none_when_absent(
+    collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository
+):
     """per-core 미발행(구 agent·Windows) 시 cpu_percore_p95_max None — graceful skip."""
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-percore-absent")
     rows = await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1))
@@ -662,7 +666,7 @@ async def test_report_aggregate_percore_none_when_absent(collect_repo: CollectRe
 # --- ADR 0052 run-queue(cpu_run_queue) + OOM ------------------------------
 
 
-async def test_report_aggregate_runqueue_and_oom(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_aggregate_runqueue_and_oom(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     """Linux CPU 포화 신호 run_queue p95 + OOM 발생 bool. 실행큐 8·OOM 증가 -> p95>=8, oom True."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="r-runqueue-oom"))
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=9)
@@ -680,7 +684,7 @@ async def test_report_aggregate_runqueue_and_oom(collect_repo: CollectRepository
     assert r.oom_occurred is True
 
 
-async def test_report_aggregate_runqueue_oom_absent(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_aggregate_runqueue_oom_absent(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     """cpu_run_queue·mem_oom_kill 미발행 시 p95 None·oom False — graceful."""
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-runqueue-absent")
     r = (await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1)))[0]
@@ -689,7 +693,9 @@ async def test_report_aggregate_runqueue_oom_absent(collect_repo: CollectReposit
 
 
 # --- ADR 0052 신 신호 값 검증 — disk await(counter_agg) · conntrack ratio · inode used% ---
-async def test_report_aggregate_await_conntrack_inode(collect_repo: CollectRepository, query_repo: QueryRepository):
+async def test_report_aggregate_await_conntrack_inode(
+    collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository
+):
     """신 신호 3종 실값 검증 — await 는 물리 device op_time delta 로 양 OS 통일):
 
     - disk await: sum(op_time delta) / sum(ops delta) * 1000 = ms (read·write 합산).

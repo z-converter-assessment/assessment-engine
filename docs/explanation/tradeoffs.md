@@ -16,7 +16,7 @@
 
 ## T1. 멱등성: at-most-once + 2단 방어 (fail-open 1단)
 
-> 관련 코드: `src/assessment_engine/consumer/handlers/` `_check_idempotent`, `src/assessment_engine/cache/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_repository.py` `record_metrics`
+> 관련 코드: `src/assessment_engine/consumer/handlers/` `_check_idempotent`, `src/assessment_engine/cache/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_sql.py` `record_metrics`
 >
 > 관련 문서: CLAUDE.md #D2 · #C1, 결정 아카이브 `docs/decisions/adr/`
 
@@ -173,7 +173,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T8. ListServers ORM 부분 SELECT vs full row
 
-> 관련 코드: `src/assessment_engine/db/repositories/query/server.py` `list_servers`
+> 관련 코드: `src/assessment_engine/db/repositories/query/server_sql.py` `list_servers`
 
 선택
 - `select(ServerInventory.<컬럼>)`로 목록 화면이 쓰는 컬럼만 명시 SELECT — 큰 JSONB(`services`·`listen_ports`·`net_interfaces`) 제외. 서비스 뱃지는 ingest 사전계산 `service_categories`(text[]) 소비라 `services` JSONB 역직렬화가 필요 없다. 정확한 컬럼 목록은 코드가 단일 진실.
@@ -292,7 +292,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T12. server_inventory 호스트 식별 — 불변 agent_id 단독 UNIQUE
 
-> 관련 코드: `src/assessment_engine/db/models/server_inventory.py`, `src/assessment_engine/db/repositories/collect_repository.py`
+> 관련 코드: `src/assessment_engine/db/models/server_inventory.py`, `src/assessment_engine/db/repositories/collect_sql.py`
 > 관련 문서: CLAUDE.md #C1, `docs/reference/db/models.md`, `docs/reference/contracts/agent-data.md`
 
 선택 (현행)
@@ -400,7 +400,7 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 - 보고서 발행은 비동기다: emit 은 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환, 전용 워커 프로세스(`assessment_engine.worker`)가 job 을 claim 해 생성한다. consumer 큐 워커가 아니라 전용 워커 + DB 상태머신 방식.
 
 왜 consumer 큐 워커가 아니라 전용 워커 프로세스인가
-- 보고서 생성 코드(query_service report 메서드 + mappers·view_models·serializer)가 web/services 강결합. consumer(F4 BaseCollectRepository 만)로 위임하면 web 표시계층 절반을 web 비의존 패키지로 승격하는 대공사 + 양방향 의존. 워크로드가 DB 집계 I/O(수초)라 큐 분리 효용도 낮다. 전용 워커는 web/services 를 그대로 재사용(단일 이미지)하면서 별도 프로세스로만 뗀다 — 추출 0.
+- 보고서 생성 코드(query_service report 메서드 + mappers·view_models·serializer)가 web/services 강결합. consumer(F4 CollectRepository 만)로 위임하면 web 표시계층 절반을 web 비의존 패키지로 승격하는 대공사 + 양방향 의존. 워크로드가 DB 집계 I/O(수초)라 큐 분리 효용도 낮다. 전용 워커는 web/services 를 그대로 재사용(단일 이미지)하면서 별도 프로세스로만 뗀다 — 추출 0.
 - 메모리 task 방식은 in-flight 손실 위험으로 기각 — job 상태를 DB 에 두고 stale 복구로 그 손실을 무효화한다(FOR UPDATE SKIP LOCKED 로 멀티노드 분산까지).
 
 포기한 것 / 한계

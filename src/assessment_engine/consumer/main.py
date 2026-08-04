@@ -18,7 +18,7 @@ from assessment_engine.consumer.handlers import (
     make_task_result_handler,
 )
 from assessment_engine.consumer.settings import get_consumer_settings
-from assessment_engine.db.repositories.collect_repository import CollectRepository
+from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
 from assessment_engine.db.session import get_session_factory
 from assessment_engine.log_config import setup_logging
 
@@ -142,7 +142,7 @@ async def main() -> None:
                 dlx_name=collect_dlx,
                 queue_name=get_consumer_settings().rabbitmq_routing_key_inventory,
                 routing_key=get_consumer_settings().rabbitmq_routing_key_inventory,
-                handler=make_inventory_handler(get_session_factory(), CollectRepository, redis),
+                handler=make_inventory_handler(get_session_factory(), SqlCollectRepository, redis),
                 ttl_ms=None,
                 max_len=None,
             ),
@@ -151,7 +151,7 @@ async def main() -> None:
                 dlx_name=collect_dlx,
                 queue_name=get_consumer_settings().rabbitmq_routing_key_metrics,
                 routing_key=get_consumer_settings().rabbitmq_routing_key_metrics,
-                handler=make_metrics_handler(get_session_factory(), CollectRepository, redis),
+                handler=make_metrics_handler(get_session_factory(), SqlCollectRepository, redis),
                 ttl_ms=_METRICS_TTL_MS,
                 max_len=_METRICS_MAX_LEN,
             ),
@@ -171,7 +171,7 @@ async def main() -> None:
                 routing_key=get_consumer_settings().rabbitmq_routing_key_task_result,
                 handler=make_task_result_handler(
                     get_session_factory(),
-                    CollectRepository,
+                    SqlCollectRepository,
                     redis,
                     get_consumer_settings().task_install_success_exit_codes,
                 ),

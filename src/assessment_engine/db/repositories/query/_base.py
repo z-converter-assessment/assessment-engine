@@ -1,7 +1,7 @@
 """Query sub-repository 공통 mixin — session 보유 + 다중 도메인 공유 helper.
 
 5 concrete sub-repository (server / metric / report / attention / task) 가 본 mixin 을 상속.
-QueryRepository facade 가 multiple inheritance 로 5 concrete 결합 시 본 mixin __init__ 한 번만 호출.
+SqlQueryRepository facade 가 multiple inheritance 로 5 concrete 결합 시 본 mixin __init__ 한 번만 호출.
 """
 
 from typing import TYPE_CHECKING, Any
