@@ -22,7 +22,7 @@ pyright 를 `basic` 으로 돌리고 있었고, 게이트(`Makefile`·`ci.yml`)�
 
 ### 검사 범위
 
-`include` 를 `["src"]` 로 좁혀 게이트가 실제로 강제하는 것과 일치시킨다. 명령은 인자 없이 `pyright` 를 부르고 범위는 설정 한 곳이 정한다. tests·scripts 는 위반을 소진한 뒤 이 목록에 넣는다.
+`include` 를 게이트가 실제로 강제하는 범위와 일치시킨다. 명령은 인자 없이 `pyright` 를 부르고 범위는 설정 한 곳이 정한다. 위반이 남은 디렉토리는 소진한 뒤 이 목록에 넣는다.
 
 ### 승격
 
@@ -60,3 +60,11 @@ strict 프리셋이 끄는 규칙 중에서도 위반이 0 이면 켠다. `repor
 tests 는 여전히 검사 밖이다. 328건을 소진하기 전까지 그 자리는 회귀를 잡지 못한다.
 
 pyright 버전이 오르면 프리셋 구성이 바뀔 수 있다. 명시 선언한 규칙은 프리셋과 무관하게 유지되고, 새로 프리셋에 들어온 규칙은 다음 래칫에서 같은 기준(위반 0)으로 판단한다.
+
+## 정정 (2026-08-04)
+
+`scripts` 를 `include` 에 넣었다. 본 ADR 이 세운 기준(위반 0)을 그대로 적용하면 이 디렉토리는 `standard` + 승격 규칙을 이미 통과하고, `json.load` 가 낳는 bare `dict` 를 경계 타입 별칭 둘(`Release` = 값이 좁혀지지 않는 응답 dict, `Entry` = 값이 전부 문자열인 카탈로그 항목)로 대체하니 strict 도 통과한다. 산출 카탈로그는 커밋본과 바이트 동일하다.
+
+경로별 강도 차이는 `executionEnvironments` 로 표현한다. src 에 아직 위반이 남은 strict 규칙 8개(`reportUnknown*` 4종·`reportMissingParameterType`·`reportMissingTypeArgument`·`reportUnknownLambdaType`·`reportPrivateUsage`)를 `root = "scripts"` 아래에서만 error 로 올린다. pyright 1.1.411 은 이 블록 안에서 `typeCheckingMode` 를 받지 않아 규칙을 직접 나열한다 — 프리셋 이름으로는 경로별 강도를 표현할 수 없다.
+
+src 가 같은 규칙을 통과하면 이 블록의 규칙들을 최상위 목록으로 올리고 블록을 지운다.

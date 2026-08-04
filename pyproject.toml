@@ -53,8 +53,8 @@ filterwarnings = [
 # 편집기에서 통과한 것이 CLI 에서도 통과한다. .vscode/settings.json 은 어떤 도구를 쓸지만 정한다.
 typeCheckingMode = "standard"
 # 검사 범위는 여기서만 정한다 — Makefile·워크플로는 인자 없이 `pyright` 를 부른다.
-# tests·scripts 는 아직 이 강도를 통과하지 못해 제외 상태다 (strict 전환 ADR 0062).
-include = ["src"]
+# tests 는 아직 이 강도를 통과하지 못해 제외 상태다 (강도 정책 = ADR 0062).
+include = ["src", "scripts"]
 # uv 가 만드는 가상환경. CLI 가 활성 인터프리터 대신 이 경로의 의존성을 보게 한다.
 venvPath = "."
 venv = ".venv"
@@ -93,6 +93,20 @@ reportUnreachable = "error"
 reportUnnecessaryTypeIgnoreComment = "error"
 reportPropertyTypeMismatch = "error"
 reportUninitializedInstanceVariable = "error"
+
+# src 에 아직 위반이 남은 strict 규칙들을 scripts 에서만 error 로 올린다 — 이 디렉토리는 이미 통과하므로
+# 되돌아가지 못하게 고정한다. src 가 따라잡으면 위 최상위 목록으로 합치고 본 절을 지운다.
+# (pyright 는 executionEnvironments 안에서 typeCheckingMode 를 받지 않아 규칙을 직접 나열한다.)
+[[tool.pyright.executionEnvironments]]
+root = "scripts"
+reportUnknownParameterType = "error"
+reportUnknownArgumentType = "error"
+reportUnknownVariableType = "error"
+reportUnknownMemberType = "error"
+reportUnknownLambdaType = "error"
+reportMissingParameterType = "error"
+reportMissingTypeArgument = "error"
+reportPrivateUsage = "error"
 
 [tool.ruff]
 line-length = 120
