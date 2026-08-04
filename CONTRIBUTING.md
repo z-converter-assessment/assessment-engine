@@ -39,7 +39,7 @@ make typecheck    # pyright(src) + tsc(정적 JS)
 make test         # 전체
 ```
 
-검증 강도는 되돌리기 비용에 비례해 배치한다. 로컬 커밋은 lint 만, develop PR 에서 테스트와 코드 리뷰, main PR 에서 문서 정합과 통합 테스트다. 배치 근거는 `docs/guides/wrap-up.md` 0절이 갖는다.
+로컬 커밋은 lint 만 건다. develop PR 에서 코드 리뷰·테스트와 함께 문서·ADR 을 맞추고, main PR 에서는 릴리즈 단위 문서 검증과 통합 테스트를 한다. 배치 근거는 `docs/guides/wrap-up.md` 0절이 갖는다.
 
 ## 4. 커밋과 PR
 

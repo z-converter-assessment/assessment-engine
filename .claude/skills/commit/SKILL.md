@@ -31,7 +31,7 @@ feature branch 의 working diff 를 커밋한다. 가볍게 자주 커밋하는 
 
 ## 금지
 
-- 문서 갱신·ADR 작성 — PR 단계 책임이다. 커밋마다 문서를 고치면 develop 통합 시점에 서로 어긋난다.
+- 문서 갱신·ADR 작성 — develop PR 단계 책임이다 (`/pr` 이 `docs` skill 을 부른다). 커밋마다 문서를 고치면 같은 PR 안에서 재작업이 쌓인다.
 - 리뷰 에이전트 발동 — `/pr` 이 담당.
 - pytest 전체 실행 — 사용자 명시 시에만.
 - push·PR 생성 — `/pr` 이 담당한다.

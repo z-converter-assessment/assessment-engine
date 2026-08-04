@@ -150,7 +150,7 @@ jobs:
     name: pytest (integration)
     runs-on: ubuntu-latest
     needs: [test-unit]
-    # main PR 에서만 — 컨테이너 기동이 필요해 무겁다. develop 게이트는 단위 테스트까지.
+    # main PR 에서만 — 컨테이너 기동이 필요해 무겁다. develop PR 의 CI 는 단위 테스트까지.
     if: github.base_ref == 'main'
     timeout-minutes: 15
     steps:
