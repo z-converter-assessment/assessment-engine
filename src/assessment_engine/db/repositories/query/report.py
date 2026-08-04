@@ -173,7 +173,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             ),
             disk_dev AS (
                 -- server_disk_io_5m 단일 스캔(B1) — await·iops baseline 공용 per-device 델타. 물리필터 1회 평가.
-                -- 2회 참조라 PG12+ 가 기본 materialize -> cagg 스캔·PHYS 필터 각 1회(옛 disk_await/disk_io_base 이중 스캔 제거).
+                -- 2회 참조라 PG12+ 가 기본 materialize -> cagg 스캔·PHYS 필터가 각 1회로 끝난다.
                 SELECT server_id, bucket,
                     delta(io_time_ca)                        AS d_io_time,
                     time_delta(io_time_ca)                   AS td_io_time,

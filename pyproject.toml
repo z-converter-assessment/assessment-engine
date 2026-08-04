@@ -58,7 +58,7 @@ include = ["src", "scripts", "tests"]
 venvPath = "."
 venv = ".venv"
 
-# strict 프리셋이 켜지만 이 저장소가 채택하지 않는 규칙 — 사유는 ADR 0062.
+# strict 프리셋이 켜지만 이 저장소가 채택하지 않는 규칙 — 사유는 docs/guides/conventions.md 1절.
 reportPrivateUsage = "none"
 reportUnusedFunction = "none"
 reportUnusedClass = "none"

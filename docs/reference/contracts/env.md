@@ -376,5 +376,5 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 - `docs/guides/deploy.md` — VM 부트스트랩·compose rollout 절차
 - `docs/reference/observability.md` — `LOG_FORMAT` toggle
 - `docs/guides/migrate.md` — schema migrate contract
-- `docs/guides/release.md` — CI release artifact 카탈로그
+- `docs/guides/release.md` — 릴리즈 artifact 카탈로그
 - CLAUDE.md #A0·#F8 — secret·PII 노출 금지 원칙

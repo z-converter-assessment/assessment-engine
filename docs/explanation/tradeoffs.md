@@ -232,7 +232,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 > 관련 문서: CLAUDE.md #E1 P2 · #E3, `docs/reference/web/view-models.md`
 
 선택
-- `ListenPortItem.is_significant` (port < 49152 boolean — 동적 포트 제외)
+- `ListenPortItem.is_significant`
 - `ServerDetailResponse.sorted_services` / `sorted_listen_ports` (mapper 정렬 결과)
 - `MountUsageItem.badge_class` / `bar_color` (임계값 -> CSS 클래스/hex)
 - `MemSnapshot.cached_pct` / `buffers_pct` (stacked-bar 누적 비율)
