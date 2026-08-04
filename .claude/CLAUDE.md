@@ -325,7 +325,7 @@ Pagination 정책:
 
 에이전트 결과: Error → 즉시 수정 / Warning → 사용자 결정 위임 / Info → 보고만.
 
-변환 유형별 체크리스트·누적 사고 패턴: `docs/guides/conventions.md` 3절·4절.
+변환 유형별 추가 체크리스트: `docs/guides/conventions.md` 6절.
 
 ## F6. 에러 처리·실패 모델
 

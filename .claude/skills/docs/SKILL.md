@@ -7,7 +7,7 @@ description: TRIGGER when the user wants documentation brought in line with the 
 
 문서를 현재 코드 상태로 맞춘다. 릴리즈 주기와 독립적으로 언제든 실행한다 — drift 는 기능 단위로 쌓이지 않고 시간이 지나며 쌓인다.
 
-문서 규율 단일 진실 = `docs/README.md`(4원칙) + `docs/guides/pre-pr-checklist.md` Stage 4·5. 본 skill 은 절차만 가지고 체크리스트를 복제하지 않는다. develop PR 게이트가 본 skill 을 feature 영역으로 호출한다 (배치 근거는 wrap-up 0절).
+문서 규율 단일 진실 = `docs/README.md`(4원칙) + `docs/guides/pre-pr-checklist.md` Stage 4·5. 본 skill 은 절차만 가지고 체크리스트를 복제하지 않는다. develop PR 게이트가 본 skill 을 feature 영역으로 호출한다 (배치 근거는 `docs/guides/pre-pr-checklist.md` 0절).
 
 ## 범위
 
