@@ -98,6 +98,6 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 
 ## URL 정책
 
-URL prefix versioning (`/api/v1/...` / `/api/v2/...`) 안 함. 모든 JSON API 는 `/api/...` 직접 사용. 대부분 API 는 내부 front-end JS 전용이라 breaking change 시 라우터 + JS + docs 동시 정정(본 repo 안 일관). 예외는 `/api/right-sizing`·`/api/assessment` — 외부 자동화가 소비하는 계약이라 파괴적 변경 시 소비 측 고지가 필요하고, 파괴적 변경 시 소비 측 고지가 필요하다.
+URL prefix versioning (`/api/v1/...` / `/api/v2/...`) 안 함. 모든 JSON API 는 `/api/...` 직접 사용. 대부분 API 는 내부 front-end JS 전용이라 breaking change 시 라우터 + JS + docs 동시 정정(본 repo 안 일관). 예외는 `/api/right-sizing`·`/api/assessment` — 외부 자동화가 소비하는 계약이라 파괴적 변경 시 소비 측 고지가 필요하다.
 
 task.install download.url 은 ZDM 측 contract (`http://{ZDM_IP}{ZDM_PACKAGE_PATH}`) 로 발행 — `docs/reference/contracts/agent-data.md` "Download URL 조립 contract" 절 단일 진실.

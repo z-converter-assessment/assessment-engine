@@ -138,7 +138,7 @@ right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기·벤더 임
 
 ### 실시간 현황 (live) — `/environment/realtime`
 
-`get_environment_realtime(server_ids=None)` -> `build_environment_realtime` (`servers/_environment_realtime.html` partial + `servers/realtime.html` 페이지 wrapper). `realtime.js` 가 30초 주기 `?fragment=realtime` polling 후 `#rt-mount` swap 한다 — 정렬·더보기 클릭 위임은 swap 대상이 아닌 mount 자체에 걸어 교체 후에도 유지된다. `?ids` 면 선택 N대.
+`get_environment_realtime(server_ids=None)` -> `build_environment_realtime` (`servers/_environment_realtime.html` partial + `servers/realtime.html` 페이지 wrapper). `?ids` 면 선택 N대. 정렬·더보기 클릭 위임은 `realtime.js` 가 swap 대상이 아닌 mount 자체에 건다 — 교체 후에도 살아 있어야 하기 때문이다. polling 주기·갱신 표기는 `docs/explanation/products/dashboard.md` 가 갖는다.
 
 화면 구성과 축 선정 근거(무엇을 도넛으로 묶고 무엇을 뺐나)는 `docs/explanation/products/dashboard.md` "실시간 현황" 절 단일 진실.
 

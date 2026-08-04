@@ -297,7 +297,7 @@ link.speed null 이면 네트워크 U(io/speed) 미산출(수용). retransmits/c
 | pressure.stall.ratio | g | 1 | resource(cpu/memory/io), scope(some/full), window(10/60/300) | /proc/pressure/* avg |
 | pressure.stall.time | t | s | resource, scope | /proc/pressure/* total(us->s) |
 
-Windows 는 `system.pressure` 네임스페이스 전체가 null. 14일 saturation canonical = `pressure.stall.time`(K절·I절).
+Windows 는 `system.pressure` 네임스페이스 전체가 null. PSI(`pressure.stall.time`)는 수집·저장만 하고 판정에 쓰지 않는다.
 
 ### G8. system.cgroup (opt, 컨테이너 배포 시만 — VM 이면 전체 null)
 

@@ -1,6 +1,6 @@
 # ADR 0036 — 퀵스타트 카테고리 폐기, dev/배포 2분류 + 루트 .env.example 배포 템플릿화
 
-상태: Accepted (2026-06-08)
+상태: Accepted (2026-06-08) — Refined by ADR 0045·0046·0048. 2분류 자체는 존속하고 각 트랙의 메커니즘만 갱신됐다.
 
 정정 (ADR 0038, 2026-06-08): 배포 템플릿 파일명·release 에셋명을 `.env.example` -> `env.example` 로 변경 (GitHub Release leading-dot `default.env.example` 변환 회피). 본문의 `.env.example` 은 당시 명명 기록 — 현행 파일명은 `env.example`.
 

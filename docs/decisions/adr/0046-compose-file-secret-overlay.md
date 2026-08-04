@@ -1,6 +1,6 @@
 # ADR 0046 — prod 비밀번호 file-secret 채널 (compose overlay)
 
-상태: Accepted (2026-06-26)
+상태: Accepted (2026-06-26) — Refined by ADR 0047·0059. file-secret 채널 단일 결정은 존속하고 overlay 파일명이 `docker-compose.prod.yml` 로 바뀌었다(0059).
 
 Refines: ADR 0035 (compose base/override), ADR 0036 (dev/배포 2분류)
 

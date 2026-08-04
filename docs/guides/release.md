@@ -24,12 +24,7 @@
 
 multi-arch: `linux/amd64` + `linux/arm64` (운영자 ARM 서버 직접 호환).
 
-이미지는 실행할 컴포넌트를 정하지 않는다 — 호출자가 완결된 명령을 넘긴다 (이미지 쪽 구조는 `docs/reference/docker.md`).
-실행 컴포넌트 분기는 `docs/reference/docker.md`, 이미지 안 Alembic 자원은 `docs/guides/migrate.md`.
-
-이미지 안 Alembic 자원 (패키지 디렉토리 안에 있어 별도 포장 설정 없이 동봉):
-- `assessment_engine/migrations/` — Alembic versions
-- `assessment_engine/_alembic.ini` — Alembic config
+이미지는 실행할 컴포넌트를 정하지 않는다 — 호출자가 완결된 명령을 넘긴다. 실행 컴포넌트 분기는 `docs/reference/docker.md`, 이미지 안 Alembic 자원은 `docs/guides/migrate.md`.
 
 ## 2. 생성 trigger (파일 버전, git-flow)
 

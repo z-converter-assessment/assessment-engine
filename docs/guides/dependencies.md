@@ -34,8 +34,6 @@ PEP 735 가 PEP 621 의 `[project.optional-dependencies]` 보다 정공 — dev 
 
 `uv sync` 또는 `uv lock` 호출 시 자동 생성·갱신. 사람이 직접 편집 X.
 
-`uv sync`·`uv lock` 이 생성·갱신하며 사람이 편집하지 않는다.
-
 ## 4. 운영 명령 카탈로그
 
 ### 일상 (운영자 관점)

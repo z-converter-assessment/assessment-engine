@@ -92,7 +92,6 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 | Fail-fast 검증 | 동일 — 미설정·빈값·`_WEAK_VALUES` 는 어느 환경에서도 `Settings()` 생성 시점 `ValueError` | 동일 |
 | Logging | `LOG_FORMAT=text` (colorized·grep 친화) | `LOG_FORMAT=json` 권장 (외부 log aggregator indexing) |
 | web 노출 | plain HTTP port 8000 | HTTPS 외부 ingress (nginx·envoy 등) 종단, 앱은 plain |
-| broker AMQP | plain (port 5672) | AMQPS (port 5671) 권장 |
 
 ---
 
