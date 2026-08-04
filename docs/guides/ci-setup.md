@@ -136,13 +136,24 @@ gh api repos/<owner>/<repo>/rulesets/<id> --jq '[.rules[].type]'
 
 위치: Settings -> Code security -> Dependabot
 
-| 항목 | 값 |
-|------|----|
-| Dependabot alerts | 활성 |
-| Dependabot security updates | 활성 |
-| Dependabot version updates | 비활성 |
+Dependabot 은 워크플로가 아니라 플랫폼 기능이다. 러너에서 돌지 않고 GitHub 이 저장소의 의존성 선언과 lockfile 을 자기 인프라에서 스캔한다. 분류로는 SCA — 우리가 가져다 쓰는 패키지의 알려진 취약점을 본다. 우리 코드 자체를 보는 CodeQL(SAST, `codeql.yml` 워크플로)과 다른 도구이고 결과만 같은 Security 탭에 모인다.
 
-version updates 를 끄는 이유는 uv.lock 자동 갱신을 지원하지 않기 때문이다 — PR 이 머지되면 lockfile drift 가 누적되어 다음 PR 의 CI 가 실패한다. 버전 bump 는 운영자가 `uv lock --upgrade-package <name>` 으로 처리한다.
+| 항목 | 값 | 동작 |
+|------|----|------|
+| Dependabot alerts | 활성 | 취약점 발견 시 Security 탭에 경고 |
+| Dependabot security updates | 비활성 | 켜면 취약점 건에 자동 수정 PR |
+| Dependabot version updates | 비활성 | 켜면 취약점과 무관한 정기 버전 올림 PR |
+
+자동 PR 을 여는 두 항목을 끈다. 둘 다 lockfile 을 갱신해 PR 을 여는 동작이라 같은 제약을 받는다 — `uv.lock` 이 자동 갱신 대상이 아니라서 PR 이 머지되면 drift 가 누적되고 다음 PR 의 CI 가 실패한다.
+
+따라서 취약점 대응은 alert 를 받아 사람이 수행한다. 대상 패키지를 `uv lock --upgrade-package <name>` 으로 올리고, 하한을 고정해야 하면 `pyproject.toml` 에 직접 선언해 그 줄에 근거를 남긴다 — 전이 의존이라도 직접 선언하면 핀을 걸 자리가 생긴다.
+
+상태 조회는 API 로 한다.
+
+```bash
+gh api -i repos/<owner>/<repo>/vulnerability-alerts   # 204 = alerts 활성, 404 = 비활성
+gh api repos/<owner>/<repo>/automated-security-fixes  # enabled = security updates
+```
 
 ## 5. Secrets
 
@@ -154,7 +165,7 @@ version updates 를 끄는 이유는 uv.lock 자동 갱신을 지원하지 않�
 
 - [ ] Actions -> Workflow permissions -> Read repository contents and packages (기본값)
 - [ ] Code scanning -> Default setup 켜지 않음 (Advanced 유지)
-- [ ] Dependabot alerts + security updates 활성 (version updates 비활성)
+- [ ] Dependabot alerts 활성 (security updates·version updates 비활성)
 - [ ] Ruleset: main (3.1)
 - [ ] Ruleset: develop (3.2)
 - [ ] Ruleset: release tags (3.3) + 첫 릴리즈에서 tag 생성 확인

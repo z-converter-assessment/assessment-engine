@@ -80,7 +80,7 @@ uv lock --upgrade-package fastapi
 # 모든 의존성 최신 resolve (큰 변경, PR review 부담)
 uv lock --upgrade
 
-# pyproject.toml 수동 편집 후 lockfile 동기화 (dependabot PR merge 후 흐름)
+# pyproject.toml 수동 편집 후 lockfile 동기화
 uv lock
 ```
 
@@ -127,7 +127,9 @@ git add pyproject.toml uv.lock
 git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 ```
 
-보안 알림은 GitHub Dependabot alerts + security updates (UI 활성, 자동 PR 없음 — 알림만)로 수신. CI 단계의 의존성 CVE 자동 gate 는 두지 않는다 — CVE 평가·대응(수정본 유무 판단·bump·예외 수용)은 Dependabot alerts 로 운영자가 판단.
+보안 알림은 GitHub Dependabot alerts 로 수신한다 (Security 탭). 자동 PR 을 여는 security updates·version updates 는 둘 다 비활성 — 위 사유가 양쪽에 동일하게 적용된다. 설정 상태와 조회 명령은 `docs/guides/ci-setup.md` 4.2 가 소유한다.
+
+CI 단계의 의존성 CVE 자동 gate 는 두지 않는다 — CVE 평가·대응(수정본 유무 판단·bump·예외 수용)은 alert 를 보고 운영자가 판단한다.
 
 ## 6. 흐름·체크리스트
 
