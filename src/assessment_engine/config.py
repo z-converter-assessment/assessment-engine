@@ -5,11 +5,16 @@ from urllib.parse import quote
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+
+def _secrets_dir() -> str | None:
+    path = os.environ.get("SECRETS_DIR", "/run/secrets")
+    return path if os.path.isdir(path) else None
+
+
 # 외부 인프라가 secret을 어떻게 주입하든(systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등)
 # pydantic-settings는 env 우선·secrets_dir fallback 둘 다 지원. secrets_dir은 디렉토리가 존재할 때만 활성.
 # 본 repo는 secret 채널 자체를 강제하지 않음(CLAUDE.md #A0) — 결과만 검증한다.
-_SECRETS_DIR = os.environ.get("SECRETS_DIR", "/run/secrets")
-_SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
+_SECRETS_DIR = _secrets_dir()
 
 # 거부할 뻔한 값 (USER·PASSWORD 공용). 미설정·빈값은 필드 제약(min_length)이 먼저 잡는다.
 # "assessment"(dev 카탈로그 값)는 허용 — 뻔한 값만 차단한다.
@@ -59,7 +64,8 @@ class WebSettings(BaseSettings):
     postgres_user: str = Field(default="assessment", min_length=1)
     # 기본값을 두지 않는다 — 미설정이 조용히 통과하면 그것을 거르는 검사가 또 필요해진다.
     # 값은 env·secret 파일에서 오지만 pyright 는 dataclass_transform 시그니처만 보고 인자 누락으로
-    # 읽는다. 그래서 인스턴스화 지점에 `# pyright: ignore[reportCallIssue]` 가 붙어 있다.
+    # 읽는다. 그래서 인스턴스화 지점에 reportCallIssue 억제 주석이 붙어 있다 (본 주석에 그 지시자
+    # 형태를 그대로 적으면 검사기가 이 줄의 실제 억제로 읽는다 — 풀어서 쓴다).
     postgres_password: SecretStr = Field(min_length=1)
     postgres_port: int = 5432
     web_port: int = 8000

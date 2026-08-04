@@ -68,7 +68,7 @@ def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCoun
             # desc = 조치 방향만 (label 분류명과 어휘 중복 회피). 조치 단일 진실 = recommendation 도메인.
             description=recommendation.RECOMMENDATION_ACTION_KO.get(key, description),
         )
-        for key, label, color, description in _PROVISIONING_SEGMENT_DEFS
+        for key, label, _color, description in _PROVISIONING_SEGMENT_DEFS
     ]
 
 

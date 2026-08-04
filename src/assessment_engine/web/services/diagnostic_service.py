@@ -7,8 +7,8 @@
 - 발행 이력(list_reports) — customer + engineer 통합.
 - 추상 `BaseDiagnosticRepository`만 의존 (F4).
 
-호환 re-export — input_hash/anchor helper 는 `diagnostic.report_result` 가 단일 진실:
-  _compute_hash / _normalize_anchor (라우터 발행 시 anchor 정규화).
+anchor 정규화(`_normalize_anchor`)는 `diagnostic.report_result` 가 단일 진실이고 본 모듈은 라우터를 위해
+그대로 re-export 한다.
 """
 
 from collections.abc import Callable
@@ -22,14 +22,10 @@ from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.repositories.base_diagnostic_repository import (
     BaseDiagnosticRepository,
 )
+from assessment_engine.diagnostic.report_result import _compute_hash, build_report_result
 
 # 발행 result 조립·해시 helper 단일 진실은 diagnostic.report_result — 본 모듈은 호환 re-export.
-from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-export)
-    REPORT_KIND_ENV,
-    _compute_hash,
-    _normalize_anchor,
-    build_report_result,
-)
+from assessment_engine.diagnostic.report_result import _normalize_anchor as _normalize_anchor
 
 _ENQUEUE_MAX_ATTEMPTS = 2
 

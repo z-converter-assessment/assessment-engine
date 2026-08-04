@@ -31,9 +31,7 @@ from assessment_engine.web.templating.filters import (
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templates"))
 
-# starlette type stub은 Jinja2Templates.env를 Optional로 정의하지만 실제로는 항상 Environment.
-# false positive — 변수로 받아 한 곳에서만 specific ignore (이후 라인들은 narrow된 env 사용).
-env: Environment = templates.env  # type: ignore[assignment]
+env: Environment = templates.env
 env.filters["kst"] = kst
 env.filters["disksize"] = disksize
 env.filters["storagesize"] = storagesize
@@ -49,10 +47,14 @@ ASSET_V: str = format(int(time.time()), "x")
 env.globals["asset_v"] = ASSET_V
 
 # 엔진(포털) 버전 — 전역 상단 바에 노출. 설치 메타데이터의 버전. 미설치/개발 트리면 "dev".
-try:
-    ENGINE_VERSION: str = version("assessment-engine")
-except PackageNotFoundError:
-    ENGINE_VERSION = "dev"
+def _engine_version() -> str:
+    try:
+        return version("assessment-engine")
+    except PackageNotFoundError:
+        return "dev"
+
+
+ENGINE_VERSION: str = _engine_version()
 env.globals["engine_version"] = ENGINE_VERSION
 
 # 스케줄러 자동 발행 기본 기간 라벨 — F10 단일 진실 (recommendation.WINDOW_DAYS 와 정합).

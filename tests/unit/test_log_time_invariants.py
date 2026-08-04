@@ -46,7 +46,7 @@ async def test_invariant_normal_no_redis_call_no_log():
 
 
 def _attach_identity(msg, agent_id: str, hostname: str = "test-host-01"):
-    """test fixture (ServerMetricCreate dataclass) 에 MessageBase identity (agent_id·hostname) 동적 부여.
+    """test fixture (ServerMetricCreate dataclass) 에 AgentMessageBase identity (agent_id·hostname) 동적 부여.
 
     cooldown_key 가 (agent_id, hostname) 복합이라 둘 다 필요.
     """

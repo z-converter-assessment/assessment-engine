@@ -17,7 +17,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, Operation
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_get, safe_incr_with_ttl, safe_set, safe_set_nx
-from assessment_engine.consumer.schemas import MessageBase
+from assessment_engine.consumer.schemas import AgentMessageBase
 from assessment_engine.consumer.settings import get_consumer_settings
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 
@@ -159,7 +159,7 @@ async def _time_warn_allowed(redis: Redis, agent_id: UUID) -> bool:
     return result is not False
 
 
-async def _log_time_invariants(redis: Redis, data: MessageBase) -> None:
+async def _log_time_invariants(redis: Redis, data: AgentMessageBase) -> None:
     """시계·systemd 시작 순서 invariant 검증. warning 로그만, 처리는 그대로 진행.
 
     - boot_time > agent_started_at: systemd 시작 순서 비정상 또는 시계 동기화 문제

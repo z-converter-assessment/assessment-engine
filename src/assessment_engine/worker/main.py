@@ -9,7 +9,7 @@ Composition Root(F4): DiagnosticService·QueryService·Repository 구체 인스�
 
 import asyncio
 import signal
-from collections.abc import AsyncIterator
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
 
 from loguru import logger
@@ -29,7 +29,7 @@ from assessment_engine.worker.worker_lifecycle import graceful_drain
 
 
 @asynccontextmanager
-async def _query_service_factory() -> AsyncIterator[QueryService]:
+async def _query_service_factory() -> AsyncGenerator[QueryService]:
     """job 마다 독립 세션의 QueryService — 생성 쿼리 트랜잭션 분리."""
     async with get_session_factory()() as session:
         yield QueryService(QueryRepository(session), get_redis())
