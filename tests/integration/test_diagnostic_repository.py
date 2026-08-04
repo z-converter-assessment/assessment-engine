@@ -37,7 +37,7 @@ def _make_create(
     )
 
 
-# ─── enqueue (active partial UNIQUE = scope·input_hash·job_type) ───────────
+# --- enqueue (active partial UNIQUE = scope·input_hash·job_type) -----------
 
 
 async def test_enqueue_new_returns_uuid(diagnostic_repo: DiagnosticRepository, db_session: AsyncSession):
@@ -109,7 +109,7 @@ async def test_enqueue_different_job_type_same_hash_independent(
     assert c != e
 
 
-# ─── get_active_by_hash ──────────────────────────────────────────────────
+# --- get_active_by_hash --------------------------------------------------
 
 
 async def test_get_active_by_hash_active(diagnostic_repo: DiagnosticRepository, db_session: AsyncSession):
@@ -142,7 +142,7 @@ async def test_get_active_by_hash_job_type_scoped(diagnostic_repo: DiagnosticRep
     assert await diagnostic_repo.get_active_by_hash("environment", "k" * 64, "engineer_report") is None
 
 
-# ─── get_by_id ───────────────────────────────────────────────────────────
+# --- get_by_id -----------------------------------------------------------
 
 
 async def test_get_by_id_returns_full_record(
@@ -174,7 +174,7 @@ async def test_get_by_id_missing_returns_none(
     assert rec is None
 
 
-# ─── mark_succeeded (발행 즉시 succeeded — running 경유 없음) ───────────────
+# --- mark_succeeded (발행 즉시 succeeded — running 경유 없음) ---------------
 
 
 async def test_mark_succeeded_sets_result_and_finished(
@@ -194,7 +194,7 @@ async def test_mark_succeeded_sets_result_and_finished(
     assert rec.result == {"kind": "env_report", "k": 1}
 
 
-# ─── delete_retention ────────────────────────────────────────────────────
+# --- delete_retention ----------------------------------------------------
 
 
 async def test_delete_retention_purges_old_finished(

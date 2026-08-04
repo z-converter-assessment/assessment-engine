@@ -21,7 +21,7 @@ from assessment_engine.db.models.server_net_io import ServerNetIo
 from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 from assessment_engine.db.repositories.query.base_server import BaseServerQueryRepository
 
-# 수집 상태 조회 윈도우 — "이 기간 내 metric 無 = 수집 끊김(None 표시)" 기준 + C5 hypertable pruning 술어.
+# 수집 상태 조회 윈도우 — "이 기간 내 metric 없음 = 수집 끊김(None 표시)" 기준 + C5 hypertable pruning 술어.
 # 수집 생존 신호용 운영 윈도우로 right-sizing 평가 윈도우(recommendation.WINDOW_DAYS)와 독립 — 연동 금지.
 _COLLECTION_STATUS_WINDOW = timedelta(days=7)
 

@@ -72,7 +72,7 @@ def _extract_zdm_host(zdm_ip: str) -> str:
     return s if slash < 0 else s[:slash]
 
 
-# ─── ZDM 패키지 메타 (sha256·size_bytes) 동적 조회 ──────────────────────────
+# --- ZDM 패키지 메타 (sha256·size_bytes) 동적 조회 --------------------------
 # cache key 에 ETag 를 넣는 이유는 그것이 곧 invalidation 키라서다 — 패키지가 바뀌면 ETag 가 바뀌므로
 # TTL 을 길게(6h) 잡아도 stale 을 내주지 않는다.
 # 메타 조회는 fail-close 다. sha256 없이 발행하면 agent 가 검증 없이 설치하게 되므로 publish 를 막는다

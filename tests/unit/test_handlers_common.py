@@ -19,7 +19,7 @@ pytestmark = pytest.mark.asyncio
 _STARTED = datetime(2026, 5, 1, 0, 0, tzinfo=UTC)
 
 
-# ─── _track_agent_restart: 4 분기 ────────────────────────────────────────────
+# --- _track_agent_restart: 4 분기 --------------------------------------------
 
 
 async def test_track_restart_none_started_skips_all_redis():
@@ -119,7 +119,7 @@ async def test_track_restart_changed_counter_redis_failure_no_alert():
     mset.assert_awaited_once()
 
 
-# ─── _check_idempotent: #D2 fail-open coalescing ─────────────────────────────
+# --- _check_idempotent: #D2 fail-open coalescing -----------------------------
 
 _MSG_ID = UUID("12345678-1234-5678-1234-567812345678")
 

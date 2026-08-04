@@ -18,7 +18,7 @@
     /** @type {any} */ (window.ChartUtils).initAnchor('assess-anchor');
   }
 
-  // ─── 자원 부족 20개 clip + 더보기/접기 ──────────────────────────────────
+  // --- 자원 부족 20개 clip + 더보기/접기 ----------------------------------
   const UNDER_SHOWN = 20;
   let underExpanded = false;
 
@@ -46,7 +46,7 @@
     if (window.TableUtils && table) window.TableUtils.restripe(table);
   }
 
-  // ─── 칼럼 클릭 정렬 (조치 대상 표) — 공용 TableUtils(정렬·zebra 단일화). 정렬 후 clip 재적용(restripe 포함). ───
+  // --- 칼럼 클릭 정렬 (조치 대상 표) — 공용 TableUtils(정렬·zebra 단일화). 정렬 후 clip 재적용(restripe 포함). ---
   // 위임 (fragment swap 으로 요소가 새로 생겨도 동작) — 더보기/접기 + 칼럼 정렬.
   result.addEventListener('click', function (e) {
     const target = /** @type {Element | null} */ (e.target);
@@ -67,7 +67,7 @@
     }
   });
 
-  // ─── 윈도우/앵커 변경 -> 결과 partial swap ───────────────────────────────
+  // --- 윈도우/앵커 변경 -> 결과 partial swap -------------------------------
   let seq = 0;
   async function refresh() {
     const params = new URLSearchParams();

@@ -66,7 +66,7 @@ _COMMON_COLS = f"""
                  THEN net_conntrack_usage::float / net_conntrack_limit END) AS conntrack_ratio_max,
         max(mem_hardware_corrupted_bytes) AS hw_corrupted_max"""
 
-# B3 추가 — env_util capacity-weighting(Σbytes) + memory_breakdown cached/buffered%.
+# B3 추가 — env_util capacity-weighting(sum(bytes)) + memory_breakdown cached/buffered%.
 # available/limit = byte avg(서버 합산으로 capacity-weight), cached/buffered = pct avg(mem_pct_avg 규약과 동형).
 _B3_MEM_COLS = """,
         avg(CASE WHEN mem_limit_bytes > 0 AND mem_available_bytes IS NOT NULL

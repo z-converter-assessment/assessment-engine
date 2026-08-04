@@ -37,7 +37,7 @@ from assessment_engine.web.services.mappers.shared import (
     windows_short_label_from_product_name,
 )
 
-# ─── 임계값·severity ──────────────────────────────────────────────────────
+# --- 임계값·severity ------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -73,7 +73,7 @@ def test_usage_badge_class(pct: float, expected: str):
     assert _usage_badge_class(pct) == expected
 
 
-# ─── raw dict → ViewModel 변환 ────────────────────────────────────────────
+# --- raw dict → ViewModel 변환 --------------------------------------------
 
 
 def test_to_disk_item_returns_none_for_non_physical():
@@ -119,7 +119,7 @@ def test_to_service_item_with_listen_ports_matches():
     assert ("tcp", 80) in pairs
 
 
-# ─── to_server_list_item ──────────────────────────────────────────────────
+# --- to_server_list_item --------------------------------------------------
 
 
 def _summary(**overrides: Any) -> ServerSummary:
@@ -257,7 +257,7 @@ def test_list_item_os_display_windows_product_name_overrides_display_version():
     assert item_legacy.os_display == "windows 2012"
 
 
-# ─── to_server_detail + enrich (idempotent) ───────────────────────────────
+# --- to_server_detail + enrich (idempotent) -------------------------------
 
 
 def _detail(**overrides: Any) -> ServerDetail:
@@ -351,7 +351,7 @@ def test_enrich_server_detail_idempotent():
     assert resp.key_listen_ports == key_ports_before
 
 
-# ─── workload 합집합 (ADR 0032) — services 이름 + listen 소켓 탐지 ─────────────
+# --- workload 합집합 (ADR 0032) — services 이름 + listen 소켓 탐지 -------------
 
 
 def test_workload_counter_listen_only_rescues_opaque_name():
@@ -451,7 +451,7 @@ def test_enrich_category_port_aggregation_web_iis():
     assert all(lp.port != 80 for lp in resp.key_listen_ports)  # 뱃지로 갔으니 주요 Listen 에서 제외
 
 
-# ─── to_storage_detail ────────────────────────────────────────────────────
+# --- to_storage_detail ----------------------------------------------------
 
 
 def test_to_storage_detail_filters_virtual_mounts():
@@ -486,7 +486,7 @@ def test_to_storage_detail_filters_virtual_mounts():
 # device_name 을 산출하지 않는다. block_device 트리 술어 검증은 test_device_filters.py 단일 진실.
 
 
-# ─── attention 신호 mapper (P2 단위 변환 + badge 분기) ────────────────────
+# --- attention 신호 mapper (P2 단위 변환 + badge 분기) --------------------
 # 운영신호는 gap/os_eol/agent_unstable 3개 — disk 신호는 USE Method 로 이동(코드 제거).
 
 
@@ -521,13 +521,13 @@ def test_to_gap_warning_item_right_size_short_gap():
     assert item.badge_text == "10분"
 
 
-# ─── risk_top mapper 테스트는 2026-05-12 cleanup으로 제거됨 ─────────────
+# --- risk_top mapper 테스트는 2026-05-12 cleanup으로 제거됨 -------------
 # RiskServerItem dataclass · to_risk_server_item 함수 · latest_disk_max_pct SQL
 # · list-risk-cards.js 모두 dead. 위험도 신호는 capacity_warnings + EnvironmentOverview로
 # 흡수됨. 신규 신호 단위 테스트는 tests/unit/test_mappers_report.py.
 
 
-# ─── build_server_inventory (개별 보고서 인벤토리, raw 선택적 보강) ────────────
+# --- build_server_inventory (개별 보고서 인벤토리, raw 선택적 보강) ------------
 
 
 def _min_raw(**overrides: Any) -> ReportRowRaw:

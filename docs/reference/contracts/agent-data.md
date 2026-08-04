@@ -10,7 +10,7 @@
 - 2레이어 분리 — Layer 1(wire) = 자원 네임스페이스별 raw counter/gauge 사실만. Layer 2(engine) = USE Method 해석(`recommendation.py`). USE(이용률·포화·오류 판정)를 wire 에 넣지 않는다.
 - agent = stateless. emit 시점 raw 누적 스냅샷만 싣고, rate·delta·util·await·ratio 파생은 전부 엔진.
 - null 의미론 — 값(0 포함) = 실측 성공. null = 측정불가·미지원(OS 개념 부재 또는 측정 인프라/권한 없음). 추측·대체값 금지. 배열 지표는 측정된 축만 싣는다.
-- counter = monotonic 누적(엔진이 Δ 산출). gauge = 순간값(직접 소비).
+- counter = monotonic 누적(엔진이 delta 산출). gauge = 순간값(직접 소비).
 - 인바운드 DTO 는 `extra=ignore` — 모르는 필드가 와도 통과·무시(부분 배포 비대칭 흡수).
 
 ---
@@ -231,7 +231,7 @@ type: t=counter, g=gauge.
 | cpu.logical.count | g | cpu | - | nproc/sysconf | GetSystemInfo | - |
 | cpu.mce | t | events | (source) | machinecheck+mcelog | WHEA | 소스 부재 |
 
-`cpu.time` state = user/system/nice/idle/iowait/irq/softirq/steal. Windows 는 user/system/idle 만. U = 1 - rate(idle)/Σrate. run_queue.source = procs_running \| processor_queue(OS 신호원 비대칭 노출 — 엔진은 source 로 판별, os_family 분기 불요).
+`cpu.time` state = user/system/nice/idle/iowait/irq/softirq/steal. Windows 는 user/system/idle 만. U = 1 - rate(idle)/sum(rate). run_queue.source = procs_running \| processor_queue(OS 신호원 비대칭 노출 — 엔진은 source 로 판별, os_family 분기 불요).
 
 ### G2. system.memory (필수)
 
@@ -261,7 +261,7 @@ swapless Linux 는 direction=out 상시 0(실측) -> PSI/commit 이 포화 커�
 | disk.io | t | By | device, direction(read/write) | throughput |
 | disk.operations | t | operations | device, direction | IOPS |
 | disk.io_time | t | s | device | U축 = %util(busy 분율) |
-| disk.operation_time | t | s | device, direction | S축 = await(Δoperation_time/Δoperations) |
+| disk.operation_time | t | s | device, direction | S축 = await(delta(operation_time)/delta(operations)) |
 | disk.pending_operations | g | operations | device | S축 보조 = queue |
 | disk.errors | t | errors | device, kind, (class), (member) | E축 |
 

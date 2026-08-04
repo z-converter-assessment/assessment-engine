@@ -55,7 +55,7 @@ if TYPE_CHECKING:
     )
     from assessment_engine.json_types import JsonObject
 
-# ─── 표시 임계·색 단일 진실 ────────────────────────────────────────────────
+# --- 표시 임계·색 단일 진실 ------------------------------------------------
 # 운영 신호 단일 active 색 클래스. base.html 단일 진실. 카테고리간 강도 비교 근거 부족 →
 # 임계 초과 발화 자체가 시그널이라 단일 색으로 통일.
 _ATTN_ACTIVE_BADGE = "attn-active"
@@ -89,7 +89,7 @@ _NET_CONGESTED_COLOR = "#dc2626"
 _NET_STATUS_LABEL: dict[str, str] = {"quality_ok": "정상", "congested": "혼잡", "unmeasured": "미측정"}
 
 
-# ─── gap (운영신호) ────────────────────────────────────────────────────────
+# --- gap (운영신호) --------------------------------------------------------
 
 
 def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> AttentionRow:
@@ -109,7 +109,7 @@ def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> AttentionRow
     )
 
 
-# ─── 환경 활용률 도넛·bar (UtilizationBar + RiskDonutSegment) ────────────
+# --- 환경 활용률 도넛·bar (UtilizationBar + RiskDonutSegment) ------------
 
 
 def _bar_color(pct: float | None) -> str:
@@ -397,8 +397,8 @@ def build_environment_realtime(
     """
 
     # capacity-weighted 평균 — 환경 전체 자원 풀 활용률(단순 산술평균 X). environment_utilization SQL 과 동일 정의:
-    #   CPU = Σ(usage%·cores)/Σcores (시점 usage 라 jiffies delta 대신 코어 가중 근사),
-    #   mem = Σused_bytes/Σtotal_bytes, disk = Σused_gb/Σtotal_gb (전 mount 통합, worst mount 아님).
+    #   CPU = sum(usage%·cores)/sum(cores) (시점 usage 라 jiffies delta 대신 코어 가중 근사),
+    #   mem = sum(used_bytes)/sum(total_bytes), disk = sum(used_gb)/sum(total_gb) (전 mount 통합, worst mount 아님).
     def _cap_weighted(value_key: str, weight_key: str) -> float | None:
         num = sum(s[value_key] * s[weight_key] for s in snapshots if s.get(value_key) is not None and s.get(weight_key))
         den = sum(s[weight_key] for s in snapshots if s.get(value_key) is not None and s.get(weight_key))
@@ -518,7 +518,7 @@ def build_environment_realtime(
     )
 
 
-# ─── capacity(USE Method) · os_eol/agent_unstable(운영신호) · disk_days(dead) ──
+# --- capacity(USE Method) · os_eol/agent_unstable(운영신호) · disk_days(dead) --
 
 
 def to_capacity_warning_item(raw: ReportRowRaw):

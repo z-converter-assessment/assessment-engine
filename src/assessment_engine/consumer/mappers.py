@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     )
     from assessment_engine.json_types import JsonObject
 
-# ─── datapoint 조회 헬퍼 ───
+# --- datapoint 조회 헬퍼 ---
 
 
 def _points(ns: Namespace | None, metric: str) -> list[Datapoint]:
@@ -90,7 +90,7 @@ def _distinct(pts_lists: list[list[Datapoint]], key: str) -> list[str]:
     return list(seen)
 
 
-# ─── metrics ───
+# --- metrics ---
 
 
 def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
@@ -269,7 +269,7 @@ def _build_pressure(pr_ns: Namespace | None) -> list[PressureEntry]:
     ]
 
 
-# ─── inventory ───
+# --- inventory ---
 
 
 def _svc_dicts(data: InventoryInput) -> list[JsonObject] | None:

@@ -152,7 +152,7 @@ function setChart(canvasId, emptyId, avgRows, yAxisOpts, fmtFn, datasets, labels
   return chart;
 }
 
-/* ── Y축 설정 ── */
+/* -- Y축 설정 -- */
 const pctTicks = { callback: (/** @type {number} */ v) => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' };
 const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 // 고정 상한 없음 — Chart.js 자동 스케일(beginAtZero 만 강제해 축 최솟값은 항상 0, 최댓값은 실 데이터 범위에
@@ -160,7 +160,7 @@ const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 // 바닥에 눌려 안 보이는 문제가 있었음.
 const Y_NET   = { beginAtZero:true, ticks:{ callback: (/** @type {number} */ v) => fmtKbChart(v), font:{size:11}, color:'#64748b' } };
 
-/* ── 개별 차트 로더 ── */
+/* -- 개별 차트 로더 -- */
 
 /**
  * @param {string} range
@@ -457,7 +457,7 @@ async function loadNetCongestionChart(range, anchor) {
   updateMaxLabel('netcong-max', computePeriodMax(safe), v => v.toFixed(0)+'대', null);
 }
 
-/* ── 전체 로드 ── */
+/* -- 전체 로드 -- */
 /** @param {string} range */
 function updateBucketLabel(range) {
   /** @type {HTMLElement} */ (document.getElementById('bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[range]] || '';
@@ -495,14 +495,14 @@ async function loadAllCharts() {
   ]);
 }
 
-/* ── 인쇄 리사이즈 ── */
+/* -- 인쇄 리사이즈 -- */
 function resizeAllCharts() {
   for (const c of Object.values(chartInstances)) { if (c) c.resize(); }
 }
 window.addEventListener('beforeprint', resizeAllCharts);
 window.addEventListener('afterprint', resizeAllCharts);
 
-/* ── 날짜 인풋 초기화 + 컨트롤 바인딩 ── */
+/* -- 날짜 인풋 초기화 + 컨트롤 바인딩 -- */
 /** @type {any} */ (ChartUtils).initAnchor('anchor-date');
 bindToggle('global-range-btns', val => { globalRange = val; loadAllCharts(); });
 // 앵커 변경 즉시 반영 — 구간 토글·상세 차트(cpu/network/storage)와 동일 (적용 버튼 없이 change 로 갱신).

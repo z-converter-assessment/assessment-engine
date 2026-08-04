@@ -157,7 +157,7 @@ def test_agent_id_value_accepted_for_task_result() -> None:
     assert str(data.agent_id) == "00000000-0000-4000-8000-0000000000c1"
 
 
-# ─── ADR 0007 회귀 가드 (옛 구조 거부 / status permissive 완화) ──────────────
+# --- ADR 0007 회귀 가드 (옛 구조 거부 / status permissive 완화) --------------
 
 
 def test_legacy_message_type_underscore_rejected() -> None:

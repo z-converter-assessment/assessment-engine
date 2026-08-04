@@ -37,7 +37,7 @@ async def close_pool() -> None:
         get_pool.cache_clear()
 
 
-# ─── fail-open helpers ──────────────────────────────────────────────────────
+# --- fail-open helpers ------------------------------------------------------
 # Redis 장애 시 silent fallback. 정확성은 2단 안전망(DB UNIQUE / DB query)에 위임.
 # 정책 근거: CLAUDE.md #C3 + docs/decisions/adr/0001-redis-decoupling.md + docs/reference/redis.md "장애 시 동작".
 

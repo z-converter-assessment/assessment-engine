@@ -41,7 +41,7 @@ def upgrade() -> None:
     # counter_agg(reset-safe delta) — timescaledb_toolkit. CASCADE 로 의존 객체 동시.
     op.execute("CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit CASCADE")
 
-    # ─── server_metrics_5m (host 집계) ───
+    # --- server_metrics_5m (host 집계) ---
     op.execute(f"""
         CREATE MATERIALIZED VIEW server_metrics_5m
         WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
@@ -84,7 +84,7 @@ def upgrade() -> None:
         WITH NO DATA
     """)
 
-    # ─── server_filesystem_5m (마운트별 용량·inode) ───
+    # --- server_filesystem_5m (마운트별 용량·inode) ---
     op.execute("""
         CREATE MATERIALIZED VIEW server_filesystem_5m
         WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
@@ -109,7 +109,7 @@ def upgrade() -> None:
         WITH NO DATA
     """)
 
-    # ─── server_disk_io_5m (디바이스별 IO) ───
+    # --- server_disk_io_5m (디바이스별 IO) ---
     op.execute("""
         CREATE MATERIALIZED VIEW server_disk_io_5m
         WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
@@ -131,7 +131,7 @@ def upgrade() -> None:
         WITH NO DATA
     """)
 
-    # ─── server_net_io_5m (인터페이스별) ───
+    # --- server_net_io_5m (인터페이스별) ---
     op.execute("""
         CREATE MATERIALIZED VIEW server_net_io_5m
         WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
@@ -153,7 +153,7 @@ def upgrade() -> None:
         WITH NO DATA
     """)
 
-    # ─── server_cpu_core_5m (per-core 이용률) ───
+    # --- server_cpu_core_5m (per-core 이용률) ---
     op.execute(f"""
         CREATE MATERIALIZED VIEW server_cpu_core_5m
         WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS

@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 _FIXED_ANCHOR = datetime(2026, 5, 12, 0, 0, 0, tzinfo=UTC)
 
 
-# ─── normalize_anchor ──────────────────────────────────────────────────
+# --- normalize_anchor --------------------------------------------------
 
 
 def test_normalize_anchor_truncates_seconds_microseconds():
@@ -52,7 +52,7 @@ def test_normalize_anchor_none_returns_current_minute():
     assert out.microsecond == 0
 
 
-# ─── compute_hash (결정성 + 순서 무관) ──────────────────────────────────
+# --- compute_hash (결정성 + 순서 무관) ----------------------------------
 
 
 def test_compute_hash_deterministic():
@@ -80,7 +80,7 @@ def test_compute_hash_matches_explicit_sha256():
     assert compute_hash(scope, params) == expected
 
 
-# ─── report_result 구조 helper (web <-> 스냅샷 저장 공유 계약) ──────────────
+# --- report_result 구조 helper (web <-> 스냅샷 저장 공유 계약) --------------
 
 
 def test_build_report_result_defaults():
@@ -99,7 +99,7 @@ def test_build_report_result_with_aux():
     assert r["aux"]["attention_by_host"]["h1"]["gap"] == "x"
 
 
-# ─── DiagnosticService.emit_report ──────────────────────────────────────
+# --- DiagnosticService.emit_report --------------------------------------
 
 
 @pytest.fixture
@@ -235,7 +235,7 @@ async def test_emit_report_active_conflict_returns_existing(
     session.commit.assert_not_called()
 
 
-# ─── enqueue_report (비동기 parent pending) + 워커 lifecycle ──────────────
+# --- enqueue_report (비동기 parent pending) + 워커 lifecycle --------------
 
 
 @pytest.mark.asyncio
@@ -355,7 +355,7 @@ async def test_finish_failed_delegates(
     stub_diag_repo.mark_failed.assert_awaited_once_with("job-x", "internal error")
 
 
-# ─── 표시 임계 상수 import sanity ──────────────────────────────────────
+# --- 표시 임계 상수 import sanity --------------------------------------
 
 
 def test_report_threshold_constants_imported():

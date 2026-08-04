@@ -14,7 +14,7 @@
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  // ── 1) 데이터 최신성 ──────────────────────────────────────────────
+  // -- 1) 데이터 최신성 ----------------------------------------------
   var statusEl = document.getElementById('fleet-status');
   var statusText = document.getElementById('fleet-status-text');
 
@@ -60,7 +60,7 @@
     setInterval(pollStatus, 30000);
   }
 
-  // ── 2) 호스트 검색 (jump-to) ──────────────────────────────────────
+  // -- 2) 호스트 검색 (jump-to) --------------------------------------
   var input = /** @type {HTMLInputElement | null} */ (document.getElementById('host-search-input'));
   var results = document.getElementById('host-search-results');
   /** @type {number} */ var seq = 0;

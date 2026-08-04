@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 아니라 DB 원본 필드 전체 기준):
 - 배정 용량 / 레이아웃 루트 = 물리 디스크 (block_devices type=="disk"). Linux vda / Windows PhysicalDrive0.
   디바이스 특성(rotational=HDD/SSD·sector_size·serial)도 이 계층 속성.
-- 파일시스템 용량 = 마운트된 데이터 볼륨 (mountpoint 有 + is_data_volume). Linux part/LV / Windows volume.
+- 파일시스템 용량 = 마운트된 데이터 볼륨 (mountpoint 있음 + is_data_volume). Linux part/LV / Windows volume.
 - 사용량 = 파일시스템(마운트) 계층 (server_filesystem, df/Get-Volume) — 2축: bytes(used/free) +
   inode(inodes_used/free). inode 고갈은 bytes 여유해도 쓰기 실패라 별도 full 축. fullness 는 파일시스템
   속성(raw 디스크는 채우는 대상이 아님) — 배정·확장·I/O·특성이 물리 디스크/VG 축을 맡는다.

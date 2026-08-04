@@ -55,7 +55,7 @@ class ServerInventoryCreate:
     nonblock_mounts: list[JsonObject] | None = None
 
 
-# ─── 시계열 nested 행 (datapoint-array -> dataclass 타입 보장) ───
+# --- 시계열 nested 행 (datapoint-array -> dataclass 타입 보장) ---
 
 
 @dataclass
@@ -135,7 +135,7 @@ class DiskErrorEntry:
     count: int | None = None
 
 
-# ─── Task DTO ───
+# --- Task DTO ---
 
 
 @dataclass

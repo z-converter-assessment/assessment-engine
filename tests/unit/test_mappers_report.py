@@ -43,7 +43,7 @@ from assessment_engine.web.services.mappers.shared import (
 if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
 
-# ─── 헬퍼 ────────────────────────────────────────────────────────────────
+# --- 헬퍼 ----------------------------------------------------------------
 
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
@@ -167,7 +167,7 @@ def _raw(
     )
 
 
-# ─── _RISK_FROM_RECOMMENDATION 매핑 (옵션 B) ─────────────────────────────
+# --- _RISK_FROM_RECOMMENDATION 매핑 (옵션 B) -----------------------------
 
 
 @pytest.mark.parametrize(
@@ -187,7 +187,7 @@ def test_risk_mapping_all_recommendations(rec: str, risk_level: str, risk_label:
     assert badge.startswith("rec-")
 
 
-# ─── to_report_row_item — variance/uptime 파생 ────────────────
+# --- to_report_row_item — variance/uptime 파생 ----------------
 
 
 def test_report_row_cpu_variance():
@@ -219,7 +219,7 @@ def test_report_row_under_provisioned_maps_to_high():
     assert item.risk_label == "고위험"
 
 
-# ─── os_family 분기 (원칙 P2/P4 — Windows swap 제외 + 부분 평가) ───
+# --- os_family 분기 (원칙 P2/P4 — Windows swap 제외 + 부분 평가) ---
 
 
 def test_report_row_is_partial_by_unmeasured_saturation():
@@ -265,7 +265,7 @@ def test_report_row_windows_swap_not_high_risk():
     assert "스왑" not in windows.diagnosis  # Windows 는 page-out 축 제외 -> "메모리 압박"
 
 
-# ─── build_role_distribution ─────────────────────────────────────────────
+# --- build_role_distribution ---------------------------------------------
 
 
 def test_role_distribution_counts_categories():
@@ -281,7 +281,7 @@ def test_role_distribution_counts_categories():
     assert dist["unknown"] == 1
 
 
-# ─── compute_report_totals_from_raw ──────────────────────────────────────
+# --- compute_report_totals_from_raw --------------------------------------
 
 
 def test_report_totals_sum_vcpu_memory_disk():
@@ -316,7 +316,7 @@ def test_report_totals_handles_null_fields():
     assert t.total_disk_gb == 0
 
 
-# ─── build_environment_overview ──────────────────────────────────────────
+# --- build_environment_overview ------------------------------------------
 
 
 def _detail(
@@ -467,7 +467,7 @@ def test_environment_overview_utilization_dash_length(pct: float | None, expecte
         assert abs(bar.dash_length - expected_dash) < 0.1
 
 
-# ─── 위험도 분포 도넛 ────────────────────────────────────────────────────
+# --- 위험도 분포 도넛 ----------------------------------------------------
 
 
 def test_risk_donut_segments_order_and_colors():
@@ -547,7 +547,7 @@ def test_donut_segment_from_rec_mapping(rec: str, expected_key: str):
     assert _DONUT_SEGMENT_FROM_REC[rec] == expected_key
 
 
-# ─── CapacityWarningItem.active_causes (발화 원인 os-neutral 집계) ─────────────
+# --- CapacityWarningItem.active_causes (발화 원인 os-neutral 집계) -------------
 
 
 def test_capacity_warning_active_causes_only_hit():
@@ -586,7 +586,7 @@ def test_capacity_warning_active_causes_os_neutral_windows():
     assert "Load" not in item.active_causes
 
 
-# ─── build_report_summary_bullets — 신호 9종 트리거 ──────────────────────
+# --- build_report_summary_bullets — 신호 9종 트리거 ----------------------
 
 
 def test_bullets_empty_when_no_rows():
@@ -670,7 +670,7 @@ def test_bullets_role_avg_cpu_signal():
     assert any("db 계열" in b and "평균 CPU p95" in b for b in bullets)
 
 
-# ─── view="customer" 분기 — engineer 전용 시그널 제외 검증 ────────────────
+# --- view="customer" 분기 — engineer 전용 시그널 제외 검증 ----------------
 
 
 def test_bullets_customer_view_excludes_saturation():
@@ -783,7 +783,7 @@ def test_bullets_normal_fallback_empty():
     assert bullets == []
 
 
-# ─── attention 신호 ViewModel 빌더 ───────────────────────────────────────
+# --- attention 신호 ViewModel 빌더 ---------------------------------------
 
 
 def test_capacity_warning_item_fields():
@@ -820,7 +820,7 @@ def test_capacity_warning_item_active_causes(
     assert item.active_causes == expected_causes
 
 
-# ─── build_period_assessment 포화 축(os-aware, single_report·서버 세부 공용) ──────
+# --- build_period_assessment 포화 축(os-aware, single_report·서버 세부 공용) ------
 
 
 def test_period_assessment_windows_os_aware_and_hit():
@@ -996,7 +996,7 @@ def test_agent_unstable_item_fields():
     assert item.link_text == "h"
 
 
-# ─── resolve_os_eol — 알려진 EOL distro 발화 sanity (endoflife 카탈로그, ADR 0031) ───
+# --- resolve_os_eol — 알려진 EOL distro 발화 sanity (endoflife 카탈로그, ADR 0031) ---
 
 
 @pytest.mark.parametrize(
@@ -1008,7 +1008,7 @@ def test_resolve_os_eol_known_eol_distros(os_id: str, os_version: str):
     assert resolve_os_eol(os_id, os_version, None, _NOW.date()) is not None
 
 
-# ─── diagnosis (양식 B 판단 컬럼 자동 진단) ───────────────────────────────
+# --- diagnosis (양식 B 판단 컬럼 자동 진단) -------------------------------
 
 
 @pytest.mark.parametrize(
@@ -1039,7 +1039,7 @@ def test_diagnosis_priority(kwargs: Any, expected: str):
     assert item.diagnosis == expected
 
 
-# ─── DISK/NET p95·peak 필드 채움 ───────────────────────────────────────────
+# --- DISK/NET p95·peak 필드 채움 -------------------------------------------
 
 
 def test_report_row_item_disk_net_io_p95_peak_passthrough():
@@ -1069,7 +1069,7 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
     assert item.net_tx_kbps_peak == 900.0
 
 
-# ─── _build_recommendation_action (양식 A 권고 컬럼 단일 진실) ─────────────
+# --- _build_recommendation_action (양식 A 권고 컬럼 단일 진실) -------------
 
 
 def _rs(**kw: Any) -> recommendation.ResourceStats:
@@ -1113,7 +1113,7 @@ def test_recommendation_action_idle_strong_vs_weak():
     assert _build_recommendation_action(_host("idle"), weak) == "통합·재배치 검토"
 
 
-# ─── build_resource_stats — 분류 입력 단일 진실 (report·attention·목록·도넛 공용) ───
+# --- build_resource_stats — 분류 입력 단일 진실 (report·attention·목록·도넛 공용) ---
 
 
 def test_build_resource_stats_sums_net_rx_tx():

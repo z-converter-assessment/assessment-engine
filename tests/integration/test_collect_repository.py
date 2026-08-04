@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 pytestmark = pytest.mark.asyncio
 
 
-# ─── upsert_server (C) ────────────────────────────────────────────────────
+# --- upsert_server (C) ----------------------------------------------------
 
 
 async def test_upsert_server_inserts_new(collect_repo: CollectRepository):
@@ -117,7 +117,7 @@ async def test_upsert_server_same_agent_id_converges_across_reboot(
     assert count == 1
 
 
-# ─── find_server_id ───────────────────────────────────────────────────────
+# --- find_server_id -------------------------------------------------------
 
 
 async def test_find_server_id_existing(collect_repo: CollectRepository):
@@ -144,7 +144,7 @@ async def test_find_server_id_distinct_agent_ids_isolated(
     assert sid_a != sid_b
 
 
-# ─── clone 격리 (같은 machine_id+hostname, 다른 agent_id) ───────────────────
+# --- clone 격리 (같은 machine_id+hostname, 다른 agent_id) -------------------
 
 
 async def test_different_agent_id_same_machine_id_hostname_isolated(
@@ -171,7 +171,7 @@ async def test_different_agent_id_same_machine_id_hostname_isolated(
     assert sid_b != sid_a  # 별개 행
 
 
-# ─── ensure_server_id (D — facade with auto_registered flag) ──────────────
+# --- ensure_server_id (D — facade with auto_registered flag) --------------
 
 
 async def test_ensure_server_id_auto_registers_when_missing(
@@ -209,7 +209,7 @@ async def test_ensure_server_id_uses_existing_without_fallback(
     assert row.cpu_cores == 8
 
 
-# ─── record_metrics (A — 분리, F — MetricInsertResult) ────────────────────
+# --- record_metrics (A — 분리, F — MetricInsertResult) --------------------
 
 
 async def test_record_metrics_inserts_all_four_tables(
@@ -389,7 +389,7 @@ async def test_record_metrics_per_device_unique(
     assert result.disk_io == 3
 
 
-# ─── boot_time / agent_started_at 보존 (counter reset 정밀 식별 의존) ───────
+# --- boot_time / agent_started_at 보존 (counter reset 정밀 식별 의존) -------
 
 
 async def test_record_metrics_persists_boot_time_envelope(
@@ -433,7 +433,7 @@ async def test_record_metrics_persists_boot_time_envelope(
         assert count == 1, f"{table} should reference the envelope at same (server_id, collected_at)"
 
 
-# ─── 명시 select 후 _inventory_changed 회귀 (C5) ──────────────────────────
+# --- 명시 select 후 _inventory_changed 회귀 (C5) --------------------------
 
 
 async def test_upsert_server_history_appended_on_change(

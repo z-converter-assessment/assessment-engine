@@ -30,7 +30,7 @@ def _eff(
     )
 
 
-# ─── Windows (build os_version 매칭) ──────────────────────────────────────────
+# --- Windows (build os_version 매칭) ------------------------------------------
 
 
 def test_win2022_exit2_remapped_to_success() -> None:
@@ -51,7 +51,7 @@ def test_null_os_version_not_remapped() -> None:
     assert _eff("failure", "script_failed", 2, "windows", None) == ("failure", "script_failed")
 
 
-# ─── Linux (os_id:major 매칭, EL9 exit 3) ─────────────────────────────────────
+# --- Linux (os_id:major 매칭, EL9 exit 3) -------------------------------------
 
 
 def test_el9_rocky_exit3_remapped_to_success() -> None:
@@ -84,7 +84,7 @@ def test_linux_without_os_id_not_remapped() -> None:
     assert _eff("failure", "script_failed", 3, "linux", "9.7", None) == ("failure", "script_failed")
 
 
-# ─── 공통 게이트 ──────────────────────────────────────────────────────────────
+# --- 공통 게이트 --------------------------------------------------------------
 
 
 def test_non_script_failed_not_remapped() -> None:
@@ -101,7 +101,7 @@ def test_success_passthrough() -> None:
     assert _eff("success", None, 0, "windows", "20348") == ("success", None)
 
 
-# ─── task_policy 우선순위 (실제 설치 신호 > exit_code, zinstall-verdict 개선) ──────────
+# --- task_policy 우선순위 (실제 설치 신호 > exit_code, zinstall-verdict 개선) ----------
 
 
 def _effv(

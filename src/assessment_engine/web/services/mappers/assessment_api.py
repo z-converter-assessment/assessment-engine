@@ -25,7 +25,7 @@ if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
 
 
-# ─── identity ──────────────────────────────────────────────
+# --- identity ----------------------------------------------
 def _identity(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool) -> JsonObject:
     return {
         "public_id": raw.public_id,
@@ -37,7 +37,7 @@ def _identity(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool) -> J
     }
 
 
-# ─── reproduction ──────────────────────────────────────────
+# --- reproduction ------------------------------------------
 # bond_mode raw 커널 토큰 -> 계약 enum(에이전트는 raw 발행, 엔진 정규화). 미매핑/None -> None.
 _BOND_MODE_MAP = {
     "802.3ad": "lacp",
@@ -200,7 +200,7 @@ def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) 
     }
 
 
-# ─── sizing (axes[]) ───────────────────────────────────────
+# --- sizing (axes[]) ---------------------------------------
 def _axis_size(current: float, ra: recommendation.ResourceAssessment, stats: recommendation.ResourceStats):
     """cpu/memory 축 판정 -> (recommended, action, estimate_quality). recommended never-null(current 폴백).
 
@@ -285,7 +285,7 @@ def _sizing(
     return {"axes": axes}
 
 
-# ─── assessment ────────────────────────────────────────────
+# --- assessment --------------------------------------------
 def _assessment(host: recommendation.HostAssessment) -> JsonObject:
     """호스트 종합 판정 — classification(도메인 Recommendation, 계약 enum 과 동일 값) + confidence + data_quality.
 
@@ -308,7 +308,7 @@ def _assessment(host: recommendation.HostAssessment) -> JsonObject:
     }
 
 
-# ─── diagnostics (선택 소비) ───────────────────────────────
+# --- diagnostics (선택 소비) -------------------------------
 _DIAG_AXES = ("cpu", "memory", "disk_capacity", "disk_io", "network")
 
 

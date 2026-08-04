@@ -4,7 +4,7 @@
 // Array.isArray 방어, 404 분기, suggestedMax 명명 상수)의 도구 모음.
 
 (function (root) {
-  // ── 시간 범위 / 버킷 매핑 ──
+  // -- 시간 범위 / 버킷 매핑 --
   // 14d는 right-sizing 윈도우(recommendation.WINDOW_DAYS)와 동일 — 보고서·대시보드·차트 일관.
   // 14일 → 6시간 버킷 자동 매핑 (14*24/6 = 56 데이터 포인트, 가독성·표시 부담 균형).
   const RANGE_LABEL  = { '15m':'15분', '1h':'1시간', '6h':'6시간', '24h':'1일', '7d':'7일', '14d':'14일', '30d':'30일' };
@@ -16,7 +16,7 @@
   /** @type {Record<string, number>} */
   const BUCKET_MS = { '1m':6e4, '5m':3e5, '15m':9e5, '30m':18e5, '1h':36e5, '3h':108e5, '6h':216e5, '12h':432e5, '1d':864e5 };
 
-  // ── 색상 팔레트 ──
+  // -- 색상 팔레트 --
   // 테마색1 (base.html :root --color-title) — JS 차트 시리즈가 CSS 변수를 추종.
   // getComputedStyle 실패·빈 값 시 #2563eb fallback (--color-title 현행값과 동일 — 회귀 0 보장).
   function themeColor() {
@@ -27,7 +27,7 @@
   }
   const COLORS = [themeColor(),'#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
 
-  // ── 시간 포매팅 (KST) ──
+  // -- 시간 포매팅 (KST) --
   /** @param {string} isoStr */
   function fmtKst(isoStr) {
     const d = new Date(isoStr);
@@ -50,7 +50,7 @@
     return `${HH}:${mm}`;
   }
 
-  // ── 처리량 포매터 (B/s → kB/s → MB/s) ──
+  // -- 처리량 포매터 (B/s → kB/s → MB/s) --
   /** @param {number | null} v */
   function fmtKbChart(v) {
     if (v == null) return '';
@@ -59,7 +59,7 @@
     return v.toFixed(0) + ' B/s';
   }
 
-  // ── 앵커 datetime 입력 처리 ──
+  // -- 앵커 datetime 입력 처리 --
   /** @param {string} inputId */
   function getAnchorEnd(inputId) {
     const val = /** @type {HTMLInputElement} */ (document.getElementById(inputId)).value;
@@ -76,7 +76,7 @@
     input.value = kstNow;
   }
 
-  // ── 버킷 그리드 생성 ──
+  // -- 버킷 그리드 생성 --
   /**
    * @param {string} rangeKey
    * @param {string} bucketKey
@@ -106,7 +106,7 @@
     return grid.map(t => map[t] ?? null);
   }
 
-  // ── 다중 dimension avg-only 라인 dataset 빌드 ──
+  // -- 다중 dimension avg-only 라인 dataset 빌드 --
   // cpu 분류·실행 큐·메모리 구성·종합 추이가 공유. rows: [{collected_at, value, dimension}].
   // metaMap: { dim: {label, color} } — 미정의 dim 은 dim 이름·기본색(#8b5cf6).
   // opts.valueFn: per-point 값 변환(기본 항등). opts.pointRadius: 0(추이)·1(분류).
@@ -138,7 +138,7 @@
     });
   }
 
-  // ── 처리량 동적 단위 포매터 (kB/s → MB/s) ──
+  // -- 처리량 동적 단위 포매터 (kB/s → MB/s) --
   // 종합·환경 성능 추이(metrics·environment-metrics) Y축 단위 포매터 (B/s 기준 fmtKbChart 와 구분 — 이쪽은 kB 입력).
   // 단위 표기 "kB/s"/"MB/s" 통일 (fmtKbChart 와 동일 관습).
   /** @param {number | null | undefined} kb */
@@ -147,7 +147,7 @@
     return kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB/s' : kb.toFixed(1) + ' kB/s';
   }
 
-  // ── 토글 그룹 바인딩 ──
+  // -- 토글 그룹 바인딩 --
   // groupId 가 <select> 면 change 로, .toggle 버튼 그룹이면 click 으로 자동 분기.
   // 호출처는 (groupId, onChange(val)) 동일 — HTML 만 select/button 선택.
   /**
@@ -170,7 +170,7 @@
     });
   }
 
-  // ── 페이지 단일 시간축 컨트롤러 (#F10 페이지 단일 윈도우/앵커) ──
+  // -- 페이지 단일 시간축 컨트롤러 (#F10 페이지 단일 윈도우/앵커) --
   // 한 range 토글 + 한 anchor 가 페이지의 모든 차트를 구동 — 차트별 파편 컨트롤 대체. 신호 간 시점 상관
   // 관측(이 호스트를 이 창·이 시점으로). anchor 미입력=live now, 입력=고정(과거 사건 조사). 변경 시 onChange 로 전체 reload.
   /**
@@ -189,7 +189,7 @@
     return { getRange: () => range, getAnchor: () => getAnchorEnd(anchorId) };
   }
 
-  // ── 30초 polling 자동 갱신 (detail 실시간 메트릭과 일관) ──
+  // -- 30초 polling 자동 갱신 (detail 실시간 메트릭과 일관) --
   // 탭 비활성(document.hidden) 시 tick skip — 다중 탭에서 누적 폴링 요청 차단(서버 부하 감소).
   // 숨겨졌다 다시 보이면 즉시 1회 refresh 해 멈춰있던 화면 보정 (loader 의 seq 가드가 중복 응답 흡수).
   // 폴링은 연결 상태 개념이 없어 상태 DOM 갱신 없음. stamp 는 호출처 loader 가 갱신.
@@ -208,11 +208,11 @@
     return id;
   }
 
-  // ── 응답 안전 변환 ──
+  // -- 응답 안전 변환 --
   /** @param {any} arr */
   function safeArray(arr) { return Array.isArray(arr) ? arr : []; }
 
-  // ── Windows 미측정 메트릭 N/A (표시 경계) ──
+  // -- Windows 미측정 메트릭 N/A (표시 경계) --
   // Windows 는 cpu iowait/steal·mem buffers/cached 를 측정하지 않아 payload 에서 null 로 온다(구 에이전트는 0).
   // 값이 아니라 os_family==='windows' + 본 키로 판정해 'N/A' 표시 — null·0 어느 쪽이든 "측정값 0"과 구분. 부재 메트릭 카탈로그 단일 진실(JS).
   const WIN_NA_KEYS = new Set(['cpu_iowait', 'cpu_steal', 'cpu_nice', 'mem_buffers', 'mem_cached']);
@@ -250,7 +250,7 @@
     setValText(el, naWindows(osFamily, key, formatted));
   }
 
-  // ── avg+max ghost dataset 빌드 (P4 패턴) ──
+  // -- avg+max ghost dataset 빌드 (P4 패턴) --
   // avgRows·maxRows: [{collected_at, value, dimension?}]
   // opts: { label?, color?, dashFn?(dim), pointRadius? }
   // single-dim(라벨 1개) 또는 multi-dim(dim별 색·dash) 통합.
@@ -297,7 +297,7 @@
     return datasets;
   }
 
-  // ── 짝수 인덱스 avg dataset만 legend 표시 (max ghost 숨김) ──
+  // -- 짝수 인덱스 avg dataset만 legend 표시 (max ghost 숨김) --
   // opts: { codeLabel?: code 태그 사용, withToggle?: 칩(pill) 토글 — avg/max 짝 함께 hide (P4 허용 — E1 P4 절) }
   /**
    * @param {string} containerId

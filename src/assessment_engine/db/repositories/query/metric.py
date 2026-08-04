@@ -266,7 +266,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                       AND {_PHYS_DISK_SQL_FILTER}
             ),
             dd AS (
-                -- device 별 델타 — await = Δop_time / Δops, util = Δio_time / Δwall.
+                -- device 별 델타 — await = delta(op_time) / delta(ops), util = delta(io_time) / delta(wall).
                 SELECT server_id,
                     max(CASE WHEN rn = 1 THEN t END)   - max(CASE WHEN rn = 2 THEN t END)   AS t_delta,
                     max(CASE WHEN rn = 1 THEN ops END) - max(CASE WHEN rn = 2 THEN ops END) AS ops_delta,
@@ -279,7 +279,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             da AS (
                 -- 실제 바쁜(io_time util >= :diskio_util_min) device 만 await 채택 후 worst(MAX) — report.py 와 동일.
                 -- 유휴 device 의 writeback 큐 잔류 await 폭증 억제(병목 아님).
-                -- disk_io_util_pct(Δio_time/Δwall*100) 는 worst(MAX) device 채택 — 유휴(0%)도 실측값이라 await 같은
+                -- disk_io_util_pct(delta(io_time)/delta(wall)*100) 는 worst(MAX) device 채택 — 유휴(0%)도 실측값이라 await 같은
                 -- util 하한 게이트는 없음. 단 ops_delta > 0 요구(await 와 동일 원칙) — 연산 0건인데 io_time 만 증가하는
                 -- 건 물리적으로 모순(구세대 virtio 드라이버 phantom busy 카운터 실측, 완료 연산 없이 바쁨 시간만 누적) —
                 -- 그대로 보이면 오탐이라 그 device 는 미측정 처리. d2 가 이미 물리 disk only(_PHYS_DISK_SQL_FILTER)라
@@ -808,7 +808,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts
             """)
         elif metric_type == "disk.io_saturation":
-            # 디스크 I/O 포화 — await(ms) 양 OS 통일. device 별 Δop_time/Δops, io_time util >= min 인
+            # 디스크 I/O 포화 — await(ms) 양 OS 통일. device 별 delta(op_time)/delta(ops), io_time util >= min 인
             # 실제 바쁜 device 만 채택 후 worst(MAX) — report.py·disk_io_saturated 동일(유휴 device writeback await 억제).
             # child 시계열 boot_time 부재 -> reset 은 GREATEST(delta,0). 단일선(os 분기 없음).
             sid_dio = "AND server_id = ANY(:server_ids)" if server_ids else ""
@@ -937,7 +937,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM per_bucket ORDER BY ts
             """)
         elif metric_type == "net.retrans_percent":
-            # TCP 재전송율 % = Σ(Δtcp_retrans) / Σ(Δtx_packets) * 100. reset 은 GREATEST(Δ,0).
+            # TCP 재전송율 % = sum(delta(tcp_retrans)) / sum(delta(tx_packets)) * 100. reset 은 GREATEST(delta,0).
             sid_sm = "AND server_id = ANY(:server_ids)" if server_ids else ""
             sql = text(f"""
                 WITH retrans_ts AS (
@@ -969,8 +969,8 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             """)
             params["window_start"] = start - bucket_td
         elif metric_type == "net.drop_percent":
-            # 패킷 드롭율 % = Σ(Δrx_dropped+Δtx_dropped) / Σ(Δrx_packets+Δtx_packets) * 100 — report.py
-            # net_drop_pct 와 동일 산식(분모 rx+tx 전체 — retrans% 는 tx 만이라 다름). reset 은 GREATEST(Δ,0).
+            # 패킷 드롭율 % = sum(delta(rx_dropped)+delta(tx_dropped)) / sum(delta(rx_packets)+delta(tx_packets)) * 100 — report.py
+            # net_drop_pct 와 동일 산식(분모 rx+tx 전체 — retrans% 는 tx 만이라 다름). reset 은 GREATEST(delta,0).
             sid_nd = "AND server_id = ANY(:server_ids)" if server_ids else ""
             sql = text(f"""
                 WITH raw AS (
@@ -1087,7 +1087,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             # 신호라 게이트 제외 — assess_network 와 동일 OR 판정. TCP 재전송율·패킷 드롭율 2개 % 라인이
             # 시각적으로 거의 겹쳐 구분이 안 되는 문제도 판정 crossing 서버 수(count)로 흡수해 해결.
             # server_metrics(재전송·conntrack)와 server_net_io(드롭·물리 iface 트래픽)는 같은 agent
-            # 보고 주기라 (collected_at, server_id) 로 조인. reset(카운터 감소)은 GREATEST(Δ,0) 흡수 —
+            # 보고 주기라 (collected_at, server_id) 로 조인. reset(카운터 감소)은 GREATEST(delta,0) 흡수 —
             # iface 별로 delta 를 먼저 구한 뒤 server 로 SUM(net.retrans_percent·net.drop_percent 와 동일
             # per-iface-then-sum 순서, server SUM 을 먼저 하면 한 iface 의 reset 이 다른 iface 정상 증가분에
             # 묻혀 GREATEST 클램프가 안 먹는다).
@@ -1120,7 +1120,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                       AND collected_at >= :window_start AND collected_at <= :end {sid_nc}
                 ),
                 iface_deltas AS (
-                    -- iface 별로 delta 를 먼저 구해야 한 iface 의 counter reset 이 GREATEST(Δ,0) 에 걸려도
+                    -- iface 별로 delta 를 먼저 구해야 한 iface 의 counter reset 이 GREATEST(delta,0) 에 걸려도
                     -- 다른 iface 의 정상 증가분과 섞이지 않는다(net.retrans_percent·net.drop_percent 와 동일
                     -- per-iface-then-sum 순서 — server 레벨 SUM 을 먼저 하면 reset 이 합계 안에 묻혀버림).
                     SELECT collected_at, server_id,
@@ -1173,8 +1173,8 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM per_bucket GROUP BY ts ORDER BY ts
             """)
         elif metric_type in ("cpu.psi", "mem.psi", "disk.psi"):
-            # PSI %정체 추이 = Σ(Δstall_time_s) / Σ(Δwall-time) * 100 (scope=some, resource 매핑).
-            # server_pressure (server, resource)별 stall_time_s counter. reset 은 GREATEST(Δ,0). 단일선.
+            # PSI %정체 추이 = sum(delta(stall_time_s)) / sum(delta(wall_time)) * 100 (scope=some, resource 매핑).
+            # server_pressure (server, resource)별 stall_time_s counter. reset 은 GREATEST(delta,0). 단일선.
             # Linux 4.20+ 만 행 존재 -> 미지원 OS(Windows)는 빈 결과(차트 empty state).
             psi_resource = {"cpu.psi": "cpu", "mem.psi": "memory", "disk.psi": "io"}[metric_type]
             sid_psi = "AND server_id = ANY(:server_ids)" if server_ids else ""
@@ -1208,7 +1208,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             # 페이징은 magnitude 아닌 존재 판정이라(하드폴트 절대 rate 는 디스크 속도 의존이라 보편 임계 불가)
             # raw rate 를 그대로 선으로 그리면 OS 간 척도가 달라 비교 불가 — 버킷 안에서 한 번이라도 넘었는지
             # (bool_or)를 1.0/0.0 스텝으로 표시해야 Linux·Windows 를 같은 잣대(판정 결과)로 비교 가능.
-            # reset(카운터 감소)은 GREATEST(Δ,0) 흡수. 하드폴트 원자료 컬럼은 os-aware(Windows 는 paging.operations
+            # reset(카운터 감소)은 GREATEST(delta,0) 흡수. 하드폴트 원자료 컬럼은 os-aware(Windows 는 paging.operations
             # 를 direction=in 만 발행해 paging_major 가 항상 NULL — Linux=paging_major(refault) / Windows=paging_in
             # (Pages Input), report_aggregate pages_input_rate 산식과 동일 소스 통일).
             sid_mp = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
@@ -1253,7 +1253,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             # CPU 실행 큐와 달리 Linux 쪽이 magnitude 아닌 존재 판정이라(하드폴트 절대 rate 는 디스크 속도
             # 의존이라 보편 임계 불가, 의식적으로 존재 판정으로 후퇴시킨 설계) 정규화 지수 대신 "판정 crossing
             # 서버 수"(count)로 집계 — 분모(온라인 대수) 변동에 왜곡 없는 절대치, 실제 판정에 쓰는 신호라
-            # mem.psi(장식적 참고치, 판정 비관여)보다 정합. reset(카운터 감소)은 GREATEST(Δ,0) 흡수 — PSI 와 동일.
+            # mem.psi(장식적 참고치, 판정 비관여)보다 정합. reset(카운터 감소)은 GREATEST(delta,0) 흡수 — PSI 와 동일.
             # 버킷 먼저 묶고 그 안에서 server 별 "한 번이라도 넘었는지"(bool_or) 후 distinct server 수 — raw
             # collected_at 별로 먼저 세고 avg 내면 서버들이 비동기 보고라 매 시점 사실상 1대만 잡혀 소수 카운트가
             # 나온다(오류, cpu.saturation_hosts 와 동일 수정). 버킷 우선이라 항상 정수. 하드폴트 원자료 컬럼은
@@ -1299,7 +1299,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 # 환경 사용률 — per-instant GROUP BY collected_at 는 staggered 수집(server 별 보고 시각이
                 # 제각각)에서 그 시점 보고 안 한 server 가 빠져 fs.used_bytes 와 동일 왜곡(창 첫/끝 bucket 이
                 # 부분 서버만 반영해 튐, F5 로 재확인 후 수정). LATERAL 로 각 bucket·server+mount 조합마다
-                # "그 bucket 끝 시점까지의 마지막 값"(LOCF)을 끌어와 Σused/Σ(used+free) — lookback
+                # "그 bucket 끝 시점까지의 마지막 값"(LOCF)을 끌어와 sum(used)/sum(used+free) — lookback
                 # (:window_start = start - 1bucket)으로 첫 bucket 도 직전 값을 확보.
                 sid_fs = "AND server_id = ANY(:server_ids)" if server_ids else ""
                 sid_fs_sf = "AND sf.server_id = ANY(:server_ids)" if server_ids else ""

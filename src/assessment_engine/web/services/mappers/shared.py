@@ -21,7 +21,7 @@ from assessment_engine.web.view_models.server import ServiceBadgeRef
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import ReportRowRaw
 
-# ─── UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ────
+# --- UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ----
 # template_setup.py 가 본 상수를 import 해 Jinja2 globals 로 노출 → body data-attribute 단일 진실.
 _USAGE_DANGER_PCT = 90  # 사용률 위험 임계 — disk_warning · server detail badge 공통
 _USAGE_WARN_PCT = 75  # 사용률 주의 임계
@@ -289,7 +289,7 @@ def build_service_badge_reference() -> list[ServiceBadgeRef]:
     return refs
 
 
-# ─── USE Method 도넛 카탈로그 — 대시보드 + 환경 보고서 + 서버 리스트 단일 진실 (T13) ────
+# --- USE Method 도넛 카탈로그 — 대시보드 + 환경 보고서 + 서버 리스트 단일 진실 (T13) ----
 # 자원 적정성 상태 enum 1:1 매핑. (key, label, hex, description) 튜플 정렬:
 #   under(빨강), over(파랑=주색), idle(회색), optimal(녹색), insufficient_data(옅은회색).
 # over 색 = 테마색1(var(--color-title)) 동일 주색 — 활용률 게이지와 같은 파랑, under 빨강과 대비.
@@ -340,7 +340,7 @@ DIAGNOSTIC_RANGE_LABEL_KR: dict[str, str] = {
     "30d": "30일",
 }
 
-# ─── OS EOL — endoflife.date 스냅샷 카탈로그 기반 (scripts/snapshot_os_eol.py 생성) ───
+# --- OS EOL — endoflife.date 스냅샷 카탈로그 기반 (scripts/snapshot_os_eol.py 생성) ---
 # 정적 JSON 을 모듈 로드 시 1회 읽는다. 판정이 이미지 안에서 닫혀 있어야 같은 이미지가 언제 돌든
 # 같은 결과를 낸다. 갱신 = 스냅샷 재실행 + commit.
 _EOL_CATALOG_PATH = Path(__file__).parent / "os_eol_catalog.json"
@@ -363,7 +363,7 @@ _OS_ID_TO_EOL_PRODUCT: dict[str, str] = {
     "oracle": "oracle-linux",  # 일부 배포 변형 alias
 }
 
-# ─── OS distro 필터 ───
+# --- OS distro 필터 ---
 # endoflife.date 카탈로그 product 전체를 OS 필터 옵션으로 (수집 무관 — 지원 distro 노출, ADR 0031 출처).
 # 수집 os_id <-> distro(product slug) 정규화. windows 는 os_id=="windows" -> windows-server.
 _DISTRO_LABELS: dict[str, str] = {

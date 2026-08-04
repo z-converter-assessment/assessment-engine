@@ -38,7 +38,7 @@ const seqs = {
   netIo: 0, netCongested: 0,
 };
 
-/* ── 유틸 ──
+/* -- 유틸 --
  * P4(b) capture-before-await: 모든 함수가 range/anchor를 인자로 받음.
  */
 const _safe = safeArray;
@@ -275,7 +275,7 @@ async function loadBinaryChart(metricType, canvasId, emptyId, seqKey, label, hiT
   }));
 }
 
-/* ── Y축 설정 ── */
+/* -- Y축 설정 -- */
 const pctTicks = { callback: /** @param {number} v */ (v) => Number(v).toFixed(1) + '%', font:{size:11}, color:'#64748b' };
 const Y_PCT   = { min:0, max:100, ticks: pctTicks };
 const Y_RUNQ  = { beginAtZero:true, suggestedMax: 2, ticks:{ font:{size:11}, color:'#64748b' } };
@@ -285,7 +285,7 @@ const Y_NET   = { beginAtZero:true, ticks:{ callback: /** @param {number} v */ (
 // 다 눌려 보이는 문제 방지).
 const Y_STORAGE_PCT = { beginAtZero:true, ticks: pctTicks };
 
-/* ── 개별 차트 로더 (P4(a) per-chart seq) ── */
+/* -- 개별 차트 로더 (P4(a) per-chart seq) -- */
 
 /** @param {string} range @param {Date|null} anchor */
 async function loadCpuChart(range, anchor) {
@@ -438,7 +438,7 @@ async function loadNetCongestedChart(range, anchor) {
     '네트워크 이상', '이상', '정상', range, anchor);
 }
 
-/* ── 전체 로드 ── */
+/* -- 전체 로드 -- */
 /** @param {string} range */
 function updateBucketLabel(range) {
   /** @type {HTMLElement} */ (document.getElementById('bucket-label')).textContent = BUCKET_LABEL[AUTO_BUCKET[range]] || '';
@@ -472,7 +472,7 @@ async function loadAllCharts() {
   ]);
 }
 
-/* ── 인쇄 리사이즈 ──
+/* -- 인쇄 리사이즈 --
  * Chart.js 캔버스는 화면 컨테이너 폭 기준 렌더. 인쇄로 전환되면 레이아웃 폭(portrait 2열)이 달라
  * 캔버스가 인쇄 영역에 안 맞아 꺾은선이 plot 경계를 넘는다. 인쇄 직전/직후 명시 리사이즈로 보정. */
 function resizeAllCharts() {
@@ -481,7 +481,7 @@ function resizeAllCharts() {
 window.addEventListener('beforeprint', resizeAllCharts);
 window.addEventListener('afterprint', resizeAllCharts);
 
-/* ── 날짜 인풋 초기화 + 컨트롤 바인딩 ── */
+/* -- 날짜 인풋 초기화 + 컨트롤 바인딩 -- */
 /** @type {any} */ (ChartUtils).initAnchor('anchor-date');
 bindToggle('global-range-btns', val => { globalRange = val; loadAllCharts(); });
 // 앵커 변경 즉시 반영 — 구간 토글·상세 차트(cpu/network/storage)와 동일 (적용 버튼 없이 change 로 갱신).

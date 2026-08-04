@@ -48,7 +48,7 @@ def _consumer_kwargs(**overrides: Any) -> dict[str, Any]:
     return base
 
 
-# ─── WebSettings — _validate_web_secrets ──────────────────────────────────
+# --- WebSettings — _validate_web_secrets ----------------------------------
 
 
 @pytest.mark.parametrize("app_env", ["dev", "prod"])
@@ -90,7 +90,7 @@ def test_web_settings_prod_rejects_weak_postgres_user(weak_user: str):
     assert "POSTGRES_USER" in str(exc.value)
 
 
-# ─── ConsumerSettings — _validate_consumer_secrets + WebSettings 상속 ─────
+# --- ConsumerSettings — _validate_consumer_secrets + WebSettings 상속 -----
 
 
 def test_consumer_settings_prod_with_strong_defaults_passes():
@@ -122,7 +122,7 @@ def test_consumer_settings_prod_inherits_web_validation():
     assert "POSTGRES_PASSWORD" in str(exc.value)
 
 
-# ─── DiagnosticSettings — ConsumerSettings 상속, 추가 검증 없음 ────────────
+# --- DiagnosticSettings — ConsumerSettings 상속, 추가 검증 없음 ------------
 
 
 def test_diagnostic_settings_prod_inherits_consumer_validation():
@@ -132,7 +132,7 @@ def test_diagnostic_settings_prod_inherits_consumer_validation():
     assert "RABBITMQ_PASSWORD" in str(exc.value)
 
 
-# ─── broker_url·database_url 조립 ──────────────────────────────────────────
+# --- broker_url·database_url 조립 ------------------------------------------
 
 
 def test_web_settings_database_url_includes_secret_value():
@@ -152,7 +152,7 @@ def test_consumer_settings_broker_url_encodes_vhost():
     assert s.broker_url.endswith("/%2Fassessment")
 
 
-# ─── secret 파일 vs 환경변수 충돌 — _reject_env_shadowing_secret ───────────
+# --- secret 파일 vs 환경변수 충돌 — _reject_env_shadowing_secret -----------
 
 
 def _prod_env(monkeypatch: pytest.MonkeyPatch, secrets_dir: Path) -> None:

@@ -1,6 +1,6 @@
 """boot_time 동일 부팅 판정 — 측정 지터 흡수 단일 진실 (web·consumer 공용 도메인 모듈).
 
-에이전트가 boot_time 을 /proc/stat btime(정적) 대신 now - uptime(동적)으로 산출해 매 수집마다 ±1초
+에이전트가 boot_time 을 /proc/stat btime(정적) 대신 now - uptime(동적)으로 산출해 매 수집마다 +/-1초
 흔들린다(실측 확인). 정확 비교(!=)는 이 지터를 재부팅/변경으로 오판 -> CPU/IO delta 간헐 NULL(부하 상위·
 차트 출렁임) + inventory_history 가짜 행 적재. 두 시점 boot_time 차이가 허용치 이내면 동일 부팅으로 본다.
 
@@ -11,7 +11,7 @@ BOOT_TIME_JITTER_TOLERANCE 에서 파생한 초 단위 값을 bound parameter �
 
 from datetime import datetime, timedelta
 
-# 측정 지터 허용치 — 이 이내 차이는 동일 부팅. 실측 지터는 ±1초, 실제 재부팅은 분 단위 점프라 안전하게 구분.
+# 측정 지터 허용치 — 이 이내 차이는 동일 부팅. 실측 지터는 +/-1초, 실제 재부팅은 분 단위 점프라 안전하게 구분.
 BOOT_TIME_JITTER_TOLERANCE = timedelta(seconds=5)
 
 

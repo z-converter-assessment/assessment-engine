@@ -45,7 +45,7 @@ def _rec(
     )
 
 
-# ─── view·view_label 매핑 ────────────────────────────────────────────────
+# --- view·view_label 매핑 ------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -68,7 +68,7 @@ def test_view_label_from_job_type(job_type: str, expected_view: str, expected_la
     assert item["view_label"] == expected_label
 
 
-# ─── result_link — 발행된 정적 스냅샷 ?job={id} (scope/서버 수에 따라 라우터만 분기) ─────
+# --- result_link — 발행된 정적 스냅샷 ?job={id} (scope/서버 수에 따라 라우터만 분기) -----
 
 
 _JOB_ID = "00000000-0000-0000-0000-000000000001"
@@ -151,7 +151,7 @@ def test_link_with_back_appends_referrer():
     assert item["result_link"] == f"/reports/environment?job={_JOB_ID}&back=%2Freports%2Fhistory"
 
 
-# ─── _window_label / _resolve_time_range 분기 ───────────────────────────
+# --- _window_label / _resolve_time_range 분기 ---------------------------
 
 
 def test_window_label_uses_input_params_time_range():
@@ -226,7 +226,7 @@ def test_window_label_default_when_both_missing():
     assert item["window_label"] == "14일"
 
 
-# ─── to_report_history_item 응답 dict shape ───────────────────────────
+# --- to_report_history_item 응답 dict shape ---------------------------
 
 
 def test_to_report_history_item_returns_all_required_keys():

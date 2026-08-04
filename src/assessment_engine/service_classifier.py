@@ -363,7 +363,7 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
     ),
 )
 
-# ─── 파생 인덱스 (import 시점 1회, 재계산 0) ─────────────────────────────────
+# --- 파생 인덱스 (import 시점 1회, 재계산 0) ---------------------------------
 
 # (keyword, category) 순서 = 카탈로그 등장 순 = 첫 매칭 우선.
 _NAME_INDEX: tuple[tuple[str, str], ...] = tuple((kw, d.key) for d in SERVICE_CATALOG for kw in d.name_keywords)
@@ -400,7 +400,7 @@ BADGE_CLASS_BY_CATEGORY: dict[str, str] = {d.key: d.badge_class for d in SERVICE
 BADGE_CLASS_BY_CATEGORY["unknown"] = "badge-cat-unknown"
 
 
-# ─── 분류 ──────────────────────────────────────────────────────────────────
+# --- 분류 ------------------------------------------------------------------
 
 
 def _match_keyword(text: str) -> str | None:
@@ -546,7 +546,7 @@ def detect_listen_categories(listen_ports: list[JsonObject]) -> dict[str, list[M
     return out
 
 
-# ─── baseline(OS 기본·관리) 서비스 — 특징 워크로드 아님 (목록·환경분포 제외) ──────────────
+# --- baseline(OS 기본·관리) 서비스 — 특징 워크로드 아님 (목록·환경분포 제외) --------------
 # 원격 접속(전 호스트 관리 표면) + OS 기본 인프라 클라이언트(NTP·DNS resolver·RPC·auth 클라이언트)는 거의 모든
 # 호스트에 있어 구별력이 0 — 인식(상세 live classify)은 유지하되 "이 서버의 특징" 신호로는 안 친다.
 # compute_service_categories(저장값 = 목록·환경분포·필터 소스)·workload_category_counter 에서 제외.
