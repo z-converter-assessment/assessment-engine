@@ -295,7 +295,7 @@ Pagination 정책:
 - `src/assessment_engine/worker/settings.py` — `get_worker_settings()` (WorkerSettings, 전용 백그라운드 워커 — 보고서 생성·install reaper)
 - `src/assessment_engine/db/session.py`·`cache/redis.py`·`migrations/env.py` — 자체 `WebSettings()` (모든 컴포넌트 공통 db layer·캐시·schema 진입점, circular import 회피)
 
-`src/assessment_engine/config.py`는 class 정의만 — module-level instance 0 (multi-node 분리 정합, ADR/문서 패턴 정합).
+`src/assessment_engine/config.py` 는 class 정의만 둔다 — module-level instance 0.
 
 금지:
 - Service/Handler 안 구현(`Sql*`) import.
@@ -303,7 +303,7 @@ Pagination 정책:
 - `assessment_engine.config`에서 Settings 인스턴스 import — class만 export.
 - `APP_ENV` 환경 분기를 entry lifespan 외 위치에 추가. 비밀번호 검증은 환경을 가르지 않는다 (#F8·`contracts/env.md` 6절).
 
-Protocol 카탈로그·새 Repository 절차: `docs/reference/web/layering.md` · `docs/reference/db/repositories.md`.
+Protocol 카탈로그·새 Repository 절차: `docs/reference/web/layering.md` · `docs/reference/db/repositories.md`. 인터페이스를 Protocol 로 두는 이유와 이름 규칙은 `docs/guides/conventions.md` 3절.
 
 ## F5. 자동화 변환 — 책임 분담
 
