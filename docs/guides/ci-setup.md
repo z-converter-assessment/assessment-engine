@@ -84,7 +84,7 @@ tag 는 `release.yml` 이 `pyproject.toml` 의 version 에서 파생 생성하�
 | `wheel build` | `ci.yml` | 미발화 | 의무 |
 | `pytest (integration)` | `ci.yml` | 미발화 | 의무 |
 
-`ruff + hadolint` 잡은 이름과 달리 pyright(`src` 범위)도 함께 돌린다 — check 이름이 바뀌면 required 재등록이 필요하므로 잡을 나누지 않았다.
+`ruff + hadolint` 잡은 이름과 달리 pyright 도 함께 돌린다 — check 이름이 바뀌면 required 재등록이 필요하므로 잡을 나누지 않았다.
 
 develop 5개, main 7개다. UI 검색 결과에 워크플로 이름이 접두로 붙어 보일 수 있으니(`ci / pytest (unit)`) 검색해서 나오는 항목을 그대로 고른다.
 

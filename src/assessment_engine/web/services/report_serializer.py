@@ -17,10 +17,7 @@ import dataclasses
 
 # result 구조 계약(키·dict 조립)은 diagnostic.report_result 단일 진실 — web view_models 에 의존하지
 # 않는 중립 모듈에 분리.
-from assessment_engine.diagnostic.report_result import (  # noqa: F401 (re-export)
-    REPORT_KIND_ENV,
-    build_report_result,
-)
+from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV as REPORT_KIND_ENV
 from assessment_engine.web.services.serialization_util import parse_dt as _dt
 from assessment_engine.web.services.serialization_util import to_jsonable as _to_jsonable
 from assessment_engine.web.view_models.attention import (

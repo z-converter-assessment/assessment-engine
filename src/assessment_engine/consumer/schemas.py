@@ -22,8 +22,6 @@ class MessageBase(BaseModel):
 
     # 에이전트 계약 버전(contract.AGENT_CONTRACT_VERSION). 형식 major.minor.
     schema_version: str = Field(pattern=r"^\d+\.\d+$")
-    # agent_id — 호스트 식별 단일 키(불변 UUID). DB UNIQUE·MQ 라우팅. task.result 한정 nullable(task_id 매칭).
-    agent_id: UUID
     message_id: UUID
     collected_at: AwareDatetime
     # composite_id — SHA-256 감사·표시용(식별 미사용). "" -> None 정규화.
@@ -48,6 +46,17 @@ class MessageBase(BaseModel):
     @classmethod
     def _empty_composite_to_none(cls, v: object) -> object:
         return None if v == "" else v
+
+
+class AgentMessageBase(MessageBase):
+    """agent 프로세스가 직접 발행해 agent_id 가 반드시 실리는 메시지.
+
+    task.result 는 worker 컨텍스트라 agent_id 가 없어 본 클래스를 상속하지 않는다 — 상속으로 nullable
+    override 를 하면 기반 클래스의 `UUID` 선언이 거짓이 된다.
+    """
+
+    # agent_id — 호스트 식별 단일 키(불변 UUID). DB UNIQUE·MQ 라우팅.
+    agent_id: UUID
 
 
 # ---------------------------------------------------------------------------
@@ -79,7 +88,7 @@ Namespace = dict[str, Metric]
 # ---------------------------------------------------------------------------
 
 
-class MetricsInput(MessageBase):
+class MetricsInput(AgentMessageBase):
     message_type: Literal["metrics"]
 
     # 필수 4 네임스페이스 (키 present, 값은 object|null 허용).
@@ -240,7 +249,7 @@ class NonblockMountInfo(BaseModel):
     fs_passno: int | None = None
 
 
-class InventoryInput(MessageBase):
+class InventoryInput(AgentMessageBase):
     message_type: Literal["inventory"]
 
     hostname: str = Field(min_length=1, max_length=255)
@@ -291,7 +300,7 @@ class InventoryInput(MessageBase):
 # ---------------------------------------------------------------------------
 
 
-class ErrorInput(MessageBase):
+class ErrorInput(AgentMessageBase):
     message_type: Literal["error"]
     error_code: str = Field(min_length=1, max_length=64)
     error_message: str

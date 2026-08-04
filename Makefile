@@ -41,8 +41,8 @@ test-integration: ## 통합 테스트 (TimescaleDB 컨테이너 기동)
 lint: ## ruff
 	uv run ruff check .
 
-typecheck: ## pyright(src) + tsc(정적 JS)
-	uv run pyright src
+typecheck: ## pyright + tsc(정적 JS)
+	uv run pyright
 	pnpm run typecheck
 
 codegen: ## OpenAPI -> 클라이언트 TS 타입 재생성
