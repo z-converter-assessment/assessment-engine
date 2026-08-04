@@ -32,18 +32,10 @@
 
 > 오리엔테이션 포인터. 명령은 루트 `Makefile` (`make help`), 절차 상세는 `docs/guides/` 단일 진실 — 본 파일은 복제하지 않는다 (#F12).
 
-프로세스 (단일 이미지 — 어느 컴포넌트를 띄울지는 compose `command` 가 정한다):
-- `assessment_engine.web` — FastAPI SSR+JSON 표현 계층 (E)
-- `assessment_engine.consumer` — aio-pika MQ 소비·수집 (D)
-- `assessment_engine.worker` — 보고서 생성 + install reaper (F11)
-- compose `migrate` 서비스 — alembic init-container (C4)
+프로세스 셋과 본 파일 관할 절 — web = E · consumer = D · worker = F11 · compose `migrate` = C4.
+서비스 카탈로그·command 분기는 `docs/reference/docker.md`.
 
-작업 절차 진입 (상세는 각 guide):
-- 이미지·compose 구성 = `docs/reference/docker.md` / dev 기동·코드 반영 = `docs/guides/local-dev.md`
-- 테스트 = `docs/guides/testing.md` / 마이그레이션 = `docs/guides/migrate.md`
-- 배포(VM rollout)·부트스트랩 = `docs/guides/deploy.md` / 릴리즈 = `docs/guides/release.md`
-- 표현계층 타입 계약(codegen·tsc) = `docs/reference/web/type-contract.md`
-- 커밋·PR 마무리 = `docs/guides/wrap-up.md`
+작업 절차 진입은 루트 `CONTRIBUTING.md`, 문서 위치는 `docs/README.md` 지도.
 
 ---
 
@@ -53,16 +45,16 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 
 ## A0. 범위
 
-본 repo는 엔진 애플리케이션 + docker compose 배포 + 엔진 rollout(`deploy.sh`, 배포 대상 VM 에서 실행)까지 다룬다. VM provisioning(IaC — VM 생성·OS 설정)은 별도 준비 VM 전제. docker·cosign 설치와 운영 스크립트(`deploy.sh`·`rotate-secret.sh`) 배치는 1회성 `bootstrap.sh`.
+본 repo 는 엔진 애플리케이션과 그 배포까지 다룬다. VM provisioning(IaC — VM 생성·OS 설정)은 별도 준비 VM 전제.
 
 본 절 결정:
-- compose = 공통 base + dev override(소스 빌드·bind mount, 파일명으로 자동 머지) + prod overlay(file-secret). dev = base+override, prod = base+prod.yml — 어느 쪽이 붙는지는 `.env` 의 `COMPOSE_FILE` 이 정한다. base 는 환경 색을 담지 않는다. Dockerfile 은 dev/prod 분리 안 함 (parity — dev 편의는 override bind mount 로만). prod 비번 = file-secret 채널 단일 (`SecretStr`). 파일 구조·서비스 카탈로그 상세 = `docs/reference/docker.md`.
+- compose = base(환경 색 0) + dev override 또는 prod overlay 하나. Dockerfile 은 dev/prod 분리 안 함 (parity — dev 편의는 override bind mount 로만). prod 비번 = file-secret 채널 단일 (`SecretStr`). 파일 구조·머지 규칙·서비스 카탈로그 = `docs/reference/docker.md`.
 - prod 외부 인프라가 활용할 수 있는 정석 contract만 본 repo에서 유지:
   - 환경변수 contract — `docs/reference/contracts/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
   - 설정 검증 — 비밀번호 미설정·빈값·뻔한 값·채널 충돌을 기동 시점에 거부 (`docs/reference/contracts/env.md` 6절). 환경으로 강도를 가르지 않고, secret 주입 방식과 무관하게 결과만 검증
   - 릴리즈 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR). 배포는 VM 에서 `deploy.sh` 실행 (시퀀스는 `docs/guides/deploy.md` 3절). GitHub Actions runner 미사용(public repo 에 self-hosted runner 안티패턴 회피) — 내부망 VM 이 outbound 로 이미지 pull
-- VM provisioning 코드(`*.tf`·Ansible playbook·VM 생성·OS 설정)는 본 repo에 두지 않는다 — 배포 대상 VM 은 provisioning 완료 상태를 전제. 엔진 rollout(`deploy.sh`)·비밀번호 교체(`rotate-secret.sh`)·VM 부트스트랩(`bootstrap.sh`)은 범위 안. 단일 호스트 compose 수동 기동도 지원.
+- VM provisioning 코드(`*.tf`·Ansible playbook·VM 생성·OS 설정)는 본 repo 에 두지 않는다 — 배포 대상 VM 은 provisioning 완료 상태를 전제. 엔진 rollout(`deploy.sh`)·비밀번호 교체(`rotate-secret.sh`)·VM 부트스트랩(`bootstrap.sh`)은 범위 안. 단일 호스트 compose 수동 기동도 지원.
 
 ---
 
@@ -91,8 +83,8 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 8테이블 자�
 - 시계열 metric 7테이블 자연키 UNIQUE 보존 의무 — 누락 시 #D2 멱등성 2단 방어 깨짐. 모델 변경 시 검증 필수.
 - `server_metrics` 만 `boot_time` + `agent_started_at` 컬럼 보존 — 자식 시계열은 미보유(rate 차트 reset 은 `GREATEST(delta,0)`, 보고서 cagg 는 `counter_agg` 가 값-감소 기준 흡수). counter reset 정밀 식별 (#B 동일 진실).
 - `server_inventory.public_id` (UUID) URL 식별자 — 정수 PK 노출 금지 (#E4).
-- `server_inventory` 식별 분리: `id` PK (FK 대상) / `agent_id` (agent 매칭·식별·라우팅 단일 키 — 첫 실행 시 생성·영구저장한 불변 UUID) / `composite_id`·`machine_id` (감사·표시 전용 nullable — 식별·라우팅 미사용) / `public_id` (URL 노출) / `hostname` display (UNIQUE X). 시계열 8테이블이 `server_id` FK 로 붙는다. 컬럼 타입·제약 표는 `docs/reference/db/models.md`. MQ queue `agent.tasks.{agent_id}` / routing key `task.install.{agent_id}`.
-- 식별키 agent_id 불변: agent_id 는 첫 실행 시 1회 생성·영구저장하는 불변 UUID — 부팅마다 NIC MAC 이 재발급되는 환경(OpenStack Windows VM)에서도 동일 agent_id 가 자연히 같은 행을 upsert 한다. 별도 호스트 재연결 로직 없음. composite_id/machine_id 는 clone collision 진단용 감사 컬럼.
+- 호스트 식별·MQ 라우팅 단일 키 = `agent_id` (첫 실행 시 1회 생성·영구저장하는 불변 UUID). 부팅마다 NIC MAC 이 재발급되는 환경(OpenStack Windows VM)에서도 별도 재연결 로직 없이 같은 행을 upsert 한다. MQ queue `agent.tasks.{agent_id}` / routing key `task.install.{agent_id}` — 식별키를 바꾸면 큐·라우팅이 함께 바뀐다.
+- `composite_id`·`machine_id` 는 clone collision 진단용 감사 컬럼 — 식별·라우팅에 쓰지 않는다. URL 노출은 `public_id` 단독(#E4).
 - `diagnostic_jobs.job_type` (`customer_report`/`engineer_report` 둘만) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. customer/engineer 모두 비동기 생성 (pending -> 워커 claim·running -> succeeded/failed). status·progress_stage·started_at·error_message + active partial UNIQUE 가 비동기 상태머신.
 - 보고서 = 발행 시점 정적 스냅샷 (재계산 0, 이력 동적변화 0). 비동기 생성 — emit 이 parent job pending enqueue 후 즉시 `?job={id}` 반환, 전용 워커 프로세스(`worker/report_worker.py`)가 job 을 claim 해 스냅샷 ViewModel 생성·`result` JSONB 저장 (생성 불가 시 failed). 더블클릭은 active UNIQUE 로 기존 job 합류. GET `?job={id}` = succeeded 면 정적 렌더, pending/running 이면 `report-poll.js` 폴링.
 - server scope N대(ids 2개+) 발행 = 워커가 개별 단일 보고서 N건 + selection 본문을 parent 1건 처리 단위로 생성 — child 전부 성공해야 parent succeeded (부분 누락 차단). ids 1개 = 단일. 양식 통일 — 단일/N대/환경 모두 환경 보고서 양식(`EnvironmentReportSummary`) 공유, selection·단일 전용 필드는 환경에서 None/빈 list.
@@ -104,10 +96,10 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 8테이블 자�
 
 ## C3. Redis 전략 — fail-open 의무
 
-키 설계 표 / TTL 근거 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/reference/redis.md`.
+키 설계 표 / TTL 근거 / `safe_*` helper 카탈로그 / 캐시-aside race 한계 / 평시·장애 동작 매트릭스 / mget 효율 패턴: `docs/reference/redis.md`.
 
 본 절 결정:
-- 모든 Redis 호출은 `src/assessment_engine/cache/redis.py`의 `safe_*` helper(`safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_incr_with_ttl`) 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
+- 모든 Redis 호출은 `cache/redis.py` 의 `safe_*` helper 경유. RedisError 시 silent fallback + warning 로그. 직접 redis client 호출 금지.
 - fail-open 보장 의존성: 멱등성 1단 fail-open(#D2) → DB UNIQUE(#C1)가 중복 흡수. UNIQUE 누락 시 보장 자체가 깨짐.
 
 ## C4. 스키마 변경 — Alembic 단일 진실
@@ -197,7 +189,9 @@ Pagination 정책:
 
 ## E3. 서비스 계층·ViewModel·Mapper (P2)
 
-서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`(+`infer_role`)/`metric`/`attention`/`report`/`task`/`shared`/`environment_report`/`report_history`/`topology` + JSON API 매퍼 `api_reference`/`assessment_api`/`right_sizing_api` = 12 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_significant`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/reference/web/services.md` · `docs/reference/web/view-models.md` 단일 진실.
+표시 파생은 `mappers/` sub-package 에 모인다. 임계 도메인 둘의 자리 — UI badge 는 `mappers/shared.py`(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT`), USE Method right-sizing 은 도메인 모듈 `assessment_engine/recommendation.py`(web 공용 import).
+
+모듈 카탈로그·`enrich_*` idempotent·ViewModel 카탈로그·mapper 파생 필드·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/reference/web/services.md` · `docs/reference/web/view-models.md` 단일 진실.
 
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
@@ -227,7 +221,7 @@ Pagination 정책:
 
 ## E7. 도메인 분류 책임 (P2)
 
-서비스 카테고리 분류(`classify`)·포트 매핑(`matched_ports`)·카테고리 집합 사전계산(`compute_service_categories`)은 도메인 모듈 `assessment_engine/service_classifier.py`(web·consumer 공용 — `recommendation.py` 동급 도메인, web 역의존 0). `MatchedPort` 도 본 모듈 정의(web view_model 이 re-export). ingest(consumer)가 inventory upsert 시 `compute_service_categories` 로 카테고리 집합을 산출해 `server_inventory.service_categories`(text[]) 에 저장하고, 모든 read 경로(목록·상세·리포트·필터)가 저장값 소비. 매퍼가 호출해 `ServiceItem`에 채움. 템플릿은 `service_badge_class` 필터로 category → CSS 클래스 변환만(P3).
+서비스 카테고리 분류는 도메인 모듈 `assessment_engine/service_classifier.py` 소관 — web·consumer 공용이고 web 역의존 0(`recommendation.py` 동급). 템플릿은 `service_badge_class` 필터로 category -> CSS 클래스 변환만 한다(P3). 메커니즘 상세 = `docs/reference/web/services.md`.
 
 본 절 결정:
 - 카테고리 규약 단일 진실 = `SERVICE_CATALOG`(`CategoryDef`). 분류 키워드·포트·드롭다운·뱃지 CSS·템플릿 범례가 모두 본 카탈로그 파생 — 서비스 추가는 카탈로그 1곳만 수정. 분산 정의 부활 금지.
@@ -381,7 +375,9 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 
 원칙: 영향받는 모든 곳 동시 갱신 의무 — 한 곳만 수정 후 PR 금지.
 
-적용 시점: 게이트 배치는 `docs/guides/wrap-up.md` 0절 단일 진실. 로컬 커밋은 lint 만, 코드 리뷰·문서·ADR·본 체크리스트의 동시 갱신은 develop PR, 릴리즈 단위 문서 검증과 통합 테스트는 main PR 이다. 기능 개발 중간 단계에서는 기능 코드만 작성한다 — 동작 검증은 실행 화면으로 확인(사용자 직접 또는 `/run`)하고, 메인 세션이 기능 추가와 함께 테스트·문서를 선제 작성하지 않는다. 문서는 PR 을 열기 전 게이트에서 한 번에 맞춘다. (테스트 자동 실행·보고 금지는 #F5 와 일관.)
+적용 시점: 게이트 배치는 `docs/guides/wrap-up.md` 0절 단일 진실.
+
+기능 개발 중간 단계에서는 기능 코드만 작성한다 — 동작 검증은 실행 화면으로 확인(사용자 직접 또는 `/run`)하고, 메인 세션이 기능 추가와 함께 테스트·문서를 선제 작성하지 않는다. (테스트 자동 실행·보고 금지는 #F5 와 일관.)
 
 변경 유형별 동시 갱신 위치 표(시계열/inventory 컬럼·routing key·페이로드 schema·분류 임계·환경변수·ViewModel 파생 필드·JSON API·보고서 스냅샷·조건부 UI·외부 의존·차트 MetricType·비동기 보고서·install task lifecycle) = `.claude/skills/change-impact/SKILL.md` 단일 진실. 해당 유형 변경 시 본 스킬 로드 의무.
 

@@ -42,21 +42,9 @@ stdout 로그 출력 format 을 `LOG_FORMAT` 환경변수로 토글.
 - `text` (default) — loguru colorized 콘솔. dev grep·시연 가독성.
 - `json` — loguru `serialize=True` 로 record 를 JSON 으로 변환. 외부 log aggregator (Loki·ELK·CloudWatch·Datadog 등) 가 `level`·`time`·`message`·`extra` 필드 자동 indexing → 검색·필터·alerting 가능.
 
-```
-              stdout 로그 (각 컨테이너)
-                    v
-              인프라 측 collector (Fluentbit·Promtail 등)
-                    v
-              log aggregator (Loki·ELK·CloudWatch·Datadog)
-                    v
-              indexed search·filter·alerting
-```
-
 구현: `src/assessment_engine/log_config.py` 의 `setup_logging(log_format)`. 각 entry (web/consumer/worker) 가 Composition Root 에서 호출 (F4 단일 진실). 세 컴포넌트의 Settings 가 모두 같은 env 를 읽는다.
 
-운영 권장:
-- dev: `LOG_FORMAT=text` — 사람이 직접 stream 을 보거나 grep 할 때 가독성 우선.
-- prod: `LOG_FORMAT=json` — 외부 log aggregator 로 indexing·alerting. 평문 stdout grep 으로 충분한 시기에만 `text` 유지.
+환경별 권장값은 `docs/reference/contracts/env.md` 키 카탈로그.
 
 본 repo 책임 한계:
 - 로그 format 출력만. log aggregator stack 선택·운영 (Loki·ELK 등) + collector (Fluentbit·Promtail) 배포는 인프라 책임 (CLAUDE.md #A0).

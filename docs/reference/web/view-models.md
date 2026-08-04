@@ -108,6 +108,3 @@
 - `UTIL_GAUGE_COLOR = "var(--color-title)"` (shared 단일 진실, attention `_UTIL_COLOR_GAUGE` alias) — 주색(테마색1). 활용률 정도는 게이지 길이(`dash_length`)로, 색은 값 무관 단일. Right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over)·서버목록 `.rec-over_provisioned` 배지가 동일 주색 공유 (테마 통일, static-assets.md "색 테마"). under(`#ef4444`)와 대비.
 - `_UTIL_COLOR_NONE = "#cbd5e1"` — 표본 부재 (회색).
 
-## dataclass 필드 순서 주의 (F1)
-
-default 있는 필드는 default 없는 필드 뒤에. 안 그러면 `non-default argument follows default` `TypeError` 즉시 발생. 새 ViewModel 추가 시 항상 점검.

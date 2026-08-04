@@ -74,15 +74,7 @@ web의 `get_latest_metric`이 cache MISS 후 DB query를 마쳤지만 SET을 수
 
 서버 목록 페이지가 N개 서버의 온라인 상태를 조회할 때, N번 직렬 `EXISTS online:{id}` 대신 `safe_mget(online:{id} ...)` 한 번으로.
 
-```python
-# web/services/query/server.py:list_servers
-keys = [get_web_settings().redis_key_online.format(dto.id) for dto in dtos]
-online_flags = await safe_mget(self.redis, keys)  # 장애 시 None -> last_seen_at fallback
-# mget 은 키 개수만큼 반환 — dtos 와 길이 일치
-for dto, flag in zip(dtos, online_flags, strict=True):
-    item = to_server_list_item(dto)
-    item.is_online = flag is not None
-```
+목록은 `safe_mget` 1회로 온라인 플래그를 받고, 장애면 `last_seen_at` 으로 폴백한다.
 
 페이지당 라운드트립 N → 1.
 
@@ -107,22 +99,7 @@ cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_ser
 
 ### 커넥션 풀 (cache/redis.py)
 
-```python
-_pool: ConnectionPool | None = None
-
-def get_pool() -> ConnectionPool:      # 첫 호출에서 만든다 — import 만으로 설정을 요구하지 않는다
-    global _pool
-    pool = _pool
-    if pool is None:
-        pool = ConnectionPool.from_url(WebSettings().redis_url, decode_responses=True, ...)
-        _pool = pool
-    return pool
-
-def get_redis() -> Redis:
-    return Redis(connection_pool=get_pool())
-
-async def close_pool() -> None: ...
-```
+풀은 `cache/redis.py` 모듈이 단일 인스턴스로 갖고 첫 호출 때 만든다. 각 entry 는 종료 시 `close_pool` 로 닫는다.
 
 - 단일 모듈 레벨 `_pool`. 모든 호출이 같은 풀 공유.
 - `decode_responses=True` — bytes가 아닌 str로 자동 디코딩. JSON 캐시 직렬화/역직렬화 단순화.

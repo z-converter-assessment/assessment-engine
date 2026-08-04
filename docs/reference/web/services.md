@@ -83,17 +83,14 @@
 
 ## 디바이스 계층 — block_devices[] 평면 DAG (parent-by-id)
 
-스토리지 토폴로지는 agent `block_devices[]` 평면 그래프(lsblk 정석) — 노드 `{name, type, size_bytes, fstype, mountpoint, parent, id, id_type}`. 부모-자식(disk->part->lvm->crypt->fs)은 노드 `parent`(부모 id) 체인 조인. 다중 부모(RAID span·striped VG)는 디스크별 그룹으로 노출. 정적 토폴로지(무엇이 존재)와 동적 사용량(server_filesystem, 얼마나 찼나)을 분리해 모든 소비처(용량·상세·export·토폴로지)가 같은 술어를 공유한다.
+노드 정의와 parent 체인 조인 규약은 `docs/reference/contracts/agent-data.md` 가 갖는다. web 의 소비 규칙은 하나 — 정적 토폴로지(무엇이 존재)와 동적 사용량(server_filesystem, 얼마나 찼나)을 분리해 모든 소비처(용량·상세·export·토폴로지)가 같은 술어를 공유한다. 다중 부모(RAID span·striped VG)를 디스크별 그룹으로 펴는 것은 렌더 결정이고 `view-models.md` StorageNode 가 소유한다.
 
 ## 디바이스 필터 정책 — block_device `type` · fstype · net `kind`
 
 디스크·마운트·인터페이스의 물리/논리/데이터/가상 판정은 계층별 원본 필드로 한다 (payload 계약 #B). 엔진은 이름 정규식·major 추론 없이 필드로만 판정 — 화면·집계·용량 단일 기준. `device_filters` 단일 진실:
 
-- `is_physical_disk(type)` = `type=="disk"` (PhysicalDrive/sd/nvme/vd. partition/lvm/raid/swap 제외).
-- `is_lvm_disk(type)` = `type in ("lvm","raid","crypt","mpath","dynamic")` — 물리 부재(Windows dynamic 등) 시 disk 차트 fallback 차원.
-- `is_partition(type)` = `type=="part"`. `is_swap(type)` = `type=="swap"` (swap 은 block_device 노드로 표현된다).
-- `is_data_volume(fstype, mountpoint)` = 가상 fs(`VIRTUAL_FSTYPES`) 아니고 mountpoint 가 `/boot` 아님 — fstype None(미상)은 데이터로 포함(df 관례).
-- `is_virtual_interface(kind)` = `kind not in ("physical","bond_master")` — 물리 NIC + bond_master 만 통과(bond_member 이중 집계 회피). net_interface 만 `kind` 유지(block_device 는 `type`).
+술어 본문은 한 줄짜리 함수라 `device_filters` 가 곧 정의다. 판정에 필요한 규약만 여기 남긴다 — `fstype` 이 None(미상)이면 데이터 볼륨으로 포함하고(df 관례), 인터페이스는 물리 NIC 와 bond_master 만 통과시킨다(bond_member 이중 집계 회피). 계층 축이 갈리는 것도 계약이다 — block_device 는 `type`, net_interface 는 `kind`.
+
 - 같은 경계의 SQL 등가는 `db/repositories/query/types.py` 가 갖는다 — 상수 카탈로그와 동기화 의무는 `docs/reference/db/repositories.md`.
 
 적용 경계 — 저장은 모두 유지, 표시 경계에서만 필터:
@@ -110,7 +107,7 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
 right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기·벤더 임계 출처)의 명세 단일 진실은 `docs/reference/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`. web 계층 책임은 소비만 (P2/P4):
-- 분류 = `recommendation.rollup_host(stats) -> HostAssessment`(자원 5개 per-resource + 근본원인). 배지 = `classify_host`. report 진단(`_build_diagnosis`, host.resources 상태·trigger 파생)·권고(`under_prescription(host)`)·attention 자원 부족 카드(`to_capacity_warning_item`, 발화 원인 `active_causes`)가 host.resources triggers·os-aware helper 를 재사용해 한국어 표시로 변환한다(임계 재계산 금지, stats 생성은 `build_resource_stats` 공용). 네트워크 혼잡은 host under 아닌 별도 `network_congested` 플래그.
+- 표시 계층은 임계를 다시 계산하지 않는다. 분류 결과의 triggers 와 os-aware helper 를 그대로 받아 한국어 라벨로만 바꾼다.
 - `unmeasured` -> `is_partial`(=bool(unmeasured)) 을 ViewModel precompute, 템플릿이 "포화 수치 미관측" confidence 마커로 노출.
 
 ## 환경 개요 상단 요약 — environment_overview (`/`)
@@ -141,4 +138,8 @@ right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기·벤더 임
 
 ### 실시간 현황 (live) — `/environment/realtime`
 
-`get_environment_realtime(server_ids=None)` -> `build_environment_realtime` (`servers/_environment_realtime.html` partial + `servers/realtime.html` 페이지 wrapper). 이용률 도넛 2(CPU·메모리 — capacity-weighted: CPU=sum(usage%·cores)/sum(cores), mem=sum(used)/sum(total), `environment_utilization` 과 동일 정의이며 단순 산술평균 아님. 디스크 용량(fill%)은 느린 누적 축이라 실시간 신호에서 제외, 디스크 I/O 이용률은 장치 종류별 신뢰도 편차라(SSD/NVMe 병렬 처리, `right-sizing-thresholds.md` "Disk IO" 절 Gregg 근거) 환경 평균 도넛으로 안 묶음) + 신호 도넛 4(실행 큐 임계·페이징·디스크 응답지연 임계·네트워크 혼잡 — 순간 단일신호 임계 초과 호스트 수/표본, dual-gate 포화와 다른 정의) + 서버별 실시간 부하 sortable-table(`RealtimeLoadRow` — CPU·메모리 이용률/실행 큐/페이징/디스크 이용률/디스크 응답지연/네트워크 7축을 호스트당 1행, top-N 절단 없이 전체 노출, 서버 목록과 동일 칼럼 클릭 정렬 + 20개 초과 더보기/접기 관례. 디스크 이용률(Utilization, `disk_io_util_pct`, 도넛 없이 표 전용 raw 값·판정 없음)·응답지연(Saturation, `disk_sat_index`)은 USE Method상 별개 축 — 둘 다 물리 disk only(`_PHYS_DISK_SQL_FILTER` fail-closed, Windows `aggregate:system` 같은 합성 pseudo-device 제외 — 안 그러면 진짜 물리 device 카운터 이상이 pseudo-device 값으로 은폐됨) + ops 델타 > 0 요구(await 와 동일 원칙, 연산 0건인데 io_time 만 증가하면 구세대 virtio phantom busy 카운터 오탐이라 미측정), 응답지연은 추가로 저활동 device(`RS_DISKIO_UTIL_MIN` 미만)면 미측정("—"). 페이징은 소수점 2자리 표시 의무(Linux 임계 "> 0"이라 정수 반올림하면 0.03/s 같은 실측이 "0"으로 묻혀 페이징 신호 도넛 카운트와 표 값이 안 맞아 보임). 네트워크는 처리량(kbps) 아닌 혼잡 판정(`net_signal_active`, 네트워크 혼잡 도넛과 동일 신호원 — 재전송·드롭·conntrack) 결과만 "정상"/"혼잡"(빨강 강조)로 표시 — 처리량은 판정 대상과 다른 원자료라 칼럼에서 제외). `realtime.js` 가 30초 주기 `?fragment=realtime` polling 후 `#rt-mount` swap(P3 정공, 정렬/더보기 클릭 위임은 안 바뀌는 mount 자체에 걸어 swap 후에도 유지). `?ids` 면 선택 N대.
+`get_environment_realtime(server_ids=None)` -> `build_environment_realtime` (`servers/_environment_realtime.html` partial + `servers/realtime.html` 페이지 wrapper). `realtime.js` 가 30초 주기 `?fragment=realtime` polling 후 `#rt-mount` swap 한다 — 정렬·더보기 클릭 위임은 swap 대상이 아닌 mount 자체에 걸어 교체 후에도 유지된다. `?ids` 면 선택 N대.
+
+화면 구성과 축 선정 근거(무엇을 도넛으로 묶고 무엇을 뺐나)는 `docs/explanation/products/dashboard.md` "실시간 현황" 절 단일 진실.
+
+측정 의미론은 여기가 소유한다. 이용률 도넛은 capacity-weighted 라 단순 산술평균이 아니고 `environment_utilization` 과 같은 정의다 (CPU = sum(usage%·cores)/sum(cores), mem = sum(used)/sum(total)). 디스크 축 둘은 물리 disk 만 본다(`_PHYS_DISK_SQL_FILTER` fail-closed) — Windows `aggregate:system` 같은 합성 pseudo-device 를 섞으면 진짜 물리 device 의 카운터 이상이 그 값에 은폐된다. 둘 다 ops 델타 > 0 을 요구하는데, 연산 0건인데 io_time 만 증가하면 구세대 virtio 의 phantom busy 카운터라 미측정으로 둔다. 응답지연은 저활동 device(`RS_DISKIO_UTIL_MIN` 미만)도 미측정이다.

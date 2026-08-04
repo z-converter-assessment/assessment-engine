@@ -23,10 +23,6 @@ Browser -> Router -> deps.get_service -> QueryService
 Browser -> Router -> deps.get_task_service -> TaskService -> broker_channel (task.install)
 ```
 
-- DTO - ORM 분리 — 변환은 repository 책임
-- inventory upsert·metrics 저장·server_id 조회 모두 `agent_id` 단일 키 기준 (#C1)
-- `last_seen_at`은 `ServerDetail`에만 포함. 목록은 Redis `online:{id}` TTL
-- `CollectionStatusItem`은 `last_metric_at` + `last_inventory_at` 별도 필드
 
 ## 의존성 주입 (deps.py — composition root)
 

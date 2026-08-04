@@ -6,16 +6,9 @@
 
 ---
 
-## 1. 원칙 (12-Factor + 본 프로젝트 적용)
+## 1. 원칙
 
-| # | 원칙 | 본 프로젝트 적용 |
-|---|------|----------------|
-| 1 | Config 을 환경변수로 분리 | `pydantic-settings` `BaseSettings`. 코드에 환경별 값 박지 않음 |
-| 2 | 같은 이미지를 모든 환경에서 사용 | `Dockerfile` 1개. 환경 차이는 환경변수·compose override·secret 채널로만 |
-| 3 | secret 과 일반 config 분리 | dev `.env` 평문 / prod 외부 인프라 자유 채널 (env·systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등) |
-| 4 | Fail-fast 검증 | 기동 시점에 값을 거부해 세운다 (6절) |
-| 5 | 비밀번호는 기본값 없음 + 뻔한 값 거부 | 미설정·빈값은 필드 제약이, `_WEAK_VALUES`(POSTGRES·RABBITMQ password·user)는 검증이 차단 — 환경 무관 |
-| 6 | secret 을 코드·이미지·git 에 박지 않음 | `.gitignore` 가 `.env`·`.env.*` 를 무시하고 두 템플릿(`.env.example`·`.env.dev.example`)만 whitelist. `.dockerignore` 는 allowlist 방식이라 빌드 컨텍스트에 `.env` 가 들어가지 않음 |
+12-Factor III(Config) 를 따른다 — 환경별 값을 코드에 박지 않고 이미지 하나를 모든 환경에서 쓴다. 비밀번호는 기본값을 두지 않고 뻔한 값을 거부하며(6절), secret 은 git·이미지에 들어가지 않는다(14절).
 
 ---
 
@@ -51,19 +44,6 @@
        v
        OS 환경변수 (systemd Environment / docker-compose env / orchestrator inject)
 [highest] 명시적 init kwargs (테스트용)
-```
-
-본 프로젝트 `config.py`:
-
-```python
-_SECRETS_DIR = os.environ.get("SECRETS_DIR", "/run/secrets")
-_SECRETS_DIR = _SECRETS_DIR if os.path.isdir(_SECRETS_DIR) else None
-
-model_config = SettingsConfigDict(
-    env_file=".env",
-    secrets_dir=_SECRETS_DIR,
-    extra="ignore",
-)
 ```
 
 `SECRETS_DIR` env 로 secrets 디렉토리 경로 override 가능. 디렉토리가 존재할 때만 활성 — dev 호스트에선 보통 None 으로 file read 단계 skip.
@@ -127,20 +107,6 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 | `config.py` `_reject_env_shadowing_secret` | secret 파일과 같은 이름의 환경변수가 함께 있으면 거부 | 위와 같음 |
 
 두 번째 검사는 채널 충돌을 잡는다. 우선순위가 `OS env > .env > secrets_dir` 이라 secret 파일을 두고도 같은 이름의 환경변수가 있으면 파일이 조용히 무시되고, 노출을 피하려던 값이 컨테이너 env 에 그대로 뜬다. 실패도 경고도 없어 운영자가 알 방법이 없으므로 기동을 막는다. 컨테이너는 compose `env_file` 이 값을 환경변수로 주입하므로 이 검사에 걸린다.
-
-```python
-postgres_password: SecretStr = Field(min_length=1)   # 기본값 없음 = 필수
-
-
-@model_validator(mode="after")
-def _validate_web_secrets(self) -> "WebSettings":
-    _reject_env_shadowing_secret("postgres_password")
-    if self.postgres_password.get_secret_value() in _WEAK_VALUES:
-        raise ValueError("POSTGRES_PASSWORD uses an obvious value. ...")
-    if self.postgres_user in _WEAK_VALUES:
-        raise ValueError("POSTGRES_USER must not be an obvious value ...")
-    return self
-```
 
 발동 위치 (컴포넌트별):
 - web: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password 검증
@@ -211,12 +177,7 @@ def _validate_web_secrets(self) -> "WebSettings":
 | `REPORT_WORKER_*`·`INSTALL_REAPER_*` | 사용 안 함 | 사용 안 함 | 의무 |
 | `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 |
 
-코드 단일 진실 (Composition Root, CLAUDE.md #F4):
-- `src/assessment_engine/config.py` — class 정의만 (인스턴스 0)
-- `src/assessment_engine/web/settings.py` — WebSettings + DiagnosticSettings (보고서 발행 publish 용 broker)
-- `src/assessment_engine/consumer/settings.py` — ConsumerSettings
-- `src/assessment_engine/worker/settings.py` — WorkerSettings (보고서 생성 + install reaper 전용 워커, broker 미사용·DB job-claim)
-- `src/assessment_engine/db/session.py`·`cache/redis.py` — 자체 WebSettings (공통 db layer)
+Settings 인스턴스를 만들 수 있는 위치는 CLAUDE.md #F4 가 정한다.
 
 ---
 
@@ -321,10 +282,10 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 
 다음 키는 운영 변경 빈도가 낮아 표에 행을 두지 않는다. BaseSettings 필드라 필요하면 env 로 override 된다.
 
-- `redis_ttl_idempotent` (24h)·`redis_ttl_online` (5min)·`redis_ttl_token` (1h)
+- `redis_ttl_idempotent` (24h)·`redis_ttl_online` (5min)
 - `redis_ttl_last_agent_start` (24h)·`redis_ttl_agent_restarts` (1h 슬라이딩 윈도우)·`redis_ttl_time_invariant_warned` (1h)
 - `redis_ttl_cache_metrics` (1min — 대시보드 스냅샷 cache-aside)·`redis_ttl_cache_detail` (5min — 서버 상세 ViewModel cache-aside)
-- `redis_key_*` 패턴 (cache:*·idempotent·online·token·last_agent_start·agent_restarts·time_invariant_warned)
+- `redis_key_*` 패턴 (cache:*·idempotent·online·last_agent_start·agent_restarts·time_invariant_warned)
 - WorkerSettings 전용 (worker 프로세스만): `report_worker_poll_interval_sec` (2s)·`report_worker_stale_seconds` (600 — running 잔류 회수)·`report_worker_shutdown_timeout_sec` (10s)·`install_reaper_interval_sec` (60s)·`install_reaper_shutdown_timeout_sec` (5s)
 - `zdm_package_path`·`zdm_package_script`·`zdm_package_path_windows` — ZDM 제품 패키지 layout 상수 (거의 안 바뀜, ZDM 버전업 시에나). 배포 변동값 아니라 미수록 — task.install download.url 은 `http://{ZDM_IP}{zdm_package_path}` 조립
 - `agent_restart_alert_threshold` (기본 3) — 에이전트 재시작 alert 임계값(1h 윈도우). 운영 alert 튜닝 노브, 평소 default 유지 — 필요 시 env override
@@ -360,16 +321,6 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 - `secrets_dir` 강제 활성화 — 디렉토리 부재 시 noisy 경고. `os.path.isdir` 분기로 None fallback 유지
 
 ---
-
-## 15. 핵심 의도 요약
-
-1. secret 을 git 에 커밋하지 않는다 (1절 6항). prod secret 은 외부 인프라의 secret 채널.
-2. dev 편의성을 prod 안전성과 거래하지 않는다 — `.env` 평문은 dev 에만, prod 는 secret 채널 강제.
-3. 약한 값을 어느 환경으로도 흘려보내지 않는다 — 기본값 없는 필수 필드 + 뻔한 값 거부.
-4. 이미지는 환경 무관 — `Dockerfile` 1개, 차이는 환경변수·compose override·secret 주입으로만.
-5. 에이전트 secret 을 엔진 secret 과 분리 — 각자 독립적 라이프사이클.
-
-이 다섯이 깨지는 PR 은 reject 대상.
 
 ## 관련 문서
 

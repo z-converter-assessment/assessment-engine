@@ -135,16 +135,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 
 ## 환경 단위 산출물과의 분기
 
-| 항목 | 환경 (`environment-report.md`) | 서버 (본 문서) |
-|------|-------------------------------|----------------|
-| 발행 단위 | 환경 전체 1건 | 1대 또는 N대 batch (각 1건씩) |
-| 보고서 라우터 | `/reports/environment` | `/reports/servers?ids=...` (단일 1대 `/servers/{id}/report`) |
-| scope | environment | server |
-| 산출물 | 분류 분포 카운트 + 우선순위 권장 | 개별 서버 분류·action |
-| 답 | "환경 안 over-provisioned 5대 있음" | "이 서버는 under_provisioned, 업사이즈 검토" |
-| 운영 단계 | 1단계 — 환경 전체 현황 한눈 | 2단계 — 개별 서버 판단 |
-
-운영자 표준 흐름: 환경 단위로 분포 확인 → 시급한 카테고리의 서버 list 식별 → 서버 단위 batch 로 개별 판단 → detail 화면에서 검증.
+`docs/explanation/products/environment-report.md` 가 갖는다.
 
 ## 한계
 
