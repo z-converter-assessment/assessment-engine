@@ -12,7 +12,7 @@
 | `report_generator.py` | pending job -> 보고서 ViewModel 생성 디스패치 (워커·발행 경로 공유 단일 진실). 보고서 교차참조 helper `attention_for_host`/`attention_by_host` 정의 |
 | `report_serializer.py` | 발행 시점 정적 스냅샷 serde — ViewModel <-> `diagnostic_jobs.result` JSONB |
 | `cache_serializer.py` | Redis serde — `ServerDetailResponse` / `MetricDashboard`. 역직렬화 후 `enrich_*` 재호출 (idempotent) |
-| `serialization_util.py` | `cache_serializer`·`report_serializer` 공용 직렬화 계약 (datetime -> ISO, dataclass -> dict) |
+| `serialization.py` | `cache_serializer`·`report_serializer` 공용 직렬화 계약 (datetime -> ISO, dataclass -> dict) |
 | `unit_converter.py` | KB->GB / sectors->KB/s / usage_pct 단위 변환 |
 | `device_filters.py` | block_device `type`·fstype·net_interface `kind` 기반 계층 술어 단일 진실 — `is_physical_disk`(type=="disk")·`is_lvm_disk`(lvm/raid/crypt/mpath/dynamic)·`is_partition`(=="part")·`is_swap`(=="swap")·`is_virtual_interface`(kind not in physical/bond_master)·`is_data_volume`(fstype·mountpoint — 가상fs·/boot 제외) + `disk_total_bytes`/`swap_total_bytes` (block_device type 합산 단일 산식 — Windows PhysicalDrive 도 type=disk 발행이라 양 OS 공통, fallback 없음). 부모-자식 조인은 노드 `parent`(부모 id) |
 | `service_classifier.py` (도메인 `assessment_engine/`, web·consumer 공용 — `recommendation.py` 동급) | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`/`remote`/`file`/`mail`/`infra` — 원칙·경계 규칙은 아래 "카테고리 경계" 절) + 포트 매핑 + 카테고리 집합 사전계산(`compute_service_categories`, ingest 가 `service_categories` 저장). 단일 카탈로그(`SERVICE_CATALOG`) 파생. `MatchedPort` 정의(web view_model re-export) |
