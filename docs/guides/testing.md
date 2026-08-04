@@ -37,13 +37,7 @@ CI 자동 실행: PR 을 올리면 `.github/workflows/ci.yml` 이 테스트를 �
 
 pytest 설정은 `pyproject.toml` `[tool.pytest.ini_options]`.
 
-Fixture 계층:
-```
-fixture 는 `tests/conftest.py`·`tests/unit/conftest.py`·`tests/integration/conftest.py` 세 층에 있다.
-tests/unit/conftest.py        — autouse: 필수 비밀번호 env 주입, Composition Root lru_cache 초기화
-tests/integration/conftest.py — function: collect_repo, query_repo, diagnostic_repo (TRUNCATE 격리)
-tests/factories.py            — wire 계약 형태 데이터 빌더 (함수 목록은 해당 파일)
-```
+Fixture 는 세 층이다 — 루트 `tests/conftest.py`(컨테이너·엔진·세션), `tests/unit/conftest.py`(비밀번호 env 주입과 Composition Root 캐시 초기화 autouse), `tests/integration/conftest.py`(repo 별 function fixture, TRUNCATE 격리). 데이터 빌더는 `tests/factories.py`.
 
 데이터 빌더 사용:
 ```python

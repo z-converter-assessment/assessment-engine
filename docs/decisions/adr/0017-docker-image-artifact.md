@@ -1,6 +1,6 @@
 # ADR 0017: Docker 이미지 CI 산출물 추가 (wheel 보조)
 
-Status: Accepted (2026-05-21)
+Status: Superseded by ADR 0048 (2026-07-01) — wheel + 이미지 이원 산출물이 GHCR 이미지 단일로 정리됐다. 이미지 구성(단일 이미지·cosign keyless·SBOM) 결정은 0048 이 승계.
 
 Refines: ADR 0012 (CI 산출물 = wheel + GitHub Release)
 

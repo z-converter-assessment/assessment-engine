@@ -163,10 +163,7 @@ Self-audit 메타 인용 제외:
 - [2.9] mock 범위: 추상 인터페이스(`Base*Repository`)와 외부 의존 경계(Redis · HTTP · MQ)에만. 구체 구현 내부 함수 patch 0건. integration 은 실제 컨테이너.
 - [2.10] 동일 시나리오 분기(같은 setup + 다른 입력·기대값)는 `@pytest.mark.parametrize`. 중복 함수 0건.
 
-레이어 결정 (test-write 흡수):
-- 레이어 결정은 `docs/guides/testing.md` 1절.
-- integration (`tests/integration/`): Repository · DB query · Schema 통합.
-- 실 VM 동반 E2E: 본 repo 범위 밖 (OpenStack 공급 환경, pytest 범위 외).
+레이어 결정은 `docs/guides/testing.md` 1절.
 
 원칙 (3):
 - [2.11] 테스트 한 개 = 한 분기. assert 누락·smoke-only 0건. 한 함수에 무관한 assert 다발 0건.

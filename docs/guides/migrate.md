@@ -15,8 +15,7 @@ ORM(`Base.metadata`)과 DB schema의 diff를 `src/assessment_engine/migrations/v
 | autogenerate | ORM vs DB schema diff -> revision 파일 자동 생성. `create_hypertable` 등 확장은 수동 보강 의무 |
 | `alembic_version` 테이블 | DB 자동 생성. 현재 revision id 저장 |
 
-패키지 안에 두어 별도 포장 설정 없이 이미지에 동봉된다. `_alembic.ini` 의 `script_location` 이 자기 위치 기준 상대경로라 두 파일이 같은 디렉토리에 있어야 한다.
-
+`_alembic.ini` 와 `migrations/` 는 패키지 안에 있어 별도 포장 설정 없이 이미지에 동봉된다. `_alembic.ini` 의 `script_location` 이 자기 위치 기준 상대경로라 두 파일이 같은 디렉토리에 있어야 한다.
 
 호스트에서 직접 실행할 때는 설정 경로를 환경변수로 준다. 컨테이너는 이미지가 `ALEMBIC_CONFIG` 를 들고 있어 그냥 `alembic <명령>` 으로 쓴다 — compose 없이 `docker run` 해도 성립한다.
 

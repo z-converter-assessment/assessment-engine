@@ -171,7 +171,7 @@
 | `.empty-state` | 발화 가능하나 비어있는 슬롯 placeholder (#E9 discoverability) | 박스 없음 / 회색 텍스트 #94a3b8 |
 | `.stree` (+ `.stree-row`/`.stree-kind`/`.stree-usage` 등) | 스토리지 레이아웃 트리 (중첩 ul, `servers/_storage_tree.html` `storage_tree()` 매크로) — 스토리지 상세·서버 보고서 공용 | 좌측 가이드선 #e2e8f0 |
 
-금지: `<div style="border:1px solid #e2e8f0; border-radius:6px; padding:14px;">` 같은 inline 박스 재구현. 위 클래스로 치환. (P3 직접 위반 — 모양 통일성 + 추후 일괄 조정 시 단일 진실.)
+금지: `<div style="border:1px solid #e2e8f0; border-radius:6px; padding:14px;">` 같은 inline 박스 재구현. 위 클래스로 치환. (P3 직접 위반 — 박스 모양을 한 곳에서 바꿀 수 있어야 한다.)
 
 ### 공통 매크로 (`_shared.html`)
 
