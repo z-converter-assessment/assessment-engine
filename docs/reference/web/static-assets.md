@@ -28,7 +28,7 @@
 | `makeBucketGrid(range, bucket, anchor)` / `joinToGrid(grid, rows, bMs)` | 버킷 그리드 + 응답 join |
 | `bindToggle(groupId, onChange)` | range/agg 컨트롤 바인딩 — element 가 `<select>`면 change, `.toggle` 버튼이면 click 자동 분기 (호출처 동일) |
 | `pageTimeControl(rangeBtnsId, anchorId, default, onChange)` | 페이지 단일 시간축 컨트롤러(#F10) — range 토글 + anchor 하나가 페이지 전 차트를 구동. `{getRange, getAnchor}` 반환. 변경 시 onChange 로 전체 reload. anchor 미입력=live now, 입력=고정(과거 조사). 서버 상세 자원 탭 공용 |
-| `initAutoRefresh(onRefresh, intervalMs)` | 30초 polling 자동 갱신 (setInterval + pagehide 정리) |
+| `initAutoRefresh(onRefresh, intervalMs)` | 호출자가 준 주기로 자동 갱신 (setInterval + pagehide 정리) |
 | `safeArray(arr)` | `Array.isArray` 방어 (P4 c) |
 | `buildDimDatasets(rows, bMs, grid, metaMap, opts)` | dimension별(device/iface/mount) 멀티라인 dataset 조립 — grid join + 색·라벨 매핑 |
 | `fmtThroughput(kb)` | kB/s -> B/s·kB/s·MB/s 표시 단위 자동 결정 (P4) |
@@ -88,7 +88,7 @@
 - 추이 차트의 면적 음영은 avg+max ghost(`buildAvgMaxDatasets`, avg dataset `fill:'+1'`)만 — avg~max 사이를 채워 burst(순간 최대-평균 차)를 시각화. 이것이 "음영"의 유일한 의미.
 - 선 아래 zero 까지 채우는 area fill(`fill:true`) 금지 — 추이 차트는 추세선만(`fill:false`). area fill 은 burst 음영과 혼동되고 값 밀집 시 가독성을 떨어뜨림.
 - 15분 구간(1분 버킷)은 버킷당 데이터 1포인트라 max=avg → ghost 음영 0. `buildAvgMaxDatasets` 가 `bMs <= BUCKET_MS['1m']` 일 때 maxRows 를 비워 전 차트 일괄 자동 비활성.
-- 실행 큐 차트(`cpu.run_queue`, os-aware — Linux procs_running / Windows Processor Queue Length)는 backend 가 이미 실행큐 합/코어 합(코어당, 1.0 Linux·2.0 Windows 포화)으로 반환 — 클라는 값 그대로 표시. 서버 상세는 연속값 단일선(`cpu.js`), 환경 성능 추이는 같은 임계 판정을 SQL 로 이식한 crossing 서버 수(`cpu.saturation_hosts`, count) 단일선 — 스코프별 표현 단위 차이는 `services.md` "서버 상세 성능 추이" 절.
+- 실행 큐 차트(`cpu.run_queue`, os-aware — Linux procs_running / Windows Processor Queue Length)는 backend 가 이미 실행큐 합/코어 합(코어당 값, 포화선은 OS 별)으로 반환 — 클라는 값 그대로 표시. 서버 상세는 연속값 단일선(`cpu.js`), 환경 성능 추이는 같은 임계 판정을 SQL 로 이식한 crossing 서버 수(`cpu.saturation_hosts`, count) 단일선 — 스코프별 표현 단위 차이는 `services.md` "서버 상세 성능 추이" 절.
 
 ## 색 테마 — `:root` 변수 + 주색 단일 진실 (예외 0)
 - 테마 변수 = `base.html :root` 단일 선언. `--color-title`(#2563eb) = 주색 — `.btn-primary` 채움·`.toggle.active`·정렬 칼럼 강조·`.list-filter` 테두리·네비 진행바·스토리지 막대. 사이드바 계열은 `--sidebar-*` 변수군(바탕·글씨·hover·active). `--color-table-head`(#e5e7eb) = 전 테이블 제목행 하단 경계선. 색 변경 시 `:root` 만 수정.

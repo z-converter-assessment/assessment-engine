@@ -106,7 +106,7 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 
 UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
-right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기·벤더 임계 출처)의 명세 단일 진실은 `docs/reference/right-sizing.md`, 운영자 임계 카탈로그는 `right_sizing_thresholds.html`. web 계층 책임은 소비만 (P2/P4):
+right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기)의 명세 단일 진실은 `docs/reference/right-sizing.md`, 임계 수치·벤더 출처는 `docs/reference/right-sizing-thresholds.md`, 운영자 카탈로그는 `right_sizing_thresholds.html`. web 계층 책임은 소비만 (P2/P4):
 - 표시 계층은 임계를 다시 계산하지 않는다. 분류 결과의 triggers 와 os-aware helper 를 그대로 받아 한국어 라벨로만 바꾼다.
 - `unmeasured` -> `is_partial`(=bool(unmeasured)) 을 ViewModel precompute, 템플릿이 "포화 수치 미관측" confidence 마커로 노출.
 
