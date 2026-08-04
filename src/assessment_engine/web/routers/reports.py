@@ -17,16 +17,14 @@ from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     TimeRange,
 )
+from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, normalize_anchor
 from assessment_engine.web.deps import get_diagnostic_service
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
-from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
+from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.mappers.api_reference import build_api_reference
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
 from assessment_engine.web.services.mappers.shared import build_service_badge_reference
-from assessment_engine.web.services.report_serializer import (
-    REPORT_KIND_ENV,
-    env_report_from_dict,
-)
+from assessment_engine.web.services.report_serializer import env_report_from_dict
 from assessment_engine.web.templating import templates
 
 reports_router = APIRouter(prefix="/reports", tags=["pages"])
@@ -141,7 +139,7 @@ async def environment_report_emit(
     같은 input 활성 충돌(더블클릭) 시 기존 job_id 회수(enqueue_report). 등록 서버 0 등 생성 불가는
     워커가 job 을 failed 로 전이 -> GET 이 실패 화면 표시.
     """
-    anchor = _normalize_anchor(anchor_at)
+    anchor = normalize_anchor(anchor_at)
     job_id = await diag_service.enqueue_report(
         view=view,
         scope="environment",

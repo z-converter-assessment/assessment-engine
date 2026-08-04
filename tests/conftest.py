@@ -4,16 +4,20 @@
 index 가 실제 배포와 같은 순서로 적용된다. DDL 을 테스트용으로 따로 쓰지 않는 이유다.
 """
 
+import asyncio
 import os
 import subprocess
 import sys
-from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from testcontainers.community.postgres import PostgresContainer
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 
 _REPO_ROOT = Path(__file__).parent.parent
 
@@ -46,7 +50,8 @@ async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncE
     env["POSTGRES_PASSWORD"] = "test"
     env["POSTGRES_DB"] = "assessment_test"
     env["APP_ENV"] = "dev"
-    subprocess.run(
+    await asyncio.to_thread(
+        subprocess.run,
         [
             sys.executable,
             "-m",
@@ -69,8 +74,8 @@ async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncE
 @pytest_asyncio.fixture
 async def db_session(engine: AsyncEngine) -> AsyncGenerator[AsyncSession]:
     """테스트마다 rollback 으로 격리한다 — hypertable 에 쓴 행도 함께 되돌아간다."""
-    SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
-    async with SessionLocal() as session:
+    session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    async with session_factory() as session:
         try:
             yield session
         finally:

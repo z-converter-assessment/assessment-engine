@@ -1,14 +1,17 @@
 """서버 표시 ViewModel — list / detail / storage / network 페이지 + 인벤토리 단위 dataclass."""
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from typing import TYPE_CHECKING
 
 # MatchedPort 는 분류 도메인 개념 — service_classifier(domain)에 정의, 본 모듈은 ServiceItem.ports 로 소비.
-from assessment_engine.service_classifier import MatchedPort
-
 # NetIoSnapshot 은 NetworkDetailResponse.interfaces 필드 타입으로 재사용 (metric sub-module 정의).
-from assessment_engine.web.view_models.metric import NetIoSnapshot
-from assessment_engine.web.view_models.task import TaskSummaryItem
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from assessment_engine.service_classifier import MatchedPort
+    from assessment_engine.web.view_models.metric import NetIoSnapshot
+    from assessment_engine.web.view_models.task import TaskSummaryItem
 
 
 @dataclass
@@ -19,7 +22,7 @@ class DiskItem:
 
 @dataclass
 class VolumeItem:
-    """파일시스템(논리 볼륨) — block_devices 중 마운트된 데이터 볼륨 노드 기준. 물리 디스크(DiskItem)와 별개 축.
+    r"""파일시스템(논리 볼륨) — block_devices 중 마운트된 데이터 볼륨 노드 기준. 물리 디스크(DiskItem)와 별개 축.
 
     양 OS 일관 표시 (Linux: / ext4 등, Windows: C:\\ ntfs 등). fstype 명시.
     """

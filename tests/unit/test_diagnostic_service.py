@@ -2,68 +2,74 @@
 
 emit_report 는 완성 스냅샷을 즉시 succeeded 로 저장(워커의 child 단일 보고서 경로). parent 발행은
 enqueue_report(pending) -> 워커 claim_pending/finish/recover. 본 테스트는 발행 helper
-(_compute_hash/_normalize_anchor) + emit_report + enqueue/lifecycle 위임을 다룬다.
+(compute_hash/normalize_anchor) + emit_report + enqueue/lifecycle 위임을 다룬다.
 """
 
 import hashlib
 import json
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
-from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, build_report_result
-from assessment_engine.web.services.diagnostic_service import (
-    DiagnosticService,
-    _compute_hash,
-    _normalize_anchor,
+from assessment_engine.diagnostic.report_result import (
+    REPORT_KIND_ENV,
+    build_report_result,
+    compute_hash,
+    normalize_anchor,
 )
+from assessment_engine.web.services.diagnostic_service import DiagnosticService
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 
 _FIXED_ANCHOR = datetime(2026, 5, 12, 0, 0, 0, tzinfo=UTC)
 
 
-# ─── _normalize_anchor ──────────────────────────────────────────────────
+# ─── normalize_anchor ──────────────────────────────────────────────────
 
 
 def test_normalize_anchor_truncates_seconds_microseconds():
     raw = datetime(2026, 5, 12, 10, 30, 45, 123456, tzinfo=UTC)
-    out = _normalize_anchor(raw)
-    assert out.second == 0 and out.microsecond == 0
-    assert out.hour == 10 and out.minute == 30
+    out = normalize_anchor(raw)
+    assert out.second == 0
+    assert out.microsecond == 0
+    assert out.hour == 10
+    assert out.minute == 30
 
 
 def test_normalize_anchor_naive_assumed_utc():
-    naive = datetime(2026, 5, 12, 10, 30)
-    out = _normalize_anchor(naive)
+    naive = datetime(2026, 5, 12, 10, 30)  # noqa: DTZ001  tzinfo 없는 입력이 이 테스트의 대상이다
+    out = normalize_anchor(naive)
     assert out.tzinfo is UTC
 
 
 def test_normalize_anchor_none_returns_current_minute():
-    out = _normalize_anchor(None)
+    out = normalize_anchor(None)
     assert out.tzinfo is UTC
-    assert out.second == 0 and out.microsecond == 0
+    assert out.second == 0
+    assert out.microsecond == 0
 
 
-# ─── _compute_hash (결정성 + 순서 무관) ──────────────────────────────────
+# ─── compute_hash (결정성 + 순서 무관) ──────────────────────────────────
 
 
 def test_compute_hash_deterministic():
     p = {"server_public_id": "x", "time_range": "14d", "anchor_at": "2026-05-12T00:00:00+00:00"}
-    assert _compute_hash("server", p) == _compute_hash("server", p)
-    assert len(_compute_hash("server", p)) == 64
+    assert compute_hash("server", p) == compute_hash("server", p)
+    assert len(compute_hash("server", p)) == 64
 
 
 def test_compute_hash_key_order_independent():
-    a = _compute_hash("server", {"server_public_id": "x", "time_range": "14d", "anchor_at": "T"})
-    b = _compute_hash("server", {"anchor_at": "T", "server_public_id": "x", "time_range": "14d"})
+    a = compute_hash("server", {"server_public_id": "x", "time_range": "14d", "anchor_at": "T"})
+    b = compute_hash("server", {"anchor_at": "T", "server_public_id": "x", "time_range": "14d"})
     assert a == b
 
 
 def test_compute_hash_scope_separates_namespace():
     p = {"time_range": "14d", "anchor_at": "T"}
-    assert _compute_hash("server", p) != _compute_hash("environment", p)
+    assert compute_hash("server", p) != compute_hash("environment", p)
 
 
 def test_compute_hash_matches_explicit_sha256():
@@ -71,7 +77,7 @@ def test_compute_hash_matches_explicit_sha256():
     params = {"server_public_id": "abc", "time_range": "14d", "anchor_at": "2026-05-12T00:00:00+00:00"}
     canonical = json.dumps(params, sort_keys=True, separators=(",", ":"))
     expected = hashlib.sha256(f"{scope}|{canonical}".encode()).hexdigest()
-    assert _compute_hash(scope, params) == expected
+    assert compute_hash(scope, params) == expected
 
 
 # ─── report_result 구조 helper (web <-> 스냅샷 저장 공유 계약) ──────────────
@@ -295,9 +301,13 @@ async def test_enqueue_and_emit_same_input_hash(
     stub_diag_repo.enqueue = AsyncMock(side_effect=_capture)
     stub_diag_repo.mark_succeeded = AsyncMock()
     service = _service(stub_session_factory, stub_diag_repo)
-    common: dict[str, Any] = dict(
-        view="engineer", scope="server", server_public_ids=["a"], time_range="7d", anchor_at=_FIXED_ANCHOR
-    )
+    common: dict[str, Any] = {
+        "view": "engineer",
+        "scope": "server",
+        "server_public_ids": ["a"],
+        "time_range": "7d",
+        "anchor_at": _FIXED_ANCHOR,
+    }
     await service.enqueue_report(**common)
     await service.emit_report(kind=REPORT_KIND_ENV, snapshot={}, **common)
     assert captured[0].input_hash == captured[1].input_hash
@@ -345,14 +355,7 @@ async def test_finish_failed_delegates(
     stub_diag_repo.mark_failed.assert_awaited_once_with("job-x", "internal error")
 
 
-# ─── report_result 단일 진실 + recommendation 상수 import sanity ──────────
-
-
-def test_report_result_constants_single_source():
-    """REPORT_KIND_ENV 는 diagnostic.report_result 단일 진실 — report_serializer re-export 동일 객체."""
-    from assessment_engine.web.services import report_serializer
-
-    assert report_serializer.REPORT_KIND_ENV is REPORT_KIND_ENV
+# ─── 표시 임계 상수 import sanity ──────────────────────────────────────
 
 
 def test_report_threshold_constants_imported():

@@ -9,10 +9,13 @@ Create Date: 2026-07-15
 
 """
 
-from collections.abc import Sequence
+from typing import TYPE_CHECKING
 
 import sqlalchemy as sa
 from alembic import op
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 revision: str = "1457793ebdae"
 down_revision: str | Sequence[str] | None = "d1c8b4a6e2f9"

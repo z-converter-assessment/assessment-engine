@@ -260,7 +260,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         if limit is not None:
             stmt = stmt.limit(limit)
         result = await self.session.execute(stmt)
-        return [r for r in result.scalars().all()]
+        return list(result.scalars().all())
 
     async def latest_metric_at(self) -> datetime | None:
         """fleet 전체 최신 메트릭 수집 시각 — 상단 바 데이터 최신성(#C5 window 술어로 partition pruning).

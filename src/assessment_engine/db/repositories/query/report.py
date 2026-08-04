@@ -6,6 +6,7 @@ server_metrics_5m/server_filesystem_5m/server_disk_io_5m/server_net_io_5m/server
 """
 
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import text
 
@@ -26,7 +27,9 @@ from assessment_engine.db.repositories.query.types import (
     _PHYS_DISK_SQL_FILTER,
     _PHYS_IFACE_SQL_FILTER,
 )
-from assessment_engine.json_types import JsonObject
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 
 class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
@@ -372,7 +375,9 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
         return {r.server_id: int(r.reboot_count) for r in result.all()}
 
-    async def report_agent_restart_stats(self, server_ids: list[int], period_days: float, end: datetime) -> dict[int, int]:
+    async def report_agent_restart_stats(
+        self, server_ids: list[int], period_days: float, end: datetime
+    ) -> dict[int, int]:
         """period 안 agent_started_at DISTINCT count - 1 (=재시작 횟수). report_uptime_stats 와 동일 산식 (#F10)."""
         start = end - timedelta(days=period_days)
         sql = text("""
@@ -580,6 +585,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         self, server_ids: list[int], end: datetime
     ) -> dict[int, list[MountCapacityRaw]]:
         """마운트별 용량 사이징 입력 (per-mount) — /api/assessment 디스크 축. report_aggregate 는 호스트 worst-mount
+
         로 접지만, 프로비저닝은 각 볼륨을 개별 사이징해야 해 마운트별 행을 반환(접지 않음).
 
         runway/target 산식은 report_aggregate mount_calc 와 동일(임계 상수 recommendation.RS_* 단일 진실).

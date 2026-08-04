@@ -3,7 +3,7 @@
 # 각 명령이 무엇을 왜 하는지는 docs/guides/ 가 갖는다. 여기는 이름과 실행만 둔다.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup dev dev-build dev-down logs test test-unit test-integration lint typecheck codegen migrate migration screenshot eol
+.PHONY: help setup dev dev-build dev-down logs test test-unit test-integration lint format typecheck codegen migrate migration screenshot eol
 
 help: ## 명령 목록
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -38,8 +38,12 @@ test-unit: ## 단위 테스트
 test-integration: ## 통합 테스트 (TimescaleDB 컨테이너 기동)
 	uv run pytest tests/integration/
 
-lint: ## ruff
+lint: ## ruff (format 검사 + lint)
+	uv run ruff format --check .
 	uv run ruff check .
+
+format: ## ruff format 적용
+	uv run ruff format .
 
 typecheck: ## pyright + tsc(정적 JS)
 	uv run pyright

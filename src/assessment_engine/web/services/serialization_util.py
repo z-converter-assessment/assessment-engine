@@ -11,10 +11,10 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from assessment_engine.json_types import JsonObject
-
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
+
+    from assessment_engine.json_types import JsonObject
 
 
 def json_default(obj: object) -> str:

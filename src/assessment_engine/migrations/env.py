@@ -14,12 +14,11 @@ DB URL은 WebSettings.database_url (asyncpg). alembic.ini의 sqlalchemy.url은 �
 
 import asyncio
 from logging.config import fileConfig
+from typing import TYPE_CHECKING
 
 from alembic import context
 from sqlalchemy import pool
-from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
-from sqlalchemy.sql.schema import SchemaItem
 
 from assessment_engine.config import WebSettings
 from assessment_engine.db.models import (  # noqa: F401  — Base.metadata 등록
@@ -36,6 +35,10 @@ from assessment_engine.db.models import (  # noqa: F401  — Base.metadata 등�
     task,
 )
 from assessment_engine.db.models.base import Base
+
+if TYPE_CHECKING:
+    from sqlalchemy.engine import Connection
+    from sqlalchemy.sql.schema import SchemaItem
 
 config = context.config
 
@@ -73,9 +76,7 @@ def _include_object(
     `create_hypertable`이 partition 키 정렬용으로 `{table}_collected_at_idx`를 자동 생성.
     ORM `Base.metadata`엔 없으므로 autogenerate가 매번 "remove" 처리 — false positive.
     """
-    if type_ == "index" and name and name.endswith("_collected_at_idx"):
-        return False
-    return True
+    return not (type_ == "index" and name and name.endswith("_collected_at_idx"))
 
 
 def do_run_migrations(connection: Connection) -> None:

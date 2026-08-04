@@ -9,15 +9,17 @@ import re
 from dataclasses import dataclass
 from datetime import date
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import TYPE_CHECKING, Literal, NamedTuple
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.service_classifier import SERVICE_CATALOG
 from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
 from assessment_engine.web.view_models.server import ServiceBadgeRef
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import ReportRowRaw
 
 # ─── UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ────
 # template_setup.py 가 본 상수를 import 해 Jinja2 globals 로 노출 → body data-attribute 단일 진실.
@@ -76,7 +78,9 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
             SaturationAxisDisplay(
                 "CPU 포화",
                 "Processor Queue Length / core",
-                f"W {rq:.2f}" if rq is not None else "N/A",  # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가
+                f"W {rq:.2f}"
+                if rq is not None
+                else "N/A",  # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가
                 f">= {rec.CPU_RUN_QUEUE_PER_CORE_SATURATION:g}",
                 rq is not None,
                 crossed=rq is not None and rq >= rec.CPU_RUN_QUEUE_PER_CORE_SATURATION,
@@ -109,7 +113,11 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
             crossed=rq is not None and rq >= rec.PROCS_RUNNING_PER_CORE_SATURATION,
         ),
         SaturationAxisDisplay(
-            "메모리 포화", "swap page-out", "L 발생" if stats.mem_swap_paging else "L 없음", "발생 시", True,
+            "메모리 포화",
+            "swap page-out",
+            "L 발생" if stats.mem_swap_paging else "L 없음",
+            "발생 시",
+            True,
             crossed=stats.mem_swap_paging,
         ),
         SaturationAxisDisplay(
@@ -154,7 +162,9 @@ def primary_ip(raw: ReportRowRaw) -> str | None:
     return None
 
 
-def spec_display_line(cpu_cores: int | None, mem_total_bytes: int | None, block_devices: list[JsonObject] | None) -> str:
+def spec_display_line(
+    cpu_cores: int | None, mem_total_bytes: int | None, block_devices: list[JsonObject] | None
+) -> str:
     """정적 배정 사양 한 줄("4코어 · 8.00GB · 100GB") — 서버 목록·환경 자원 평가 compact 표 공용(P2 단일 진실).
 
     실무정석: 값은 2진(GiB, 2^30)이되 라벨은 "GB"(free -h·df -h·클라우드 콘솔 관습) — OS·RAM·OpenStack
@@ -186,7 +196,9 @@ def resource_confidence_notes(c: recommendation.ConfidenceNote) -> list[str]:
     return notes
 
 
-def saturation_dict(signal: str, value: float | None, threshold: float | None, unit: str, saturated: bool | None) -> JsonObject:
+def saturation_dict(
+    signal: str, value: float | None, threshold: float | None, unit: str, saturated: bool | None
+) -> JsonObject:
     """포화 신호 1건 — raw numeric(파싱 계약). network.signals 와 동형, value 미측정 시 null. API 공용."""
     return {
         "signal": signal,
@@ -204,28 +216,57 @@ def saturation_block(kind: str, stats: recommendation.ResourceStats) -> JsonObje
     if kind == "cpu":
         rq = stats.cpu_run_queue_p95 if win else stats.procs_running_p95
         val = recommendation.cpu_saturation_index(rq, stats.cpu_cores, stats.os_family)
-        thr = recommendation.CPU_RUN_QUEUE_PER_CORE_SATURATION if win else recommendation.PROCS_RUNNING_PER_CORE_SATURATION
+        thr = (
+            recommendation.CPU_RUN_QUEUE_PER_CORE_SATURATION
+            if win
+            else recommendation.PROCS_RUNNING_PER_CORE_SATURATION
+        )
         sig = "Processor Queue Length/core" if win else "run queue (procs_running)/core"
         return saturation_dict(sig, val, thr, "per_core", recommendation.cpu_saturated(stats))
     if kind == "memory":
         if win:
             return saturation_dict(
-                "Pages Input/sec", stats.mem_pages_input_rate_p95, recommendation.WIN_PAGES_INPUT_SATURATION,
-                "per_sec", recommendation.mem_saturated(stats),
+                "Pages Input/sec",
+                stats.mem_pages_input_rate_p95,
+                recommendation.WIN_PAGES_INPUT_SATURATION,
+                "per_sec",
+                recommendation.mem_saturated(stats),
             )
         # Linux swap page-out 은 발생 이벤트(수치 없음) — 판정은 saturated 로.
         sat = recommendation.mem_saturated(stats)
-        return {"signal": "swap page-out", "value": None, "threshold": None, "unit": "event",
-                "measured": sat is not None, "saturated": sat}
+        return {
+            "signal": "swap page-out",
+            "value": None,
+            "threshold": None,
+            "unit": "event",
+            "measured": sat is not None,
+            "saturated": sat,
+        }
     # disk_io — await 우선(양 OS), 구세대 viostor 만 큐 폴백.
     if stats.disk_await_p95_ms is not None:
-        return saturation_dict("await", stats.disk_await_p95_ms, recommendation.RS_DISKIO_AWAIT_MS, "ms",
-                               recommendation.disk_io_saturated(stats))
+        return saturation_dict(
+            "await",
+            stats.disk_await_p95_ms,
+            recommendation.RS_DISKIO_AWAIT_MS,
+            "ms",
+            recommendation.disk_io_saturated(stats),
+        )
     if stats.disk_queue_p95 is not None:
-        return saturation_dict("Avg Disk Queue Length", stats.disk_queue_p95, recommendation.DISK_QUEUE_PER_DISK_SATURATION,
-                               "queue", recommendation.disk_io_saturated(stats))
-    return {"signal": "await", "value": None, "threshold": recommendation.RS_DISKIO_AWAIT_MS, "unit": "ms",
-            "measured": False, "saturated": recommendation.disk_io_saturated(stats)}
+        return saturation_dict(
+            "Avg Disk Queue Length",
+            stats.disk_queue_p95,
+            recommendation.DISK_QUEUE_PER_DISK_SATURATION,
+            "queue",
+            recommendation.disk_io_saturated(stats),
+        )
+    return {
+        "signal": "await",
+        "value": None,
+        "threshold": recommendation.RS_DISKIO_AWAIT_MS,
+        "unit": "ms",
+        "measured": False,
+        "saturated": recommendation.disk_io_saturated(stats),
+    }
 
 
 def build_service_badge_reference() -> list[ServiceBadgeRef]:

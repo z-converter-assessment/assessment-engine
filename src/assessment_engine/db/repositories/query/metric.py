@@ -5,6 +5,7 @@ rate/CPU reset 은 boot gate 없이 GREATEST(delta,0)/d_total>0 로 흡수. 물�
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select, text
 
@@ -48,7 +49,9 @@ from assessment_engine.db.repositories.query.types import (
     MetricType,
     TimeRange,
 )
-from assessment_engine.json_types import JsonObject
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 # table 매핑 — types.py 가 ORM import 안 하므로 여기서 __tablename__ 결합.
 _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
@@ -189,14 +192,20 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         ]
 
         return DashboardRaw(
-            metrics=metrics, disk_io=disk_io, net_io=net_io, filesystems=filesystems,
-            os_family=os_family, kernel_version=kernel_version,
-            block_devices=block_devices, net_interfaces=net_interfaces,
+            metrics=metrics,
+            disk_io=disk_io,
+            net_io=net_io,
+            filesystems=filesystems,
+            os_family=os_family,
+            kernel_version=kernel_version,
+            block_devices=block_devices,
+            net_interfaces=net_interfaces,
             cpu_cores=cpu_cores,
         )
 
     async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
         """서버별 실시간 포화 원자료 (os 통일):
+
         - run_queue: 최신 cpu_run_queue gauge (Linux procs_running / Windows Processor Queue).
         - await_ms: server_disk_io op_time delta / ops delta (양 OS, ms, 물리 disk only — `_PHYS_DISK_SQL_FILTER`
           fail-closed, chart/report_aggregate 와 동일). pending_ops 는 큐 폴백.
@@ -348,6 +357,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         result = await self.session.execute(
             sql, {"sids": server_ids, "since": since, "diskio_util_min": recommendation.RS_DISKIO_UTIL_MIN}
         )
+
         def _f(v: float | None) -> float | None:
             return float(v) if v is not None else None
 
@@ -503,6 +513,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
     async def fleet_error_hosts(self, server_ids: list[int], since: datetime) -> set[int]:
         """에러 발생 server_id 집합 (서버 목록 "운영 이벤트" 칼럼). 5축(mce·oom·corrupted·net·disk) 중
+
         하나라도 창내 counter delta > 0(또는 corrupted 현재>0)이면 포함 — fleet_error_summary 와 동일 소스·delta.
 
         #C5 예외: since=epoch 전체기간 스캔이나 에러 delta 는 저비용(fleet_error_summary 와 동일 예외).
@@ -567,7 +578,9 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
     async def latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]:
         """서버·iface별 최신 link_speed_bps (bit/s gauge). assessment reproduction 의 inventory speed_mbps
-        null(Windows NT5.2/virtio) 폴백용 — 엔진이 metrics network.link.speed 로 대체(agent 확정 규약)."""
+
+        null(Windows NT5.2/virtio) 폴백용 — 엔진이 metrics network.link.speed 로 대체(agent 확정 규약).
+        """
         if not server_ids:
             return {}
         rows = (
@@ -593,7 +606,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         cursor: datetime | None,
         limit: int,
     ) -> list[MetricSeries]:
-        upper = cursor if cursor else datetime.now(UTC)
+        upper = cursor or datetime.now(UTC)
         lower = upper - self._METRIC_SNAPSHOTS_WINDOW
         stmt = (
             select(ServerMetrics.collected_at)

@@ -19,16 +19,14 @@ from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     TimeRange,
 )
+from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, normalize_anchor
 from assessment_engine.web.deps import get_diagnostic_service, get_service
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.routers.reports import _render_job_progress
-from assessment_engine.web.services.diagnostic_service import DiagnosticService, _normalize_anchor
+from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_generator import attention_by_host, attention_for_host
-from assessment_engine.web.services.report_serializer import (
-    REPORT_KIND_ENV,
-    env_report_from_dict,
-)
+from assessment_engine.web.services.report_serializer import env_report_from_dict
 from assessment_engine.web.templating import templates
 
 # 단일 보고서는 서버 단위(/servers/{id}/report), N대 선택 보고서는 보고서 그룹(/reports/servers) — URL 명사 분리.
@@ -139,7 +137,7 @@ async def report_emit(
     public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
     if not public_ids:
         raise HTTPException(status_code=404, detail="no server ids")
-    anchor = _normalize_anchor(datetime.fromisoformat(anchor_at) if anchor_at else None)
+    anchor = normalize_anchor(datetime.fromisoformat(anchor_at) if anchor_at else None)
     job_id = await diag_service.enqueue_report(
         view=view,
         scope="server",

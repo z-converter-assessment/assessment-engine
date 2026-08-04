@@ -1,14 +1,13 @@
 import time
-from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import aio_pika
 import httpx
 from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
-from starlette.responses import Response
 
 from assessment_engine.cache.redis import close_pool
 from assessment_engine.log_config import setup_logging
@@ -21,6 +20,11 @@ from assessment_engine.web.routers.right_sizing import right_sizing_router
 from assessment_engine.web.routers.tasks import tasks_router
 from assessment_engine.web.settings import get_diagnostic_settings, get_web_settings
 from assessment_engine.web.templating.setup import env_globals
+
+if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from starlette.responses import Response
 
 
 @asynccontextmanager

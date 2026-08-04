@@ -7,11 +7,15 @@ NetAddressInfo 의 bare address(ip_address 형식 검증) + prefix(0~128) + fami
 family 축소)이 수용을 깨면 본 테스트가 잡는다.
 """
 
+from typing import TYPE_CHECKING
+
 import pytest
 from pydantic import ValidationError
 
 from assessment_engine.consumer.schemas import InventoryInput
-from assessment_engine.json_types import JsonObject
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 
 def _iface(

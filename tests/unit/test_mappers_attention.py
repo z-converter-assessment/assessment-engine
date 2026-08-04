@@ -5,11 +5,10 @@ capacity-weighted 평균·top_n 피크·포화 카운트(realtime) + 분류순·
 
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
-from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.attention import (
     _NET_CONGESTED_COLOR,
     _UTIL_COLOR_GAUGE,
@@ -19,6 +18,9 @@ from assessment_engine.web.services.mappers.attention import (
     build_environment_realtime,
     to_capacity_warning_item,
 )
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
@@ -102,14 +104,36 @@ def _two_snaps() -> list[JsonObject]:
     """CPU 코어 가중이 서로 다른 2 스냅샷 — capacity-weighted 와 단순평균이 갈리게 구성."""
     return [
         _snap(
-            "h1", "p1", cpu_pct=50.0, mem_pct=50.0, disk_pct=30.0, cpu_cores=2,
-            mem_used_bytes=1e9, mem_total_bytes=2e9, fs_used_gb=30.0, fs_total_gb=100.0,
-            cpu_sat_index=1.5, disk_sat_index=0.5, disk_util_pct=40.0, mem_pressure=True,
+            "h1",
+            "p1",
+            cpu_pct=50.0,
+            mem_pct=50.0,
+            disk_pct=30.0,
+            cpu_cores=2,
+            mem_used_bytes=1e9,
+            mem_total_bytes=2e9,
+            fs_used_gb=30.0,
+            fs_total_gb=100.0,
+            cpu_sat_index=1.5,
+            disk_sat_index=0.5,
+            disk_util_pct=40.0,
+            mem_pressure=True,
         ),
         _snap(
-            "h2", "p2", cpu_pct=80.0, mem_pct=75.0, disk_pct=90.0, cpu_cores=8,
-            mem_used_bytes=3e9, mem_total_bytes=4e9, fs_used_gb=90.0, fs_total_gb=100.0,
-            cpu_sat_index=0.2, disk_sat_index=2.0, disk_util_pct=80.0, mem_pressure=False,
+            "h2",
+            "p2",
+            cpu_pct=80.0,
+            mem_pct=75.0,
+            disk_pct=90.0,
+            cpu_cores=8,
+            mem_used_bytes=3e9,
+            mem_total_bytes=4e9,
+            fs_used_gb=90.0,
+            fs_total_gb=100.0,
+            cpu_sat_index=0.2,
+            disk_sat_index=2.0,
+            disk_util_pct=80.0,
+            mem_pressure=False,
         ),
     ]
 
@@ -185,10 +209,14 @@ def test_realtime_load_rows_hostname_sorted_with_all_axes():
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     assert [row.hostname for row in r.load_rows] == ["h1", "h2"]
     h2 = r.load_rows[1]
-    assert h2.cpu.value == 80.0 and h2.cpu.display == "80.0%"
-    assert h2.mem.value == 75.0 and h2.mem.display == "75.0%"
-    assert h2.run_queue.value == 0.2 and h2.run_queue.display == "0.20x"
-    assert h2.disk_util.value == 80.0 and h2.disk_util.display == "80%"
+    assert h2.cpu.value == 80.0
+    assert h2.cpu.display == "80.0%"
+    assert h2.mem.value == 75.0
+    assert h2.mem.display == "75.0%"
+    assert h2.run_queue.value == 0.2
+    assert h2.run_queue.display == "0.20x"
+    assert h2.disk_util.value == 80.0
+    assert h2.disk_util.display == "80%"
 
 
 def test_realtime_load_rows_paging_os_tagged_run_queue_not():
@@ -204,9 +232,12 @@ def test_realtime_load_rows_paging_os_tagged_run_queue_not():
     ]
     r = build_environment_realtime(total=3, online=3, snapshots=snaps, last_collected_at=_NOW)
     rows = {row.hostname: row for row in r.load_rows}
-    assert rows["lin"].run_queue.display == "0.80x" and rows["lin"].paging.display == "L 3.00/s"
-    assert rows["win"].run_queue.display == "1.10x" and rows["win"].paging.display == "W 25.00/s"
-    assert rows["none"].run_queue.display == "0.50x" and rows["none"].paging.display == "L 1.00/s"
+    assert rows["lin"].run_queue.display == "0.80x"
+    assert rows["lin"].paging.display == "L 3.00/s"
+    assert rows["win"].run_queue.display == "1.10x"
+    assert rows["win"].paging.display == "W 25.00/s"
+    assert rows["none"].run_queue.display == "0.50x"
+    assert rows["none"].paging.display == "L 1.00/s"
     # value(정렬 키)는 raw 그대로 — 접두는 표시 전용
     assert rows["win"].run_queue.value == 1.1
 
@@ -231,10 +262,13 @@ def test_realtime_load_rows_threshold_exceeded_cells_get_congested_color():
     """
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     h1, h2 = r.load_rows[0], r.load_rows[1]
-    assert h1.run_queue.color == _NET_CONGESTED_COLOR and h1.disk_io.color == ""
-    assert h2.run_queue.color == "" and h2.disk_io.color == _NET_CONGESTED_COLOR
+    assert h1.run_queue.color == _NET_CONGESTED_COLOR
+    assert h1.disk_io.color == ""
+    assert h2.run_queue.color == ""
+    assert h2.disk_io.color == _NET_CONGESTED_COLOR
     # 임계 없는 축(이용률·디스크 이용률)은 값 무관 항상 무강조
-    assert h1.cpu.color == "" and h1.disk_util.color == ""
+    assert h1.cpu.color == ""
+    assert h1.disk_util.color == ""
 
     paging_snaps = [
         _snap("pressured", "pp", paging_rate=5.0, mem_pressure=True),
@@ -257,8 +291,10 @@ def test_realtime_load_rows_network_shows_congestion_verdict_not_throughput():
     ]
     r = build_environment_realtime(total=2, online=2, snapshots=snaps, last_collected_at=_NOW)
     rows = {row.hostname: row for row in r.load_rows}
-    assert rows["congested"].network.display == "혼잡" and rows["congested"].network.color == _NET_CONGESTED_COLOR
-    assert rows["ok"].network.display == "정상" and rows["ok"].network.color == ""
+    assert rows["congested"].network.display == "혼잡"
+    assert rows["congested"].network.color == _NET_CONGESTED_COLOR
+    assert rows["ok"].network.display == "정상"
+    assert rows["ok"].network.color == ""
 
 
 def test_realtime_load_rows_keeps_every_snapshot_including_none():
@@ -275,7 +311,8 @@ def test_realtime_load_rows_keeps_every_snapshot_including_none():
     assert r.utilization[0].pct == 50.0
     assert [row.hostname for row in r.load_rows] == ["a", "b", "c"]
     b_row = next(row for row in r.load_rows if row.hostname == "b")
-    assert b_row.cpu.value is None and b_row.cpu.display == "—"
+    assert b_row.cpu.value is None
+    assert b_row.cpu.display == "—"
     assert r.sample_size == 3
 
 
@@ -401,6 +438,7 @@ def test_capacity_warning_item_disk_io_status_unmeasured_by_default():
 def test_capacity_warning_item_spec_display_matches_server_list_formula():
     """spec_display = 서버 목록과 동일 정적 배정 사양(spec_display_line 단일 진실) — 환경 자원 평가 compact 표에서
 
-    권고(사이징 목표)와 나란히 비교하는 용도. 기본 fixture: cpu_cores=2, mem_total_bytes=2GiB, disk=50e9B."""
+    권고(사이징 목표)와 나란히 비교하는 용도. 기본 fixture: cpu_cores=2, mem_total_bytes=2GiB, disk=50e9B.
+    """
     item = to_capacity_warning_item(_raw())
     assert item.spec_display == "2코어 · 2.0GB · 47GB"

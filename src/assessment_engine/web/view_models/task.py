@@ -1,9 +1,12 @@
 """Task ViewModel — list / detail / API 응답 표시."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from assessment_engine.json_types import JsonObject
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from assessment_engine.json_types import JsonObject
 
 
 @dataclass

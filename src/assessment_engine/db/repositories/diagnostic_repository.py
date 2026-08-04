@@ -1,16 +1,19 @@
 from datetime import timedelta
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import CursorResult, Result, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import array as pg_array
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
-from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.models.diagnostic_job import DiagnosticJob
 from assessment_engine.db.repositories.base_diagnostic_repository import BaseDiagnosticRepository
-from assessment_engine.json_types import JsonObject
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
+    from assessment_engine.json_types import JsonObject
 
 
 class DiagnosticRepository(BaseDiagnosticRepository):

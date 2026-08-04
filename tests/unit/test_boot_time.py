@@ -20,7 +20,7 @@ _BASE = datetime(2026, 5, 1, 0, 0, tzinfo=UTC)
 
 def test_tolerance_is_five_seconds():
     """허용치 상수 계약 — SQL bound parameter 파생 단일 진실 (5초)."""
-    assert BOOT_TIME_JITTER_TOLERANCE == timedelta(seconds=5)
+    assert timedelta(seconds=5) == BOOT_TIME_JITTER_TOLERANCE
 
 
 # --- boot_time_changed ---

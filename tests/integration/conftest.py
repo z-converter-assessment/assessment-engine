@@ -8,15 +8,19 @@
 TRUNCATE로 setup·teardown 양쪽에서 격리 강제 — 이전·이후 테스트의 누적 commit 데이터 차단.
 """
 
-from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 import pytest_asyncio
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
 from assessment_engine.db.repositories.query.query_repository import QueryRepository
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 
 @pytest_asyncio.fixture

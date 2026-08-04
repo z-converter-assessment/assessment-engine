@@ -1,9 +1,12 @@
 """Task 조회 도메인 추상 인터페이스 — 운영자 가시성 (modal · timeline · 서버별 latest)."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from assessment_engine.db.dtos.outbound import TaskRow
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from assessment_engine.db.dtos.outbound import TaskRow
 
 
 class BaseTaskQueryRepository(ABC):

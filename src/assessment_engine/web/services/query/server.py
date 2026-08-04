@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, cast
 
 from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
-from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.web.services.cache_serializer import (
     server_detail_from_json,
     server_detail_to_json,
@@ -20,7 +19,6 @@ from assessment_engine.web.services.mappers.server import (
 from assessment_engine.web.services.mappers.shared import lookup_os_eol
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
 from assessment_engine.web.settings import get_web_settings
-from assessment_engine.web.view_models.metric import CollectionStatusItem, PeriodAssessment
 from assessment_engine.web.view_models.server import (
     NetworkDetailResponse,
     ServerDetailResponse,
@@ -30,7 +28,9 @@ from assessment_engine.web.view_models.server import (
 )
 
 if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import ReportRowRaw
     from assessment_engine.web.services.query._base import _TaskSibling
+    from assessment_engine.web.view_models.metric import CollectionStatusItem, PeriodAssessment
 
 # 서버 세부 운영 신호 전구간 — 재부팅·에이전트 재시작을 window 제한 없이 전체 수집 기간 카운트(약 100년).
 _DETAIL_ALL_TIME_DAYS = 36500
@@ -200,7 +200,9 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         err = await self.repo.latest_errors(server_id, end_dt - timedelta(days=win_days))
         errors = build_error_signals(err, window_label=f"최근 {win_days}일", os_family=raws[0].os_family)
         return build_period_assessment(
-            build_resource_stats(raws[0]), errors, disk_worst_mount=raws[0].disk_capacity_worst_mount,
+            build_resource_stats(raws[0]),
+            errors,
+            disk_worst_mount=raws[0].disk_capacity_worst_mount,
             window_days=win_days,
         )
 

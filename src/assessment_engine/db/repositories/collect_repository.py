@@ -1,23 +1,9 @@
-from collections.abc import Callable, Sequence
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import CursorResult, Row, Table, UniqueConstraint, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.boot_time import boot_time_changed
-from assessment_engine.db.dtos.inbound import (
-    CpuCoreEntry,
-    DiskErrorEntry,
-    DiskIoEntry,
-    FilesystemEntry,
-    NetIoEntry,
-    PressureEntry,
-    ServerInventoryCreate,
-    ServerMetricCreate,
-    TaskCreate,
-    TaskResultUpdate,
-)
 from assessment_engine.db.models.server_cpu_core import ServerCpuCore
 from assessment_engine.db.models.server_disk_error import ServerDiskError
 from assessment_engine.db.models.server_disk_io import ServerDiskIo
@@ -29,6 +15,24 @@ from assessment_engine.db.models.server_net_io import ServerNetIo
 from assessment_engine.db.models.server_pressure import ServerPressure
 from assessment_engine.db.models.task import Task
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Sequence
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from assessment_engine.db.dtos.inbound import (
+        CpuCoreEntry,
+        DiskErrorEntry,
+        DiskIoEntry,
+        FilesystemEntry,
+        NetIoEntry,
+        PressureEntry,
+        ServerInventoryCreate,
+        ServerMetricCreate,
+        TaskCreate,
+        TaskResultUpdate,
+    )
 
 
 def _natural_key(model: type) -> list[str]:
@@ -382,7 +386,10 @@ class CollectRepository(BaseCollectRepository):
             pressure=await self._insert_child(ServerPressure, server_id, data, data.pressure),
             # member NOT NULL('') — None 을 '' 로 정규화 (NK 에 NULL 미포함, Postgres UNIQUE NULL distinct 회피).
             disk_error=await self._insert_child(
-                ServerDiskError, server_id, data, data.disk_errors,
+                ServerDiskError,
+                server_id,
+                data,
+                data.disk_errors,
                 row_hook=lambda row: {**row, "member": row["member"] or ""},
             ),
         )

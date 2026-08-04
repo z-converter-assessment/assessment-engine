@@ -1,4 +1,7 @@
-from assessment_engine.json_types import JsonObject
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 """스토리지·네트워크 device 분류 — block_device `type` · fstype · net_interface `kind` 단일 진실.
 
@@ -21,7 +24,7 @@ from assessment_engine.json_types import JsonObject
   inode(inodes_used/free). inode 고갈은 bytes 여유해도 쓰기 실패라 별도 full 축. fullness 는 파일시스템
   속성(raw 디스크는 채우는 대상이 아님) — 배정·확장·I/O·특성이 물리 디스크/VG 축을 맡는다.
 - I/O (IOPS·처리량·await 포화) = 물리 디스크 (server_disk_io type=="disk"). LV/파티션 통과분 이중집계 회피.
-- 확장 여력 = (a) lvm_vgs.free_bytes = VG 미할당(LV 확장 정밀치) + (b) 물리 디스크 미파티션 갭(배정 − 파티션 합).
+- 확장 여력 = (a) lvm_vgs.free_bytes = VG 미할당(LV 확장 정밀치) + (b) 물리 디스크 미파티션 갭(배정 - 파티션 합).
 논리 계층 구조(lvm_vg·lvm_segtype·lvm_stripes·raid_level·crypt_type·partition_table·mount_options)는 block_devices
 노드 속성으로 레이아웃에 표현 — 무엇을 보든 원본에 있으면 계층에 귀속. 어느 축이든 계층 고정: 사용량=파일시스템,
 활동/용량/확장/특성=물리 디스크·VG. 소비처가 계층을 바꿔 재는 것 금지(같은 질문=같은 계층). 복잡 스택
@@ -31,9 +34,28 @@ from assessment_engine.json_types import JsonObject
 # 가상 파일시스템 — 데이터 볼륨 아님(용량 집계·상세 표시 제외). df 관례. types._VIRTUAL_FSTYPES(SQL) 와 동일 집합.
 VIRTUAL_FSTYPES = frozenset(
     {
-        "tmpfs", "devtmpfs", "overlay", "squashfs", "proc", "sysfs", "cgroup", "cgroup2", "mqueue",
-        "debugfs", "tracefs", "securityfs", "pstore", "bpf", "configfs", "ramfs", "autofs",
-        "hugetlbfs", "fusectl", "nsfs", "efivarfs", "binfmt_misc",
+        "tmpfs",
+        "devtmpfs",
+        "overlay",
+        "squashfs",
+        "proc",
+        "sysfs",
+        "cgroup",
+        "cgroup2",
+        "mqueue",
+        "debugfs",
+        "tracefs",
+        "securityfs",
+        "pstore",
+        "bpf",
+        "configfs",
+        "ramfs",
+        "autofs",
+        "hugetlbfs",
+        "fusectl",
+        "nsfs",
+        "efivarfs",
+        "binfmt_misc",
     }
 )
 
@@ -72,9 +94,7 @@ def is_data_volume(fstype: str | None, mountpoint: str | None = None) -> bool:
     """
     if fstype is not None and fstype in VIRTUAL_FSTYPES:
         return False
-    if mountpoint is not None and mountpoint.startswith("/boot"):
-        return False
-    return True
+    return not (mountpoint is not None and mountpoint.startswith("/boot"))
 
 
 def disk_total_bytes(block_devices: list[JsonObject]) -> int:

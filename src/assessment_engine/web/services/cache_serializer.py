@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 
 from assessment_engine.json_types import JsonObject, json_list
+from assessment_engine.service_classifier import MatchedPort
 from assessment_engine.web.services.mappers.server import (
     DYNAMIC_PORT_MIN,
     enrich_server_detail,
@@ -23,7 +24,6 @@ from assessment_engine.web.view_models.server import (
     DiskItem,
     IpAddr,
     ListenPortItem,
-    MatchedPort,
     ServerDetailResponse,
     ServiceItem,
     VolumeItem,

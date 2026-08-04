@@ -9,14 +9,16 @@ multi-node 분리 배포에서 web/consumer/diagnostic 각 노드가 자기 Sett
 노드별로 작동한다 (Composition Root #F4 정합).
 """
 
-from pathlib import Path
-from types import ModuleType
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from pydantic import SecretStr, ValidationError
 
 from assessment_engine.config import _WEAK_VALUES, ConsumerSettings, DiagnosticSettings, WebSettings
+
+if TYPE_CHECKING:
+    from pathlib import Path
+    from types import ModuleType
 
 
 def _web_kwargs(**overrides: Any) -> dict[str, Any]:
@@ -165,7 +167,9 @@ def _prod_env(monkeypatch: pytest.MonkeyPatch, secrets_dir: Path) -> None:
 
 def _patch_secrets_dir(monkeypatch: pytest.MonkeyPatch, secrets_dir: Path) -> ModuleType:
     """_SECRETS_DIR 는 import 시점에 굳는다. reload 는 모듈 전역을 갈아끼우고 복원하지 않아 뒤 테스트가
-    그 값을 물려받으므로, monkeypatch 로 바꾸고 인스턴스화 때 `_secrets_dir` 을 함께 넘긴다."""
+
+    그 값을 물려받으므로, monkeypatch 로 바꾸고 인스턴스화 때 `_secrets_dir` 을 함께 넘긴다.
+    """
     import assessment_engine.config as config_module
 
     monkeypatch.setattr(config_module, "_SECRETS_DIR", str(secrets_dir))

@@ -1,17 +1,20 @@
 """Report aggregation 도메인 추상 인터페이스 — USE Method 통계 + 환경 활용률."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from assessment_engine.db.dtos.outbound import (
-    CpuBreakdownRaw,
-    DiskIoBaselineRaw,
-    EnvironmentUtilizationRaw,
-    MemoryBreakdownRaw,
-    MountCapacityRaw,
-    NetIoBaselineRaw,
-    ReportRowRaw,
-)
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from assessment_engine.db.dtos.outbound import (
+        CpuBreakdownRaw,
+        DiskIoBaselineRaw,
+        EnvironmentUtilizationRaw,
+        MemoryBreakdownRaw,
+        MountCapacityRaw,
+        NetIoBaselineRaw,
+        ReportRowRaw,
+    )
 
 
 class BaseReportQueryRepository(ABC):

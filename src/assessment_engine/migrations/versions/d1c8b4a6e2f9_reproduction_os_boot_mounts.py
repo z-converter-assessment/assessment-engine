@@ -8,12 +8,14 @@ Create Date: 2026-07-10
 
 """
 
-from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
 
 revision: str = "d1c8b4a6e2f9"
 down_revision: str | Sequence[str] | None = "a2f4c6e8d0b1"

@@ -9,11 +9,10 @@ fields`)를 고정한다.
 
 import dataclasses
 from datetime import UTC, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
-from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.environment_report import to_environment_report
 from assessment_engine.web.services.report_serializer import (
     _report_row_from_dict,
@@ -31,6 +30,9 @@ from assessment_engine.web.view_models.environment_report import (
 )
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary, ReportTotals
 from assessment_engine.web.view_models.server import IpAddr
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 
 def _make_env_report():
@@ -110,13 +112,15 @@ def test_env_report_roundtrip_restores_nested_dataclasses():
 
     si = restored.server_inventory
     assert isinstance(si, ServerInventorySnapshot)
-    assert si.ip_internal[0].value == "10.0.0.1/24" and si.ip_internal[0].is_ipv4 is True
+    assert si.ip_internal[0].value == "10.0.0.1/24"
+    assert si.ip_internal[0].is_ipv4 is True
     assert si.ip_external[0].is_ipv4 is False  # IPv6 보존
     assert si.boot_time == datetime(2026, 5, 1, tzinfo=UTC)  # datetime 복원 (str 아님)
 
     assert isinstance(restored.memory_breakdown, MemoryBreakdown)
     assert restored.memory_breakdown.available_pct == 62.5
-    assert isinstance(restored.cpu_breakdown, CpuBreakdown) and restored.cpu_breakdown.iowait_pct == 5.2
+    assert isinstance(restored.cpu_breakdown, CpuBreakdown)
+    assert restored.cpu_breakdown.iowait_pct == 5.2
 
     grp = restored.service_catalog[0]
     assert isinstance(grp, ServiceCatalogGroup)
@@ -135,7 +139,9 @@ def test_env_report_roundtrip_empty_nested_stays_default():
 
 def test_env_report_roundtrip_restores_period_assessment_storage_network():
     """단일 보고서(engineer) 전용 — period_assessment(재귀 nested)·storage_tree(재귀)·network_interfaces
-    가 dict 가 아닌 dataclass 로 복원 (single_report CPU/메모리/스토리지/네트워크 상세 카드가 `.attr` 로 접근)."""
+
+    가 dict 가 아닌 dataclass 로 복원 (single_report CPU/메모리/스토리지/네트워크 상세 카드가 `.attr` 로 접근).
+    """
     from assessment_engine.web.view_models.metric import (
         PeriodAssessment,
         PeriodErrorRow,
@@ -162,8 +168,12 @@ def test_env_report_roundtrip_restores_period_assessment_storage_network():
                 extra_groups=[PeriodExtraGroup(label="부하 신호", rows=[row])],
                 error_rows=[
                     PeriodErrorRow(
-                        key="mem_oom", label="OOM Kill", badge_text="1건", badge_class="badge-danger",
-                        note="14일 내 1회", sizing_signal="메모리 자원 부족",
+                        key="mem_oom",
+                        label="OOM Kill",
+                        badge_text="1건",
+                        badge_class="badge-danger",
+                        note="14일 내 1회",
+                        sizing_signal="메모리 자원 부족",
                     )
                 ],
             )
@@ -183,19 +193,23 @@ def test_env_report_roundtrip_restores_period_assessment_storage_network():
     pa = restored.period_assessment
     assert isinstance(pa, PeriodAssessment)
     cpu = pa.resources[0]
-    assert isinstance(cpu, PeriodResource) and isinstance(cpu.util_rows[0], PeriodSignalRow)
+    assert isinstance(cpu, PeriodResource)
+    assert isinstance(cpu.util_rows[0], PeriodSignalRow)
     grp = cpu.extra_groups[0]
-    assert isinstance(grp, PeriodExtraGroup) and isinstance(grp.rows[0], PeriodSignalRow)
+    assert isinstance(grp, PeriodExtraGroup)
+    assert isinstance(grp.rows[0], PeriodSignalRow)
     assert isinstance(cpu.error_rows[0], PeriodErrorRow)
     assert cpu.error_rows[0].sizing_signal == "메모리 자원 부족"
 
     root = restored.storage_tree[0]
     assert isinstance(root, StorageNode)
-    assert isinstance(root.children[0], StorageNode) and root.children[0].usage_pct == 42.5
+    assert isinstance(root.children[0], StorageNode)
+    assert root.children[0].usage_pct == 42.5
 
     iface = restored.network_interfaces[0]
     assert isinstance(iface, NetworkInterfaceInfo)
-    assert isinstance(iface.addresses[0], NetIfaceAddress) and iface.addresses[0].value == "10.0.0.1/24"
+    assert isinstance(iface.addresses[0], NetIfaceAddress)
+    assert iface.addresses[0].value == "10.0.0.1/24"
 
 
 def test_env_report_roundtrip_empty_period_assessment_and_storage_stay_default():
@@ -235,7 +249,9 @@ def test_report_row_roundtrip_drops_removed_legacy_fields():
 
 def test_action_targets_roundtrip_drops_removed_metrics_fields():
     """과거 스냅샷의 action.hosts[].metrics·action.metric_labels(ADR 0056 이전, CapacityMetric 폐기)가
-    복원을 깨지 않는다 — top_risks 와 동일 `_drop_unknown_fields` 경로."""
+
+    복원을 깨지 않는다 — top_risks 와 동일 `_drop_unknown_fields` 경로.
+    """
     data = env_report_to_dict(_make_env_report())
     data["action"] = {
         "hosts": [
@@ -288,23 +304,36 @@ def test_nested_overview_and_storage_drop_removed_fields_via_build():
     # overview nested(SaturationDonut)에 폐기 가정 키 주입
     data["overview"]["saturation_donuts"] = [
         {
-            "label": "CPU 포화", "count": 0, "total": 1,
-            "dash_length": 0.0, "dash_offset": 0.0, "color": "#dc2626", "pct": 0.0,
+            "label": "CPU 포화",
+            "count": 0,
+            "total": 1,
+            "dash_length": 0.0,
+            "dash_offset": 0.0,
+            "color": "#dc2626",
+            "pct": 0.0,
             "_legacy_removed_axis": "load",  # 현재 스키마에 없는 옛 필드
         }
     ]
     # storage_tree 재귀 노드에도 폐기 가정 키
     data["storage_tree"] = [
-        {"name": "vda", "kind": "disk", "kind_label": "디스크", "size_gb": 100.0,
-         "children": [], "_legacy_major_minor": "252:0"}
+        {
+            "name": "vda",
+            "kind": "disk",
+            "kind_label": "디스크",
+            "size_gb": 100.0,
+            "children": [],
+            "_legacy_major_minor": "252:0",
+        }
     ]
 
     restored = env_report_from_dict(data)
 
     sd = restored.overview.saturation_donuts[0]
-    assert not hasattr(sd, "_legacy_removed_axis") and sd.label == "CPU 포화"
+    assert not hasattr(sd, "_legacy_removed_axis")
+    assert sd.label == "CPU 포화"
     node = restored.storage_tree[0]
-    assert not hasattr(node, "_legacy_major_minor") and node.name == "vda"
+    assert not hasattr(node, "_legacy_major_minor")
+    assert node.name == "vda"
 
 
 def _row_kwargs(**overrides: Any) -> JsonObject:

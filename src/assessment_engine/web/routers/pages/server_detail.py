@@ -101,8 +101,14 @@ async def get_cpu(
     service: QueryService = Depends(get_service),
 ):
     return await _render_server_tab(
-        request, "servers/cpu.html", internal_id=internal_id, server_id=server_id, back=back, service=service,
-        include_period=True, resource_index=0,
+        request,
+        "servers/cpu.html",
+        internal_id=internal_id,
+        server_id=server_id,
+        back=back,
+        service=service,
+        include_period=True,
+        resource_index=0,
     )
 
 
@@ -115,8 +121,14 @@ async def get_memory(
     service: QueryService = Depends(get_service),
 ):
     return await _render_server_tab(
-        request, "servers/memory.html", internal_id=internal_id, server_id=server_id, back=back, service=service,
-        include_period=True, resource_index=1,
+        request,
+        "servers/memory.html",
+        internal_id=internal_id,
+        server_id=server_id,
+        back=back,
+        service=service,
+        include_period=True,
+        resource_index=1,
     )
 
 

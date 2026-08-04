@@ -1,23 +1,26 @@
 """Metric chart 도메인 추상 인터페이스 — dashboard snapshot · 시계열 · 차트 dispatch · reboot marker."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from assessment_engine.db.dtos.outbound import (
-    DashboardRaw,
-    ErrorFleetRaw,
-    FleetErrorRaw,
-    MetricSeries,
-    RebootEvent,
-    SaturationRaw,
-)
-from assessment_engine.db.repositories.query.types import (
-    AggFunc,
-    BucketSize,
-    EnvironmentMetricType,
-    MetricType,
-    TimeRange,
-)
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from assessment_engine.db.dtos.outbound import (
+        DashboardRaw,
+        ErrorFleetRaw,
+        FleetErrorRaw,
+        MetricSeries,
+        RebootEvent,
+        SaturationRaw,
+    )
+    from assessment_engine.db.repositories.query.types import (
+        AggFunc,
+        BucketSize,
+        EnvironmentMetricType,
+        MetricType,
+        TimeRange,
+    )
 
 
 class BaseMetricQueryRepository(ABC):

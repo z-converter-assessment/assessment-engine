@@ -4,8 +4,12 @@
 repo round-trip 검증은 `test_collect_repository.py` 가 더 깊게 다룸 (중복 회피).
 """
 
+from typing import TYPE_CHECKING
+
 import pytest
-from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = pytest.mark.asyncio
 

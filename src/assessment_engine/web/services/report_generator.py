@@ -12,15 +12,18 @@ result 에 담는다 — parent 가 단일 처리 단위라 child 전부 성공 
 """
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
-from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.repositories.query.types import DIAGNOSTIC_DEFAULT_TIME_RANGE
 from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, build_report_result
-from assessment_engine.json_types import JsonObject
-from assessment_engine.web.services.diagnostic_service import DiagnosticService
-from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_serializer import env_report_to_dict
-from assessment_engine.web.view_models.attention import AttentionSignals
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
+    from assessment_engine.json_types import JsonObject
+    from assessment_engine.web.services.diagnostic_service import DiagnosticService
+    from assessment_engine.web.services.query_service import QueryService
+    from assessment_engine.web.view_models.attention import AttentionSignals
 
 
 class ReportGenerationError(Exception):
@@ -69,7 +72,7 @@ async def build_report_result_for_job(
     p = record.input_params
     view = p["view"]
     time_range = p.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE)
-    # anchor 는 emit 시점에 _normalize_anchor 로 확정·저장된 값 — 워커는 재정규화 없이 그대로 사용(발행 윈도우 고정).
+    # anchor 는 emit 시점에 normalize_anchor 로 확정·저장된 값 — 워커는 재정규화 없이 그대로 사용(발행 윈도우 고정).
     anchor = datetime.fromisoformat(p["anchor_at"])
 
     if record.scope == "environment":

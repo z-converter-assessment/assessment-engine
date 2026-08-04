@@ -6,6 +6,7 @@ graceful_drain(SIGTERM 시 진행 중 1건 drain, 초과 시 cancel)을 한 곳�
 """
 
 import asyncio
+import contextlib
 from typing import Any
 
 from loguru import logger
@@ -13,10 +14,8 @@ from loguru import logger
 
 async def sleep_or_stop(stop_event: asyncio.Event, seconds: float) -> None:
     """poll/tick 대기 — stop_event set 되면 즉시 깸(graceful shutdown 시 대기 단축)."""
-    try:
+    with contextlib.suppress(TimeoutError):
         await asyncio.wait_for(stop_event.wait(), timeout=seconds)
-    except TimeoutError:
-        pass
 
 
 async def graceful_drain(

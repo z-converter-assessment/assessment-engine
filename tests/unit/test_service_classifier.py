@@ -14,7 +14,7 @@ from assessment_engine.service_classifier import (
 
 
 @pytest.mark.parametrize(
-    "unit, expected",
+    ("unit", "expected"),
     [
         ("nginx.service", "web"),
         ("nginx", "web"),  # .service suffix 없어도
@@ -41,7 +41,7 @@ def test_classify_case_insensitive():
 
 
 @pytest.mark.parametrize(
-    "unit, expected",
+    ("unit", "expected"),
     [
         # 커버리지 보강 워크로드 (이름 신호)
         ("tomcat.service", "web"),
@@ -68,7 +68,7 @@ def test_classify_extended_catalog(unit: str, expected: str):
 
 
 @pytest.mark.parametrize(
-    "port, expected",
+    ("port", "expected"),
     [
         (1521, "db"),  # oracle
         (9200, "db"),  # elasticsearch/opensearch
@@ -90,7 +90,7 @@ def test_detect_listen_categories_extended_ports(port: int, expected: str):
 
 
 @pytest.mark.parametrize(
-    "unit, expected",
+    ("unit", "expected"),
     [
         ("W3SVC", "web"),  # IIS
         ("MSSQLSERVER", "db"),  # SQL Server default instance
@@ -283,7 +283,7 @@ def test_classify_pid_join_ignores_other_pid_socket():
 
 def test_catalog_categories_match_derived():
     """SERVICE_CATEGORIES 는 카탈로그 key 순서와 동일."""
-    assert SERVICE_CATEGORIES == tuple(d.key for d in SERVICE_CATALOG)
+    assert tuple(d.key for d in SERVICE_CATALOG) == SERVICE_CATEGORIES
 
 
 def test_catalog_badge_class_covers_all_categories_plus_unknown():
@@ -316,7 +316,7 @@ def test_compute_categories_port_only_workload():
 
 
 def test_compute_categories_name_listen_union_sorted_dedup():
-    """services 이름 분류 ∪ listen 탐지, 정렬·dedup·unknown 제외."""
+    """services 이름 분류와 listen 탐지의 합집합, 정렬·dedup·unknown 제외."""
     from assessment_engine.service_classifier import compute_service_categories
 
     cats = compute_service_categories(
@@ -350,9 +350,18 @@ def test_compute_categories_excludes_baseline_keeps_workload():
     from assessment_engine.service_classifier import compute_service_categories
 
     cats = compute_service_categories(
-        [{"unit": "sshd.service"}, {"unit": "chronyd.service"}, {"unit": "rpcbind.service"},
-         {"unit": "redis.service"}, {"unit": "named.service"}],
-        [{"proto": "tcp", "port": 22, "comm": "sshd"}, {"proto": "udp", "port": 123, "comm": "chronyd"},
-         {"proto": "tcp", "port": 6379, "comm": "redis-server"}, {"proto": "tcp", "port": 53, "comm": "named"}],
+        [
+            {"unit": "sshd.service"},
+            {"unit": "chronyd.service"},
+            {"unit": "rpcbind.service"},
+            {"unit": "redis.service"},
+            {"unit": "named.service"},
+        ],
+        [
+            {"proto": "tcp", "port": 22, "comm": "sshd"},
+            {"proto": "udp", "port": 123, "comm": "chronyd"},
+            {"proto": "tcp", "port": 6379, "comm": "redis-server"},
+            {"proto": "tcp", "port": 53, "comm": "named"},
+        ],
     )
     assert cats == ["cache", "infra"]  # redis(cache)·named(DNS 서버=infra) — ssh/chronyd/rpcbind 제외

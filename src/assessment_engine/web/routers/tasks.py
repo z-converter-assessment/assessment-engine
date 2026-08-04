@@ -16,10 +16,10 @@ from assessment_engine.web.deps import get_service, get_task_service
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import (
     TaskCreated,
-    TaskDuplicatePending,
-    TaskNotConfigured,
-    TaskNotFound,
-    TaskPublishFailed,
+    TaskDuplicatePendingError,
+    TaskNotConfiguredError,
+    TaskNotFoundError,
+    TaskPublishFailedError,
     TaskService,
 )
 from assessment_engine.web.settings import get_web_settings
@@ -68,10 +68,10 @@ def _is_valid_host_or_host_port(v: str) -> bool:
 
     try:
         ipaddress.IPv4Address(host)
-        return True
     except ValueError:
-        pass
-    return _is_valid_hostname(host)
+        return _is_valid_hostname(host)
+    else:
+        return True
 
 
 class InstallRequest(BaseModel):
@@ -122,13 +122,13 @@ async def install(
             zdm_ip=req.zdm_ip or get_web_settings().zdm_default_ip,
             zdm_user=req.zdm_user or get_web_settings().zdm_default_user,
         )
-    except TaskNotFound as e:
+    except TaskNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
-    except TaskDuplicatePending as e:
+    except TaskDuplicatePendingError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
-    except TaskNotConfigured as e:
+    except TaskNotConfiguredError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
-    except TaskPublishFailed as e:
+    except TaskPublishFailedError as e:
         raise HTTPException(status_code=503, detail=str(e)) from e
 
 

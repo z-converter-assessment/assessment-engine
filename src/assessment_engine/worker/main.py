@@ -9,8 +9,8 @@ Composition Root(F4): DiagnosticService·QueryService·Repository 구체 인스�
 
 import asyncio
 import signal
-from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager, suppress
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
@@ -26,6 +26,9 @@ from assessment_engine.worker.report_worker import run_report_worker
 from assessment_engine.worker.settings import get_worker_settings
 from assessment_engine.worker.task_reaper import run_task_reaper
 from assessment_engine.worker.worker_lifecycle import graceful_drain
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator
 
 
 @asynccontextmanager
@@ -76,11 +79,15 @@ async def main() -> None:
         # 공유 stop_event 로 두 루프 종료 신호 -> 각자 shutdown timeout 안 진행 중 1건 drain, 초과 시 cancel.
         # report 미완 job 은 running 잔류 -> 다음 기동 recover_stale 회수(in-flight 손실 0).
         await graceful_drain(
-            report_task, stop_event, get_worker_settings().report_worker_shutdown_timeout_sec,
+            report_task,
+            stop_event,
+            get_worker_settings().report_worker_shutdown_timeout_sec,
             "report worker shutdown timeout — in-flight job left running (stale recovery will requeue)",
         )
         await graceful_drain(
-            reaper_task, stop_event, get_worker_settings().install_reaper_shutdown_timeout_sec,
+            reaper_task,
+            stop_event,
+            get_worker_settings().install_reaper_shutdown_timeout_sec,
             "install task reaper shutdown timeout — cancelled",
         )
         await close_pool()

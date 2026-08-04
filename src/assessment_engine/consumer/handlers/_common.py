@@ -5,21 +5,25 @@
 
 import asyncio
 import random
-from collections.abc import Callable, Coroutine
-from datetime import datetime
-from typing import Any
-from uuid import UUID
+from typing import TYPE_CHECKING, Any
 
 from loguru import logger
-from pydantic import ValidationError
-from redis.asyncio import Redis
 from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, OperationalError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_get, safe_incr_with_ttl, safe_set, safe_set_nx
-from assessment_engine.consumer.schemas import AgentMessageBase
 from assessment_engine.consumer.settings import get_consumer_settings
-from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+    from datetime import datetime
+    from uuid import UUID
+
+    from pydantic import ValidationError
+    from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from assessment_engine.consumer.schemas import AgentMessageBase
+    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 
 # 일시 장애만 retry. 영구 장애(IntegrityError·ProgrammingError·DataError 등)는 즉시 raise -> nack -> DLQ (F6).
 # IntegrityError(= UNIQUE/FK 위반)도 DBAPIError 상속이라 먼저 별도 캐치.
@@ -77,9 +81,7 @@ def _format_validation_err(e: ValidationError, limit: int = _VALIDATION_ERR_LIMI
     inventory 는 한 메시지에 오류가 수십 건 나올 수 있어 상위 limit 건만 남긴다 (F7).
     """
     errors = e.errors(include_url=False, include_context=False, include_input=False)
-    head = " ".join(
-        ".".join(_sanitize_loc_part(p) for p in it["loc"]) + "=" + it["type"] for it in errors[:limit]
-    )
+    head = " ".join(".".join(_sanitize_loc_part(p) for p in it["loc"]) + "=" + it["type"] for it in errors[:limit])
     more = f" +{len(errors) - limit}more" if len(errors) > limit else ""
     return f"count={len(errors)} {head}{more}"
 
@@ -113,7 +115,6 @@ async def _db_retry[T](
             async with session_factory() as session:
                 result = await fn(repo_factory(session))
                 await session.commit()
-            return result
         except IntegrityError as e:
             # 영구 장애 — 즉시 raise -> 핸들러 nack -> DLQ. F8: 진단 메타만 로깅.
             _hide_bound_params(e)
@@ -136,8 +137,10 @@ async def _db_retry[T](
                 logger.error("db timeout after {} attempts", _RETRY_MAX_ATTEMPTS)
                 raise
             logger.warning("db timeout attempt={}", attempt + 1)
+        else:
+            return result
         # full jitter: [0, base^(attempt+1)] 균등 — 동시 재연결 쏠림 방지.
-        await asyncio.sleep(random.uniform(0, _RETRY_BACKOFF_BASE_SEC ** (attempt + 1)))
+        await asyncio.sleep(random.uniform(0, _RETRY_BACKOFF_BASE_SEC ** (attempt + 1)))  # noqa: S311
     raise AssertionError("unreachable")
 
 
@@ -192,9 +195,7 @@ async def _log_time_invariants(redis: Redis, data: AgentMessageBase) -> None:
         )
 
 
-async def _track_agent_restart(
-    redis: Redis, server_id: int, agent_id: str, agent_started_at: datetime | None
-) -> None:
+async def _track_agent_restart(redis: Redis, server_id: int, agent_id: str, agent_started_at: datetime | None) -> None:
     """직전 agent_started_at 과 비교 -> 변경 시 1h 슬라이딩 윈도우 카운터 INCR.
 
     threshold 도달 시 warning (agent crash loop 인지). 시스템 재부팅도 agent_started_at 변경이라

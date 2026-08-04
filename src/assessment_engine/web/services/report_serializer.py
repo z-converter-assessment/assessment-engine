@@ -15,8 +15,6 @@ result JSONB 구조·키 단일 진실은 `diagnostic.report_result`.
 
 import dataclasses
 
-from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV as REPORT_KIND_ENV
-
 # result 구조 계약(키·dict 조립)은 diagnostic.report_result 단일 진실 — web view_models 에 의존하지
 # 않는 중립 모듈에 분리.
 from assessment_engine.json_types import JsonObject, json_list, json_obj

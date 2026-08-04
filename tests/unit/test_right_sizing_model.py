@@ -46,7 +46,8 @@ def test_cpu_saturation_dual_gate():
     # util 이 실제 높으면(75%) 실행 큐 포화가 목표를 키운다 (util+포화 dual-gate 통과)
     b = r.assess_cpu(_stats(cpu_p95_pct=75.0, cpu_cores=4, procs_running_p95=8.0))
     assert b.status == "under"
-    assert "cpu_saturation" in b.triggers and "cpu_util" in b.triggers
+    assert "cpu_saturation" in b.triggers
+    assert "cpu_util" in b.triggers
     assert b.sizing_target == 12  # sat ceil(8/0.7)=12 > util ceil(75*4/70)=5
 
 
@@ -505,11 +506,19 @@ def test_labels_cover_all_triggers():
 
 def test_under_prescription_coupled_root_still_lists_symptom_resources():
     """메모리발 결합 — root_cause 는 "메모리"로 잡히지만, 처방(under_prescription)은 자원별 독립이라 CPU 도
+
     함께 나열된다(ADR 0055 — 인과 추정이 틀려도 관측된 부족을 누락하지 않는 게 안전 우선). 근본원인은
-    root_cause_display(별도 칼럼)가 "메모리 (CPU 유발)" 식으로 전달."""
+    root_cause_display(별도 칼럼)가 "메모리 (CPU 유발)" 식으로 전달.
+    """
     s = _stats(
-        cpu_p95_pct=90.0, cpu_cores=8, procs_running_p95=8.0, mem_p95_pct=95.0, mem_total_mb=16384,
-        mem_swap_paging=True, disk_await_p95_ms=40.0, procs_blocked_p95=2.0,
+        cpu_p95_pct=90.0,
+        cpu_cores=8,
+        procs_running_p95=8.0,
+        mem_p95_pct=95.0,
+        mem_total_mb=16384,
+        mem_swap_paging=True,
+        disk_await_p95_ms=40.0,
+        procs_blocked_p95=2.0,
     )
     h = r.rollup_host(s)
     presc = r.under_prescription(h)
@@ -525,7 +534,8 @@ def test_under_prescription_independent_all():
     h = r.rollup_host(s)
     presc = r.under_prescription(h)
     assert not h.symptom_of_root
-    assert "CPU: " in presc and "스토리지 확장" in presc
+    assert "CPU: " in presc
+    assert "스토리지 확장" in presc
 
 
 def test_under_prescription_empty_when_no_under():
