@@ -39,6 +39,9 @@ jobs:
       - name: Install project (frozen)
         run: uv sync --frozen --group dev
 
+      - name: lockfile drift
+        run: uv lock --check
+
       - name: ruff format
         run: uv run ruff format --check .
 
