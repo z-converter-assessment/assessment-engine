@@ -140,7 +140,7 @@ class WebSettings(BaseSettings):
         return f"redis://{self.redis_host}:{self.redis_port}"
 
     @model_validator(mode="after")
-    def _validate_web_secrets(self) -> "WebSettings":
+    def _validate_web_secrets(self) -> WebSettings:
         # 환경으로 강도를 가르지 않는다 — dev 카탈로그도 뻔한 값을 쓰지 않으므로 같은 기준이 통한다.
         # 채널 자체는 본 repo 책임 밖(CLAUDE.md #A0). 결과만 본다.
         _reject_env_shadowing_secret("postgres_password")
@@ -232,7 +232,7 @@ class ConsumerSettings(WebSettings):
         return f"{self.rabbitmq_task_install_key_prefix}.{agent_id}"
 
     @model_validator(mode="after")
-    def _validate_consumer_secrets(self) -> "ConsumerSettings":
+    def _validate_consumer_secrets(self) -> ConsumerSettings:
         _reject_env_shadowing_secret("rabbitmq_password")
         if self.rabbitmq_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(

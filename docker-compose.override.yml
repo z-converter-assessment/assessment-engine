@@ -9,7 +9,7 @@ x-dev-app: &dev-app
   image: assessment-engine:local
   # 호스트 소스를 컨테이너 가상환경에 겹쳐 코드 수정이 재빌드 없이 반영된다 (의존성 변경 시에만 재빌드).
   volumes:
-    - ./src/assessment_engine:/opt/venv/lib/python3.12/site-packages/assessment_engine
+    - ./src/assessment_engine:/opt/venv/lib/python3.14/site-packages/assessment_engine
 
 services:
   # rabbitmq 는 RABBITMQ_DEFAULT_PASS 를 읽는데 .env 의 키는 RABBITMQ_PASSWORD 라 이름을 맞춰준다.
@@ -26,11 +26,11 @@ services:
   # uvicorn 이 없는 프로세스라 watchfiles 래퍼로 재시작한다. 첫 인자가 재실행할 명령, 나머지가 감시 경로다.
   consumer:
     <<: *dev-app
-    command: ["watchfiles", "--filter", "python", "python -m assessment_engine.consumer", "/opt/venv/lib/python3.12/site-packages/assessment_engine"]
+    command: ["watchfiles", "--filter", "python", "python -m assessment_engine.consumer", "/opt/venv/lib/python3.14/site-packages/assessment_engine"]
 
   worker:
     <<: *dev-app
-    command: ["watchfiles", "--filter", "python", "python -m assessment_engine.worker", "/opt/venv/lib/python3.12/site-packages/assessment_engine"]
+    command: ["watchfiles", "--filter", "python", "python -m assessment_engine.worker", "/opt/venv/lib/python3.14/site-packages/assessment_engine"]
 
   # base 의 alembic command 는 그대로 두고 build 와 bind mount 만 더한다 (새 revision 을 재빌드 없이 인식).
   migrate:

@@ -1,3 +1,5 @@
+from typing import cast
+
 from loguru import logger
 from redis.asyncio import ConnectionPool, Redis
 from redis.exceptions import RedisError
@@ -47,7 +49,8 @@ async def close_pool() -> None:
 
 async def safe_get(redis: Redis, key: str) -> str | None:
     try:
-        return await redis.get(key)
+        # 풀이 decode_responses=True 라 응답은 str 이다. redis 8 은 그 설정을 타입에 반영하지 않는다.
+        return cast("str | None", await redis.get(key))
     except RedisError as e:
         logger.warning("redis get failed key={} err={}", key, e)
         return None
@@ -88,7 +91,7 @@ async def safe_mget(redis: Redis, keys: list[str]) -> list[str | None] | None:
     if not keys:
         return []
     try:
-        return await redis.mget(keys)
+        return cast("list[str | None]", await redis.mget(keys))
     except RedisError as e:
         logger.warning("redis mget failed count={} err={}", len(keys), e)
         return None

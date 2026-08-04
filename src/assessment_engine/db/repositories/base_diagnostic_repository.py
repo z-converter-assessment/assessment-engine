@@ -70,7 +70,7 @@ class BaseDiagnosticRepository(ABC):
         server_public_ids: list[str] | None = None,
         job_type: str | None = None,
         limit: int = 200,
-    ) -> list["DiagnosticJobRecord"]:
+    ) -> list[DiagnosticJobRecord]:
         """최근 N일 보고서 발행 이력. scope·server_public_ids·job_type 필터 옵션. created_at DESC.
 
         모든 상태(succeeded/failed) 포함. server_public_ids 지정 시 input_params JSONB ANY 매칭
