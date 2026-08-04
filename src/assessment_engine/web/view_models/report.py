@@ -1,10 +1,7 @@
 """Assessment 보고서 ViewModel — server scope 보고서 row + KPI 합계 + 요약."""
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from datetime import datetime
+from datetime import datetime
 
 
 @dataclass

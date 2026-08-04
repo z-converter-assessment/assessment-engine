@@ -1,10 +1,7 @@
 """Attention 신호·환경 개요 ViewModel — list 화면 상단 카드 + 환경 활용률 도넛."""
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from datetime import datetime
+from datetime import datetime
 
 
 @dataclass

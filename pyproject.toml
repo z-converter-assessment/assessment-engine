@@ -169,8 +169,9 @@ runtime-evaluated-base-classes = [
     "sqlalchemy.orm.DeclarativeBase",
     "assessment_engine.db.models.base.Base",
 ]
-# hypothesis 는 @composite 함수의 어노테이션을 런타임에 읽어 전략을 만든다.
-runtime-evaluated-decorators = ["hypothesis.strategies.composite"]
+# dataclass 는 FastAPI 가 응답 모델로 쓸 때 pydantic 이 어노테이션을 resolve 하고, hypothesis 는
+# @composite 함수의 어노테이션을 읽어 전략을 만든다.
+runtime-evaluated-decorators = ["dataclasses.dataclass", "hypothesis.strategies.composite"]
 
 [tool.ruff.lint.per-file-ignores]
 # 테스트는 assert 가 본체이고, private helper 를 직접 부르는 것이 단위 테스트의 정의다.
@@ -179,9 +180,10 @@ runtime-evaluated-decorators = ["hypothesis.strategies.composite"]
 "scripts/**" = ["INP001"]
 # alembic 이 파일 경로로 로드하는 스크립트라 패키지가 아니다.
 "src/assessment_engine/migrations/**" = ["INP001"]
-# FastAPI 는 endpoint 의 어노테이션을 런타임에 resolve 해 의존성·응답 모델을 만든다 — 라우터의
-# import 를 TYPE_CHECKING 으로 옮기면 기동이 깨진다.
-"src/assessment_engine/web/routers/*" = ["TC001", "TC002", "TC003"]
+# FastAPI 는 endpoint 와 의존성 callable 의 어노테이션을 런타임에 resolve 한다 — 이 두 자리의 import 를
+# TYPE_CHECKING 으로 옮기면 기동이 깨진다.
+"src/assessment_engine/web/routers/**" = ["TC001", "TC002", "TC003"]
+"src/assessment_engine/web/deps.py" = ["TC001", "TC002", "TC003"]
 # E501 예외 — 줄바꿈하면 의미가 파편화되는 곳만. 일반 Python 코드의 line-too-long 은 그대로 강제.
 "src/assessment_engine/migrations/*" = ["E501"]                 # Alembic autogenerate 산출물 (ColumnList·CreateTable)
 "src/assessment_engine/db/repositories/query/*" = ["E501"]      # raw SQL(CASE/window)·집계 한 줄

@@ -4,6 +4,7 @@
 """
 
 from typing import TYPE_CHECKING
+from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
 
@@ -17,8 +18,6 @@ from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import HttpZdmPackageResolver, TaskService
 
 if TYPE_CHECKING:
-    from uuid import UUID
-
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession
 

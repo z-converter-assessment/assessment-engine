@@ -17,10 +17,8 @@ elements: Cytoscape.js elements 형식(`{"data": {...}}` 리스트)으로 mapper
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
 
-if TYPE_CHECKING:
-    from assessment_engine.json_types import JsonObject
+from assessment_engine.json_types import JsonObject
 
 
 @dataclass

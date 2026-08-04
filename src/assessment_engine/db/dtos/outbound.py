@@ -1,11 +1,9 @@
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Literal
+from datetime import datetime
+from decimal import Decimal
+from typing import Literal
 
-if TYPE_CHECKING:
-    from datetime import datetime
-    from decimal import Decimal
-
-    from assessment_engine.json_types import JsonObject
+from assessment_engine.json_types import JsonObject
 
 
 @dataclass

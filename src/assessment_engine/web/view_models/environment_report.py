@@ -1,7 +1,7 @@
 """환경 보고서 ViewModel — environment scope 보고서 (전체 등록 서버 대상)."""
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+from datetime import datetime
 
 from assessment_engine.json_types import JsonObject
 from assessment_engine.web.view_models.attention import (
@@ -9,14 +9,10 @@ from assessment_engine.web.view_models.attention import (
     AttentionSignals,
     EnvironmentOverview,
 )
+from assessment_engine.web.view_models.metric import PeriodAssessment
+from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
 from assessment_engine.web.view_models.server import IpAddr, NetworkInterfaceInfo, StorageNode
-
-if TYPE_CHECKING:
-    from datetime import datetime
-
-    from assessment_engine.web.view_models.metric import PeriodAssessment
-    from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
-    from assessment_engine.web.view_models.topology import NetworkTopology
+from assessment_engine.web.view_models.topology import NetworkTopology
 
 
 @dataclass
