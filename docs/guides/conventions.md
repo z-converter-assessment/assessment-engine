@@ -15,13 +15,19 @@
 
 ruff 는 검증 워크플로(`ci.yml`)가 PR 마다 `ruff check` 를 돌린다 — 포맷은 게이트가 아니다.
 
-pyright 강도는 `strict` 다. 명시 선언은 두 묶음뿐 — 이 저장소가 채택하지 않는 규칙 4개를 `none` 으로, strict 가 끄지만 위반 0 이라 켜 두는 규칙 4개를 `error` 로. 규칙별 채택·거부 사유는 ADR 0062 가 단일 진실이다. 새 규칙을 켤 때도 같은 기준을 쓴다 — 위반을 남긴 채 켜지 않는다.
+pyright 강도는 `strict` 다. 명시 선언은 두 묶음뿐이고 목록과 값은 `pyproject.toml` 이 갖는다.
+
+채택하지 않는 규칙은 `_` 접두 심볼을 패키지 안 형제 모듈이 쓰는 관용구를 때린다 — `reportPrivateUsage` 가 그 사용을, `reportUnusedFunction`·`reportUnusedClass` 가 반대편에서 "안 쓰인다"고 잡는다. `_db_retry` 는 모듈이 아니라 패키지에 private 이고 `_BaseQueryMixin` 은 repository 넷이 상속한다. `reportUnnecessaryIsInstance` 는 JSONB 원본을 방어하는 `isinstance` 를 불필요로 읽는다.
+
+켜 두는 나머지 묶음은 strict 프리셋이 끄지만 위반이 0 이라 켠 것들로, 죽은 코드와 낡은 억제 주석을 잡는다.
+
+새 규칙을 켤 때도 같은 기준을 쓴다 — 위반을 남긴 채 켜지 않는다.
 
 외부 패키지가 타입을 주지 않는 자리는 억제를 호출부마다 흩지 말고 타입 있는 얇은 래퍼 한 곳에 가둔다 (`tests/approx.py` 가 그 예다). 호출부마다 억제하면 그 줄의 실제 오류까지 함께 묻힌다.
 
 wire·JSONB 원본을 담는 자리는 `assessment_engine.json_types.JsonObject` 를 쓴다. 계약 밖 필드가 도착해도 통과시켜야 하므로 원본은 열린 채로 두고 읽는 쪽이 필요한 축만 좁힌다. JSON 이 아닌 dict(MQ 큐 선언 인자·SQLAlchemy 컬럼-값 맵·in-memory 인덱스)에는 쓰지 않는다 — 이름이 거짓이 된다.
 
-그 원본에서 중첩 배열·객체를 꺼낼 때는 같은 모듈의 `json_list`·`json_obj`·`json_str_list` 를 쓴다. `d.get(key) or []` 로 꺼내면 빈 리터럴이 원소 타입을 잃은 채 결과 타입을 정한다. 세 헬퍼는 형태가 아니면 빈 값으로 읽으므로 호출부 가드가 필요 없다.
+그 원본에서 중첩 배열·객체를 꺼낼 때는 같은 모듈의 `json_list`·`json_obj`·`json_str_list` 를 쓴다. `d.get(key) or []` 로 꺼내면 빈 리터럴이 원소 타입을 잃은 채 결과 타입을 정한다.
 
 dataclass·Pydantic 의 기본값 팩토리는 `field(default_factory=list[X])` 처럼 선언과 같은 제네릭 별칭을 쓴다. 인자 없는 `list`·`dict` 는 원소 타입이 없는 생성자라 선언과 이어지지 않는다 — 제네릭 별칭도 호출 가능해 런타임 동작은 같다.
 
