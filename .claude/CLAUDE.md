@@ -199,7 +199,7 @@ Pagination 정책:
 - right-sizing 분류 단일 진실 = `recommendation.rollup_host(stats) -> HostAssessment` (자원 5개 per-resource USE + 인과 근본원인 종합). 배지 = `classify_host` = `host_status_to_recommendation(rollup_host().host_status)`. 네트워크 혼잡은 host under 아닌 별도 `network_congested` 플래그.
 - saturation 3축은 os-aware helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`) 단일 진실 경유 의무 — 임계 재계산·직접 해석 금지. `if raw.swap_used` 등 raw 직접 해석 금지. 윈도우 분류·환경·보고서(dual-gate)가 이 3축 verdict helper를 쓰고, 실시간 순간 스냅샷은 목적상 sibling single-gate helper(`cpu_saturation_index`·`mem_pressure_active`·`disk_io_saturation_index`·`net_signal_active`, 동일 `RS_*` 상수 재사용)를 경유한다 — 두 경로의 미세 원자료·경계 불일치는 의식적 유예(tradeoffs T20), 실시간 sibling helper 사용은 본 규범 위반 아님.
 - triggers·stats 재사용 의무 — report 진단(`_build_diagnosis`, host.resources 상태·trigger 파생)·권고(`under_prescription(host)`)·attention 자원 부족 카드·서버목록·도넛이 `rollup_host` + `build_resource_stats` 공용 입력을 쓴다 (화면 간 분류 정합, 임계 재계산 0).
-- 분류 명세·판정 순서·합성 규칙·임계값·출처·OS 분기·미관측(unmeasured) 처리·한계 단일 진실 = `docs/reference/right-sizing.md`.
+- 분류 명세·판정 순서·합성 규칙·OS 분기·미관측(unmeasured) 처리·한계 단일 진실 = `docs/reference/right-sizing.md`. 임계 수치와 그 근거는 `docs/reference/right-sizing-thresholds.md`.
 
 ## E4. URL 식별자 — 정수 PK 노출 금지
 
@@ -355,7 +355,7 @@ Pagination 정책:
 
 로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer/worker)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
 
-Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/reference/observability.md` (현재 미적용, 도입 시 별도 ADR 의무).
+Request/Correlation ID 분산 trace 는 적용하지 않는다 — 근거와 재검토 트리거는 `docs/explanation/tradeoffs.md` T23 (도입 시 별도 ADR 의무).
 
 ## F8. 시크릿·PII 노출 금지
 

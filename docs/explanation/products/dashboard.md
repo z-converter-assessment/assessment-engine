@@ -39,15 +39,15 @@
 ### 영역 3: 자원 적정성 분포
 
 - 자원 적정성 5분류 카운트 가로 막대 (`overview.risk_donut`) — 환경 자원 평가 페이지와 `provisioning_dist_bar` 매크로 공유(단일 소스)
-- 윈도우 = `recommendation.WINDOW_DAYS`(14일) — 서버 목록·보고서 분류와 정합(#E3). 이용률·포화 도넛도 같은 14일 창(화면 간 한 창 통일)
+- 윈도우 = `recommendation.WINDOW_DAYS` — 서버 목록·보고서 분류와 정합(#E3). 이용률·포화 도넛도 같은 14일 창(화면 간 한 창 통일)
 - 홈에는 분포 요약만 — 서버별 자원 적정성 상세 표는 환경 자원 평가 페이지(`/environment/assessment`)
 
 답: "환경이 자원 관점에서 적정한가? 부족·과다 서버 분포는?"
 
 ### 영역 4: 자원 이용·포화 도넛
 
-- 이용률 3(CPU·메모리·디스크 capacity-weighted 14일 평균, 게이지 단색 — 채움 길이로만 정도 표현) + 포화 4(CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡 호스트 수 / 표본)
-- 전부 `recommendation.WINDOW_DAYS`(14일) 창 — 분류와 한 창 통일(#E3). 포화는 dual-gate(CPU·메모리 신호 AND 이용률) 판정 호스트 수
+- 이용률 3(CPU·메모리·디스크 capacity-weighted 창 평균, 게이지 단색 — 채움 길이로만 정도 표현) + 포화 4(CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡 호스트 수 / 표본)
+- 전부 `recommendation.WINDOW_DAYS` 창 — 분류와 한 창 통일(#E3). 포화는 dual-gate(CPU·메모리 신호 AND 이용률) 판정 호스트 수
 - 순간 스냅샷 아닌 윈도우 통계 (실시간 순간값은 `/environment/realtime`)
 
 답: "환경 전체 자원 활용·포화 수준은?"
@@ -117,7 +117,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 
 최신 스냅샷 기준 현재 자원 현황 — `realtime.js` 가 30초 주기로 `?fragment=realtime` fetch 후 `#rt-mount` swap + 갱신 시각 표시 (P3 정공 — 1회 fetch 아니라 polling). 클릭 위임(정렬·더보기)은 swap 으로 안 바뀌는 `#rt-mount` 자체에 걸어 매 swap 후에도 유지.
 
-- "현재 자원 현황" 카드 — 이용률 도넛 2(CPU·메모리, 환경 평균 도넛과 동일 컴포넌트·단색 게이지, 단 14일 평균 통계 아닌 현재 스냅샷. 디스크 용량(fill%)은 느린 누적 축이라 실시간 신호에서 제외, 디스크 I/O 이용률은 장치 종류별 신뢰도 편차라(SSD/NVMe 병렬 처리, right-sizing-thresholds.md "Disk IO" 절 Gregg 근거) 환경 평균 도넛으로 안 묶고 아래 부하 표 칼럼 전용) + 신호 도넛 4(실행 큐 임계·페이징·디스크 응답지연 임계·네트워크 혼잡 — 순간 단일신호 임계 초과 호스트 수/표본. 개요·보고서 14일 dual-gate 포화와 다른 정의, 신호명 라벨이지 판정어 아님)
+- "현재 자원 현황" 카드 — 이용률 도넛 2(CPU·메모리, 환경 평균 도넛과 동일 컴포넌트·단색 게이지, 단 창 평균 통계 아닌 현재 스냅샷. 디스크 용량(fill%)은 느린 누적 축이라 실시간 신호에서 제외, 디스크 I/O 이용률은 장치 종류별 신뢰도 편차라(SSD/NVMe 병렬 처리, right-sizing-thresholds.md "Disk IO" 절 Gregg 근거) 환경 평균 도넛으로 안 묶고 아래 부하 표 칼럼 전용) + 신호 도넛 4(실행 큐 임계·페이징·디스크 응답지연 임계·네트워크 혼잡 — 순간 단일신호 임계 초과 호스트 수/표본. 개요·보고서 14일 dual-gate 포화와 다른 정의, 신호명 라벨이지 판정어 아님)
 - "서버별 실시간 부하" 카드 — CPU·메모리 이용률/실행 큐/페이징/디스크 이용률/디스크 응답지연/네트워크 7축을 호스트당 1행으로(top-N 절단 없음), 서버 목록·자원 부족 표와 동일 sortable-table 관례(칼럼 클릭 정렬 + 20개 초과 시 더보기/접기). 디스크 이용률(Utilization, 도넛 없이 표 전용)·응답지연(Saturation)은 USE Method상 별개 축 — 이용률 낮은 호스트는 응답지연이 표본 부족("—")이어도 정상, 판정 없이 raw 값만. 페이징은 소수점 2자리 표시(Linux 임계가 "> 0"이라 정수 반올림하면 신호 도넛 카운트와 표 값이 안 맞아 보임). 네트워크 칼럼은 처리량이 아닌 혼잡 판정(net_signal_active — 재전송·드롭·conntrack, 네트워크 혼잡 도넛과 동일 신호)만 정상/혼잡으로 표시 — 처리량은 판정 대상이 아니라 칼럼에서 제외. 특정 축 부하 순 랭킹이 필요하면 그 칼럼을 클릭
 
 답: "지금 이 순간 환경 부하는 어떤가?"
@@ -138,8 +138,8 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 - 색 분기를 갖는 건 서버 badge 뿐 — "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분. 임계 상수(`_USAGE_WARN_PCT`·`_USAGE_DANGER_PCT`)는 `web/services/mappers/shared.py` 단일 진실, 대시보드는 표현만
 - 환경 평균 이용률 게이지는 단색 — 색으로 임계 의미를 주지 않고 채움 길이가 정도를 전달 (색 상수는 `web/services/mappers/shared.py`)
 
-대시보드 평가 윈도우 14일:
-- `recommendation.WINDOW_DAYS`(14일) 단일 진실 (CLAUDE.md #F10) — 분류·평균 활용률·포화 도넛 전부 한 창 통일(#E3 화면 간 정합)
+대시보드 평가 윈도우:
+- `recommendation.WINDOW_DAYS` 단일 진실 (CLAUDE.md #F10) — 분류·평균 활용률·포화 도넛 전부 한 창 통일(#E3 화면 간 정합)
 - 환경 개요 홈·성능 추이는 표준 윈도우 고정. 환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용 (기본값 `DIAGNOSTIC_DEFAULT_TIME_RANGE`=14d)
 - 실시간 현황 페이지만 창 무관 — 최신 순간 스냅샷
 
