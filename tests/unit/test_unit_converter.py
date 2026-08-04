@@ -17,7 +17,7 @@ from assessment_engine.web.services.unit_converter import (
 
 
 @pytest.mark.parametrize(
-    "b, expected",
+    ("b", "expected"),
     [
         (None, None),
         (0, 0.0),
@@ -34,7 +34,7 @@ def test_bytes_to_gb(b: int | None, expected: float | None):
 
 
 @pytest.mark.parametrize(
-    "b, expected",
+    ("b", "expected"),
     [
         (None, None),
         (0, None),  # falsy → None (mem_total_bytes=0 같은 비정상)
@@ -50,7 +50,7 @@ def test_bytes_to_gib(b: int | None, expected: float | None):
 
 
 @pytest.mark.parametrize(
-    "used, total, expected",
+    ("used", "total", "expected"),
     [
         (None, 100, None),
         (50, None, None),

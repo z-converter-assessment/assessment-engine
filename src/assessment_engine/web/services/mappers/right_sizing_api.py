@@ -8,9 +8,9 @@ stats 원자료·임계 상수로 numeric(파싱 계약).
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import ReportRowRaw
-from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
@@ -21,6 +21,10 @@ from assessment_engine.web.services.mappers.shared import (
     saturation_block,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import ReportRowRaw
+    from assessment_engine.json_types import JsonObject
 
 # ResourceStatus(도메인 enum) -> 외부 노출 한국어 라벨. 프로젝트 통일 어휘(자원 적정성 화면과 동일 개념).
 _STATUS_LABEL_KO: dict[str, str] = {
@@ -40,7 +44,9 @@ _STATUS_LABEL_KO: dict[str, str] = {
 
 def _evidence_labels(triggers: list[str]) -> list[str]:
     """trigger key -> 통일 한국어 근거 라벨. _CAUSE_LABEL_BY_TRIGGER(자원부족 축) 우선, 미커버 키는
-    도메인 RS_TRIGGER_LABEL_KO 폴백 — mem_oom·net_retrans/drop/conntrack 이 raw enum 으로 누출되지 않게."""
+
+    도메인 RS_TRIGGER_LABEL_KO 폴백 — mem_oom·net_retrans/drop/conntrack 이 raw enum 으로 누출되지 않게.
+    """
     return [_CAUSE_LABEL_BY_TRIGGER.get(t) or recommendation.RS_TRIGGER_LABEL_KO.get(t, t) for t in triggers]
 
 
@@ -63,7 +69,9 @@ def _net_signal(value: float | None, threshold: float, *, inclusive: bool = Fals
     return {"value": round(value, 3), "threshold": threshold, "exceeded": exceeded, "measured": True}
 
 
-def _cpu_resource(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment) -> JsonObject:
+def _cpu_resource(
+    raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment
+) -> JsonObject:
     ra = host.resources["cpu"]
     return {
         "status": ra.status,
@@ -79,7 +87,9 @@ def _cpu_resource(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: 
     }
 
 
-def _memory_resource(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment) -> JsonObject:
+def _memory_resource(
+    raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment
+) -> JsonObject:
     ra = host.resources["memory"]
     return {
         "status": ra.status,
@@ -95,7 +105,9 @@ def _memory_resource(raw: ReportRowRaw, stats: recommendation.ResourceStats, hos
     }
 
 
-def _disk_resource(raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment) -> JsonObject:
+def _disk_resource(
+    raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment
+) -> JsonObject:
     cap = host.resources["disk_capacity"]
     io = host.resources["disk_io"]
     # 현재 배정 디스크 총량 — block_devices type=disk size_bytes 합(disk_total_bytes 단일 산식, 양 OS).
@@ -107,9 +119,7 @@ def _disk_resource(raw: ReportRowRaw, stats: recommendation.ResourceStats, host:
             "status_label": _STATUS_LABEL_KO.get(cap.status, cap.status),
             "worst_mount": raw.disk_capacity_driving_mount,
             "worst_mount_used_pct": (
-                round(raw.disk_capacity_driving_used_pct, 1)
-                if raw.disk_capacity_driving_used_pct is not None
-                else None
+                round(raw.disk_capacity_driving_used_pct, 1) if raw.disk_capacity_driving_used_pct is not None else None
             ),
             "days_until_full": (
                 int(raw.disk_capacity_runway_days) if raw.disk_capacity_runway_days is not None else None
@@ -137,14 +147,20 @@ _TARGET_KEY: dict[str, str] = {"cpu": "target_cores", "memory": "target_mb", "di
 
 def _action(kind: str, ra: recommendation.ResourceAssessment, op: str) -> JsonObject:
     """조치 1건 — 자원·연산·타입 목표(있으면)·표시. 목표 수치는 타입별 키(target_cores/_mb/_gb)로 직접 파싱 가능."""
-    a: JsonObject = {"resource": kind, "op": op, "target_display": recommendation.resource_prescription(kind, ra) or None}
+    a: JsonObject = {
+        "resource": kind,
+        "op": op,
+        "target_display": recommendation.resource_prescription(kind, ra) or None,
+    }
     key = _TARGET_KEY.get(kind)
     if key and ra.sizing_target is not None:
         a[key] = ra.sizing_target
     return a
 
 
-def _recommendation(host: recommendation.HostAssessment, stats: recommendation.ResourceStats, rec: recommendation.Recommendation) -> JsonObject:
+def _recommendation(
+    host: recommendation.HostAssessment, stats: recommendation.ResourceStats, rec: recommendation.Recommendation
+) -> JsonObject:
     """종합 권고 구조 (파싱용 견고 포맷) — 이 하나만 보고 조치를 결정한다.
 
     actions = 관측된 under 자원 전부(자원별 독립, 인과에 의한 억제 없음 — assessment API sizing.axes 와 동일
@@ -178,13 +194,17 @@ def _recommendation(host: recommendation.HostAssessment, stats: recommendation.R
         ]
         # 다운사이즈 게이트 미충족이면 actions=[](분류는 과다지만 구체 처방 보류). io_bound advisory 는 별개로 붙임.
         return {
-            "summary": recommendation.recommend_action(rec, stats), "kind": "downsize",
-            "actions": actions + io_advisory, "suppressed": [],
+            "summary": recommendation.recommend_action(rec, stats),
+            "kind": "downsize",
+            "actions": actions + io_advisory,
+            "suppressed": [],
         }
     _kind = {"idle": "decommission", "insufficient_data": "insufficient", "optimal": "maintain"}.get(rec, "maintain")
     return {
-        "summary": recommendation.recommend_action(rec, stats), "kind": _kind,
-        "actions": io_advisory, "suppressed": [],
+        "summary": recommendation.recommend_action(rec, stats),
+        "kind": _kind,
+        "actions": io_advisory,
+        "suppressed": [],
     }
 
 

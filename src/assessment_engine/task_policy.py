@@ -22,7 +22,10 @@ task_policy 미보고(bool 발행 안 한 task)면 exit_code + allowlist 폴백�
 본 정책은 그 케이스만 골라 effective status 를 success 로 보정한다.
 """
 
-from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
 
 # 보정 대상은 "스크립트가 실제로 실행돼 non-zero 로 끝난" 경우(script_failed)로 한정.
 # download/extract/timeout/internal 등 실행 전·중단 실패는 exit code 의미가 없어 보정 제외.

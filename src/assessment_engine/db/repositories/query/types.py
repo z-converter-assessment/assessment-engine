@@ -180,7 +180,11 @@ _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
         "mem_limit_bytes",
         "mem_limit_bytes > 0 AND mem_available_bytes IS NOT NULL",
     ),
-    "mem.cached_percent": ("mem_cached_bytes", "mem_limit_bytes", "mem_limit_bytes > 0 AND mem_cached_bytes IS NOT NULL"),
+    "mem.cached_percent": (
+        "mem_cached_bytes",
+        "mem_limit_bytes",
+        "mem_limit_bytes > 0 AND mem_cached_bytes IS NOT NULL",
+    ),
     "mem.buffers_percent": (
         "mem_buffered_bytes",
         "mem_limit_bytes",

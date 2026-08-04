@@ -54,8 +54,8 @@ m = make_metrics(collected_at=ts, cpu_user_s=1000.0)
 # tests/unit/test_my_module.py
 from unittest.mock import AsyncMock
 
-async def test_something():
-    ...
+
+async def test_something(): ...
 ```
 
 asyncio 마커는 붙이지 않는다 — `asyncio_mode=auto` 라 async 테스트가 자동 수집된다. 외부 의존은 `AsyncMock` / `MagicMock`으로.
@@ -65,6 +65,7 @@ asyncio 마커는 붙이지 않는다 — `asyncio_mode=auto` 라 async 테스�
 ```python
 # tests/integration/test_my_repo.py
 from tests.factories import make_inventory
+
 
 async def test_something(collect_repo: CollectRepository):
     inv = make_inventory(composite_id="t-001")
@@ -78,8 +79,7 @@ async def test_something(collect_repo: CollectRepository):
 
 ```python
 @pytest.mark.parametrize("metric_type", _ALL_METRIC_TYPES)
-async def test_dispatcher(metric_type: MetricType, query_repo: QueryRepository):
-    ...
+async def test_dispatcher(metric_type: MetricType, query_repo: QueryRepository): ...
 ```
 
 전 metric_type(카탈로그는 `types.py` `MetricType`) 일괄 검증 — 누락 metric_type 즉시 발견.

@@ -5,20 +5,9 @@
 """
 
 from collections import Counter
-from datetime import date
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import (
-    CpuBreakdownRaw,
-    MemoryBreakdownRaw,
-    MountUsageRaw,
-    NetworkWithIo,
-    ReportRowRaw,
-    ServerDetail,
-    ServerSummary,
-    StorageWithUsage,
-)
 from assessment_engine.json_types import JsonObject, json_list, json_str_list
 from assessment_engine.service_classifier import (
     SIGNATURE_CATEGORIES,
@@ -72,6 +61,20 @@ from assessment_engine.web.view_models.server import (
     StorageNode,
     VolumeItem,
 )
+
+if TYPE_CHECKING:
+    from datetime import date
+
+    from assessment_engine.db.dtos.outbound import (
+        CpuBreakdownRaw,
+        MemoryBreakdownRaw,
+        MountUsageRaw,
+        NetworkWithIo,
+        ReportRowRaw,
+        ServerDetail,
+        ServerSummary,
+        StorageWithUsage,
+    )
 
 # IANA 동적/private 포트 하한 (49152~65535). 이 이상은 RPC 동적 할당·ephemeral 이라 "주요 포트" 표시에서 제외.
 # 그 미만(0~49151)은 system·registered·user 포트 = 의도된 서비스 리스너로 간주해 표시 (RDP 3389·Redis 6379 등 고포트 포함).
@@ -153,7 +156,9 @@ def build_network_interfaces(
                 speed_mbps = round(bps / 1_000_000)
         addresses = [
             NetIfaceAddress(
-                value=(f"{a.get('address', '')}/{a['prefix']}" if a.get("prefix") is not None else a.get("address", "")),
+                value=(
+                    f"{a.get('address', '')}/{a['prefix']}" if a.get("prefix") is not None else a.get("address", "")
+                ),
                 is_ipv4=a.get("family") == "ipv4",
                 origin=a.get("origin") or "",
             )
@@ -260,8 +265,10 @@ def build_server_inventory(
     detail: ServerDetail, is_online: bool, raw: ReportRowRaw | None = None
 ) -> ServerInventorySnapshot:
     """ServerDetail(+선택적 ReportRowRaw) -> 개별 보고서 인벤토리 (충실 표시 — 전체 IP(IPv4/IPv6)·하드웨어·
+
     식별자, 생략·왜곡 0). raw 는 ReportRowRaw — server_inventory 재현 필드(arch/bits/boot_firmware/
-    secure_boot/edition/timezone) 보강용, 없으면 그 필드들만 None(환경/N대 등 raw 미보유 스코프 대비)."""
+    secure_boot/edition/timezone) 보강용, 없으면 그 필드들만 None(환경/N대 등 raw 미보유 스코프 대비).
+    """
     # 디스크 총량 — block_devices type=disk size_bytes 합 (양 OS 단일 산식, device_filters).
     disk_bytes = disk_total_bytes(detail.block_devices)
     return ServerInventorySnapshot(
@@ -474,7 +481,7 @@ def _raid_level_num(raid_level: object) -> str:
     if raid_level is None:
         return ""
     s = str(raid_level).lower().removeprefix("raid")
-    return s if s else ""
+    return s or ""
 
 
 def _storage_node_meta(d: JsonObject, kind: str) -> tuple[str, list[str]]:
@@ -541,8 +548,11 @@ def _member_ref_node(c: JsonObject, array_home: dict[str | None, str]) -> Storag
     label = f"RAID{lvl} 구성원" if lvl else "배열 구성원"
     meta = f"-> {home} 에 상세" if home else "-> 다른 디스크에 상세"
     return StorageNode(
-        name=c.get("name", ""), kind="raid_member", kind_label=label,
-        size_gb=bytes_to_gb(c.get("size_bytes")), meta=meta,
+        name=c.get("name", ""),
+        kind="raid_member",
+        kind_label=label,
+        size_gb=bytes_to_gb(c.get("size_bytes")),
+        meta=meta,
     )
 
 
@@ -595,7 +605,7 @@ def _build_storage_node(
             )
         )
 
-    # 미할당 갭 (물리 디스크) — 배정 − 직속 자식(파티션·스왑·전체디스크 PV/RAID) 합. 디스크 직속 자식은 모두
+    # 미할당 갭 (물리 디스크) — 배정 - 직속 자식(파티션·스왑·전체디스크 PV/RAID) 합. 디스크 직속 자식은 모두
     # 물리 영역 점유라 전부 차감 (part 만 빼면 whole-disk RAID/PV·스왑을 미할당으로 오계상). 확장 여력 추론.
     if is_physical_disk(kind):
         occupied = sum((c.get("size_bytes") or 0) for c in direct)
@@ -620,7 +630,9 @@ def _build_storage_node(
     return node
 
 
-def build_storage_tree(block_devices: list[JsonObject], lvm_vgs: list[JsonObject], filesystems: list[MountUsageRaw]) -> list[StorageNode]:
+def build_storage_tree(
+    block_devices: list[JsonObject], lvm_vgs: list[JsonObject], filesystems: list[MountUsageRaw]
+) -> list[StorageNode]:
     """스토리지 레이아웃 트리 — block_devices(lsblk) parent 그래프를 물리 디스크 루트로 조립.
 
     각 계층 노드는 자기 계층 속성만(device_filters 원칙): 디스크=특성·배정, 파티션/LV=fstype·mount·VG,
@@ -841,7 +853,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     # 뱃지 정렬 단일 기준 — 서버목록(_dedup_known)과 동일하게 category 알파벳 오름차순.
     known.sort(key=lambda s: s.category)
     detail.known_services = known
-    # union(이름 ∪ listen)으로도 아무 카테고리도 못 잡았을 때만 unknown 뱃지.
+    # 이름 분류와 listen 소켓 탐지를 합쳐도 아무 카테고리를 못 잡았을 때만 unknown 뱃지.
     detail.show_unknown_badge = detail.services is not None and bool(detail.services) and not known
     detail.key_listen_ports = sorted(
         [lp for lp in detail.listen_ports if lp.is_significant and lp.port not in shown_port_numbers],
@@ -875,7 +887,7 @@ def workload_category_counter(
     services: list[JsonObject] | None,
     listen_ports: list[JsonObject] | None = None,
 ) -> Counter[str]:
-    """호스트 워크로드 카테고리 카운터 — services 이름 분류 ∪ listen 소켓 탐지 (ADR 0032).
+    """호스트 워크로드 카테고리 카운터 — services 이름 분류와 listen 소켓 탐지의 합집합 (ADR 0032).
 
     services 이름 분류는 인스턴스 카운트(서버목록 뱃지와 일관). 단 런타임 스택(container)은
     구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → container 1).

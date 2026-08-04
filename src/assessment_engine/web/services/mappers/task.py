@@ -1,9 +1,13 @@
 """Task 표시 mapper — TaskRow → TaskSummaryItem/TaskDetailItem (P2)."""
 
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from assessment_engine.db.dtos.outbound import TaskRow
 from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
+
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from assessment_engine.db.dtos.outbound import TaskRow
 
 # status -> (badge_class, badge_label). 미지 값은 unknown으로 매핑.
 _TASK_STATUS_DISPLAY: dict[str, tuple[str, str]] = {

@@ -49,7 +49,8 @@ def disksize_styled(gb: float | None) -> Markup:
         value, unit = round(gb / 1024, 1), "TB"
     else:
         value, unit = gb, "GB"
-    return Markup(f'{value} <span class="stat-unit">{unit}</span>')
+    # value·unit 은 위에서 숫자로 계산한 값이라 사용자 입력이 들어올 경로가 없다.
+    return Markup(f'{value} <span class="stat-unit">{unit}</span>')  # noqa: S704
 
 
 def storagesize_styled(gb: float | None) -> Markup:
@@ -65,7 +66,8 @@ def storagesize_styled(gb: float | None) -> Markup:
         value, unit = round(gb), "GB"
     else:
         value, unit = round(gb * 1024), "MB"
-    return Markup(f'{value} <span class="stat-unit">{unit}</span>')
+    # value·unit 은 위에서 숫자로 계산한 값이라 사용자 입력이 들어올 경로가 없다.
+    return Markup(f'{value} <span class="stat-unit">{unit}</span>')  # noqa: S704
 
 
 def or_dash(value: object) -> str:

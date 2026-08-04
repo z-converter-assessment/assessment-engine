@@ -6,25 +6,31 @@ stop_event 종료를 검증. 실제 claim/expire SQL 은 통합 테스트(test_t
 
 import asyncio
 import contextlib
-from collections.abc import AsyncGenerator, Callable
+import re
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import Any, cast
+from typing import TYPE_CHECKING, Any, cast
 
+import pytest
 from loguru import logger
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.config import WorkerSettings
-from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
-from assessment_engine.web.services.diagnostic_service import DiagnosticService
-from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import (
-    TaskNotConfigured,
+    TaskNotConfiguredError,
     _resolve_install_dispatch,
 )
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.worker.report_worker import run_report_worker
 from assessment_engine.worker.task_reaper import run_task_reaper
 from assessment_engine.worker.worker_lifecycle import graceful_drain
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncGenerator, Callable
+
+    from sqlalchemy.ext.asyncio import AsyncSession
+
+    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+    from assessment_engine.web.services.diagnostic_service import DiagnosticService
+    from assessment_engine.web.services.query_service import QueryService
 
 
 def _no_query_service() -> AbstractAsyncContextManager[QueryService]:
@@ -51,7 +57,6 @@ class _FakeDiag:
         self.claim_calls += 1
         if self.claim_raises:
             raise RuntimeError("claim failed")
-        return None  # pending 없음
 
 
 # ─── WorkerSettings ───────────────────────────────────────────
@@ -78,8 +83,11 @@ async def test_report_worker_survives_startup_recover_failure():
     stop.set()  # 루프 진입 전 종료 조건 (recover 가드만 실행)
     diag = _FakeDiag(recover_raises=True)
     await run_report_worker(
-        diag_service=cast(DiagnosticService, diag), query_service_factory=_no_query_service,
-        poll_interval_sec=0.01, stale_seconds=1, stop_event=stop,
+        diag_service=cast("DiagnosticService", diag),
+        query_service_factory=_no_query_service,
+        poll_interval_sec=0.01,
+        stale_seconds=1,
+        stop_event=stop,
     )
     assert diag.recover_calls == 1  # 시도했고, 예외는 삼켜짐(await 이 raise 안 함)
     assert diag.claim_calls == 0  # stop set 이라 루프 미진입
@@ -89,10 +97,15 @@ async def test_report_worker_stops_on_event():
     """pending 없으면 poll 하며 대기, stop_event set 시 다음 점검에서 종료."""
     stop = asyncio.Event()
     diag = _FakeDiag()
-    task = asyncio.create_task(run_report_worker(
-        diag_service=cast(DiagnosticService, diag), query_service_factory=_no_query_service,
-        poll_interval_sec=0.01, stale_seconds=1, stop_event=stop,
-    ))
+    task = asyncio.create_task(
+        run_report_worker(
+            diag_service=cast("DiagnosticService", diag),
+            query_service_factory=_no_query_service,
+            poll_interval_sec=0.01,
+            stale_seconds=1,
+            stop_event=stop,
+        )
+    )
     await asyncio.sleep(0.05)  # 몇 차례 claim 돌게
     stop.set()
     await asyncio.wait_for(task, timeout=1)
@@ -104,10 +117,15 @@ async def test_report_worker_survives_claim_failure():
     """claim 예외(일시 DB 장애)가 루프를 죽이지 않고 계속 poll."""
     stop = asyncio.Event()
     diag = _FakeDiag(claim_raises=True)
-    task = asyncio.create_task(run_report_worker(
-        diag_service=cast(DiagnosticService, diag), query_service_factory=_no_query_service,
-        poll_interval_sec=0.01, stale_seconds=1, stop_event=stop,
-    ))
+    task = asyncio.create_task(
+        run_report_worker(
+            diag_service=cast("DiagnosticService", diag),
+            query_service_factory=_no_query_service,
+            poll_interval_sec=0.01,
+            stale_seconds=1,
+            stop_event=stop,
+        )
+    )
     await asyncio.sleep(0.05)
     stop.set()
     await asyncio.wait_for(task, timeout=1)
@@ -156,7 +174,7 @@ def _repo_factory(repo: object) -> Callable[[AsyncSession], BaseCollectRepositor
     """reaper 가 세션마다 부르는 repo 팩토리 — 대역 하나를 그대로 돌려준다."""
 
     def _factory(_s: AsyncSession) -> BaseCollectRepository:
-        return cast(BaseCollectRepository, repo)
+        return cast("BaseCollectRepository", repo)
 
     return _factory
 
@@ -164,7 +182,7 @@ def _repo_factory(repo: object) -> Callable[[AsyncSession], BaseCollectRepositor
 def _session_factory() -> Callable[[], AbstractAsyncContextManager[AsyncSession]]:
     @asynccontextmanager
     async def _factory() -> AsyncGenerator[AsyncSession]:
-        yield cast(AsyncSession, _FakeSession())
+        yield cast("AsyncSession", _FakeSession())
 
     return _factory
 
@@ -173,10 +191,14 @@ async def test_task_reaper_survives_tick_failure():
     """reaper tick 예외가 루프를 죽이지 않고 다음 tick 진행."""
     stop = asyncio.Event()
     repo = _FakeRepo(raises=True)
-    task = asyncio.create_task(run_task_reaper(
-        session_factory=_session_factory(), collect_repo_factory=_repo_factory(repo),
-        interval_sec=0.01, stop_event=stop,
-    ))
+    task = asyncio.create_task(
+        run_task_reaper(
+            session_factory=_session_factory(),
+            collect_repo_factory=_repo_factory(repo),
+            interval_sec=0.01,
+            stop_event=stop,
+        )
+    )
     await asyncio.sleep(0.05)
     stop.set()
     await asyncio.wait_for(task, timeout=1)
@@ -188,10 +210,14 @@ async def test_task_reaper_stops_on_event():
     stop = asyncio.Event()
     repo = _FakeRepo()
     sess_factory = _session_factory()
-    task = asyncio.create_task(run_task_reaper(
-        session_factory=sess_factory, collect_repo_factory=_repo_factory(repo),
-        interval_sec=0.01, stop_event=stop,
-    ))
+    task = asyncio.create_task(
+        run_task_reaper(
+            session_factory=sess_factory,
+            collect_repo_factory=_repo_factory(repo),
+            interval_sec=0.01,
+            stop_event=stop,
+        )
+    )
     await asyncio.sleep(0.05)
     stop.set()
     await asyncio.wait_for(task, timeout=1)
@@ -216,7 +242,10 @@ async def test_graceful_drain_completes_within_timeout():
     sink_id = logger.add(_collect(messages), level="WARNING")
     try:
         await graceful_drain(
-            task, stop, shutdown_timeout_sec=1.0, timeout_warning="should-not-fire",
+            task,
+            stop,
+            shutdown_timeout_sec=1.0,
+            timeout_warning="should-not-fire",
         )
     finally:
         logger.remove(sink_id)
@@ -241,7 +270,10 @@ async def test_graceful_drain_cancels_on_timeout():
     sink_id = logger.add(_collect(messages), level="WARNING")
     try:
         await graceful_drain(
-            task, stop, shutdown_timeout_sec=0.02, timeout_warning="drain overrun requeue",
+            task,
+            stop,
+            shutdown_timeout_sec=0.02,
+            timeout_warning="drain overrun requeue",
         )
     finally:
         logger.remove(sink_id)
@@ -267,7 +299,10 @@ async def test_graceful_drain_swallows_already_cancelled():
     task.cancel()  # drain 전에 이미 취소
     # graceful_drain 은 CancelledError 를 흡수 -> 예외 없이 반환해야
     await graceful_drain(
-        task, stop, shutdown_timeout_sec=1.0, timeout_warning="w",
+        task,
+        stop,
+        shutdown_timeout_sec=1.0,
+        timeout_warning="w",
     )
     assert stop.is_set()
 
@@ -301,11 +336,7 @@ def test_resolve_install_dispatch_linux_windows_differ():
 
 
 def test_resolve_install_dispatch_unsupported_raises():
-    """미지원 os_family 는 TaskNotConfigured (운영자 알림 — agent 미지원)."""
+    """미지원 os_family 는 TaskNotConfiguredError (운영자 알림 — agent 미지원)."""
     for bad in ("macos", "aix", "", "Linux", "darwin"):
-        try:
+        with pytest.raises(TaskNotConfiguredError, match=re.escape(repr(bad))):
             _resolve_install_dispatch(bad)
-        except TaskNotConfigured as e:
-            assert repr(bad) in str(e)
-        else:
-            raise AssertionError(f"expected TaskNotConfigured for os_family={bad!r}")

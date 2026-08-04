@@ -4,9 +4,8 @@ OS별 raw 신호를 통일 축으로 정규화하는 3 helper 의 판정·미관
 판정 순서는 test_right_sizing_model.py 단일 진실 — 본 파일은 helper 단위(신호 -> bool|None)만.
 """
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from assessment_engine.json_types import JsonObject
 from assessment_engine.recommendation import (
     CPU_RUN_QUEUE_PER_CORE_SATURATION,
     DISK_QUEUE_PER_DISK_SATURATION,
@@ -38,6 +37,9 @@ from assessment_engine.recommendation import (
     net_signal_active,
     root_cause_display,
 )
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 _GIB = 1024**3
 
@@ -265,9 +267,7 @@ def test_root_cause_display_causal_combined():
         "disk_io": _ra("disk_io", "io_ok"),
         "network": _ra("network", "quality_ok"),
     }
-    host = HostAssessment(
-        resources=res, root_cause="memory", symptom_of_root=["disk_io", "cpu"]
-    )
+    host = HostAssessment(resources=res, root_cause="memory", symptom_of_root=["disk_io", "cpu"])
     assert root_cause_display(host) == "메모리 (디스크 I/O·CPU 유발)"
 
 

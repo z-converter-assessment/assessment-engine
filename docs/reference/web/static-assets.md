@@ -306,7 +306,7 @@ window.location.href = `/reports/servers?${params.toString()}`;
 
 라우터의 결과 페이지 표준:
 ```python
-back: BackUrl = None            # 시그니처에서 검증 강제 (routers/_back.py)
+back: BackUrl = None  # 시그니처에서 검증 강제 (routers/_back.py)
 back_url = safe_back(back, "/")  # 걸러진 값에 기본 목적지만 씌운다
 ```
 
@@ -320,6 +320,7 @@ back_url = safe_back(back, "/")  # 걸러진 값에 기본 목적지만 씌운�
 다중 N대 보고서 (`/reports/servers?ids=...`) 의 hostname 클릭 → 단일 detail (`/servers/{id}/report`) 진입 시, 자식 detail 페이지의 ← 이전 link 가 부모 보고서로 복귀해야 함. 부모 라우터에서 `self_back` 합성:
 ```python
 from urllib.parse import quote
+
 self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 ```
 템플릿에서 자식 link 에 `&back={{ self_back }}` 추가.

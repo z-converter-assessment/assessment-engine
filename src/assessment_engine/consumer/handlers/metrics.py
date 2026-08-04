@@ -1,13 +1,9 @@
 """Metrics 메시지 핸들러 — server.metrics routing key. metrics 핸들러는 미등록 서버 auto-register."""
 
-from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from aio_pika.abc import AbstractIncomingMessage
 from loguru import logger
 from pydantic import ValidationError
-from redis.asyncio import Redis
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_delete, safe_set
 from assessment_engine.consumer.handlers._common import (
@@ -20,7 +16,15 @@ from assessment_engine.consumer.handlers._common import (
 from assessment_engine.consumer.mappers import build_placeholder_inventory, to_metric_create
 from assessment_engine.consumer.schemas import MetricsInput
 from assessment_engine.consumer.settings import get_consumer_settings
-from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
+    from aio_pika.abc import AbstractIncomingMessage
+    from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
 
 
 def make_metrics_handler(

@@ -1,7 +1,11 @@
 """api_reference mapper 단위 테스트 — 외부 연동 화이트리스트 태그 필터·JSON-only 필터 (P2)."""
 
-from assessment_engine.json_types import JsonObject
+from typing import TYPE_CHECKING
+
 from assessment_engine.web.services.mappers.api_reference import build_api_reference
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 _SPEC: JsonObject = {
     "paths": {

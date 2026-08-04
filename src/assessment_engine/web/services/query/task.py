@@ -1,10 +1,13 @@
 """Task 조회 mixin — public_id 기준 task 상세·최근 목록·서버별 최신 task."""
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
 from assessment_engine.web.services.mappers.task import to_task_detail, to_task_summary
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
-from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
+
+if TYPE_CHECKING:
+    from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
 
 
 class TaskQueryMixin(_BaseQueryServiceMixin):

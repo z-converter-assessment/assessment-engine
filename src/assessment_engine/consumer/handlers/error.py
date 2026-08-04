@@ -1,12 +1,9 @@
 """Agent error 메시지 핸들러 — agent 가 발행한 error 메시지 (publish 실패·실행 오류 등) 로그."""
 
-from collections.abc import Callable, Coroutine
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from aio_pika.abc import AbstractIncomingMessage
 from loguru import logger
 from pydantic import ValidationError
-from redis.asyncio import Redis
 
 from assessment_engine.consumer.handlers._common import (
     _check_idempotent,
@@ -15,6 +12,12 @@ from assessment_engine.consumer.handlers._common import (
     _sanitize_log_text,
 )
 from assessment_engine.consumer.schemas import ErrorInput
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Coroutine
+
+    from aio_pika.abc import AbstractIncomingMessage
+    from redis.asyncio import Redis
 
 # error_message 는 wire 계약에 길이 상한이 없다 — 로그 지점에서 자른다.
 # 스키마를 좁히면 유효 메시지가 DLQ 로 간다 (#B wire permissive).

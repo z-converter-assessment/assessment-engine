@@ -22,7 +22,6 @@ from assessment_engine.db.repositories.query.types import (
     BucketSize,
     TimeRange,
 )
-from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.attention import build_action_targets
 from assessment_engine.web.services.mappers.environment_report import (
@@ -48,7 +47,6 @@ from assessment_engine.web.services.mappers.server import (
     build_server_inventory,
     build_storage_tree,
 )
-from assessment_engine.web.services.mappers.shared import ReportView
 from assessment_engine.web.services.metrics_calculator import build_error_signals
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview, _filter_attention
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
@@ -57,10 +55,12 @@ from assessment_engine.web.view_models.attention import (
     AttentionSignals,
     EnvironmentOverview,
 )
-from assessment_engine.web.view_models.environment_report import EnvironmentReportSummary
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
 
 if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
+    from assessment_engine.web.services.mappers.shared import ReportView
+    from assessment_engine.web.view_models.environment_report import EnvironmentReportSummary
 
     class _CrossDomainCalls(Protocol):
         """본 mixin 이 self 로 호출하는 타 도메인 mixin(environment·attention) 메서드 계약.
@@ -207,7 +207,6 @@ class ReportQueryMixin(_ReportMixinBase):
         util = await self.repo.environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
         overview = self._assemble_overview(details, util, raws_window, online_by_id)
 
-
         # 운영 신호 — 선택 N대 raws_window 재사용(B2). os_eol/agent 는 창 독립이라 선택 raws 로 산출 후
         # hostname 필터 = 전체 산출 후 필터와 동일 결과(선택분만 계산, 전체 aggregate 재조회 생략).
         hostnames = {d.hostname for d in details}
@@ -277,7 +276,6 @@ class ReportQueryMixin(_ReportMixinBase):
         if attention is None:
             attention = await self.get_attention_signals(end=end_dt, limit_each=None)
 
-
         # overview — 단일 서버 자원량. is_online 은 Redis online TTL (fail-open) 기반.
         flag = await safe_get(self.redis, get_web_settings().redis_key_online.format(detail.id))
         if flag is not None:
@@ -333,7 +331,9 @@ class ReportQueryMixin(_ReportMixinBase):
             err = await self.repo.latest_errors(server_id, end_dt - timedelta(days=period_days))
             errors = build_error_signals(err, window_label=f"최근 {win_days}일", os_family=raw0.os_family)
             summary.period_assessment = build_period_assessment(
-                build_resource_stats(raw0), errors, disk_worst_mount=raw0.disk_capacity_worst_mount,
+                build_resource_stats(raw0),
+                errors,
+                disk_worst_mount=raw0.disk_capacity_worst_mount,
                 window_days=win_days,
             )
 
@@ -408,7 +408,7 @@ class ReportQueryMixin(_ReportMixinBase):
 
         server_ids=None 이면 전체 환경(env 보고서), 주어지면 선택 N대/1대 한정(selection·single). 버킷 정책 동일.
         """
-        bucket = cast(BucketSize, AUTO_BUCKET.get(time_range, "1h"))
+        bucket = cast("BucketSize", AUTO_BUCKET.get(time_range, "1h"))
         trend_start = end_dt - TIME_RANGE_TD[time_range]
         cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bucket, server_ids)
         mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bucket, server_ids)
@@ -423,7 +423,7 @@ class ReportQueryMixin(_ReportMixinBase):
         trend(이용률)와 동일 윈도우·bucket 정책. 서버 1대 스코프 고정(server_ids 필수) — 환경/선택 스코프는
         해당 화면에 노출 지점이 없어 미도입(실사용 시점 확장).
         """
-        bucket = cast(BucketSize, AUTO_BUCKET.get(time_range, "1h"))
+        bucket = cast("BucketSize", AUTO_BUCKET.get(time_range, "1h"))
         trend_start = end_dt - TIME_RANGE_TD[time_range]
         cpu_series = await self.repo.metric_trend("cpu.saturation", trend_start, end_dt, bucket, server_ids)
         mem_series = await self.repo.metric_trend("mem.paging_pressure", trend_start, end_dt, bucket, server_ids)
@@ -522,8 +522,13 @@ class ReportQueryMixin(_ReportMixinBase):
             has_event = False
             if fetch_operational_events:
                 err = await self.repo.latest_errors(raw.server_id, window_start)
-                has_event = bool(err.mce_count or err.oom_count or (err.corrupted_bytes or 0) > 0
-                                 or err.net_error_count or err.disk_error_count)
+                has_event = bool(
+                    err.mce_count
+                    or err.oom_count
+                    or (err.corrupted_bytes or 0) > 0
+                    or err.net_error_count
+                    or err.disk_error_count
+                )
             items.append(to_report_row_item(raw, online, end_dt, has_event))
 
         avg_cpu, avg_mem = compute_report_avg_p95(items)

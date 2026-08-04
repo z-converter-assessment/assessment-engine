@@ -15,26 +15,30 @@ import hashlib
 import json
 import re
 import uuid
-from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 import aio_pika
 import httpx
-from aio_pika.abc import AbstractChannel
 from loguru import logger
-from redis.asyncio import Redis
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
 from assessment_engine.contract import AGENT_CONTRACT_VERSION
 from assessment_engine.db.dtos.inbound import TaskCreate
-from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
-from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
-from assessment_engine.json_types import JsonObject
 from assessment_engine.web.settings import get_diagnostic_settings, get_web_settings
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from aio_pika.abc import AbstractChannel
+    from redis.asyncio import Redis
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+
+    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+    from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
+    from assessment_engine.json_types import JsonObject
 
 _TASK_TYPE_INSTALL = "zconverter_install"
 # engine task deadline_at 과 broker 큐 x-message-ttl 을 단일 창(install_task_deadline_sec)으로 정합 —
@@ -48,13 +52,13 @@ def _resolve_install_dispatch(os_family: str) -> tuple[str, str, str | None]:
 
     Linux  = .tar.gz extract + install.sh exec.
     Windows = single .exe 직접 실행 (extract 없음, install.script null).
-    그 외 = TaskNotConfigured raise (운영자 알림 — agent 미지원).
+    그 외 = TaskNotConfiguredError raise (운영자 알림 — agent 미지원).
     """
     if os_family == "linux":
         return (get_web_settings().zdm_package_path, "shell", get_web_settings().zdm_package_script)
     if os_family == "windows":
         return (get_web_settings().zdm_package_path_windows, "direct_exec", None)
-    raise TaskNotConfigured(f"unsupported os_family={os_family!r}")
+    raise TaskNotConfiguredError(f"unsupported os_family={os_family!r}")
 
 
 # 운영자 입력에서 scheme·path 제거 → host (또는 host:port) 만 추출.
@@ -196,13 +200,15 @@ class TaskService:
         실제 setup 패키지 fetch + 실행에 사용. 본 엔진은 Linux 호스트만 발행 대상.
 
         sha256 / size_bytes 는 publish 직전 ZDM 에서 동적 fetch (ETag cache).
-        실패 시 publish 차단 → 503 (TaskNotConfigured).
+        실패 시 publish 차단 → 503 (TaskNotConfiguredError).
         """
         sid_map = await self.query_repo.resolve_server_ids(target_public_ids)
         missing = [pid for pid in target_public_ids if pid not in sid_map]
         if missing:
             logger.warning("install target not found public_ids={}", missing[:5])
-            raise TaskNotFound("선택한 서버 중 일부를 찾을 수 없어 전체 발행을 취소했습니다 (이미 삭제됐을 수 있음).")
+            raise TaskNotFoundError(
+                "선택한 서버 중 일부를 찾을 수 없어 전체 발행을 취소했습니다 (이미 삭제됐을 수 있음)."
+            )
         server_ids = [sid_map[pid] for pid in target_public_ids]
         details = await self.query_repo.get_servers(server_ids)
         detail_by_id = {d.id: d for d in details}
@@ -218,7 +224,7 @@ class TaskService:
             logger.info("expired overdue tasks count={}", expired)
         if busy_ids:
             busy_names = sorted(detail_by_id[sid].hostname for sid in busy_ids if sid in detail_by_id)
-            raise TaskDuplicatePending(
+            raise TaskDuplicatePendingError(
                 f"이미 설치 작업이 진행 중인 서버가 있어 전체 발행을 취소했습니다: {', '.join(busy_names)}"
             )
         # deadline_at = 배달/마감 단일 창(install_task_deadline_sec) — broker 큐 x-message-ttl 과 동일 값이라
@@ -245,7 +251,7 @@ class TaskService:
                     meta_by_path[package_path] = await self.zdm_resolver.resolve(resolve_host, package_path)
                 except ZdmPackageMetaError as e:
                     logger.error("ZDM package meta fetch failed path={} err={}", package_path, e)
-                    raise TaskNotConfigured(
+                    raise TaskNotConfiguredError(
                         "ZDM 패키지 정보를 가져오지 못해 발행을 취소했습니다. ZDM 서버 연결을 확인하세요."
                     ) from e
 
@@ -257,7 +263,7 @@ class TaskService:
             detail = detail_by_id.get(server_id)
             if detail is None:
                 logger.warning("install server detail missing public_id={}", public_id)
-                raise TaskNotFound("서버 정보를 불러오지 못해 발행을 취소했습니다.")
+                raise TaskNotFoundError("서버 정보를 불러오지 못해 발행을 취소했습니다.")
 
             package_path, install_type, install_script = dispatch_by_host[server_id]
             sha256_hex, size_bytes = meta_by_path[package_path]
@@ -280,7 +286,7 @@ class TaskService:
                 except IntegrityError as e:
                     # 사전 검증 통과 후 race(동시 발행) — 극히 드묾. 부분 발행 가능성은 T1 한계.
                     logger.warning("install race conflict server_id={} public_id={}", server_id, public_id)
-                    raise TaskDuplicatePending(
+                    raise TaskDuplicatePendingError(
                         f"발행 도중 다른 작업과 충돌했습니다: {detail.hostname}. 잠시 후 다시 시도하세요."
                     ) from e
 
@@ -302,7 +308,7 @@ class TaskService:
                     )
                 except (aio_pika.exceptions.AMQPError, TimeoutError) as e:
                     logger.error("task.install publish failed server_id={} public_id={}", server_id, public_id)
-                    raise TaskPublishFailed(
+                    raise TaskPublishFailedError(
                         f"작업 발행 중 broker 오류로 취소했습니다: {detail.hostname}. 잠시 후 다시 시도하세요."
                     ) from e
                 await session.commit()
@@ -333,7 +339,7 @@ class TaskService:
         keys = [get_web_settings().redis_key_online.format(sid) for sid in server_ids]
         flags = await safe_mget(self.redis, keys)
         if flags is None:
-            return {sid: True for sid in server_ids}
+            return dict.fromkeys(server_ids, True)
         return {sid: flags[i] is not None for i, sid in enumerate(server_ids)}
 
     async def _ensure_machine_queue(self, agent_id: str) -> None:
@@ -400,17 +406,17 @@ class TaskService:
         await exchange.publish(message, routing_key=routing_key)
 
 
-class TaskNotFound(Exception):
+class TaskNotFoundError(Exception):
     """router 가 HTTPException(404) 로 변환."""
 
 
-class TaskDuplicatePending(Exception):
+class TaskDuplicatePendingError(Exception):
     """router 가 HTTPException(409) 로 변환 — pending task 이미 존재."""
 
 
-class TaskNotConfigured(Exception):
+class TaskNotConfiguredError(Exception):
     """router 가 HTTPException(503) 로 변환 — ZDM 패키지 contract 미설정."""
 
 
-class TaskPublishFailed(Exception):
+class TaskPublishFailedError(Exception):
     """router 가 HTTPException(503) 로 변환 — broker publish 실패 (task INSERT 는 rollback, 유령 pending 없음)."""

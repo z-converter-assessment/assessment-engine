@@ -5,12 +5,9 @@ server scope 보고서와 분리된 high-level 양식 — 분류 분포·OS 분�
 """
 
 from collections import Counter
-from datetime import datetime
-from decimal import Decimal
+from typing import TYPE_CHECKING
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import MetricSeries, ServerDetail
-from assessment_engine.json_types import JsonObject
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
 from assessment_engine.web.services.mappers.shared import (
     _CAUSE_LABEL_BY_TRIGGER,
@@ -24,12 +21,6 @@ from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
 )
 from assessment_engine.web.services.mappers.topology import build_network_topology
-from assessment_engine.web.view_models.attention import (
-    ActionTargets,
-    AttentionSignals,
-    CapacityWarningItem,
-    EnvironmentOverview,
-)
 from assessment_engine.web.view_models.environment_report import (
     AttentionHostItem,
     CapacityImminentItem,
@@ -41,7 +32,20 @@ from assessment_engine.web.view_models.environment_report import (
     ServiceHost,
     ServiceNameCount,
 )
-from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
+
+if TYPE_CHECKING:
+    from datetime import datetime
+    from decimal import Decimal
+
+    from assessment_engine.db.dtos.outbound import MetricSeries, ServerDetail
+    from assessment_engine.json_types import JsonObject
+    from assessment_engine.web.view_models.attention import (
+        ActionTargets,
+        AttentionSignals,
+        CapacityWarningItem,
+        EnvironmentOverview,
+    )
+    from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
 
 # `_PROVISIONING_SEGMENT_DEFS` 단일 진실 = mappers/shared.py (#E8).
 # 본 모듈은 import alias 만 — 환경 보고서·대시보드 도넛·보고서 row 색 통일 (T13).
@@ -96,7 +100,9 @@ def _to_distribution_bars(
     ]
 
 
-def build_metric_trend(cpu_series: list[MetricSeries], mem_series: list[MetricSeries], disk_series: list[MetricSeries]) -> list[JsonObject]:
+def build_metric_trend(
+    cpu_series: list[MetricSeries], mem_series: list[MetricSeries], disk_series: list[MetricSeries]
+) -> list[JsonObject]:
     """환경 CPU·메모리·디스크 시계열(MetricSeries) 세 개를 버킷 시각 기준 merge -> 차트 JS inline plain dict (P2).
 
     at 은 isoformat str (tojson·JS Date 파싱). 표본 없는 축은 None (차트 gap).
@@ -115,8 +121,11 @@ def build_metric_trend(cpu_series: list[MetricSeries], mem_series: list[MetricSe
     ]
 
 
-def build_saturation_trend(cpu_series: list[MetricSeries], mem_series: list[MetricSeries], disk_series: list[MetricSeries]) -> list[JsonObject]:
+def build_saturation_trend(
+    cpu_series: list[MetricSeries], mem_series: list[MetricSeries], disk_series: list[MetricSeries]
+) -> list[JsonObject]:
     """CPU 실행 큐·메모리 페이징·디스크 I/O 포화 이진(0/1) 시계열 세 개를 버킷 시각 기준 merge -> 차트 JS
+
     inline plain dict (P2). cpu.saturation/mem.paging_pressure/disk.saturation SQL 이 이미 0.0/1.0 로 판정 —
     mapper 는 병합만(재계산 0).
 
@@ -180,12 +189,10 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
         listen_only = len(all_hosts - named_hosts.get(cat, set()))
         if listen_only:
             groups.setdefault(cat, []).append(ServiceNameCount(name="(포트 탐지)", count=listen_only, hosts=[]))
-    result: list[ServiceCatalogGroup] = []
-    for cat in SIGNATURE_CATEGORIES:
-        result.append(
-            ServiceCatalogGroup(category=cat, total_count=len(cat_hosts.get(cat, set())), services=groups.get(cat, []))
-        )
-    return result
+    return [
+        ServiceCatalogGroup(category=cat, total_count=len(cat_hosts.get(cat, set())), services=groups.get(cat, []))
+        for cat in SIGNATURE_CATEGORIES
+    ]
 
 
 def _count_os(details: list[ServerDetail]) -> list[OsCount]:
@@ -206,7 +213,10 @@ def _count_os(details: list[ServerDetail]) -> list[OsCount]:
             kernels.setdefault(key, set()).add(d.kernel_version)
     rows = [
         OsCount(
-            family=f, distro=di, version=v, count=n,
+            family=f,
+            distro=di,
+            version=v,
+            count=n,
             kernel_versions=", ".join(sorted(kernels.get((f, di, v), set()))) or "—",
         )
         for (f, di, v), n in counts.items()

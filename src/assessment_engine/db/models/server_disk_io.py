@@ -15,9 +15,7 @@ class ServerDiskIo(Base):
     """
 
     __tablename__ = "server_disk_io"
-    __table_args__ = (
-        UniqueConstraint("server_id", "device_id", "collected_at", name="uq_server_disk_io_sid_dev_ts"),
-    )
+    __table_args__ = (UniqueConstraint("server_id", "device_id", "collected_at", name="uq_server_disk_io_sid_dev_ts"),)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)

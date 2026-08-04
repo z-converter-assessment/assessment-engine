@@ -13,7 +13,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
 
-from assessment_engine import recommendation as R
+from assessment_engine import recommendation
 from assessment_engine.contract import API_CONTRACT_VERSION
 from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
 from assessment_engine.json_types import JsonObject
@@ -48,12 +48,17 @@ def _interfaces(draw: DrawFn) -> list[JsonObject]:
         addrs: list[JsonObject] = []
         if draw(st.booleans()):
             addrs.append({"address": f"10.0.{i}.5", "prefix": 24, "family": "ipv4", "origin": "static"})
-        out.append({
-            "id": f"mac:aa:bb:cc:00:00:0{i}", "id_type": "mac", "name": f"eth{i}",
-            "kind": draw(st.sampled_from(["physical", "bond_master", "bridge", "virtual", None])),
-            "mtu": draw(st.sampled_from([1500, 9000, None])), "addresses": addrs,
-            "bond_mode": draw(st.sampled_from(["802.3ad", "active-backup", "weird-unmapped", None])),
-        })
+        out.append(
+            {
+                "id": f"mac:aa:bb:cc:00:00:0{i}",
+                "id_type": "mac",
+                "name": f"eth{i}",
+                "kind": draw(st.sampled_from(["physical", "bond_master", "bridge", "virtual", None])),
+                "mtu": draw(st.sampled_from([1500, 9000, None])),
+                "addresses": addrs,
+                "bond_mode": draw(st.sampled_from(["802.3ad", "active-backup", "weird-unmapped", None])),
+            }
+        )
     return out
 
 
@@ -61,16 +66,18 @@ def _interfaces(draw: DrawFn) -> list[JsonObject]:
 def _block_devices(draw: DrawFn) -> list[JsonObject]:
     """block_devices — disk/partition, size_bytes 합이 disk_total_bytes(사이징 base). mountpoint 로 device_ref 조인."""
     n = draw(st.integers(min_value=0, max_value=3))
-    out: list[JsonObject] = []
-    for i in range(n):
-        out.append({
-            "id": f"by-path:pci-0000:00:0{i}", "id_type": "by-path", "name": f"sd{chr(97 + i)}",
+    return [
+        {
+            "id": f"by-path:pci-0000:00:0{i}",
+            "id_type": "by-path",
+            "name": f"sd{chr(97 + i)}",
             "type": draw(st.sampled_from(["disk", "part", "lvm", "swap"])),
             "size_bytes": draw(st.sampled_from([10, 20, 50, 100, 500])) * 1024**3,
             "mountpoint": draw(st.sampled_from(["/", "/data", "/mnt/x", None])),
             "raid_level": draw(st.sampled_from(["raid1", "raid5", "linear", 0, None])),
-        })
-    return out
+        }
+        for i in range(n)
+    ]
 
 
 @st.composite
@@ -131,9 +138,8 @@ def _report_row(draw: DrawFn) -> ReportRowRaw:
 @st.composite
 def _mounts(draw: DrawFn) -> list[MountCapacityRaw]:
     n = draw(st.integers(min_value=0, max_value=3))
-    out: list[MountCapacityRaw] = []
-    for i in range(n):
-        out.append(MountCapacityRaw(
+    return [
+        MountCapacityRaw(
             mountpoint=draw(st.sampled_from(["/", "/data", "/mnt/x", f"/m{i}"])),
             total_bytes=draw(_opt(st.sampled_from([10, 50, 100, 500]).map(lambda g: g * 1024**3))),
             used_pct=draw(_opt(_pct)),
@@ -141,15 +147,14 @@ def _mounts(draw: DrawFn) -> list[MountCapacityRaw]:
             inode_runway_days=draw(_opt(st.floats(0, 2000, allow_nan=False))),
             inode_used_pct=draw(_opt(_pct)),
             target_bytes=draw(_opt(st.sampled_from([20, 100, 1000]).map(lambda g: g * 1024**3))),
-        ))
-    return out
+        )
+        for i in range(n)
+    ]
 
 
 @settings(max_examples=examples(3000))
 @given(_report_row(), _mounts(), st.booleans(), st.booleans())
-def test_entry_contract_invariants(
-    raw: ReportRowRaw, mounts: list[MountCapacityRaw], is_online: bool, ambiguous: bool
-):
+def test_entry_contract_invariants(raw: ReportRowRaw, mounts: list[MountCapacityRaw], is_online: bool, ambiguous: bool):
     """어떤 유효 입력에도 서버 항목 계약이 성립 (위반 = 확정 버그)."""
     entry = build_assessment_entry(raw, mounts, is_online, ambiguous)
 
@@ -183,15 +188,17 @@ def test_entry_contract_invariants(
         else:  # keep
             assert rec == cur, a
         if a["axis"] in ("cpu", "memory"):
-            assert isinstance(rec, int) and rec > 0, a
+            assert isinstance(rec, int), a
+            assert rec > 0, a
             assert a["unit"] in ("vcpus", "mib"), a
         else:  # disk
-            assert a["axis"] == "disk" and a["unit"] == "gib", a
+            assert a["axis"] == "disk", a
+            assert a["unit"] == "gib", a
             assert a.get("mountpoint") is not None, a
 
     # 5. assessment enum + data_quality 불변식
     asmt = entry["assessment"]
-    assert asmt["classification"] in R.LABEL_KO, asmt
+    assert asmt["classification"] in recommendation.LABEL_KO, asmt
     assert asmt["confidence"] in ("low", "medium", "high"), asmt
     dq = asmt["data_quality"]
     assert dq["sufficient"] is (asmt["confidence"] == "high")
@@ -227,8 +234,11 @@ def test_envelope_contract(rows: list[tuple[ReportRowRaw, list[MountCapacityRaw]
         "unmatched_filters": [],
     }
     env = build_assessment_envelope(
-        result, generated_at="2026-01-01T00:00:00+00:00", window_days=14,
-        window_start="2025-12-18T00:00:00+00:00", window_end="2026-01-01T00:00:00+00:00",
+        result,
+        generated_at="2026-01-01T00:00:00+00:00",
+        window_days=14,
+        window_start="2025-12-18T00:00:00+00:00",
+        window_end="2026-01-01T00:00:00+00:00",
         filters={"hostname": [], "ip": [], "public_id": [], "pair": []},
     )
     assert env["contract_version"] == API_CONTRACT_VERSION
@@ -242,16 +252,34 @@ def test_envelope_contract(rows: list[tuple[ReportRowRaw, list[MountCapacityRaw]
 def test_reproduction_reshapes_os_boot_mounts():
     """_reproduction os/boot/mounts 값 reshape — 채워진 boot dict.get 픽업 + nonblock_mounts 컴프리헨션."""
     raw = ReportRowRaw(
-        server_id=1, public_id="00000000-0000-0000-0000-000000000001", hostname="h1",
-        os_family="linux", os_id="rocky", os_version="9.3", os_codename=None,
-        kernel_version="5.14.0", net_interfaces=None, services=None, last_seen_at=None,
-        cpu_p95_pct=None, cpu_avg_pct=None, cpu_peak_pct=None,
-        mem_p95_pct=None, mem_avg_pct=None, mem_peak_pct=None,
-        arch="aarch64", bits=64, boot_firmware="uefi", secure_boot=False,
-        edition="Datacenter", timezone="UTC", rtc_utc=True,
+        server_id=1,
+        public_id="00000000-0000-0000-0000-000000000001",
+        hostname="h1",
+        os_family="linux",
+        os_id="rocky",
+        os_version="9.3",
+        os_codename=None,
+        kernel_version="5.14.0",
+        net_interfaces=None,
+        services=None,
+        last_seen_at=None,
+        cpu_p95_pct=None,
+        cpu_avg_pct=None,
+        cpu_peak_pct=None,
+        mem_p95_pct=None,
+        mem_avg_pct=None,
+        mem_peak_pct=None,
+        arch="aarch64",
+        bits=64,
+        boot_firmware="uefi",
+        secure_boot=False,
+        edition="Datacenter",
+        timezone="UTC",
+        rtc_utc=True,
         boot={"kernel_cmdline": "ro quiet", "root_ref_type": "label", "grub_install_target": None},
-        nonblock_mounts=[{"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
-                          "options": ["rw"], "fs_freq": 0, "fs_passno": 0}],
+        nonblock_mounts=[
+            {"source": "tmpfs", "target": "/run", "fstype": "tmpfs", "options": ["rw"], "fs_freq": 0, "fs_passno": 0}
+        ],
     )
     repro = build_assessment_entry(raw, [], True)["reproduction"]
     assert repro["os"]["arch"] == "aarch64"
@@ -273,12 +301,25 @@ def test_reproduction_reshapes_os_boot_mounts():
 def test_reproduction_boot_and_mounts_null_fallback():
     """raw.boot=None / nonblock_mounts=None 폴백 — boot or {} / nonblock_mounts or []."""
     raw = ReportRowRaw(
-        server_id=2, public_id="00000000-0000-0000-0000-000000000002", hostname="h2",
-        os_family="windows", os_id="windows", os_version="2022", os_codename=None,
-        kernel_version=None, net_interfaces=None, services=None, last_seen_at=None,
-        cpu_p95_pct=None, cpu_avg_pct=None, cpu_peak_pct=None,
-        mem_p95_pct=None, mem_avg_pct=None, mem_peak_pct=None,
-        boot=None, nonblock_mounts=None,
+        server_id=2,
+        public_id="00000000-0000-0000-0000-000000000002",
+        hostname="h2",
+        os_family="windows",
+        os_id="windows",
+        os_version="2022",
+        os_codename=None,
+        kernel_version=None,
+        net_interfaces=None,
+        services=None,
+        last_seen_at=None,
+        cpu_p95_pct=None,
+        cpu_avg_pct=None,
+        cpu_peak_pct=None,
+        mem_p95_pct=None,
+        mem_avg_pct=None,
+        mem_peak_pct=None,
+        boot=None,
+        nonblock_mounts=None,
     )
     repro = build_assessment_entry(raw, [], False)["reproduction"]
     assert repro["boot"] == {"kernel_cmdline": None, "root_ref_type": None, "grub_install_target": None}

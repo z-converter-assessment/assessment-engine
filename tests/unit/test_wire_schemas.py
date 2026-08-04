@@ -7,10 +7,10 @@
 
 import json
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 from jsonschema import Draft202012Validator
-from jsonschema.exceptions import ValidationError as JsonSchemaError
 from pydantic import ValidationError
 
 from assessment_engine.consumer.schemas import (
@@ -21,7 +21,11 @@ from assessment_engine.consumer.schemas import (
     NonblockMountInfo,
     TaskResultInput,
 )
-from assessment_engine.json_types import JsonObject
+
+if TYPE_CHECKING:
+    from jsonschema.exceptions import ValidationError as JsonSchemaError
+
+    from assessment_engine.json_types import JsonObject
 
 _CONTRACTS = Path(__file__).resolve().parents[2] / "docs/reference/contracts"
 _EXAMPLES = json.loads((_CONTRACTS / "wire-examples.json").read_text())
@@ -32,6 +36,8 @@ _MODEL_BY_TYPE = {
     "task.result": TaskResultInput,
     "error": ErrorInput,
 }
+
+
 def _schema_errors(msg: JsonObject) -> list[JsonSchemaError]:
     """정본 JSON Schema 위반 목록. jsonschema 가 iter_errors 를 타입 없이 선언해 여기서 한 번 확정한다."""
     validator = Draft202012Validator(_SCHEMA)
@@ -46,14 +52,14 @@ def test_wire_schema_is_valid() -> None:
     Draft202012Validator.check_schema(_SCHEMA)
 
 
-@pytest.mark.parametrize("name,msg", _CASES, ids=[c[0] for c in _CASES])
+@pytest.mark.parametrize(("name", "msg"), _CASES, ids=[c[0] for c in _CASES])
 def test_v2_example_matches_schema(name: str, msg: JsonObject) -> None:
     """계약 예시 6종이 정본 JSON Schema 를 만족."""
     errors = sorted(_schema_errors(msg), key=lambda e: e.json_path)
     assert not errors, "\n".join(f"{e.json_path}: {e.message}" for e in errors)
 
 
-@pytest.mark.parametrize("name,msg", _CASES, ids=[c[0] for c in _CASES])
+@pytest.mark.parametrize(("name", "msg"), _CASES, ids=[c[0] for c in _CASES])
 def test_v2_example_validates(name: str, msg: JsonObject) -> None:
     """계약 예시 6종(linux/windows metrics·inventory + task.result + error)이 인바운드 스키마로 파싱."""
     model = _MODEL_BY_TYPE[msg["message_type"]]
@@ -77,8 +83,11 @@ def test_metrics_datapoint_array_shape() -> None:
 def test_inventory_v2_arrays() -> None:
     """inventory = 정적 서술자 + block_devices/net_interfaces/lvm_vgs. mem_total_bytes(By)."""
     lin = InventoryInput.model_validate(_EXAMPLES["linux_inventory"])
-    assert lin.hostname and lin.os_id and lin.mem_total_bytes
-    assert lin.block_devices and lin.block_devices[0].id_type
+    assert lin.hostname
+    assert lin.os_id
+    assert lin.mem_total_bytes
+    assert lin.block_devices
+    assert lin.block_devices[0].id_type
     assert lin.net_interfaces[0].id_type == "mac"
     assert lin.net_interfaces[0].addresses[0].family in ("ipv4", "ipv6")
     assert lin.lvm_vgs  # Linux VG
@@ -102,7 +111,7 @@ def test_schema_version_required() -> None:
 
 
 @pytest.mark.parametrize(
-    "version,accepted",
+    ("version", "accepted"),
     [
         ("1.0", True),
         ("1.1", True),  # minor additive — silent 호환
@@ -137,8 +146,14 @@ def test_inventory_reproduction_descriptors_parse() -> None:
         rtc_utc=True,
         boot={"kernel_cmdline": "ro quiet", "root_ref_type": "label", "grub_install_target": None},
         nonblock_mounts=[
-            {"source": "tmpfs", "target": "/run", "fstype": "tmpfs",
-             "options": ["rw", "nosuid"], "fs_freq": 0, "fs_passno": 0}
+            {
+                "source": "tmpfs",
+                "target": "/run",
+                "fstype": "tmpfs",
+                "options": ["rw", "nosuid"],
+                "fs_freq": 0,
+                "fs_passno": 0,
+            }
         ],
     )
     inv = InventoryInput.model_validate(payload)
@@ -164,4 +179,5 @@ def test_inventory_reproduction_descriptors_default_none() -> None:
     inv = InventoryInput.model_validate(_EXAMPLES["linux_inventory"])
     assert inv.boot is None
     assert inv.nonblock_mounts is None
-    assert inv.arch is None and inv.bits is None
+    assert inv.arch is None
+    assert inv.bits is None

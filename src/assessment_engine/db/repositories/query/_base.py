@@ -4,11 +4,14 @@
 QueryRepository facade 가 multiple inheritance 로 5 concrete 결합 시 본 mixin __init__ 한 번만 호출.
 """
 
-from collections.abc import Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 # "최신 행" 조회의 미래 timestamp 방어 — agent 시계가 어긋나 collected_at 이 미래로 발행되면(예: Windows
 # RTC 가 local TZ 로 해석돼 UTC 오프셋만큼 튐) 그 행이 "가짜 최신"으로 잡혀 대시보드 CPU delta(최신 2행

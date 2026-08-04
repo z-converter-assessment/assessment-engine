@@ -97,10 +97,13 @@ def test_saturation_is_raw_numeric_not_display_string():
         _raw(os_family="linux", cpu_p95=75.0, cpu_cores=4, procs_running_p95=6.0), is_online=True
     )
     sat = e["resources"]["cpu"]["saturation"]
-    assert isinstance(sat["value"], (int, float)) and sat["value"] == 1.5  # 6/4 per-core
-    assert isinstance(sat["threshold"], (int, float)) and sat["threshold"] == 1.0
+    assert isinstance(sat["value"], (int, float))
+    assert sat["value"] == 1.5
+    assert isinstance(sat["threshold"], (int, float))
+    assert sat["threshold"] == 1.0
     assert sat["unit"] == "per_core"
-    assert sat["measured"] is True and sat["saturated"] is True
+    assert sat["measured"] is True
+    assert sat["saturated"] is True
     assert sat["signal"] == "run queue (procs_running)/core"
 
 
@@ -108,7 +111,9 @@ def test_disk_io_saturation_await_numeric():
     """디스크 I/O await 도 numeric ms."""
     e = build_right_sizing_entry(_raw(os_family="linux", disk_await_p95_ms=30.0), is_online=True)
     sat = e["resources"]["disk"]["io"]["saturation"]
-    assert sat["value"] == 30.0 and sat["threshold"] == 20 and sat["unit"] == "ms"
+    assert sat["value"] == 30.0
+    assert sat["threshold"] == 20
+    assert sat["unit"] == "ms"
     assert sat["saturated"] is True
 
 
@@ -116,12 +121,15 @@ def test_saturation_unmeasured_is_null():
     """미측정 축은 value/saturated null (measured=false)."""
     e = build_right_sizing_entry(_raw(os_family="windows", cpu_p95=40.0, cpu_cores=4), is_online=True)
     sat = e["resources"]["cpu"]["saturation"]
-    assert sat["value"] is None and sat["measured"] is False
+    assert sat["value"] is None
+    assert sat["measured"] is False
 
 
 def test_recommendation_structure_independent_actions_despite_causal_link():
     """under: kind=provision, actions 는 인과 결합(memory 근본원인)이어도 관측된 under 자원 전부(memory·cpu·
-    disk_io) 포함 — ADR 0055 자원별 독립 처방. suppressed 는 항상 빈 배열(구 스키마 호환 필드)."""
+
+    disk_io) 포함 — ADR 0055 자원별 독립 처방. suppressed 는 항상 빈 배열(구 스키마 호환 필드).
+    """
     e = build_right_sizing_entry(_under_mem_root(), is_online=True)
     assert e["classification"] == "under_provisioned"
     rec = e["recommendation"]
@@ -136,7 +144,9 @@ def test_action_target_is_typed_int():
     """actions 사이징 목표는 타입 키로 파싱 가능(정수)."""
     e = build_right_sizing_entry(_under_mem_root(), is_online=True)
     mem = next(a for a in e["recommendation"]["actions"] if a["resource"] == "memory")
-    assert mem["op"] == "increase" and isinstance(mem["target_mb"], int) and mem["target_mb"] > 0
+    assert mem["op"] == "increase"
+    assert isinstance(mem["target_mb"], int)
+    assert mem["target_mb"] > 0
 
 
 def test_independent_under_actions_all_present():
@@ -147,10 +157,12 @@ def test_independent_under_actions_all_present():
     )
     rec = e["recommendation"]
     action_res = {a["resource"] for a in rec["actions"]}
-    assert "cpu" in action_res and "disk_io" in action_res
+    assert "cpu" in action_res
+    assert "disk_io" in action_res
     assert rec["suppressed"] == []
     tier = next(a for a in rec["actions"] if a["resource"] == "disk_io")
-    assert tier["op"] == "tier_up" and "target_gb" not in tier  # 수치 목표 없음
+    assert tier["op"] == "tier_up"
+    assert "target_gb" not in tier
 
 
 def test_optimal_maintain_no_actions():
@@ -165,7 +177,9 @@ def test_optimal_maintain_no_actions():
         is_online=True,
     )
     rec = e["recommendation"]
-    assert rec["kind"] == "maintain" and rec["actions"] == [] and rec["suppressed"] == []
+    assert rec["kind"] == "maintain"
+    assert rec["actions"] == []
+    assert rec["suppressed"] == []
 
 
 def test_network_signals_numeric_and_congested():
@@ -175,9 +189,12 @@ def test_network_signals_numeric_and_congested():
         is_online=True,
     )
     net = e["network"]
-    assert net["status"] == "congested" and net["congested"] is True
+    assert net["status"] == "congested"
+    assert net["congested"] is True
     rt = net["signals"]["retransmit_pct"]
-    assert rt["value"] == 2.0 and rt["threshold"] == 1.0 and rt["exceeded"] is True
+    assert rt["value"] == 2.0
+    assert rt["threshold"] == 1.0
+    assert rt["exceeded"] is True
     assert net["signals"]["drop_pct"]["exceeded"] is False
 
 
@@ -202,7 +219,8 @@ def test_classification_and_labels_present():
     """분류·라벨·근본원인 필드 형태."""
     e = build_right_sizing_entry(_under_mem_root(), is_online=True)
     assert e["classification"] == "under_provisioned"
-    assert isinstance(e["classification_label"], str) and e["classification_label"]
+    assert isinstance(e["classification_label"], str)
+    assert e["classification_label"]
     assert "메모리" in (e["root_cause"] or "")
 
 
@@ -219,7 +237,8 @@ def test_evidence_labels_no_raw_enum_leak():
     labels = _evidence_labels(all_triggers)
     leaked = [k for k, lbl in zip(all_triggers, labels, strict=True) if k == lbl]
     assert not leaked, f"raw enum 누출: {leaked}"
-    assert "mem_oom" not in labels and "net_retrans" not in labels
+    assert "mem_oom" not in labels
+    assert "net_retrans" not in labels
 
 
 def test_entry_matches_response_schema():

@@ -62,9 +62,8 @@ async def test_db_retry_retries_operational_error_then_raises():
         calls += 1
         raise _sa_error(OperationalError)
 
-    with patch("asyncio.sleep", new=AsyncMock()):
-        with pytest.raises(OperationalError):
-            await _db_retry(factory, MagicMock(), fn)
+    with patch("asyncio.sleep", new=AsyncMock()), pytest.raises(OperationalError):
+        await _db_retry(factory, MagicMock(), fn)
     assert calls == _RETRY_MAX_ATTEMPTS
 
 
@@ -78,9 +77,8 @@ async def test_db_retry_integrity_error_no_retry():
         calls += 1
         raise _sa_error(IntegrityError)
 
-    with patch("asyncio.sleep", new=AsyncMock()) as sleep:
-        with pytest.raises(IntegrityError):
-            await _db_retry(factory, MagicMock(), fn)
+    with patch("asyncio.sleep", new=AsyncMock()) as sleep, pytest.raises(IntegrityError):
+        await _db_retry(factory, MagicMock(), fn)
     assert calls == 1
     sleep.assert_not_called()
 
@@ -98,9 +96,8 @@ async def test_db_retry_permanent_dbapi_error_no_retry():
         calls += 1
         raise _sa_error(ProgrammingError)
 
-    with patch("asyncio.sleep", new=AsyncMock()) as sleep:
-        with pytest.raises(ProgrammingError):
-            await _db_retry(factory, MagicMock(), fn)
+    with patch("asyncio.sleep", new=AsyncMock()) as sleep, pytest.raises(ProgrammingError):
+        await _db_retry(factory, MagicMock(), fn)
     assert calls == 1
     sleep.assert_not_called()
 

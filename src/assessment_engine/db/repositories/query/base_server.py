@@ -1,15 +1,18 @@
 """Server 도메인 추상 인터페이스 — inventory · storage · network · collection status."""
 
 from abc import ABC, abstractmethod
-from datetime import datetime
+from typing import TYPE_CHECKING
 
-from assessment_engine.db.dtos.outbound import (
-    CollectionStatus,
-    NetworkWithIo,
-    ServerDetail,
-    ServerSummary,
-    StorageWithUsage,
-)
+if TYPE_CHECKING:
+    from datetime import datetime
+
+    from assessment_engine.db.dtos.outbound import (
+        CollectionStatus,
+        NetworkWithIo,
+        ServerDetail,
+        ServerSummary,
+        StorageWithUsage,
+    )
 
 
 class BaseServerQueryRepository(ABC):

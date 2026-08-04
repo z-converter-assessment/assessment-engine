@@ -52,7 +52,7 @@ CREATE UNIQUE INDEX uq_tasks_pending_per_server_type
   WHERE status = 'pending';
 ```
 
-같은 server에 같은 task_type pending 1개만 허용 — 두 번째 INSERT는 `IntegrityError`. `TaskService`가 catch → `TaskDuplicatePending` → router HTTPException(409).
+같은 server에 같은 task_type pending 1개만 허용 — 두 번째 INSERT는 `IntegrityError`. `TaskService`가 catch → `TaskDuplicatePendingError` → router HTTPException(409).
 
 ## server_inventory_history — 변경 trigger
 

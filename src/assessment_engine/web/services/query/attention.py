@@ -1,9 +1,9 @@
 """운영 신호(attention) 조회 mixin — gap·os_eol·agent_unstable 3 카탈로그 + 선택 N대 필터."""
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import MetricGapWarningRaw, ReportRowRaw
 from assessment_engine.web.services.mappers.attention import (
     to_agent_unstable_item,
     to_gap_warning_item,
@@ -12,6 +12,9 @@ from assessment_engine.web.services.mappers.attention import (
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _filter_attention
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import AttentionRow, AttentionSignals
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import MetricGapWarningRaw, ReportRowRaw
 
 # 운영신호(attention) 카탈로그 항목 한도 + gap 윈도우 — 단건 get_attention_signals 와 대시보드 묶음 공유.
 _ATTENTION_LIMIT_EACH = 5

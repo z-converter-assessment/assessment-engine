@@ -9,20 +9,24 @@ job 상태가 DB(diagnostic_jobs)에 있어 메모리 상태 기반(ADR 0004 옵
 구체 인스턴스(QueryService·DiagnosticService)는 composition root(worker/main.py)가 구성해 주입.
 """
 
-import asyncio
-from collections.abc import Callable
-from contextlib import AbstractAsyncContextManager
+from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
-from assessment_engine.web.services.diagnostic_service import DiagnosticService
-from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_generator import (
     ReportGenerationError,
     build_report_result_for_job,
 )
 from assessment_engine.worker.worker_lifecycle import sleep_or_stop
+
+if TYPE_CHECKING:
+    import asyncio
+    from collections.abc import Callable
+    from contextlib import AbstractAsyncContextManager
+
+    from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
+    from assessment_engine.web.services.diagnostic_service import DiagnosticService
+    from assessment_engine.web.services.query_service import QueryService
 
 
 async def _process_one(

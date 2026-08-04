@@ -12,7 +12,7 @@ from assessment_engine.web.services.task_service import _extract_zdm_host
 
 
 @pytest.mark.parametrize(
-    "raw, expected",
+    ("raw", "expected"),
     [
         ("192.168.3.94", "192.168.3.94"),
         ("192.168.3.94:8080", "192.168.3.94:8080"),

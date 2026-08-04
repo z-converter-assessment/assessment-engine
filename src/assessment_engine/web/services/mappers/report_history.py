@@ -1,10 +1,12 @@
 """보고서 이력 페이지 mapper — DiagnosticJobRecord → 표시용 dict (P2 단일 변환)."""
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.json_types import json_list, json_obj
 from assessment_engine.web.services.mappers.shared import DIAGNOSTIC_RANGE_LABEL_KR
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 
 _VIEW_LABEL: dict[str, str] = {
     "customer": "고객 보고서",
@@ -75,10 +77,7 @@ def to_report_history_item(rec: DiagnosticJobRecord, back: str = "") -> dict[str
     view = _view_from_job_type(rec.job_type)
     # environment scope 는 선택 list 부재라 등록 서버 총수(스냅샷 base.total)로 산출,
     # server scope 는 선택 개수. (#E9 "환경 전체 (N대)" 모호성 제거)
-    if rec.scope == "environment":
-        server_count = _environment_server_count(rec)
-    else:
-        server_count = len(server_public_ids)
+    server_count = _environment_server_count(rec) if rec.scope == "environment" else len(server_public_ids)
     return {
         "job_id": rec.id,
         "scope": rec.scope,

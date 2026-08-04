@@ -1,13 +1,15 @@
 """Task 조회 도메인 concrete — modal · timeline · 서버별 latest."""
 
-from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from sqlalchemy import text
 
 from assessment_engine.db.dtos.outbound import TaskRow
 from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 from assessment_engine.db.repositories.query.base_task import BaseTaskQueryRepository
+
+if TYPE_CHECKING:
+    from datetime import datetime
 
 
 class TaskQueryRepository(_BaseQueryMixin, BaseTaskQueryRepository):

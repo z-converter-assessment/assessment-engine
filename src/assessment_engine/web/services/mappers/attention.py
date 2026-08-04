@@ -9,18 +9,10 @@ to_capacity_warning_item 은 EnvironmentOverview.under_provisioned_hosts 로 간
 
 import math
 from collections import Counter
-from collections.abc import Callable
 from datetime import UTC, date, datetime
+from typing import TYPE_CHECKING
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import (
-    EnvironmentUtilizationRaw,
-    FleetErrorRaw,
-    MetricGapWarningRaw,
-    ReportRowRaw,
-    ServerDetail,
-)
-from assessment_engine.json_types import JsonObject
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.report import (
@@ -51,6 +43,18 @@ from assessment_engine.web.view_models.attention import (
     UtilizationBar,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from assessment_engine.db.dtos.outbound import (
+        EnvironmentUtilizationRaw,
+        FleetErrorRaw,
+        MetricGapWarningRaw,
+        ReportRowRaw,
+        ServerDetail,
+    )
+    from assessment_engine.json_types import JsonObject
+
 # ─── 표시 임계·색 단일 진실 ────────────────────────────────────────────────
 # 운영 신호 단일 active 색 클래스. base.html 단일 진실. 카테고리간 강도 비교 근거 부족 →
 # 임계 초과 발화 자체가 시그널이라 단일 색으로 통일.
@@ -65,8 +69,12 @@ _UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 # 주요 워크로드 도넛 세그먼트 색 — SIGNATURE_CATEGORIES 대응. base.html .badge-cat-* 뱃지 색의 시각적 쌍둥이
 # (SVG stroke 는 hex 필요 — CSS 클래스와 별도 소스, 값 동기화 의무).
 _WORKLOAD_COLORS: dict[str, str] = {
-    "web": "#2563eb", "db": "#e11d48", "cache": "#059669",
-    "mq": "#9333ea", "container": "#0891b2", "monitor": "#ea580c",
+    "web": "#2563eb",
+    "db": "#e11d48",
+    "cache": "#059669",
+    "mq": "#9333ea",
+    "container": "#0891b2",
+    "monitor": "#ea580c",
 }
 
 # 도넛 SVG 원주 — 템플릿 SVG r="42" 와 정합. pct 0~100 을 0~_UTIL_DONUT_CIRC 로 매핑(dash-array precompute).
@@ -190,7 +198,9 @@ def _build_error_fleet(err: FleetErrorRaw | None) -> list[FleetErrorItem]:
         return []
     t = err.total
     return [
-        FleetErrorItem("cpu_mce", "머신체크(MCE)", err.mce_hosts, t, "CPU/메모리 하드웨어 정정불가 오류(machine check)"),
+        FleetErrorItem(
+            "cpu_mce", "머신체크(MCE)", err.mce_hosts, t, "CPU/메모리 하드웨어 정정불가 오류(machine check)"
+        ),
         FleetErrorItem("mem_oom", "OOM Kill", err.oom_hosts, t, "메모리 부족으로 커널이 프로세스 강제 종료"),
         FleetErrorItem("mem_corrupted", "메모리 손상(EDAC)", err.corrupted_hosts, t, "ECC 정정된 하드웨어 메모리 손상"),
         FleetErrorItem("disk_errors", "디스크 에러", err.disk_error_hosts, t, "RAID degraded·파일시스템 손상·IO 오류"),
@@ -230,8 +240,14 @@ def _workload_donut_segments(role_sorted: dict[str, int]) -> tuple[list[RiskDonu
         dash = _donut_dash(cnt, total)
         segments.append(
             RiskDonutSegment(
-                key=cat, label=cat, color=_WORKLOAD_COLORS.get(cat, "#94a3b8"),
-                count=cnt, pct=_donut_pct(cnt, total), dash_length=dash, dash_offset=-cum, description="",
+                key=cat,
+                label=cat,
+                color=_WORKLOAD_COLORS.get(cat, "#94a3b8"),
+                count=cnt,
+                pct=_donut_pct(cnt, total),
+                dash_length=dash,
+                dash_offset=-cum,
+                description="",
             )
         )
         cum += dash
@@ -304,10 +320,12 @@ def build_environment_overview(
     _under_all = sorted(under_provisioned_hosts or [], key=lambda c: (-c.severity_score, c.hostname.lower()))
     _under_shown = _under_all if under_limit is None else _under_all[:under_limit]
     # 시그니처 워크로드만 노출(환경 성격 규정 티어 — SIGNATURE_CATEGORIES). 0 포함(E9) — 인스턴스 개수 desc, 동수는 카탈로그 순서.
-    role_sorted = dict(sorted(
-        ((cat, role_counter.get(cat, 0)) for cat in SIGNATURE_CATEGORIES),
-        key=lambda kv: (-kv[1], SIGNATURE_CATEGORIES.index(kv[0])),
-    ))
+    role_sorted = dict(
+        sorted(
+            ((cat, role_counter.get(cat, 0)) for cat in SIGNATURE_CATEGORIES),
+            key=lambda kv: (-kv[1], SIGNATURE_CATEGORIES.index(kv[0])),
+        )
+    )
     # 원형차트 도넛 세그먼트 — 카테고리별 인스턴스 비율(누적 dash). 0 카테고리도 세그먼트 유지(범례 노출, E9).
     workload_segments, _wl_total = _workload_donut_segments(role_sorted)
 
@@ -413,7 +431,9 @@ def build_environment_realtime(
 
     def _cell(value: float | None, fmt: Callable[[float], str], exceeded: bool = False) -> RealtimeLoadCell:
         """exceeded=True 면 신호 도넛과 동일 임계 초과 강조(빨강, _NET_CONGESTED_COLOR 재사용 — 동일 의미=동일
-        hex, E8). 임계 없는 축(CPU·메모리 이용률, 디스크 이용률)은 기본값 False 로 무강조 유지."""
+
+        hex, E8). 임계 없는 축(CPU·메모리 이용률, 디스크 이용률)은 기본값 False 로 무강조 유지.
+        """
         if value is None:
             return RealtimeLoadCell(value=None, display="—")
         return RealtimeLoadCell(value=value, display=fmt(value), color=_NET_CONGESTED_COLOR if exceeded else "")
@@ -457,7 +477,9 @@ def build_environment_realtime(
                     s.get("cpu_sat_index"), lambda v: f"{v:.2f}x", exceeded=(s.get("cpu_sat_index") or 0) >= 1.0
                 ),
                 paging=_os_cell(
-                    s.get("paging_rate"), s.get("os_family"), lambda v: f"{v:.2f}/s",
+                    s.get("paging_rate"),
+                    s.get("os_family"),
+                    lambda v: f"{v:.2f}/s",
                     exceeded=bool(s.get("mem_pressure")),
                 ),
                 disk_util=_cell(s.get("disk_util_pct"), lambda v: f"{v:.0f}%"),
@@ -551,7 +573,7 @@ def to_capacity_warning_item(raw: ReportRowRaw):
         badge_class=recommendation.BADGE_CLASS.get(classification, ""),
         classification_rank=recommendation.CLASSIFICATION_ORDER.get(classification, 99),
         active_causes=active_causes,
-        # 워크로드 카테고리 카운트 — role_distribution 과 동일 단일 진실 (services 이름 ∪ listen 소켓).
+        # 워크로드 카테고리 카운트 — role_distribution 과 동일 단일 진실 (services 이름 + listen 소켓).
         services=dict(workload_category_counter(raw.services, raw.listen_ports)),
         confidence_notes=build_host_confidence_notes(host),
         recommendation_action=action,
@@ -587,9 +609,7 @@ def build_action_targets(raws: list[ReportRowRaw]) -> ActionTargets:
         efficiency_vcpus=sum(r.cpu_cores or 0 for r in eff_raws),
         efficiency_memory_gb=round(sum((r.mem_total_bytes or 0) / 1024**3 for r in eff_raws), 1),
         # 점유 스토리지 합 — block_devices type=disk size_bytes 합 (disk_total_bytes 단일 산식, 양 OS).
-        efficiency_disk_gb=int(
-            bytes_to_gb(sum(disk_total_bytes(r.block_devices or []) for r in eff_raws)) or 0
-        ),
+        efficiency_disk_gb=int(bytes_to_gb(sum(disk_total_bytes(r.block_devices or []) for r in eff_raws)) or 0),
     )
 
 
@@ -607,7 +627,7 @@ def to_os_eol_warning_item(raw: ReportRowRaw, now: datetime) -> AttentionRow | N
     days_over: int | None = None
     try:
         days_over = (now.date() - date.fromisoformat(eol_iso)).days
-    except (ValueError, TypeError):
+    except ValueError, TypeError:
         days_over = None
     return AttentionRow(
         badge_class=_ATTN_ACTIVE_BADGE,

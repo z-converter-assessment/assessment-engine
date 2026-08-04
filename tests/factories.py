@@ -6,6 +6,7 @@
 """
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 from uuid import NAMESPACE_DNS, uuid5
 
 from assessment_engine.db.dtos.inbound import (
@@ -18,8 +19,10 @@ from assessment_engine.db.dtos.inbound import (
     TaskResultUpdate,
 )
 from assessment_engine.db.dtos.outbound import TaskRow
-from assessment_engine.json_types import JsonObject
 from assessment_engine.service_classifier import compute_service_categories
+
+if TYPE_CHECKING:
+    from assessment_engine.json_types import JsonObject
 
 _DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 _DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=UTC)
@@ -97,17 +100,37 @@ def make_inventory(
         block_devices=block_devices
         if block_devices is not None
         else [
-            {"id": _DISK_ID, "id_type": "by-path", "name": "vda", "type": "disk",
-             "size_bytes": 100 * 10**9, "parent": None},
-            {"id": _PART_ID, "id_type": "partuuid", "name": "vda1", "type": "part",
-             "parent": _DISK_ID, "size_bytes": 50 * 10**9, "fstype": "ext4", "mountpoint": "/"},
+            {
+                "id": _DISK_ID,
+                "id_type": "by-path",
+                "name": "vda",
+                "type": "disk",
+                "size_bytes": 100 * 10**9,
+                "parent": None,
+            },
+            {
+                "id": _PART_ID,
+                "id_type": "partuuid",
+                "name": "vda1",
+                "type": "part",
+                "parent": _DISK_ID,
+                "size_bytes": 50 * 10**9,
+                "fstype": "ext4",
+                "mountpoint": "/",
+            },
         ],
         net_interfaces=net_interfaces
         if net_interfaces is not None
         else [
-            {"id": _MAC, "id_type": "mac", "name": "eth0", "kind": "physical",
-             "speed_mbps": 1000, "gateway": "10.0.0.254",
-             "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}]},
+            {
+                "id": _MAC,
+                "id_type": "mac",
+                "name": "eth0",
+                "kind": "physical",
+                "speed_mbps": 1000,
+                "gateway": "10.0.0.254",
+                "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}],
+            },
         ],
         lvm_vgs=lvm_vgs if lvm_vgs is not None else [],
         ip_external=None,
@@ -207,20 +230,32 @@ def make_metrics(
         if disk_io is not None
         else [
             DiskIoEntry(
-                device_id=_DISK_DEVICE_ID, device_name="vda",
-                io_read_bytes=1_024_000, io_write_bytes=512_000,
-                ops_read=100, ops_write=50,
-                io_time_s=5.0, op_read_time_s=2.0, op_write_time_s=1.0, pending_ops=0.0,
+                device_id=_DISK_DEVICE_ID,
+                device_name="vda",
+                io_read_bytes=1_024_000,
+                io_write_bytes=512_000,
+                ops_read=100,
+                ops_write=50,
+                io_time_s=5.0,
+                op_read_time_s=2.0,
+                op_write_time_s=1.0,
+                pending_ops=0.0,
             ),
         ],
         net_io=net_io
         if net_io is not None
         else [
             NetIoEntry(
-                iface_id=_IFACE_ID, iface_name="eth0",
-                rx_bytes=1_000_000, tx_bytes=500_000,
-                rx_packets=1000, tx_packets=500,
-                rx_errors=0, tx_errors=0, rx_dropped=0, tx_dropped=0,
+                iface_id=_IFACE_ID,
+                iface_name="eth0",
+                rx_bytes=1_000_000,
+                tx_bytes=500_000,
+                rx_packets=1000,
+                tx_packets=500,
+                rx_errors=0,
+                tx_errors=0,
+                rx_dropped=0,
+                tx_dropped=0,
                 link_speed_bps=1_000_000_000,
             ),
         ],
@@ -228,9 +263,13 @@ def make_metrics(
         if filesystems is not None
         else [
             FilesystemEntry(
-                mountpoint="/", device_id=f"partuuid:{_PART_ID}", fstype="ext4",
-                used_bytes=30 * 10**9, free_bytes=20 * 10**9,
-                inodes_used=100_000, inodes_free=900_000,
+                mountpoint="/",
+                device_id=f"partuuid:{_PART_ID}",
+                fstype="ext4",
+                used_bytes=30 * 10**9,
+                free_bytes=20 * 10**9,
+                inodes_used=100_000,
+                inodes_free=900_000,
             ),
         ],
         cpu_per_core=cpu_per_core if cpu_per_core is not None else [],

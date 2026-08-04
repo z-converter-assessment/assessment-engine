@@ -1,7 +1,6 @@
 """환경 개요·실시간·자원평가·토폴로지 조회 mixin."""
 
 from collections import Counter
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -36,10 +35,12 @@ from assessment_engine.web.view_models.attention import (
     EnvironmentRealtime,
 )
 from assessment_engine.web.view_models.metric import FleetStatus, HostSearchItem
-from assessment_engine.web.view_models.topology import NetworkTopology
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from assessment_engine.web.services.query._base import _MetricSibling
+    from assessment_engine.web.view_models.topology import NetworkTopology
 
 
 class EnvironmentQueryMixin(_BaseQueryServiceMixin):
@@ -101,8 +102,13 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         sat_counts = {"cpu": cpu_sat, "mem": mem_sat, "disk_io": disk_sat, "net": net_cong, "total": sat_total}
         # full_under 면 under_limit=None(상위 N 절단 해제), 아니면 build_environment_overview 기본값 적용.
         return build_environment_overview(
-            details, online_count, util, risk_counts, under_hosts,
-            saturation_counts=sat_counts, error_summary=error_summary,
+            details,
+            online_count,
+            util,
+            risk_counts,
+            under_hosts,
+            saturation_counts=sat_counts,
+            error_summary=error_summary,
             **({"under_limit": None} if full_under else {}),
         )
 
@@ -226,9 +232,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         matched = [d for d in all_details if _match(d)]
         ambiguous_in_filter = sorted(hn & ambiguous)
         unresolved = [
-            f"{h}~{disc}"
-            for h, disc in pairs
-            if not any(d.hostname == h and _disc_match(d, disc) for d in all_details)
+            f"{h}~{disc}" for h, disc in pairs if not any(d.hostname == h and _disc_match(d, disc) for d in all_details)
         ]
         # 어떤 서버에도 매칭 안 된 필터 토큰 (오타/불일치 안전 신호).
         all_hostnames = {d.hostname for d in all_details}
@@ -330,9 +334,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                     "cpu_pct": m.cpu.usage_pct if m.cpu else None,
                     "mem_pct": mem.usage_pct if mem else None,
                     # 실시간 포화 지수 (os-aware, >=1 포화) — 부하 상위 "실행 큐"·"응답 지연" 랭킹.
-                    "cpu_sat_index": recommendation.cpu_saturation_index(
-                        sat.run_queue, d.cpu_cores, d.os_family
-                    ),
+                    "cpu_sat_index": recommendation.cpu_saturation_index(sat.run_queue, d.cpu_cores, d.os_family),
                     "disk_sat_index": recommendation.disk_io_saturation_index(
                         sat.await_ms, sat.pending_ops, d.os_family
                     ),

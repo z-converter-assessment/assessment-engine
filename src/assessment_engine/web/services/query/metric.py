@@ -1,6 +1,7 @@
 """메트릭·차트 조회 mixin — 최신 대시보드·시계열 스냅샷·추이 차트·재부팅 마커."""
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 from assessment_engine.cache.redis import safe_get, safe_set
 from assessment_engine.db.dtos.outbound import RebootEvent, SaturationRaw
@@ -23,7 +24,9 @@ from assessment_engine.web.services.metrics_calculator import (
 )
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
 from assessment_engine.web.settings import get_web_settings
-from assessment_engine.web.view_models.metric import MetricDashboard, MetricSeriesItem
+
+if TYPE_CHECKING:
+    from assessment_engine.web.view_models.metric import MetricDashboard, MetricSeriesItem
 
 
 class MetricQueryMixin(_BaseQueryServiceMixin):

@@ -47,8 +47,9 @@ def _fetch(url: str) -> list[Release]:
     {"cycle": "13", "codename": "Trixie", "releaseDate": "2025-08-09", "eol": "2028-08-09",
      "latest": "13.6", "lts": false, "extendedSupport": "2030-06-30", ...}
     """
-    req = urllib.request.Request(url, headers={"User-Agent": "assessment-engine-eol-snapshot"})
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    # URL 은 이 스크립트가 조립하는 endoflife.date https 주소 하나뿐이다.
+    req = urllib.request.Request(url, headers={"User-Agent": "assessment-engine-eol-snapshot"})  # noqa: S310
+    with urllib.request.urlopen(req, timeout=30) as resp:  # noqa: S310
         return json.load(resp)
 
 

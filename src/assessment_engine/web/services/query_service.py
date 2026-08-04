@@ -15,10 +15,10 @@ from assessment_engine.web.services.query.server import ServerQueryMixin
 from assessment_engine.web.services.query.task import TaskQueryMixin
 
 __all__ = [
-    "QueryService",
     "AggFunc",
     "BucketSize",
     "MetricType",
+    "QueryService",
     "TimeRange",
 ]
 

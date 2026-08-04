@@ -8,12 +8,26 @@
 
 | 도구 | 대상 | 설정 | 실행 |
 |------|------|------|------|
-| ruff | lint (E·F·I·B·UP) | `[tool.ruff]` | `make lint` |
+| ruff format | 코드 포맷 | `[tool.ruff.format]` | `make format` (검사는 `make lint`) |
+| ruff check | lint | `[tool.ruff.lint]` | `make lint` |
 | pyright | 타입 | `[tool.pyright]` | `make typecheck` |
 
 `make typecheck` 는 파이썬 타입과 정적 JS 타입을 함께 본다. 검사 범위는 `[tool.pyright].include` 한 곳이 정하고 명령은 경로 인자를 넘기지 않는다 — 편집기와 CLI 와 워크플로가 같은 범위를 본다.
 
-ruff 는 검증 워크플로(`ci.yml`)가 PR 마다 `ruff check` 를 돌린다 — 포맷은 게이트가 아니다.
+포맷은 사람이 정하지 않는다. `ruff format` 이 정본이고 검증 워크플로가 `--check` 로 게이트를 건다 — 따옴표·줄바꿈·괄호 배치를 리뷰에서 논하지 않기 위해서다. markdown 안 python 코드블록도 같은 규칙으로 포맷하되, 결정 아카이브(`docs/decisions`)와 시점 스냅샷(`docs/learning`)은 당시 그대로 두므로 제외한다.
+
+lint 규칙은 이 저장소의 명문 규약을 사람이 아니라 도구가 강제하도록 고른다. 선택 목록과 제외 사유는 `pyproject.toml` 이 갖고, 아래는 규약과 규칙의 대응이다.
+
+| 규약 | 강제하는 규칙 |
+|------|--------------|
+| #F2 UTC 저장·표시 경계 변환 | `DTZ` — tzinfo 없는 datetime 생성 차단 |
+| #F6 예외 타입 명시·영구 오류 재시도 금지 | `TRY`·`B` |
+| #F8 시크릿 노출 금지 | `S` — 하드코딩 비밀번호·바인드 주소 |
+| #F12 주석은 why 만·docstring PEP 257 | `D`(형식만) |
+| 전역 표기 규칙 (키보드 직타 문자만) | `RUF001`~`RUF003` — 비키보드 unicode 검출 |
+| 현대 관용구 | `UP`·`FURB`·`PERF`·`SIM`·`C4`·`PTH` |
+
+제외한 규칙은 사유를 설정 파일 주석에 남긴다. 큰 축 셋은 다음과 같다 — `D1`(docstring 존재 강제)은 대상 범위를 #F12 가 정하므로 도구로 세지 않고, `PLR09xx`(인자·분기·return 개수)는 SQL 조립부와 매퍼를 나누면 흐름이 흩어지며, `ERA001`(주석 처리된 코드)은 이 저장소의 구획 주석을 코드로 오인한다.
 
 pyright 강도는 `strict` 다. 명시 선언은 두 묶음뿐이고 목록과 값은 `pyproject.toml` 이 갖는다.
 
@@ -21,7 +35,9 @@ pyright 강도는 `strict` 다. 명시 선언은 두 묶음뿐이고 목록과 �
 
 켜 두는 나머지 묶음은 strict 프리셋이 끄지만 위반이 0 이라 켠 것들로, 죽은 코드와 낡은 억제 주석을 잡는다.
 
-새 규칙을 켤 때도 같은 기준을 쓴다 — 위반을 남긴 채 켜지 않는다.
+새 규칙을 켤 때도 같은 기준을 쓴다 — 위반을 남긴 채 켜지 않는다. ruff 도 같다. 규칙을 켜면 그 PR 안에서 위반을 0 으로 만들거나, 못 만들 이유를 설정 주석에 적고 제외한다.
+
+FastAPI 라우터와 pydantic·SQLAlchemy 모델은 어노테이션을 런타임에 읽는다. `TC` 규칙이 그 import 를 `TYPE_CHECKING` 으로 옮기면 기동이 깨지므로, 해당 base class 와 decorator 를 `[tool.ruff.lint.flake8-type-checking]` 에 등록하고 라우터 디렉토리는 per-file 로 제외한다.
 
 외부 패키지가 타입을 주지 않는 자리는 억제를 호출부마다 흩지 말고 타입 있는 얇은 래퍼 한 곳에 가둔다 (`tests/approx.py` 가 그 예다). 호출부마다 억제하면 그 줄의 실제 오류까지 함께 묻힌다.
 
@@ -57,7 +73,9 @@ Warning 처리 우선순위:
 | PR title Conventional Commits | `pr-title-check.yml` |
 | lint·테스트·프론트 타입 계약·마이그레이션 drift | `ci.yml`·`alembic-check.yml` (required check 목록은 `docs/guides/ci-setup.md` 3.4) |
 
-강제 채널이 없는 규약은 사람과 리뷰가 지킨다. F7(`print`·`sys.stdout.write`)·C3(`safe_*` 미경유 redis 직접 호출)·글로벌 표기 규칙(markdown bold·비키보드 unicode)이 여기 해당한다 — ruff select 대상이 아니라 CI 도 잡지 못한다. 자동화 변환 직후 자가 검증(#F5)과 develop PR 코드 리뷰가 유일한 그물이다.
+| 코드 포맷 | `ci.yml` 의 `ruff format --check` |
+
+강제 채널이 없는 규약은 사람과 리뷰가 지킨다. F7(`print`·`sys.stdout.write`)·C3(`safe_*` 미경유 redis 직접 호출)·markdown 문서의 표기 규칙이 여기 해당한다 — 파이썬 코드 안 비키보드 unicode 는 `RUF001`~`RUF003` 이 잡지만 문서는 대상 밖이다. 자동화 변환 직후 자가 검증(#F5)과 develop PR 코드 리뷰가 유일한 그물이다.
 
 설정 카탈로그는 `docs/guides/ci-setup.md`.
 

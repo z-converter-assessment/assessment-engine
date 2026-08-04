@@ -4,15 +4,8 @@
 null=미측정 보존(0 날조 금지, #B). CPU host 집계는 cpu.time attr.cpu 합산 + per-core 병행 저장.
 """
 
-from assessment_engine.consumer.schemas import (
-    BlockDeviceInfo,
-    Datapoint,
-    InventoryInput,
-    LvmVgInfo,
-    MetricsInput,
-    Namespace,
-    NetInterfaceInfo,
-)
+from typing import TYPE_CHECKING
+
 from assessment_engine.db.dtos.inbound import (
     CpuCoreEntry,
     DiskErrorEntry,
@@ -23,8 +16,19 @@ from assessment_engine.db.dtos.inbound import (
     ServerInventoryCreate,
     ServerMetricCreate,
 )
-from assessment_engine.json_types import JsonObject
 from assessment_engine.service_classifier import compute_service_categories
+
+if TYPE_CHECKING:
+    from assessment_engine.consumer.schemas import (
+        BlockDeviceInfo,
+        Datapoint,
+        InventoryInput,
+        LvmVgInfo,
+        MetricsInput,
+        Namespace,
+        NetInterfaceInfo,
+    )
+    from assessment_engine.json_types import JsonObject
 
 # ─── datapoint 조회 헬퍼 ───
 
@@ -208,20 +212,18 @@ def _build_net_io(net_ns: Namespace | None) -> list[NetIoEntry]:
 def _build_filesystems(fs_ns: Namespace | None) -> list[FilesystemEntry]:
     usage, inodes = _points(fs_ns, "filesystem.usage"), _points(fs_ns, "filesystem.inodes.usage")
     mounts = _distinct([usage, inodes], "mountpoint")
-    out: list[FilesystemEntry] = []
-    for mp in mounts:
-        out.append(
-            FilesystemEntry(
-                mountpoint=mp,
-                device_id=_attr_of([usage, inodes], "device", mountpoint=mp),
-                fstype=_attr_of([usage], "type", mountpoint=mp),
-                used_bytes=_int(_match(usage, mountpoint=mp, state="used")),
-                free_bytes=_int(_match(usage, mountpoint=mp, state="free")),
-                inodes_used=_int(_match(inodes, mountpoint=mp, state="used")),
-                inodes_free=_int(_match(inodes, mountpoint=mp, state="free")),
-            )
+    return [
+        FilesystemEntry(
+            mountpoint=mp,
+            device_id=_attr_of([usage, inodes], "device", mountpoint=mp),
+            fstype=_attr_of([usage], "type", mountpoint=mp),
+            used_bytes=_int(_match(usage, mountpoint=mp, state="used")),
+            free_bytes=_int(_match(usage, mountpoint=mp, state="free")),
+            inodes_used=_int(_match(inodes, mountpoint=mp, state="used")),
+            inodes_free=_int(_match(inodes, mountpoint=mp, state="free")),
         )
-    return out
+        for mp in mounts
+    ]
 
 
 def _build_cpu_cores(cpu_time: list[Datapoint]) -> list[CpuCoreEntry]:
@@ -292,16 +294,32 @@ def _bd_layout(b: BlockDeviceInfo) -> JsonObject:
     """block_device 레이아웃 상세 (reproduction) — non-None 키만. assessment_api 가 read 시 d.get 으로 소비."""
     return _sparse(
         {
-            "partition_table": b.partition_table, "sector_size": b.sector_size, "serial": b.serial,
-            "wwn": b.wwn, "rotational": b.rotational,
-            "part_number": b.part_number, "part_start_bytes": b.part_start_bytes, "part_type": b.part_type,
-            "part_name": b.part_name, "part_flags": b.part_flags,
-            "fs_uuid": b.fs_uuid, "fs_label": b.fs_label, "block_size": b.block_size,
-            "mount_options": b.mount_options, "fs_freq": b.fs_freq, "fs_passno": b.fs_passno,
-            "lvm_vg": b.lvm_vg, "lvm_lv": b.lvm_lv, "lvm_segtype": b.lvm_segtype,
-            "lvm_stripes": b.lvm_stripes, "lvm_stripe_size_kib": b.lvm_stripe_size_kib,
-            "raid_level": b.raid_level, "raid_chunk_kib": b.raid_chunk_kib,
-            "raid_metadata": b.raid_metadata, "raid_uuid": b.raid_uuid, "crypt_type": b.crypt_type,
+            "partition_table": b.partition_table,
+            "sector_size": b.sector_size,
+            "serial": b.serial,
+            "wwn": b.wwn,
+            "rotational": b.rotational,
+            "part_number": b.part_number,
+            "part_start_bytes": b.part_start_bytes,
+            "part_type": b.part_type,
+            "part_name": b.part_name,
+            "part_flags": b.part_flags,
+            "fs_uuid": b.fs_uuid,
+            "fs_label": b.fs_label,
+            "block_size": b.block_size,
+            "mount_options": b.mount_options,
+            "fs_freq": b.fs_freq,
+            "fs_passno": b.fs_passno,
+            "lvm_vg": b.lvm_vg,
+            "lvm_lv": b.lvm_lv,
+            "lvm_segtype": b.lvm_segtype,
+            "lvm_stripes": b.lvm_stripes,
+            "lvm_stripe_size_kib": b.lvm_stripe_size_kib,
+            "raid_level": b.raid_level,
+            "raid_chunk_kib": b.raid_chunk_kib,
+            "raid_metadata": b.raid_metadata,
+            "raid_uuid": b.raid_uuid,
+            "crypt_type": b.crypt_type,
         }
     )
 
@@ -310,9 +328,11 @@ def _ni_layout(n: NetInterfaceInfo) -> JsonObject:
     """net_interface 레이아웃 상세 (reproduction) — non-None 키만. routes 는 dict 로 평탄화."""
     return _sparse(
         {
-            "mtu": n.mtu, "dns": n.dns,
+            "mtu": n.mtu,
+            "dns": n.dns,
             "routes": [{"dest": r.dest, "via": r.via} for r in n.routes] if n.routes else None,
-            "bond_mode": n.bond_mode, "vlan_id": n.vlan_id,
+            "bond_mode": n.bond_mode,
+            "vlan_id": n.vlan_id,
         }
     )
 
@@ -367,7 +387,9 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
                 "speed_mbps": n.speed_mbps,
                 "addresses": [
                     {
-                        "address": a.address, "prefix": a.prefix, "family": a.family,
+                        "address": a.address,
+                        "prefix": a.prefix,
+                        "family": a.family,
                         **({"origin": a.origin} if a.origin is not None else {}),
                     }
                     for a in n.addresses
@@ -412,8 +434,12 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
         nonblock_mounts=(
             [
                 {
-                    "source": m.source, "target": m.target, "fstype": m.fstype,
-                    "options": m.options, "fs_freq": m.fs_freq, "fs_passno": m.fs_passno,
+                    "source": m.source,
+                    "target": m.target,
+                    "fstype": m.fstype,
+                    "options": m.options,
+                    "fs_freq": m.fs_freq,
+                    "fs_passno": m.fs_passno,
                 }
                 for m in data.nonblock_mounts
             ]
