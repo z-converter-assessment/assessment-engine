@@ -26,59 +26,24 @@ read-only — 위반을 심각도 순으로 보고하되 수정하지 않는다.
 
 추가 — 목적 배치: 각 문서가 올바른 목적 디렉토리에 있나. reference 인데 사실상 절차서면 guides 로 가야 함 등.
 
-## 감사 축 B — ADR 인덱스 정합
+## 감사 축 B — ADR 아카이브
 
-내용은 보지 않는다. 결정 기록을 사후 판정하는 것은 append-only 규약 위반이다. 대신 인덱스가 파일 집합과 맞는지만 기계적으로 본다.
+내용은 보지 않는다. 결정 기록을 사후 판정하는 것은 append-only 규약 위반이다. 보는 것은 셋이다.
 
 | 검사 | 방법 |
 |------|------|
-| 파일 번호 집합 == 인덱스 행 집합 | 양쪽을 뽑아 차집합 |
-| 중복 번호 0 | 파일명 접두 4자리 정렬 후 중복 확인 |
-| 단조 증가 (번호 재사용 0) | 빠진 번호가 있으면 회수인지 확인 |
-| 관계 표기 대상 실재 | Status 열의 `Superseded by`·`Refined by`·`Amended by` 번호를 뽑아 파일 존재 확인 |
-| 역참조 정합 | A 가 B 를 supersede 하면 B 의 Status 도 갱신됐나 |
-
-표 다섯을 한 번에 돌린다. 번호 집합만 보는 검사는 Status 불일치를 통과시키므로 역참조까지 확인해야 한다.
+| 번호 중복·재사용 0 | 파일명 접두 4자리를 뽑아 중복 확인 |
+| 관계 표기 대상 실재 | Status 줄의 `Superseded by NNNN` 번호가 실재하는 파일인가 |
+| 라이브 문서 무의존 | `docs/reference`·`docs/guides`·`docs/explanation` 이 `docs/decisions/` 를 가리키지 않는가 |
 
 ```bash
-python3 - <<'EOF'
-import os, re, pathlib
-d = pathlib.Path("docs/decisions/adr")
-files = sorted(f[:4] for f in os.listdir(d) if re.match(r"^\d{4}-", f))
-idx = re.findall(r"^\| (\d{4}) \| [^|]* \| ([^|]*) \|", (d / "README.md").read_text(encoding="utf-8"), re.M)
-inums = [n for n, _ in idx]
-status = dict(idx)
-
-only_f = set(files) - set(inums)
-only_i = set(inums) - set(files)
-dup = {n for n in inums if inums.count(n) > 1}
-gaps = [f"{a}->{b}" for a, b in zip(files, files[1:]) if int(b) != int(a) + 1]
-
-# 역참조 — 파일의 상태 줄과 인덱스 Status 열이 같은 판정인가
-mismatch = []
-for f in sorted(os.listdir(d)):
-    if not re.match(r"^\d{4}-", f):
-        continue
-    m = re.search(r"^상태:\s*(.+)$", (d / f).read_text(encoding="utf-8"), re.M)
-    if not m:
-        continue
-    fs, i = m.group(1), status.get(f[:4], "")
-    kind = lambda t: next((k for k in ("Superseded", "Withdrawn") if t.lstrip().startswith(k)), "active")
-    if kind(fs) != kind(i):
-        mismatch.append((f[:4], kind(fs), kind(i), fs[:45]))
-
-# 관계 표기가 가리키는 대상이 실재하는가 (Superseded / Refined / Amended by)
-rel = r"(?:Superseded|Refined|Amended) by (?:ADR )?(\d{4})"
-dangling = [(n, t) for n, st in status.items()
-            for t in re.findall(rel, st) if t not in files]
-
-for label, v in [("파일에만", only_f), ("인덱스에만", only_i), ("중복 번호", dup),
-                 ("번호 건너뜀", gaps), ("역참조 불일치", mismatch), ("대상 부재", dangling)]:
-    print(f"{label}: {v or '없음'}")
-EOF
+ls docs/decisions/adr/ | grep -oE '^[0-9]{4}' | sort | uniq -d          # 중복 번호
+rg -o 'Superseded by ([0-9]{4})' -r '$1' docs/decisions/adr/*.md | sort -u   # 대상 번호
+rg -n 'docs/decisions' docs/reference docs/guides docs/explanation      # 0 이어야 한다
 ```
 
-`상태:` 줄이 다른 ADR 을 언급만 하는 경우(예: "0004·0025 Superseded")가 있어 역참조는 줄 시작으로 판정한다.
+규약 자체(언제 쓰나·Status 어휘·기록 오류 정정)는 `docs/decisions/adr/README.md` 가 갖는다. 이 문서는 그 규약을
+복제하지 않고 위반만 본다.
 
 ## 절차
 

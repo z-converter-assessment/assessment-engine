@@ -42,29 +42,21 @@ description: TRIGGER when the user wants documentation brought in line with the 
 
 먼저 판정한다 — 이번 정리에서 고친 것이 구현 세부인가 결정인가. 결정이면 기존 ADR 을 뒤집었는지, 새 결정인지 가른다.
 
-상태는 파일과 인덱스 두 곳에 있다. 한쪽만 고치면 조용히 어긋나므로 항상 같이 본다.
-
 | 상황 | 처리 |
 |------|------|
 | 구현 세부만 바뀜 | ADR 불요. 라이브 문서만 |
-| 기존 결정을 뒤집음 | 새 ADR 파일 + 인덱스 새 행. 이전 ADR 은 파일 `상태:` 줄과 인덱스 Status 열 둘 다 `Superseded by NNNN` |
-| 기존 결정을 일부만 수정·확장 | 새 ADR 파일 + 인덱스 새 행. 이전 ADR 은 두 곳 다 `Refined by NNNN` (무엇이 남고 무엇이 바뀌는지 새 ADR 본문에) |
-| 기존 결정을 폐기 (대체 없음) | 이전 ADR 파일·인덱스 둘 다 `Withdrawn` + 사유 1줄 |
-| 새 결정 (선행 ADR 없음) | 새 ADR 파일 + 인덱스 새 행 |
+| 기존 결정을 뒤집음 | 새 ADR + 이전 ADR 의 Status 에 `Superseded by NNNN` |
+| 새 결정 (선행 ADR 없음) | 새 ADR |
 
-번호는 마지막 + 1 단조 증가다. 재사용하지 않는다.
-
-기존 ADR 은 덮어쓰지 않는다. 허용되는 변경은 셋뿐이다 — `상태:` 줄 갱신, 인덱스 행 갱신, 본문 끝에 `정정 (날짜)` 블록 덧붙이기. 결정 당시 서술을 사후에 고쳐 쓰는 것은 금지다.
-
-파일명 규약과 본문 섹션 구조는 `docs/decisions/adr/README.md` 가 갖는다.
+번호·파일명·본문 구조·Status 어휘·기록 오류 정정 기준은 `docs/decisions/adr/README.md` 가 갖는다. 여기서 복제하지
+않는다.
 
 ADR 을 안 쓰기로 판단했으면 그 판단도 보고에 남긴다. 침묵으로 건너뛰지 않는다.
 
 ### 5. 검증
 
-- doc-auditor 에이전트(`Agent(subagent_type='doc-auditor')`) — 라이브 문서 4원칙 + ADR 인덱스 정합 독립 검증. 지적 반영 후 재검.
+- doc-auditor 에이전트(`Agent(subagent_type='doc-auditor')`) — 라이브 문서 4원칙 독립 검증. 지적 반영 후 재검.
 - 라이브 docs 에 `ADR [0-9]{4}` · 옛 doc 경로 · bold · 비키보드 unicode grep 0.
-- ADR 파일 번호 집합 == 인덱스 행 집합. 차집합이 나오면 4절로 돌아간다.
 
 ### 6. 보고
 

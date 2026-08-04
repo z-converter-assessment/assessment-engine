@@ -8,7 +8,6 @@
 
 - 본 파일 — 결정의 의도된 한계 카탈로그. 영구·갱신, 항목 추가 자유. cross-cutting reference 라 어느 카테고리 (architecture · development · operations · products) 에도 안 속하는 직속 위치.
 - 각 항목은 현재 상태만 선언한다 — 의도된 한계와 그 근거를 기술하고, 결정에 이르게 된 이력 서사는 담지 않는다.
-- 결정 자체의 아카이브 record 는 `docs/decisions/adr/` 에 별도 보존. 각 항목 헤더의 "관련 문서" 줄이 cross-link.
 
 새 항목 추가 시: 본 파일 다음 T 번호 + 항목 작성. 삭제된 번호는 재사용하지 않는다.
 
@@ -18,7 +17,7 @@
 
 > 관련 코드: `src/assessment_engine/consumer/handlers/` `_check_idempotent`, `src/assessment_engine/cache/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_sql.py` `record_metrics`
 >
-> 관련 문서: CLAUDE.md #D2 · #C1, 결정 아카이브 `docs/decisions/adr/`
+> 관련 문서: CLAUDE.md #D2 · #C1
 
 선택
 1. Redis `SET idempotent:{message_id} 1 EX 86400 NX` (DB 커밋 이전). fail-open — Redis 장애 시 처리 진행.
@@ -258,7 +257,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 ## T11. 단일 Redis 인스턴스 — 모든 용도 한 통합 (fail-open)
 
 > 관련 코드: `src/assessment_engine/cache/redis.py` `safe_*` helper, `src/assessment_engine/consumer/handlers/`, `src/assessment_engine/web/services/query/`
-> 관련 문서: `docs/reference/redis.md`, 결정 아카이브 `docs/decisions/adr/`
+> 관련 문서: `docs/reference/redis.md`
 
 선택
 - 한 Redis 인스턴스가 캐시·온라인 TTL·멱등성·시그널 쿨다운을 모두 담는다 (용도별 키·TTL 카탈로그는 `docs/reference/redis.md`).

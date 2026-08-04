@@ -1,8 +1,8 @@
 # Repository 계층
 
-정책: CLAUDE.md #C2 · #F4. 인터페이스는 `typing.Protocol` 셋이다 — `CollectRepository`(Consumer) / `QueryRepository`(Web) / `DiagnosticRepository`(보고서 발행·diagnostic_jobs 스냅샷). 구현은 같은 이름에 `Sql` 접두를 붙이고 `*_sql.py` 에 산다.
+정책: CLAUDE.md #C2 · #F4. 인터페이스 규칙(Protocol·이름·상속 안 함)은 `docs/guides/conventions.md` 3절이 갖는다.
 
-구현은 protocol 을 상속하지 않는다. 구조적 타이핑이라 메서드 모양만 맞으면 되고, 맞는지는 composition root(`web/deps.py` / `consumer/main.py` / `worker/main.py`)가 구현을 protocol 타입 파라미터에 넘기는 자리에서 type checker 가 확인한다. 구체 구현체 import 도 그 세 곳만 한다.
+인터페이스는 셋이다 — `CollectRepository`(Consumer) / `QueryRepository`(Web) / `DiagnosticRepository`(보고서 발행·diagnostic_jobs 스냅샷). 구현 import 는 composition root 셋(`web/deps.py` · `consumer/main.py` · `worker/main.py`)만 한다.
 
 ## Collect 계층 — `CollectRepository` (Consumer)
 

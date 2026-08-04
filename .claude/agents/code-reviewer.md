@@ -29,7 +29,7 @@ model: opus
 ### F4. 인터페이스 우선
 
 - 라우터·핸들러·Service에서 `from assessment_engine.db.repositories.collect_sql import SqlCollectRepository` 같은 구체 import 사용 — composition root(`web/deps.py` / `consumer/main.py`) 외부에서 위반인지
-- 새 Repository 추가 시 `Base*Repository` 추상 먼저 정의됐는지
+- 새 Repository 추가 시 protocol 이 먼저 정의됐는지
 
 ### F1. 타입 어노테이션
 

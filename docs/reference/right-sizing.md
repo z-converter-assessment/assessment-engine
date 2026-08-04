@@ -5,7 +5,7 @@
 > 본 문서는 그 명세(정의·판정 순서·게이트 구조·OS 분기·신뢰도·한계)의 단일 진실이다. 임계 수치·벤더 출처는
 > `right-sizing-thresholds.md` 정본.
 > 코드 상수: `src/assessment_engine/recommendation.py`(`RS_*`). 사용자 노출 요약: `reports/_thresholds_reference.html`.
-> 변경 시 본 문서·`right-sizing-thresholds.md`·코드 상수·`_thresholds_reference.html`·결정 기록(`docs/decisions/adr/`) 동시 갱신(#F9).
+> 변경 시 본 문서·`right-sizing-thresholds.md`·코드 상수·`_thresholds_reference.html` 동시 갱신(#F9).
 
 ## 1. 목적·범위
 

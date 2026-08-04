@@ -15,7 +15,7 @@
 
 ## 규약
 
-파일명은 `NNNN-짧은-제목.md` (4자리 zero-padded). 번호는 이어서 매긴다.
+파일명은 `NNNN-짧은-제목.md` (4자리 zero-padded). 번호는 `0001` 부터 단조 증가하고 재사용하지 않는다.
 
 본문 권장 구성은 Status / Context / Decision / Consequences 다. 형식보다 중요한 것은 Context 에 그때의 제약을
 남기는 것이다 — 결정은 제약이 바뀌면 뒤집힌다.
