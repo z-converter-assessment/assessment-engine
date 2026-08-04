@@ -52,6 +52,15 @@ lint 규칙은 취향이 아니라 이 저장소의 명문 규약을 기계가 �
 
 ## 3. 코드 관용구
 
+### FastAPI 의존성
+
+의존성은 기본 인자가 아니라 `Annotated` 로 선언한다. 기본 인자 자리에 함수를 호출하는 옛 스타일은 시그니처의
+"기본값" 자리에 기본값이 아닌 것을 놓아 lint 예외를 요구한다.
+
+주입 대상은 `web/deps.py` 가 `*Dep` 별칭으로 내보내고 라우터는 그 별칭만 받는다 — `service: QueryServiceDep`.
+쿼리 파라미터도 같다: `limit: Annotated[int, Query(ge=1, le=100)] = 10` 처럼 제약은 `Annotated` 안에, 기본값은
+대입 자리에 둔다. 필수 파라미터는 기본값을 주지 않는다 (`= ...` 를 쓰지 않는다).
+
 ### 타입
 
 어노테이션은 3.14 가 지연 평가한다(PEP 649). `from __future__ import annotations` 도 forward-ref 따옴표도 쓰지

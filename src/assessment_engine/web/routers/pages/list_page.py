@@ -5,10 +5,10 @@ URL 명사 분리: 환경 단위(개요·자원평가·실시간·성능·토폴
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Annotated, Any
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Query, Request
 
 from assessment_engine import recommendation
 from assessment_engine.db.repositories.query.types import (
@@ -16,7 +16,7 @@ from assessment_engine.db.repositories.query.types import (
     TimeRange,
 )
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
-from assessment_engine.web.deps import get_service
+from assessment_engine.web.deps import QueryServiceDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.services.mappers.shared import (
     DIAGNOSTIC_RANGE_LABEL_KR,
@@ -39,9 +39,9 @@ _LIST_FETCH_LIMIT = 10_000
 @environment_router.get("/metrics")
 async def environment_metrics(
     request: Request,
+    service: QueryServiceDep,
     back: BackUrl = None,
-    ids: str | None = Query(None, description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경."),
-    service: QueryService = Depends(get_service),
+    ids: Annotated[str | None, Query(description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경.")] = None,
 ):
     """환경 성능 추이 (live) — 전체 환경 차트 10종. ids 면 선택 N대 한정. 환경 단위 `/environment` 그룹."""
     valid_pids = await _resolve_selection_pids(service, ids)
@@ -70,10 +70,10 @@ async def environment_metrics(
 @environment_router.get("/realtime")
 async def environment_realtime(
     request: Request,
+    service: QueryServiceDep,
     back: BackUrl = None,
-    fragment: str | None = Query(None),
-    ids: str | None = Query(None, description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경."),
-    service: QueryService = Depends(get_service),
+    fragment: str | None = None,
+    ids: Annotated[str | None, Query(description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경.")] = None,
 ):
     """실시간 메트릭 (live 현황 모니터링) — 현재 평균 활용률 + 현재 부하 상위. ids 면 선택 N대 한정.
 
@@ -111,7 +111,10 @@ async def environment_realtime(
     )
 
 
-async def _resolve_selection_pids(service: QueryService, ids: str | None) -> list[str]:
+async def _resolve_selection_pids(
+    service: QueryService,
+    ids: str | None,
+) -> list[str]:
     """ids(comma public_ids) -> 존재하는 public_id 만. 빈/미지정이면 빈 list (= 전체 환경)."""
     public_ids = [pid.strip() for pid in (ids or "").split(",") if pid.strip()]
     if not public_ids:
@@ -123,8 +126,8 @@ async def _resolve_selection_pids(service: QueryService, ids: str | None) -> lis
 @environment_router.get("/topology")
 async def topology(
     request: Request,
+    service: QueryServiceDep,
     back: BackUrl = None,
-    service: QueryService = Depends(get_service),
 ):
     """네트워크 토폴로지 전용 — L3 subnet 공동소속 그래프. 환경 단위 `/environment` 그룹.
 
@@ -147,11 +150,11 @@ async def topology(
 @environment_router.get("/assessment")
 async def assessment(
     request: Request,
-    time_range: TimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
-    anchor_at: datetime | None = Query(None),
-    fragment: str | None = Query(None),
+    service: QueryServiceDep,
+    time_range: TimeRange = DIAGNOSTIC_DEFAULT_TIME_RANGE,
+    anchor_at: datetime | None = None,
+    fragment: str | None = None,
     back: BackUrl = None,
-    service: QueryService = Depends(get_service),
 ):
     """환경 자원 평가 — 14일 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
 
@@ -177,7 +180,7 @@ async def assessment(
 @overview_router.get("/")
 async def overview(
     request: Request,
-    service: QueryService = Depends(get_service),
+    service: QueryServiceDep,
 ):
     """환경 개요 (홈, `/`) — 집계 위젯(환경 요약·주요 워크로드·자원 적정성·자원 이용·포화 7도넛·운영 이벤트/에러).
 
@@ -200,16 +203,16 @@ async def overview(
 @servers_list_router.get("")
 async def servers_list(
     request: Request,
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-    search: str | None = Query(None),
-    is_online: bool | None = Query(None),
-    service_filter: str | None = Query(None, alias="service"),
-    os_distro: str | None = Query(None),
-    classification: str | None = Query(None),
-    os_eol: str | None = Query(None),
-    fragment: str | None = Query(None),
-    service: QueryService = Depends(get_service),
+    service: QueryServiceDep,
+    page: Annotated[int, Query(ge=1)] = 1,
+    limit: Annotated[int, Query(ge=1, le=100)] = 20,
+    search: str | None = None,
+    is_online: bool | None = None,
+    service_filter: Annotated[str | None, Query(alias="service")] = None,
+    os_distro: str | None = None,
+    classification: str | None = None,
+    os_eol: str | None = None,
+    fragment: str | None = None,
 ):
     """서버 목록 (`/servers`) — 검색·필터 + 선택 N대 액션(보고서·install·export).
 

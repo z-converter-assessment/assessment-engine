@@ -6,12 +6,12 @@ assessment/diagnostics)을 한 응답으로. 매칭(hostname/ip/public_id/pair)/
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
-from assessment_engine.web.deps import get_service
+from assessment_engine.web.deps import QueryServiceDep
 from assessment_engine.web.services.mappers.assessment_api import build_assessment_envelope
-from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.view_models.assessment_api import AssessmentEnvelope
 
 assessment_router = APIRouter(prefix="/api/assessment", tags=["assessment"])
@@ -20,11 +20,15 @@ assessment_router = APIRouter(prefix="/api/assessment", tags=["assessment"])
 _WINDOW_FLOOR_DAYS = 14
 
 
-def _split(v: str | None) -> list[str]:
+def _split(
+    v: str | None,
+) -> list[str]:
     return [s.strip() for s in (v or "").split(",") if s.strip()]
 
 
-def _split_pairs(v: str | None) -> list[tuple[str, str]]:
+def _split_pairs(
+    v: str | None,
+) -> list[tuple[str, str]]:
     """순서쌍 파싱 — "hostname~discriminator" 쉼표 목록. discriminator = IP 또는 public_id. 형식 불량 토큰 무시."""
     out: list[tuple[str, str]] = []
     for token in _split(v):
@@ -40,22 +44,28 @@ def _split_pairs(v: str | None) -> list[tuple[str, str]]:
 # 매퍼 dict 그대로, 재구성/검증 안 함. 매퍼-스키마 drift 는 test_assessment_api_schema 가 골든으로 잡음.
 @assessment_router.get("", responses={200: {"model": AssessmentEnvelope}})
 async def get_assessment(
-    hostname: str | None = Query(None, description="쉼표 구분 호스트명(정확 매칭, 대소문자 구분). 미지정 시 전체."),
-    ip: str | None = Query(None, description="쉼표 구분 IPv4 — 물리 인터페이스 매칭."),
-    pair: str | None = Query(
-        None,
-        description="쉼표 구분 순서쌍 hostname~discriminator (discriminator=IP 또는 public_id). "
-        "호스트명 중복 시 host AND 판별자 동시 만족 서버만 — 정확 지정.",
-    ),
-    public_id: str | None = Query(None, description="쉼표 구분 서버 public_id(UUID) — 있으면 유일 지정."),
-    window_days: int = Query(
-        _WINDOW_FLOOR_DAYS,
-        ge=_WINDOW_FLOOR_DAYS,
-        le=90,
-        description="평가 창(일). 최소 14(계약 3절 — 짧으면 관측 부족 과소 사이징). 연장만 안전 방향.",
-    ),
-    end: datetime | None = Query(None, description="윈도우 종료 시각(ISO 8601, tz-aware 권장). 기본 현재."),
-    service: QueryService = Depends(get_service),
+    service: QueryServiceDep,
+    hostname: Annotated[
+        str | None, Query(description="쉼표 구분 호스트명(정확 매칭, 대소문자 구분). 미지정 시 전체.")
+    ] = None,
+    ip: Annotated[str | None, Query(description="쉼표 구분 IPv4 — 물리 인터페이스 매칭.")] = None,
+    pair: Annotated[
+        str | None,
+        Query(
+            description="쉼표 구분 순서쌍 hostname~discriminator (discriminator=IP 또는 public_id). "
+            "호스트명 중복 시 host AND 판별자 동시 만족 서버만 — 정확 지정."
+        ),
+    ] = None,
+    public_id: Annotated[str | None, Query(description="쉼표 구분 서버 public_id(UUID) — 있으면 유일 지정.")] = None,
+    window_days: Annotated[
+        int,
+        Query(
+            ge=_WINDOW_FLOOR_DAYS,
+            le=90,
+            description="평가 창(일). 최소 14(계약 3절 — 짧으면 관측 부족 과소 사이징). 연장만 안전 방향.",
+        ),
+    ] = _WINDOW_FLOOR_DAYS,
+    end: Annotated[datetime | None, Query(description="윈도우 종료 시각(ISO 8601, tz-aware 권장). 기본 현재.")] = None,
 ):
     """통합 프로비저닝 어세스먼트 — 소스 서버를 관측해 타겟 VM 재현/수정 사이징에 필요한 것을 한 응답으로.
 

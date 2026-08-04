@@ -6,22 +6,26 @@ JSON 으로 노출해 "이렇게 프로비저닝하면 된다"를 받는 쪽이 
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Annotated
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Query
 
 from assessment_engine.json_types import JsonObject
-from assessment_engine.web.deps import get_service
-from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.deps import QueryServiceDep
 from assessment_engine.web.view_models.right_sizing_api import RightSizingResponse
 
 right_sizing_router = APIRouter(prefix="/api/right-sizing", tags=["right-sizing"])
 
 
-def _split(v: str | None) -> list[str]:
+def _split(
+    v: str | None,
+) -> list[str]:
     return [s.strip() for s in (v or "").split(",") if s.strip()]
 
 
-def _split_pairs(v: str | None) -> list[tuple[str, str]]:
+def _split_pairs(
+    v: str | None,
+) -> list[tuple[str, str]]:
     """순서쌍 파싱 — "hostname~discriminator" 쉼표 목록. discriminator = IP 또는 public_id. 형식 불량 토큰은 무시."""
     out: list[tuple[str, str]] = []
     for token in _split(v):
@@ -37,17 +41,21 @@ def _split_pairs(v: str | None) -> list[tuple[str, str]]:
 # dict 그대로, 재구성/검증 0. 매퍼-스키마 drift 는 test_right_sizing_api 골든 검증이 잡음.
 @right_sizing_router.get("", responses={200: {"model": RightSizingResponse}})
 async def get_right_sizing(
-    hostname: str | None = Query(None, description="쉼표 구분 호스트명(정확 매칭·대소문자 구분). 미지정 시 전체."),
-    ip: str | None = Query(None, description="쉼표 구분 IPv4 — 물리 인터페이스 매칭."),
-    pair: str | None = Query(
-        None,
-        description="쉼표 구분 순서쌍 hostname~discriminator (discriminator=IP 또는 public_id). "
-        "호스트명 중복 시 host AND 판별자 동시 만족 서버만 — 정확 지정.",
-    ),
-    public_id: str | None = Query(None, description="쉼표 구분 서버 public_id(UUID) — 있으면 유일 지정."),
-    window_days: int = Query(14, ge=1, le=30, description="평가 윈도우(일). 기본 14 = 자원 적정성 표준 창."),
-    end: datetime | None = Query(None, description="윈도우 종료 시각(ISO 8601, tz-aware 권장). 기본 현재."),
-    service: QueryService = Depends(get_service),
+    service: QueryServiceDep,
+    hostname: Annotated[
+        str | None, Query(description="쉼표 구분 호스트명(정확 매칭·대소문자 구분). 미지정 시 전체.")
+    ] = None,
+    ip: Annotated[str | None, Query(description="쉼표 구분 IPv4 — 물리 인터페이스 매칭.")] = None,
+    pair: Annotated[
+        str | None,
+        Query(
+            description="쉼표 구분 순서쌍 hostname~discriminator (discriminator=IP 또는 public_id). "
+            "호스트명 중복 시 host AND 판별자 동시 만족 서버만 — 정확 지정."
+        ),
+    ] = None,
+    public_id: Annotated[str | None, Query(description="쉼표 구분 서버 public_id(UUID) — 있으면 유일 지정.")] = None,
+    window_days: Annotated[int, Query(ge=1, le=30, description="평가 윈도우(일). 기본 14 = 자원 적정성 표준 창.")] = 14,
+    end: Annotated[datetime | None, Query(description="윈도우 종료 시각(ISO 8601, tz-aware 권장). 기본 현재.")] = None,
 ) -> JsonObject:
     """서버 자원 적정성 판정 (프로비저닝 가이드) — CPU·메모리·디스크 3축 사이징 + 네트워크 품질.
 

@@ -7,9 +7,9 @@
 """
 
 from datetime import datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
 
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
@@ -18,7 +18,7 @@ from assessment_engine.db.repositories.query.types import (
     TimeRange,
 )
 from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, normalize_anchor
-from assessment_engine.web.deps import get_diagnostic_service
+from assessment_engine.web.deps import DiagnosticServiceDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.mappers.api_reference import build_api_reference
@@ -40,15 +40,14 @@ _VIEW_TITLES: dict[str, str] = {
 @reports_router.get("/environment")
 async def environment_report(
     request: Request,
-    job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
-    time_range: TimeRange = Query(
-        DIAGNOSTIC_DEFAULT_TIME_RANGE,
-        description="윈도우 (live preview) — 7개 (15m/1h/6h/24h/7d/14d/30d)",
-    ),
-    anchor_at: datetime | None = Query(None, description="분석 기준 시각 (live preview). 미명시 시 현재"),
-    view: Literal["customer", "engineer"] = Query("customer"),
+    diag_service: DiagnosticServiceDep,
+    job: Annotated[str | None, Query(description="발행된 보고서 job_id — 정적 스냅샷 렌더")] = None,
+    time_range: Annotated[
+        TimeRange, Query(description="윈도우 (live preview) — 7개 (15m/1h/6h/24h/7d/14d/30d)")
+    ] = DIAGNOSTIC_DEFAULT_TIME_RANGE,
+    anchor_at: Annotated[datetime | None, Query(description="분석 기준 시각 (live preview). 미명시 시 현재")] = None,
+    view: Literal["customer", "engineer"] = "customer",
     back: BackUrl = None,
-    diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """환경 단위 보고서 — job 있으면 정적 스냅샷, 없으면 발행 전 컨트롤(본문은 발행해야 생성)."""
     back_url = safe_back(back, "/")
@@ -74,7 +73,11 @@ async def environment_report(
     )
 
 
-def _render_job_progress(request: Request, rec: DiagnosticJobRecord, back_url: str) -> HTMLResponse:
+def _render_job_progress(
+    request: Request,
+    rec: DiagnosticJobRecord,
+    back_url: str,
+) -> HTMLResponse:
     """비동기 보고서 job 이 succeeded 아님 — 진행(pending/running) 폴링 또는 실패(failed) 안내 화면.
 
     pending/running 은 report-poll.js 가 status 폴링 -> 완료 시 reload. failed 는 재발행 안내(폴링 안 함).
@@ -128,10 +131,10 @@ async def _render_environment_snapshot(
 
 @reports_router.post("/environment/emit")
 async def environment_report_emit(
-    time_range: TimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
-    anchor_at: datetime | None = Query(None),
-    view: Literal["customer", "engineer"] = Query("customer"),
-    diag_service: DiagnosticService = Depends(get_diagnostic_service),
+    diag_service: DiagnosticServiceDep,
+    time_range: TimeRange = DIAGNOSTIC_DEFAULT_TIME_RANGE,
+    anchor_at: datetime | None = None,
+    view: Literal["customer", "engineer"] = "customer",
 ):
     """환경 보고서 발행 (PRG) — parent job enqueue 후 즉시 `?job={id}` 반환(워커가 비동기 생성).
 
@@ -156,23 +159,26 @@ _HISTORY_PAGE_LIMIT = 20
 @reports_router.get("/history")
 async def history(
     request: Request,
-    days: int = Query(90, ge=0, le=36500, description="최근 N일 (0 = 전체)"),
-    view: Literal["all", "customer", "engineer"] = Query(
-        "all",
-        description="양식 필터: 전체 / 고객 / 엔지니어",
-    ),
-    scope: Literal["all", "environment", "selection", "single"] = Query(
-        "all",
-        description="범위 필터: 전체 / 환경 / 선택 N대 / 서버 1대",
-    ),
-    server_public_ids: list[str] | None = Query(
-        None,
-        description="특정 서버 관련 보고서만 필터. 서버 목록 'N대 선택 + 보고서 이력' 진입 시 자동 채워짐.",
-    ),
-    limit: int = Query(_HISTORY_PAGE_LIMIT, ge=1, le=10000, description="표시 한도 — '더보기' 클릭 시 누적(20씩)"),
-    fragment: bool = Query(False, description="HTML partial 만 반환 — JS 즉시 filter (full page reload 회피)"),
+    diag_service: DiagnosticServiceDep,
+    days: Annotated[int, Query(ge=0, le=36500, description="최근 N일 (0 = 전체)")] = 90,
+    view: Annotated[
+        Literal["all", "customer", "engineer"], Query(description="양식 필터: 전체 / 고객 / 엔지니어")
+    ] = "all",
+    scope: Annotated[
+        Literal["all", "environment", "selection", "single"],
+        Query(description="범위 필터: 전체 / 환경 / 선택 N대 / 서버 1대"),
+    ] = "all",
+    server_public_ids: Annotated[
+        list[str] | None,
+        Query(description="특정 서버 관련 보고서만 필터. 서버 목록 'N대 선택 + 보고서 이력' 진입 시 자동 채워짐."),
+    ] = None,
+    limit: Annotated[
+        int, Query(ge=1, le=10000, description="표시 한도 — '더보기' 클릭 시 누적(20씩)")
+    ] = _HISTORY_PAGE_LIMIT,
+    fragment: Annotated[
+        bool, Query(description="HTML partial 만 반환 — JS 즉시 filter (full page reload 회피)")
+    ] = False,
     back: BackUrl = None,
-    diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """보고서 발행 이력 — 운영자 회고용. created_at DESC. 기본 20건 + "더보기"(limit 누적).
 
@@ -209,7 +215,7 @@ async def history(
 @reports_router.get("/{job_id}/status")
 async def report_status(
     job_id: str,
-    diag_service: DiagnosticService = Depends(get_diagnostic_service),
+    diag_service: DiagnosticServiceDep,
 ) -> dict[str, str | None]:
     """비동기 보고서 생성 진행 상태 — report-poll.js 폴링용 JSON. 미존재 404.
 
@@ -249,7 +255,9 @@ async def right_sizing_thresholds(
 
 
 @reference_router.get("/reference/api")
-async def api_reference(request: Request):
+async def api_reference(
+    request: Request,
+):
     """JSON API 목록 페이지 — OpenAPI 스펙(app.openapi())에서 자동 도출. 라우터 코드 단일 진실, drift 0(F12)."""
     return templates.TemplateResponse(
         request=request,
