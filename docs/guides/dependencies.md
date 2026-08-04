@@ -98,9 +98,9 @@ uv lock && uv sync --all-groups      # 5. lockfile 재-resolve (해당 minor whe
 
 ## 5. dependabot 미사용 정책
 
-본 repo 는 GitHub Dependabot version updates 비활성 (`.github/dependabot.yml` 없음). 사유:
+Dependabot 이 자동 PR 을 여는 두 항목(security updates·version updates)을 끈다. `.github/dependabot.yml` 도 두지 않는다. 사유:
 
-- Dependabot 이 `uv.lock` 직접 갱신 미지원 (uv 의 ecosystem 미통합) — PR 머지 시 `pyproject.toml` 만 갱신, `uv.lock` 은 drift 상태로 남음.
+- Dependabot 이 `uv.lock` 직접 갱신 미지원 (uv 의 ecosystem 미통합) — PR 머지 시 `pyproject.toml` 만 갱신, `uv.lock` 은 drift 상태로 남음. `ci.yml` 의 `uv lock --check` 가 그 PR 을 실패시킨다.
 - lockfile 이 갱신되지 않은 채 머지되면 결국 운영자가 수동으로 `uv lock` 을 돌려야 한다. 자동화의 이점이 없다.
 - 의존성 PR 폭주 + 자동 merge 패턴이 운영 흐름 방해.
 
@@ -122,7 +122,7 @@ git add pyproject.toml uv.lock
 git commit -m "chore(deps): fastapi bump 0.135 -> 0.136"
 ```
 
-보안 알림은 GitHub Dependabot alerts 로 수신한다 (Security 탭). 자동 PR 을 여는 security updates·version updates 는 둘 다 비활성 — 위 사유가 양쪽에 동일하게 적용된다. 설정 상태와 조회 명령은 `docs/guides/ci-setup.md` 4.2 가 소유한다.
+보안 알림은 GitHub Dependabot alerts 로 수신한다 (Security 탭). 알림을 받으면 대상 패키지를 `uv lock --upgrade-package <name>` 으로 올리고, 하한을 고정해야 하면 `pyproject.toml` 에 직접 선언해 그 줄에 근거를 남긴다 — 전이 의존이라도 직접 선언하면 핀을 걸 자리가 생긴다. 설정 위치와 조회 명령은 `docs/guides/ci-setup.md` 4.2 가 갖는다.
 
 CI 단계의 의존성 CVE 자동 gate 는 두지 않는다 — CVE 평가·대응(수정본 유무 판단·bump·예외 수용)은 alert 를 보고 운영자가 판단한다.
 

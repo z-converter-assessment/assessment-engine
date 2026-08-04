@@ -3,7 +3,7 @@
 > 기능 개발(feature branch) 동작 완성 후 거치는 5단계 마무리의 단일 진실. `/commit`·`/pr` skill 이 각자 담당 Stage 를 실행한다 — skill 은 절차만 가지고 체크리스트는 본 문서를 인용한다.
 >
 > 최상위 원칙 둘:
-> - 코드: 정석 코드 퀄리티 — canonical pattern / framework idiom / declarative 우선, ad-hoc hack 0. 본 repo 명문 규약(CLAUDE.md F1~F12 · #B · #C · #E1 P1~P4 · ADR 결정·금지) 위반 0건이 전제 — 외부 일반 베스트 프랙티스보다 본 repo 명문 규약 우선.
+> - 코드: 정석 코드 퀄리티 — canonical pattern / framework idiom / declarative 우선, ad-hoc hack 0. 본 repo 명문 규약(CLAUDE.md F1~F13 · #B · #C · #E1 P1~P4 · ADR 결정·금지) 위반 0건이 전제 — 외부 일반 베스트 프랙티스보다 본 repo 명문 규약 우선.
 > - 문서: 정합 · 중복 없는 간결한 엄밀함 — 단일 진실 / "왜"만 적기 / 코드로 알 수 있는 사실 적지 않기 / 모호 표현 0.
 >
 > 충돌 시 코드 우선 — 코드가 정석 + 명문 원칙을 따를 때만 문서 정합이 의미를 가진다.
@@ -83,7 +83,7 @@ Self-audit 메타 인용 제외:
 - 기능 동작 완성 코드 + `git diff <base>...HEAD` (`<base>` 는 PR base — 보통 `develop`).
 
 목적:
-- 본 feature 코드가 정석(canonical)으로 짜여 있고, 본 repo 명문 규약(F1~F12 · #B · #C5 · #E1 P1~P4 · 관련 ADR)을 위반하지 않음을 보장.
+- 본 feature 코드가 정석(canonical)으로 짜여 있고, 본 repo 명문 규약(F1~F13 · #B · #C5 · #E1 P1~P4 · 관련 ADR)을 위반하지 않음을 보장.
 - 정석 idiom 과 명문 규약 양자 충족 — 정석 패턴이라도 명문 규약에 어긋나면 위반이다.
 - 리팩토링은 동작 보존이 절대 — 진입 시 통과한 동작 검증이 안전망. 구조만 바꾸고 동작이 바뀌면 리팩토링이 아니라 기능 변경(범위 밖).
 

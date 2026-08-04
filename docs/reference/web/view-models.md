@@ -85,7 +85,7 @@
 - `_UTIL_DONUT_CIRC` — `2*pi*_DONUT_RADIUS`(템플릿 SVG r 과 정합) 단일 진실 (mapper, E8)
 - `_DONUT_SEGMENT_FROM_REC` / `_DONUT_SEGMENT_DEFS` — 자원 적정성 5 카테고리(키·라벨·색) 단일 매핑
 - `_CAUSE_LABEL_BY_TRIGGER` — trigger key -> os-neutral 원인 라벨 (자원 부족 원인 집계 단일 진실, mapper)
-- `agent_restart_alert_threshold = 3` — 1h 윈도우 재시작 임계 (WebSettings)
+- `agent_restart_alert_threshold` — 1h 윈도우 재시작 임계 (WebSettings, 값은 `docs/reference/contracts/env.md`)
 - 디스크 용량·I/O 임계 — 본 목록 아님(운영신호가 아닌 USE Method 분류 축, `recommendation` 모듈 단일 진실)
 - `_eol_info` (mapper, shared) — endoflife.date 스냅샷 카탈로그(`os_eol_catalog.json`) 조회 + 경계 3개로 지원 단계 판정 단일 진실.
 

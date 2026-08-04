@@ -10,7 +10,6 @@ requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.141.1",
     # starlette 보안 핀 (fastapi transitive) — CVE-2026-54283/54282·PYSEC-2026-161(Host 헤더 검증) fix.
-    # fastapi 0.136 이 starlette 1.x 지원하므로 bump (이전엔 미지원이라 PYSEC-2026-161 ignore 였음).
     "starlette>=1.3.1",
     "uvicorn[standard]>=0.52.1",
     "pydantic>=2.13.4",
@@ -85,7 +84,7 @@ docstring-code-format = true
 
 [tool.ruff.lint]
 # 규칙 선택 기준은 하나다 — 이 저장소의 명문 규약을 사람이 아니라 도구가 강제하게 만드는 것.
-# 규약과 규칙의 대응은 docs/guides/conventions.md 1절.
+# 규약과 규칙의 대응은 docs/guides/conventions.md 2절.
 select = [
     "A",     # 내장 이름 가리기
     "ASYNC", # async 함수 안 blocking 호출

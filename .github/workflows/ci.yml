@@ -6,7 +6,7 @@ name: ci
 #          ├─> typecheck
 #          └─> build
 #
-# base 별 발화 범위는 job 의 if 조건이 정한다. 게이트 배치 근거는 docs/guides/wrap-up.md 0절.
+# base 별 발화 범위는 job 의 if 조건이 정한다. 게이트 배치 근거는 docs/guides/pre-pr-checklist.md 0절.
 
 on:
   pull_request:

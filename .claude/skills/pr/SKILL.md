@@ -17,7 +17,7 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 
 코드와 문서를 feature 단위로 함께 맞추는 지점. 문서·ADR 은 결정한 직후에만 근거가 정확하므로 여기서 쓴다 (배치 근거는 `docs/guides/pre-pr-checklist.md` 0절).
 
-1. code-reviewer 에이전트 1회 (`Agent(subagent_type='code-reviewer')`) — 정석 idiom + 명문 규약(P1-P4·F1-F11·#B·#C5). Error 즉시 수정 / Warning 위임 / Info 보고.
+1. code-reviewer 에이전트 1회 (`Agent(subagent_type='code-reviewer')`) — 정석 idiom + 명문 규약(P1-P4·F1-F13·#B·#C5). Error 즉시 수정 / Warning 위임 / Info 보고.
 2. 변경 유형이 결합 목록에 걸리면 `change-impact` skill 로 동시 갱신 위치 확인.
 3. `docs` skill 을 본 feature 가 건드린 영역으로 실행 — 코드 현황 대조·문서 갱신·ADR 정리·doc-auditor 검증까지 그 skill 이 담당한다.
 4. ADR 정합 확인 (차단 게이트). 검사 항목과 명령은 `.claude/agents/doc-auditor.md` 축 B 가 갖는다 — 그 명령을 그대로 돌려 번호 집합과 역참조 Status 를 본다. 결정이 바뀐 건이 있는데 ADR 이 없지는 않은지도 함께 본다. 어긋나면 3 으로 돌려보내고 PR 을 열지 않는다 — 강제 채널이 워크플로에도 훅에도 없어 여기가 유일한 그물이다.
