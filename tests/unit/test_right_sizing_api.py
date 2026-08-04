@@ -38,8 +38,8 @@ def _raw(
     """right-sizing API 테스트용 최소 v2 ReportRowRaw 빌더.
 
     본 파일 전용(자기완결) — 시계열/inventory wire 계약이 아니라 report_aggregate 산출 outbound DTO 다.
-    v2 필드만 채운다: mem_total_bytes(v1 kB 폐기)·net_interfaces(v1 interfaces 폐기). 포화 신호는
-    procs_running_p95/disk_await_p95_ms 등 v2 축(load/iowait/swap_used 폐기).
+    크기는 `mem_total_bytes`(By), 인터페이스는 `net_interfaces` 로 채운다. 포화 신호 축은
+    `procs_running_p95`·`disk_await_p95_ms` 다.
     """
     return ReportRowRaw(
         server_id=server_id,

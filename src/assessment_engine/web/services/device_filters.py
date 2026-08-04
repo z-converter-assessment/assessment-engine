@@ -10,7 +10,7 @@ from assessment_engine.json_types import JsonObject
 
 정적 토폴로지(무엇이 존재)와 동적 사용량(얼마나 찼나)을 분리 — 계층 가시성 단일 정책. 모든 소비처(용량·상세
 표시·export·토폴로지)가 본 술어를 공유하고 ad-hoc 재필터 금지 — 같은 raw 가 소비처마다 다른 계층을 뽑는
-불일치를 차단. device 부모-자식 조인은 노드 `parent`(부모 id)로 — major/minor 폐기.
+불일치를 차단. device 부모-자식 조인은 노드 `parent`(부모 id)로 한다.
 
 측정 원칙 (무엇을 어느 계층에서 재나 — Windows·Linux 통일 단일 규칙, 모든 화면 귀속. 기존 쿼리 노출분이
 아니라 DB 원본 필드 전체 기준):
