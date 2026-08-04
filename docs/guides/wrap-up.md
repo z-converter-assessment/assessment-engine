@@ -135,7 +135,7 @@ Self-audit 메타 인용 제외:
 - `src/` 코드. 수정 발생 시 후속 Stage(2·3·4) 재검 트리거.
 
 통과 기준:
-- 에이전트 Error 0건. 위 17 항목 self-grep 0건.
+- 에이전트 Error 0건. 위 10 항목 self-grep 0건.
 
 ---
 
@@ -194,7 +194,7 @@ Self-audit 메타 인용 제외:
 
 체크리스트:
 - [3.1] PR 발행 후 CI 결과 NG 0건. 발화 범위는 base 가 정하며 목록은 `docs/guides/ci-setup.md` 3.4 소유.
-- [3.2] OIDC·GHCR 인증 필요한 step(cosign 서명 · GHCR push · SBOM/provenance attestation)은 본질적으로 CI 전용 — 로컬 skip (그 직전까지 산출물·액션 resolve 는 검증됨).
+- [3.2] OIDC·GHCR 인증 필요한 step(cosign 서명 · GHCR push · SBOM/provenance attestation)은 릴리즈 워크플로(`release.yml`) 전용이라 러너에서만 성립 — 로컬 skip (그 직전까지 산출물·액션 resolve 는 검증됨).
 
 도구:
 - GitHub Actions (PR 발행 시 자동 발화).
@@ -234,7 +234,7 @@ Self-audit 메타 인용 제외:
 
 간결 (3):
 - [4.10] 코드만 봐도 알 수 있는 사실(디렉토리 트리·함수 시그니처 본문·import graph·라인 수) 0건 — 코드 경로 포인터로.
-- [4.11] 임시 상태(`TODO`·`FIXME`·`XXX`·"작업 중"·"향후"·"차후") 0건. 검사: `rg -i '\b(TODO|FIXME|XXX|작업중|향후|차후)\b' docs/reference/ docs/guides/ docs/explanation/`. 임시는 `docs/temp/` 또는 PR 본문.
+- [4.11] 임시 상태(`TODO`·`FIXME`·`XXX`·"작업 중"·"향후"·"차후") 0건. 검사: `rg '\b(TODO|FIXME|XXX)\b|작업\s*중|향후|차후' docs/reference/ docs/guides/ -g '!wrap-up.md'`. 한글은 `\w` 라 `\b` 가 조사 앞에서 성립하지 않으므로 감싸지 않고, `XXX` 는 대소문자를 가려 CSS placeholder(`#xxx`)를 배제한다. 본 파일은 토큰 카탈로그라 제외하고, `docs/explanation/` 은 한계·확장 트리거가 사는 자리라 대상이 아니다. 임시는 `docs/temp/` 또는 PR 본문.
 - [4.12] 동일 결정·금지가 한 문서 안 반복 0건.
 
 엄밀 (3):

@@ -61,7 +61,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
   - 환경변수 contract — `docs/reference/contracts/env.md` 키 카탈로그
   - secret 채널 추상화 — `SecretStr` 강제 + pydantic `secrets_dir` (`SECRETS_DIR` env로 override 가능) + env var 둘 다 지원. 외부 인프라가 systemd EnvironmentFile·Vault·k8s Secret·Docker secrets 등 어떤 채널을 써도 본 엔진 동작
   - 설정 검증 — 비밀번호 미설정·빈값·뻔한 값·채널 충돌을 기동 시점에 거부 (`docs/reference/contracts/env.md` 6절). 환경으로 강도를 가르지 않고, secret 주입 방식과 무관하게 결과만 검증
-  - CI 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR). 배포는 VM 에서 `deploy.sh` 실행 (시퀀스는 `docs/guides/deploy.md` 3절). GitHub Actions runner 미사용(public repo 에 self-hosted runner 안티패턴 회피) — 내부망 VM 이 outbound 로 이미지 pull
+  - 릴리즈 산출물 — 서명(cosign)·SBOM(SPDX)·provenance 된 OCI 이미지 단일 (GHCR). 배포는 VM 에서 `deploy.sh` 실행 (시퀀스는 `docs/guides/deploy.md` 3절). GitHub Actions runner 미사용(public repo 에 self-hosted runner 안티패턴 회피) — 내부망 VM 이 outbound 로 이미지 pull
 - VM provisioning 코드(`*.tf`·Ansible playbook·VM 생성·OS 설정)는 본 repo에 두지 않는다 — 배포 대상 VM 은 provisioning 완료 상태를 전제. 엔진 rollout(`deploy.sh`)·비밀번호 교체(`rotate-secret.sh`)·VM 부트스트랩(`bootstrap.sh`)은 범위 안. 단일 호스트 compose 수동 기동도 지원.
 
 ---
@@ -77,7 +77,7 @@ ZConverter Cloud Assessment Portal — 고객사 내부 네트워크 호스트 �
 - `task.result` 메시지는 발행 측 worker 컨텍스트가 수집 캐시와 분리되어 `boot_time` / `agent_started_at` 가 항상 null — 본 메시지에 한해 nullable override. 다른 메시지 타입은 required 유지.
 - `task.result` 종료 신호: `exit_code` / `signal_no` (int\|null) 상호배타 — 정상종료=exit_code / 시그널종료=signal_no / 미포착=둘 다 null (POSIX wait status). `task_policy`(bool\|null)는 exit_code 보다 우선 판정. `signal_no` 는 `tasks.signal_no` 저장 + task 상세 표시(`mappers/task._signal_label` SIG 이름 라벨). Windows signal_no 항상 null. task_id 로 매칭(composite_id 불요).
 - 인바운드 DTO 는 wire 계약과 정합: `boot_time` nullable (판독 불가 시 null, `_log_time_invariants` None 가드) / `composite_id` "" -> None 정규화 (digest 실패 흡수) / error `failed_component` 자유 문자열 수용 (wire permissive, `Literal` 로 좁히면 유효 메시지 DLQ).
-- 스토리지·디바이스 = `block_devices[]` 정규화 평면 그래프(parent-by-id 조인, major/minor 폐기) + `system.filesystem` usage(state used/free) + `lvm_vgs`(확장여력 free_bytes). 시계열·조인 device 축은 안정 id (디스크 폴백 dm/partuuid/serial/by-path / 네트워크 MAC) — 이름 아님. 상세 = `docs/reference/contracts/agent-data.md` E·F·G절.
+- 스토리지·디바이스 = `block_devices[]` 정규화 평면 그래프(parent-by-id 조인) + `system.filesystem` usage(state used/free) + `lvm_vgs`(확장여력 free_bytes). 시계열·조인 device 축은 안정 id (디스크 폴백 dm/partuuid/serial/by-path / 네트워크 MAC) — 이름 아님. 상세 = `docs/reference/contracts/agent-data.md` E·F·G절.
 
 ---
 
@@ -124,7 +124,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 8테이블 자�
 - hypertable 조회는 `WHERE collected_at >= ?` 술어 의무 — partition pruning. 누락 시 모든 chunk full scan. `_chart_*` 헬퍼·repo 메서드 모두 적용. continuous aggregate 조회는 `WHERE bucket >= ?`(동일 pruning).
 - 카운터 메트릭(CPU jiffies·disk/net bytes) 집계는 continuous aggregate + timescaledb_toolkit `counter_agg` 사전집계 단일 진실. counter reset(재부팅·agent재시작·wraparound)은 `counter_agg` 가 값-감소 기준 일률 처리 — 보고서 집계(`report_aggregate`·`report_*_baseline`·`report_cpu_breakdown`)에서 hand-rolled LAG + boot_time gate 부활 금지. 차트(`metric_trend`, 동적 버킷)는 목적상 raw 유지.
 - raw SQL의 사용자 입력은 `text()` + bound parameter만. f-string으로 사용자 입력 직접 삽입 금지 — SQL injection + asyncpg statement cache 키 폭증. dispatch table whitelist 상수(Pydantic Literal → enum 매핑 정적 상수)는 f-string 허용.
-- 트랜잭션 경계: consumer는 1 메시지 = 1 트랜잭션 (`session_factory()` 컨텍스트), web은 1 request = 1 세션 (`Depends(get_session)`). autocommit 금지·세션 공유·중첩 금지.
+- 트랜잭션 경계: consumer는 1 메시지 = 1 트랜잭션 (`session_factory()` 컨텍스트), web은 1 request = 1 세션 (`Depends(get_db)`). autocommit 금지·세션 공유·중첩 금지.
 
 ---
 
@@ -168,7 +168,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 
 ### P3. Jinja2 템플릿은 순수 렌더링만 (절대)
 - 허용: `{% if %}`·`{% for %}`·Jinja2 필터(포맷팅 전용).
-- 금지: 계산(`+`, `*`, `length`, `sort`, `selectattr`)·dedup·임계값 비교·단위 변환. 정렬·`badge_class`/`bar_color`/`is_well_known` 같은 파생은 mapper precompute.
+- 금지: 계산(`+`, `*`, `length`, `sort`, `selectattr`)·dedup·임계값 비교·단위 변환. 정렬·`badge_class`/`bar_color`/`is_significant` 같은 파생은 mapper precompute.
 - 표시 표준 단일 진실 — `docs/reference/web/static-assets.md` 다음 절: 표준 컴포넌트 카탈로그 / 폰트 위계 / 폰트 체 / 시간 표기 / 네비게이션 규약 / 링크 포맷 / P3 정공 예외 (1회 fetch vs polling 흐름).
 
 ### P4. 클라이언트 차트 JS는 P3 명시 예외
@@ -197,7 +197,7 @@ Pagination 정책:
 
 ## E3. 서비스 계층·ViewModel·Mapper (P2)
 
-서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`(+`infer_role`)/`metric`/`attention`/`report`/`task`/`shared`/`environment_report`/`report_history`/`topology` + JSON API 매퍼 `api_reference`/`assessment_api`/`right_sizing_api` = 12 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_well_known`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/reference/web/services.md` · `docs/reference/web/view-models.md` 단일 진실.
+서비스 모듈 카탈로그·`mappers/` sub-package 표시 파생 집중 (`server`(+`infer_role`)/`metric`/`attention`/`report`/`task`/`shared`/`environment_report`/`report_history`/`topology` + JSON API 매퍼 `api_reference`/`assessment_api`/`right_sizing_api` = 12 sub-module)·`enrich_*` idempotent·UI badge 임계값(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT` — `mappers/shared.py`)·USE Method right-sizing 임계값(`assessment_engine/recommendation.py` 도메인 모듈 — web 공용 import)·ViewModel 카탈로그·mapper 파생 필드(`is_significant`·`badge_class`·`bar_color` 등)·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/reference/web/services.md` · `docs/reference/web/view-models.md` 단일 진실.
 
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
@@ -215,7 +215,6 @@ Pagination 정책:
 
 `Jinja2Templates` 단일 인스턴스 + 필터 등록은 `web/templating/setup.py`에 격리. 라우터는 `from assessment_engine.web.templating import templates` 만. Redis 캐시 datetime은 `datetime.fromisoformat()`로 파싱(`json.loads` str 그대로 두면 `kst` 필터 오작동).
 
-Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_dash`): `docs/reference/web/services.md`.
 
 ## E6. 정적 자원 — JS 외부화 의무 + 타입 계약
 
@@ -233,8 +232,8 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 본 절 결정:
 - 카테고리 규약 단일 진실 = `SERVICE_CATALOG`(`CategoryDef`). 분류 키워드·포트·드롭다운·뱃지 CSS·템플릿 범례가 모두 본 카탈로그 파생 — 서비스 추가는 카탈로그 1곳만 수정. 분산 정의 부활 금지.
 - 서비스 분류는 이름·comm·포트 다중 신호를 정밀도 순으로 쓰고, 포트 신호는 해당 unit 에 귀속된 포트에만 적용 — 호스트 전체 포트로 unit 을 분류하지 않는다(services 탭 multi-service 오분류 방지).
-- 호스트 카테고리 집합 = ingest 사전계산 `service_categories` — 모든 read 경로(목록·상세·리포트·필터)가 이 저장값 소비 (화면 간 재계산·불일치 0). 특징 워크로드만(baseline OS 기본 서비스 제외), 상세는 live classify 로 전부. 카운트 경로는 `workload_category_counter` (동일 분류). `single_instance`(container) = 호스트당 1.
-- 본 `classify`(서비스 카테고리)와 `recommendation.classify`(USE Method right-sizing) 혼용 금지 — 다른 함수.
+- 호스트 카테고리 집합은 ingest 사전계산값(`service_categories`)만 쓴다 — read 경로에서 재계산 금지 (화면 간 불일치 0). 메커니즘 상세는 `docs/reference/web/services.md`.
+- 본 `classify`(서비스 카테고리)와 `recommendation.classify_host`(USE Method right-sizing) 혼용 금지 — 다른 함수.
 
 키워드 매칭·카탈로그 파생 / 다중 신호 우선순위 / opaque 이름 한계(T15) / 서비스 3단계 표시 계층: `docs/reference/web/services.md` "서비스 분류" 절.
 
@@ -360,7 +359,7 @@ Jinja2 필터 카탈로그(`kst`/`disksize`/`kbps`/`service_badge_class`/`or_das
 
 금지: payload·secret raw dump — 식별자(agent_id·composite_id·routing key·message_id·server_id)와 카운트만.
 
-로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
+로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer/worker)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
 
 Request/Correlation ID 분산 trace 도입 트리거·정석 패턴: `docs/reference/observability.md` (현재 미적용, 도입 시 별도 ADR 의무).
 
@@ -427,7 +426,7 @@ consumer 측 상세: `docs/reference/consumer.md` "Disposability" 절.
 
 본 절 결정:
 - 도구·구조 전환 시 옛 이름·경위를 코드 주석·영구 문서에서 제거. 전환 직후 폐기 토큰 `rg` 0 검증 의무(주석 포함).
-- 예외 — `docs/decisions/adr/` (결정 변경 = 새 ADR + 이전 `Superseded by`, 역사 기록 보존 — ADR 불변 규약) · `docs/explanation/tradeoffs.md` (의식적 한계·확장 트리거).
+- 예외 — `docs/decisions/adr/` (결정 변경 = 새 ADR + 이전 `Superseded by`. 기록 오류는 본문에서 바로 고친다 — 판단 기준은 `docs/decisions/adr/README.md`) · `docs/explanation/tradeoffs.md` (의식적 한계·확장 트리거).
 
 주석 규약 (일반 컨벤션):
 - 주석은 why 만 쓴다. what·how 는 코드가 말한다 — 코드를 옮겨 적은 주석은 코드가 바뀌면 주석만 낡는다.
@@ -466,6 +465,6 @@ consumer 측 상세: `docs/reference/consumer.md` "Disposability" 절.
 - 수식 없는 "빌드" — 이미지 빌드와 wheel 빌드가 다른 워크플로다.
 - wheel 을 배포 산출물·배포처와 같은 층위로 나열.
 
-워크플로 책임 카탈로그는 루트 `README.md` "CI 파이프라인" 절, 발화 조건·required check 는 `docs/guides/ci-setup.md` 3.4 소유.
+워크플로 책임 카탈로그는 루트 `README.md` "워크플로" 절, 발화 조건·required check 는 `docs/guides/ci-setup.md` 3.4 소유.
 
 ---

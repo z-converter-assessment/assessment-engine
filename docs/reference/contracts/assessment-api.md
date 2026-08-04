@@ -206,7 +206,7 @@ fstab 재생성 범위: 엔진은 마운트 팩트(경로, fstype, 옵션, UUID,
 
 ### 4.4 sizing - 크기 결정
 
-현재 스펙(재현용)과 권고 스펙(수정용)을 축별로 나란히 준다. 사이징 축은 배열이다 - 소비자가 전 원소를 순회해 각 자원을 프로비저닝한다. 새 자원 축(예: 향후 gpu)이 추가돼도 배열 원소로 도착하므로, 순회하는 소비자는 코드 변경 없이 자동으로 반영한다.
+현재 스펙(재현용)과 권고 스펙(수정용)을 축별로 나란히 준다. 사이징 축은 배열이다 - 소비자가 전 원소를 순회해 각 자원을 프로비저닝한다. 새 자원 축(예: gpu)이 추가돼도 배열 원소로 도착하므로, 순회하는 소비자는 코드 변경 없이 자동으로 반영한다.
 
 ```json
 "sizing": {
@@ -418,7 +418,7 @@ md0 은 부모(PV member)가 vdb·vdc 둘이라 `(id, parent)` 쌍으로 노드�
         "addresses": [
           { "address": "10.50.6.171", "prefix": 24, "family": "ipv4", "origin": null },
           { "address": "fe80::f816:3eff:fe0d:b320", "prefix": 64, "family": "ipv6", "origin": null }
-        ],  //  ^ origin(static|dhcp): agent 가 getifaddrs 로는 미판별 null(향후 netlink)
+        ],  //  ^ origin(static|dhcp): agent 가 getifaddrs 로는 미판별 null(netlink 도입 시 확정 가능)
         "gateway": "10.50.6.1", "dns": ["127.0.0.53"],
         "routes": [ { "via": "10.50.6.1", "dest": "8.8.8.8/32" }, { "via": "10.50.6.2", "dest": "169.254.169.254/32" } ],
         "bond_mode": null, "vlan_id": null, "speed_mbps": null }] },

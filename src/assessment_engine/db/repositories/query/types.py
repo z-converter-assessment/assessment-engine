@@ -12,7 +12,7 @@ from typing import Literal
 from assessment_engine.boot_time import BOOT_TIME_JITTER_TOLERANCE
 
 # boot_time 지터 허용치(초) — reboot_events(server_inventory_history) 의 재부팅 판정 게이트.
-# v2 child 시계열(disk_io/net_io)은 boot_time 미보유 -> rate 차트 reset 은 GREATEST(delta,0) 로 흡수(아래).
+# child 시계열(disk_io/net_io)은 boot_time 미보유 -> rate 차트 reset 은 GREATEST(delta,0) 로 흡수(아래).
 BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
 
 # ─── chart metric 카탈로그 (router Literal whitelist) ───
@@ -122,7 +122,7 @@ _AGG: dict[str, str] = {
 
 # CPU 누적 시간(seconds). delta로 % 계산 (LAG 기반). 성분 COALESCE — Windows 는 nice/iowait/irq/softirq/steal
 # 이 null(OS 개념 부재)이라 raw 합이 X+NULL=NULL 로 전파되면 delta null -> 전량 제외돼 Windows CPU 추이 차트가
-# 빈다(#C2, cagg·compute_cpu 동일). per-component(user/system/iowait) 분자는 bare 유지 — Windows iowait 는 null
+# 빈다(cagg·compute_cpu 동일). per-component(user/system/iowait) 분자는 bare 유지 — Windows iowait 는 null
 # 이라 d_num null 로 자연 제외(N/A), COALESCE 하면 측정 0(iowait 여유)으로 오인.
 _CPU_TOTAL_EXPR = (
     "COALESCE(cpu_user_s,0)+COALESCE(cpu_nice_s,0)+COALESCE(cpu_system_s,0)+COALESCE(cpu_idle_s,0)"
@@ -166,8 +166,8 @@ _DATA_VOLUME_CAGG_FILTER = (
     f"(fstype_any IS NULL OR fstype_any NOT IN ({_VIRTUAL_FSTYPES})) AND mountpoint NOT LIKE '/boot%'"
 )
 
-# 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼(v2 By).
-# guard = 분자 성분이 실측된 행만 집계(미측정 성분 null 을 0 으로 삼키지 않음, #C2). Windows 는 mem_cached/buffered
+# 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼(단위 By).
+# guard = 분자 성분이 실측된 행만 집계(미측정 성분 null 을 0 으로 삼키지 않음). Windows 는 mem_cached/buffered
 # 가 null(OS 미측정)이라 IS NOT NULL 가드로 gap 표시.
 _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
     "mem.usage_percent": (
@@ -188,7 +188,7 @@ _ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
     ),
 }
 
-# 물리 disk/iface 필터 (v2) — 시계열 device 집계를 물리 단위로 한정. agent 가 물리 disk 위 LVM/RAID/crypt/swap LV,
+# 물리 disk/iface 필터 — 시계열 device 집계를 물리 단위로 한정. agent 가 물리 disk 위 LVM/RAID/crypt/swap LV,
 # 물리 NIC 위 bridge/virtual 을 각각 시계열로 발행하므로, 무필터 SUM 은 물리 disk I/O 에 그 위 논리볼륨 I/O(디스크
 # 통과분)를 더해 이중·삼중집계된다. inventory 로 판정: block_device type=='disk' / net_interface kind in
 # (physical, bond_master) 만 포함. 판정은 시계열 device_id/iface_id = inventory (id_type):(id) 재구성 조인.

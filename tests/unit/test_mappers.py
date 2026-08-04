@@ -133,7 +133,7 @@ def _summary(**overrides: Any) -> ServerSummary:
         kernel_version=None,
         product_name=None,
         cpu_cores=4,
-        mem_total_bytes=8 * 1024**3,  # v2 By (v1 mem_total_kb 폐기)
+        mem_total_bytes=8 * 1024**3,  # 계약 단위 By
         ip_external=None,
         block_devices=[{"name": "sda", "size_bytes": 100 * 10**9, "type": "disk"}],
         service_categories=[],
@@ -274,10 +274,10 @@ def _detail(**overrides: Any) -> ServerDetail:
         cpu_model="test-cpu",
         cpu_arch="x86_64",
         cpu_bits=64,
-        mem_total_bytes=8 * 1024**3,  # v2 By (v1 mem_total_kb 폐기)
+        mem_total_bytes=8 * 1024**3,  # 계약 단위 By
         boot_time=datetime(2026, 1, 1, tzinfo=UTC),
         agent_started_at=datetime(2026, 1, 1, tzinfo=UTC),
-        # v2 net_interfaces — kind 는 인터페이스 레벨, 주소는 nested addresses[] (v1 flat address/prefix/family 폐기).
+        # net_interfaces — kind 는 인터페이스 레벨, 주소는 nested addresses[].
         net_interfaces=[
             {
                 "id": "52:54:00:12:34:56",
@@ -290,7 +290,7 @@ def _detail(**overrides: Any) -> ServerDetail:
             }
         ],
         ip_external=None,
-        # v2 block_devices (swap 은 type=swap 노드로 표현 — v1 swap_total_kb 폐기).
+        # block_devices — swap 은 type=swap 노드로 표현된다.
         block_devices=[{"name": "sda", "size_bytes": 100 * 10**9, "type": "disk"}],
         lvm_vgs=[],
         services=[
@@ -454,7 +454,7 @@ def test_to_storage_detail_filters_virtual_mounts():
         hostname="h",
         block_devices=[{"name": "sda", "size_bytes": 10**11, "type": "disk"}],
         lvm_vgs=[],
-        # v2: 마운트 사용량은 filesystems(df 시계열) 단일 소스 — 가상 제외는 fstype in VIRTUAL_FSTYPES 기준.
+        # 마운트 사용량은 filesystems(df 시계열) 단일 소스 — 가상 제외는 fstype in VIRTUAL_FSTYPES 기준.
         filesystems=[
             MountUsageRaw(
                 mountpoint="/", fstype="ext4", used_bytes=3 * 10**10, free_bytes=2 * 10**10,
@@ -472,7 +472,7 @@ def test_to_storage_detail_filters_virtual_mounts():
     assert "/snap/core/123" not in paths
 
 
-# v2 는 device 부모-자식 조인을 노드 `parent`(부모 id)로 하며 major/minor 는 폐기 — storage detail 은
+# device 부모-자식 조인은 노드 `parent`(부모 id) 다 — storage detail 은
 # device_name 을 산출하지 않는다. block_device 트리 술어 검증은 test_device_filters.py 단일 진실.
 
 

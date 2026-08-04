@@ -53,30 +53,7 @@ class CategoryDef:
     single_instance: bool = False
 
 
-# ─── 분류 원칙 (카테고리 경계 단일 진실) ────────────────────────────────────
-# 차원: 각 서비스를 "이 호스트에서의 주 역할(primary role, 배포 목적)" 단일 축으로 분류 — 상호배타(한 서비스 =
-# 정확히 한 카테고리). 겸업(예: 프록시가 캐시도)이면 소프트웨어 존재 이유로 tie-break — 경계를 재현 가능하게 함.
-#
-# 카테고리 10 (앱 스택 역할 + 인프라 기능 + 플랫폼 계층):
-#   web       앱/웹 서빙 + 리버스 프록시·로드밸런서 (앱 트래픽 앞단 edge)
-#   db        범용 데이터 저장소 (RDBMS·NoSQL·범용 TSDB·검색엔진)
-#   cache     인메모리/휘발 캐시·HTTP 가속
-#   mq        메시지 브로커
-#   mail      메일 서버 (SMTP/IMAP/POP3)
-#   file      파일·오브젝트·블록 스토리지 공유
-#   remote    원격 접속·관리 (관리 표면 — 대개 전 호스트)
-#   infra     네트워크 인프라 (DNS·DHCP·NTP·디렉토리·SNMP·포워드 프록시·HA)
-#   monitor   관측 전용 도구 (수집·저장·시각화·알림)
-#   container 컨테이너 런타임·오케스트레이션 (호스트당 1)
-#
-# 경계 tie-break (모호 케이스 — 원칙 없으면 자의적으로 보이는 곳을 못박음):
-#   프록시    리버스/LB(inbound·앱 앞단)=web / 포워드·egress=infra / 캐싱이 주목적=cache
-#             -> haproxy·traefik=web · squid=infra · varnish=cache
-#   시계열    범용 TSDB(influxdb)=db / 관측 전용 설계(prometheus·victoriametrics·loki)=monitor
-#   검색엔진  elasticsearch=db (저장이 본질 — ELK 로그 용도여도) · 오브젝트 스토리지(minio)=file
-#   디렉토리  ldap/slapd=infra (인증·디렉토리 인프라 — 계층 db 로 보지 않음)
-#
-# 단일 진실 — 카테고리 순서 = 분류 우선순위 (cross-category 첫 매칭 우선). web -> db -> ... 유지.
+# 카테고리 경계·tie-break 규약과 순서(= 분류 우선순위)는 docs/reference/web/services.md "카테고리 경계".
 SERVICE_CATALOG: tuple[CategoryDef, ...] = (
     CategoryDef(
         key="web",

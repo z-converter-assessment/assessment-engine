@@ -1,8 +1,8 @@
 """Report aggregation 도메인 concrete — USE Method 통계 + 환경 활용률.
 
-v2: server_metrics_5m/server_filesystem_5m/server_disk_io_5m/server_net_io_5m/server_cpu_core_5m cagg
+server_metrics_5m/server_filesystem_5m/server_disk_io_5m/server_net_io_5m/server_cpu_core_5m cagg
 (counter_agg s/By). disk await 는 server_disk_io_5m op_time delta(양 OS 통일). mem By, run_queue 단일 컬럼.
-load/swap/disk_queue 축 폐기(Gate0). 물리/데이터 필터는 fstype/types 상수(현재 device 전체 집계).
+포화 축은 Gate0 기준. 물리/데이터 필터는 fstype/types 상수(현재 device 전체 집계).
 """
 
 from datetime import datetime, timedelta
@@ -173,7 +173,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             ),
             disk_dev AS (
                 -- server_disk_io_5m 단일 스캔(B1) — await·iops baseline 공용 per-device 델타. 물리필터 1회 평가.
-                -- 2회 참조라 PG12+ 가 기본 materialize -> cagg 스캔·PHYS 필터 각 1회(옛 disk_await/disk_io_base 이중 스캔 제거).
+                -- 2회 참조라 PG12+ 가 기본 materialize -> cagg 스캔·PHYS 필터가 각 1회로 끝난다.
                 SELECT server_id, bucket,
                     delta(io_time_ca)                        AS d_io_time,
                     time_delta(io_time_ca)                   AS td_io_time,
@@ -403,7 +403,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     ) -> dict[int, DiskIoBaselineRaw]:
         """server_id -> DiskIoBaselineRaw (iops·throughput baseline + p95/peak). baseline=SUM(delta)/SUM(dt).
 
-        v2: server_disk_io_5m io_*_bytes(이미 By, *512 폐기)·ops. rate = delta/time_delta.
+        server_disk_io_5m io_*_bytes(단위 By)·ops. rate = delta/time_delta.
         """
         start = end - timedelta(days=period_days)
         sql = text(f"""
@@ -649,7 +649,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     async def report_memory_breakdown_batch(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, MemoryBreakdownRaw]:
-        """`report_memory_breakdown` 배치 — GROUP BY server_id. v2 By gauge 비율."""
+        """`report_memory_breakdown` 배치 — GROUP BY server_id. By gauge 비율."""
         start = end - timedelta(days=period_days)
         # cagg 에서 낸다 (raw hypertable 스캔 회피). used=mem_pct_avg,
         # available=complement, cached/buffered=cagg pct gauge. mem_pct_avg 규약과 동형(버킷 avg -> 창 avg).

@@ -69,15 +69,10 @@ def _extract_zdm_host(zdm_ip: str) -> str:
 
 
 # ─── ZDM 패키지 메타 (sha256·size_bytes) 동적 조회 ──────────────────────────
-# install 발행 의존성 — TaskService 가 본 resolver 를 생성자 인자로 받음.
-# 설계:
-#   - HEAD `http://{zdm_host}{zdm_package_path}` — ETag + Content-Length 추출
-#   - Redis cache key = (host, etag) → hit 이면 cached sha256 반환
-#   - miss 이면 GET stream + sha256 계산 + Redis set + 반환
-#   - ZDM 패키지가 자주 안 바뀜 + ETag 가 invalidation 키라 cache TTL 길게 (6h default)
-#   - fail-close — meta fetch 실패 시 publish 차단 (`ZdmPackageMetaError`)
-#   - HEAD Content-Length 와 GET 실측 byte count 일치 검증 (ZDM 측 정합성 보장)
-#   - Redis 자체는 fail-open (#C3) — Redis 장애 시 매번 GET full 로 fallback
+# cache key 에 ETag 를 넣는 이유는 그것이 곧 invalidation 키라서다 — 패키지가 바뀌면 ETag 가 바뀌므로
+# TTL 을 길게(6h) 잡아도 stale 을 내주지 않는다.
+# 메타 조회는 fail-close 다. sha256 없이 발행하면 agent 가 검증 없이 설치하게 되므로 publish 를 막는다
+# (Redis 자체는 fail-open — 캐시가 죽으면 매번 GET 으로 떨어질 뿐이다).
 
 
 class ZdmPackageMetaError(Exception):

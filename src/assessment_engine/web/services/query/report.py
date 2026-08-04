@@ -438,7 +438,7 @@ class ReportQueryMixin(_ReportMixinBase):
         보고서 3경로(env·selection·single)가 get_report 세부 행·under_hosts 분류·overview 에 동일
         raws 를 공유 — report_aggregate/net_io 중복 호출 제거 + build_resource_stats(#E3) 입력 일치로
         유휴 분류 정합(세부 행·under·도넛 동일 입력). worst_mount used%·용량 임박(구동 마운트·runway)은
-        report_aggregate 단일 산출 (별도 mount_worst 쿼리 폐기).
+        report_aggregate 가 단독으로 산출한다 (별도 쿼리 없음).
         """
         raws = await self.repo.report_aggregate(
             server_ids,

@@ -88,13 +88,13 @@ def test_mem_under_by_util():
     a = r.assess_memory(_stats(mem_p95_pct=95.0, mem_total_mb=16384))
     assert a.status == "under"
     assert "mem_util" in a.triggers
-    # v2(ADR 0054): 메모리 사이징 목표 80%(RS_MEM_SIZING_TARGET_PCT), 통계=near-peak.
+    # 메모리 사이징 목표 80%(RS_MEM_SIZING_TARGET_PCT), 통계=near-peak.
     # near-peak 미측정이라 p95(95) 폴백 -> ceil(16384*95/80).
     assert a.sizing_target == 19456
 
 
 def test_mem_under_by_swap_paging():
-    # v2(Gate0 dual-gate): mem_saturation 은 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징 발생 둘 다여야 성립
+    # Gate0 dual-gate: mem_saturation 은 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징 발생 둘 다여야 성립
     # (paging 단독은 mmap/시작 하드폴트 오탐). 그래서 util 95% + swap page-out 으로 포화 발화.
     a = r.assess_memory(_stats(mem_p95_pct=95.0, mem_swap_paging=True))
     assert a.status == "under"
@@ -111,11 +111,11 @@ def test_mem_swapless_high_util_primary():
 def test_mem_over():
     a = r.assess_memory(_stats(mem_p95_pct=40.0, mem_total_mb=16384))
     assert a.status == "over"
-    assert a.sizing_target == 8192  # v2 목표 80%: ceil(16384*40/80) < 16384
+    assert a.sizing_target == 8192  # 목표 80%: ceil(16384*40/80) < 16384
 
 
 def test_mem_optimal_at_target():
-    # v2 목표 80%: near-peak(=p95 폴백)이 목표%와 같으면 목표 == 현재 총량 -> optimal.
+    # 목표 80%: near-peak(=p95 폴백)이 목표%와 같으면 목표 == 현재 총량 -> optimal.
     a = r.assess_memory(_stats(mem_p95_pct=80.0, mem_total_mb=16384))
     assert a.status == "optimal"  # ceil(16384*80/80)=16384
 
@@ -437,7 +437,7 @@ def test_host_status_over():
 
 
 def test_host_status_optimal():
-    # v2 목표 80%: 메모리가 optimal 이려면 이용률이 목표% 근처여야(70%는 이제 over). CPU 65%/8코어 = optimal.
+    # 목표 80%: 메모리가 optimal 이려면 이용률이 목표% 근처여야(70%는 이제 over). CPU 65%/8코어 = optimal.
     h = r.rollup_host(
         _stats(
             cpu_p95_pct=65.0,

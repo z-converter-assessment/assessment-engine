@@ -26,7 +26,7 @@
 | 분류 | 정의 | 본 프로젝트 예시 | 보관 |
 |------|------|----------------|------|
 | config | 노출돼도 시스템이 즉시 위태롭지 않은 운영 값 | `POSTGRES_HOST`·`RABBITMQ_VHOST`·`WEB_PORT`·`APP_ENV`·`LOG_FORMAT` | `.env` 평문 OK, git 커밋 가능 (`.env.example`) |
-| secret | 노출 시 즉시 무단 접근 가능한 자격 | `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`·향후 API token / TLS key | dev 한정 `.env` 평문, prod 는 외부 인프라 자유 채널 |
+| secret | 노출 시 즉시 무단 접근 가능한 자격 | `POSTGRES_PASSWORD`·`RABBITMQ_PASSWORD`. API token·TLS key 도 같은 분류 | dev 한정 `.env` 평문, prod 는 외부 인프라 자유 채널 |
 
 경계 케이스:
 - `POSTGRES_USER` — 보통 config. 단 user 자체가 권한 분리 키이면 secret. 본 프로젝트는 config 분류하되 뻔한 값(password·admin·root·changeme)은 거부한다 — `assessment`(dev 카탈로그 값)는 허용.
@@ -145,7 +145,7 @@ def _validate_web_secrets(self) -> "WebSettings":
 발동 위치 (컴포넌트별):
 - web: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password 검증
 - consumer: `ConsumerSettings` → POSTGRES·RABBITMQ password 검증
-- worker: `WorkerSettings` → 위와 동일
+- worker: `WorkerSettings`(`WebSettings` 상속) → POSTGRES password 만 검증. broker 를 쓰지 않아 `rabbitmq_password` 필드 자체가 없다
 
 효과: 값이 없거나 뻔하면 `Settings()` 호출이 즉시 `ValueError` 를 던져 컨테이너가 뜨지 않는다. 운영자가 secret 채널 점검 신호를 즉시 받는다.
 
@@ -376,5 +376,5 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 - `docs/guides/deploy.md` — VM 부트스트랩·compose rollout 절차
 - `docs/reference/observability.md` — `LOG_FORMAT` toggle
 - `docs/guides/migrate.md` — schema migrate contract
-- `docs/guides/release.md` — CI release artifact 카탈로그
+- `docs/guides/release.md` — 릴리즈 artifact 카탈로그
 - CLAUDE.md #A0·#F8 — secret·PII 노출 금지 원칙

@@ -49,7 +49,7 @@ def make_inventory(
     os_family: str = "linux",
     collected_at: datetime | None = None,
     cpu_cores: int | None = 4,
-    mem_total_bytes: int | None = 8 * 1024**3,  # v2 By (v1 kB 폐기)
+    mem_total_bytes: int | None = 8 * 1024**3,  # 계약 단위 By
     boot_time: datetime | None = _DEFAULT_BOOT_TIME,
     agent_started_at: datetime | None = _DEFAULT_AGENT_STARTED_AT,
     block_devices: list[JsonObject] | None = None,

@@ -14,10 +14,6 @@ UI badge 임계값(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도�
 - mapper 90/75 = 시점 사용량 시각 신호 (위험·주의·정상)
 - 본 모듈 = WINDOW_DAYS(14일) 통계 기반 right-sizing 결정 (idle/over/under 등)
 
-합성 규칙 (단일 진실):
-- under = 위험 신호 OR (어떤 자원이든 고이용·포화·용량초과 하나라도 -> 누락 0)
-- over  = 가용 이용률 AND (cpu·mem p95 가 둘 다 있고 둘 다 낮을 때만 -> 보수적)
-- insufficient_data = cpu_p95·mem_p95 가 둘 다 None (진짜 평가 불가 = 신규/표본 부족)
 """
 
 import math
@@ -147,17 +143,10 @@ class ResourceStats:
 def disk_io_saturated(stats: ResourceStats) -> bool | None:
     """디스크 I/O 포화 여부 — OS별 raw 신호를 지연 축으로 정규화 (원칙 P2, os-aware).
 
-    Linux: await_p95 > RS_DISKIO_AWAIT_MS (IO 한 건당 응답 지연). iowait 대신 await —
-           iowait 는 게스트 CPU 스케줄링 왜곡에 오염(virtio), await 는 디바이스 지연 직접 신호(계층3).
-    Windows: 가장 바쁜 디스크의 큐 깊이(disk_queue_p95) >= DISK_QUEUE_PER_DISK_SATURATION —
-             Windows 는 await(disk read/write time) 미발행이라 diskperf 큐 깊이를 지연 대리 신호로 사용.
-             agent 가 디스크별 큐를 발행 -> ingest 에서 per-device max 축약(정규화 불요).
-    await(응답 지연) 단일 축 통일 (ADR 0052 Phase 0): Linux/Windows 모두 disk_await_p95_ms > RS_DISKIO_AWAIT_MS.
-    Windows 도 IOCTL_DISK_PERFORMANCE ReadTime/WriteTime 로 await 산출(에이전트 발행, 같은 IOCTL 라 큐와
-    커버리지 동일). await 미배선/구세대 viostor(IOCTL 미부착)면 Windows 는 큐 깊이로 임시 폴백 —
-    await 배선·검증 후 Phase E 에서 큐 폐기(DISK_QUEUE_PER_DISK_SATURATION·disk_queue_p95 제거).
-    측정 불가(값 None)면 None -> assess 가 unmeasured("disk_io")로 표시.
-    assess·assess_disk_io·report·attention 이 본 helper 단일 진실 경유 (임계 재계산 금지).
+    양 OS 모두 `disk_await_p95_ms > RS_DISKIO_AWAIT_MS` 로 본다. iowait 을 쓰지 않는 이유는 게스트 CPU
+    스케줄링 왜곡에 오염되기 때문이고(virtio), await 는 디바이스 지연을 직접 재는 신호다.
+    await 를 못 읽는 구세대 viostor(IOCTL 미부착)면 Windows 는 큐 깊이로 폴백한다.
+    둘 다 없으면 None -> assess 가 unmeasured("disk_io")로 표시한다.
     """
     if stats.disk_await_p95_ms is not None:
         return stats.disk_await_p95_ms > RS_DISKIO_AWAIT_MS
@@ -297,8 +286,8 @@ BADGE_CLASS: dict[str, str] = {
     "insufficient_data": "rec-insufficient_data",
 }
 
-# host_status(rollup 5상태) -> Recommendation(표시 5상태). 카드 편입·도넛·배지가 rollup 단일 모델을 쓰게 해
-# classify(옛 flat)와의 불일치(카드엔 있는데 근본원인·권고 빔)를 제거 — 편입 == under_kinds 존재 == root_cause 존재.
+# host_status(rollup 5상태) -> Recommendation(표시 5상태). 카드 편입·도넛·배지가 같은 rollup 결과를 쓴다
+# — 편입 == under_kinds 존재 == root_cause 존재라 카드에만 뜨고 근거가 비는 상태가 생기지 않는다.
 _HOST_STATUS_TO_REC: dict[str, Recommendation] = {
     "under": "under_provisioned",
     "idle": "idle",

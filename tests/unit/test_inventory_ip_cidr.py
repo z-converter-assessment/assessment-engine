@@ -23,7 +23,7 @@ def _iface(
     kind: str = "physical",
     gateway: str = "10.0.1.1",
 ) -> JsonObject:
-    """v2 net_interface — address/prefix/family 는 중첩 addresses[] 로. 단일 주소 편의 빌더."""
+    """net_interface — address/prefix/family 는 중첩 addresses[] 로. 단일 주소 편의 빌더."""
     return {
         "name": name,
         "id": "52:54:00:12:34:56",

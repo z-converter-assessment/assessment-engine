@@ -59,7 +59,7 @@ _ATTN_ACTIVE_BADGE = "attn-active"
 # UtilizationBar 게이지 색 — 환경 평균 활용률 도넛/바 단색 (그라데이션·임계 분기 제거).
 # 활용률 정도는 게이지 길이(dash_length)로, 색은 값 무관 단일 푸른색. 색으로 임계 의미를 주지
 # 않는다 — 위험도 색은 Right-sizing 분류 도넛이 별도 담당.
-_UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR  # 푸른 단색 (blue-500) — shared.UTIL_GAUGE_COLOR 단일 진실
+_UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR  # 테마 주색 단색 — shared.UTIL_GAUGE_COLOR 단일 진실
 _UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 
 # 주요 워크로드 도넛 세그먼트 색 — SIGNATURE_CATEGORIES 대응. base.html .badge-cat-* 뱃지 색의 시각적 쌍둥이
@@ -142,7 +142,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list[RiskDon
     risk_counts 예: {"under_provisioned": 1, "over_provisioned": 2, "optimal": 7} (키 = _DONUT_SEGMENT_DEFS 5종).
     누락 키는 0으로 취급. dash_length·dash_offset은 누적 비례 계산.
     under_count(자원 부족 카테고리 수)는 EnvironmentOverview.risk_high_count 로 전달되는 요약 신호 —
-    risk 분포는 막대(provisioning_dist_bar)로 렌더돼 도넛 중앙 라벨은 없다(옛 중앙 강조 규약 폐기, #E8).
+    risk 분포는 막대(provisioning_dist_bar)로 렌더돼 도넛 중앙 라벨이 없다.
     """
     total = sum(risk_counts.values())
     segments: list[RiskDonutSegment] = []
@@ -311,7 +311,7 @@ def build_environment_overview(
     # 원형차트 도넛 세그먼트 — 카테고리별 인스턴스 비율(누적 dash). 0 카테고리도 세그먼트 유지(범례 노출, E9).
     workload_segments, _wl_total = _workload_donut_segments(role_sorted)
 
-    # 포화 3축 도넛 — 자원 적정성 창 기준 포화 호스트 카운트/표본 (호출자가 raws 순회로 산출).
+    # 포화 4축 도넛 — 자원 적정성 창 기준 포화 호스트 카운트/표본 (호출자가 raws 순회로 산출).
     sat_donuts: list[SaturationDonut] = []
     if saturation_counts is not None:
         _sat_total = saturation_counts.get("total", 0)
@@ -508,7 +508,7 @@ def to_capacity_warning_item(raw: ReportRowRaw):
     """
     stats = build_resource_stats(raw)
     # 분류·근본원인·처방·신뢰도 전부 rollup_host 단일 모델 — 화면 간 정합(#E3). 처방은 자원별 독립(ADR 0056),
-    # confidence_notes 도 host 기반(build_host_confidence_notes) — 구 assess 미경유.
+    # confidence_notes 도 host 기반(build_host_confidence_notes).
     host = recommendation.rollup_host(stats)
     classification = recommendation.host_status_to_recommendation(host.host_status)
     hit = {t for r in host.resources.values() for t in r.triggers}

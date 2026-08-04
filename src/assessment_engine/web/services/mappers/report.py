@@ -264,10 +264,10 @@ def _build_diagnosis(
     cpu_variance: float | None,
     mem_variance: float | None,
 ) -> str:
-    """엔지니어 "진단" 칼럼 — 신 모델(rollup_host) 자원별 판정에서 파생 -> 배지와 보장 정합 (ADR 0052 이관).
+    """엔지니어 "진단" 칼럼 — `rollup_host` 자원별 판정에서 파생하므로 배지와 정합이 보장된다.
 
-    under 분기(1~6)는 host.resources 상태·trigger 에서 직접 읽어 분류와 어긋나지 않는다(구 assess 의 임계
-    재계산 제거). host_status != under 면 어느 자원도 under/io_bound/filling 이 아니므로 1~6 을 건너뛴다.
+    under 분기(1~6)는 host.resources 상태·trigger 를 직접 읽는다 — 임계를 다시 계산하지 않으므로 분류와
+    어긋날 수 없다. host_status != under 면 어느 자원도 under/io_bound/filling 이 아니므로 1~6 을 건너뛴다.
     우선순위 (가장 시급한 신호 1개):
     1. 메모리 under + 페이징/OOM (os-aware: Linux swap page-out / Windows Pages Input/sec) → "메모리 부족"
     2. disk_io io_bound (os-aware: Linux await>20ms / Windows await·큐) → "디스크 I/O 병목"
@@ -322,7 +322,7 @@ def _build_diagnosis(
 
 
 def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
-    """insufficient_data 호스트의 원인 순차 진단 — 진단 컬럼 단일 진실 (별도 카드 폐기, 호스트 권고 통합).
+    """insufficient_data 호스트의 원인 순차 진단 — 진단 컬럼이 단일 진실이고 호스트 권고에 통합돼 있다.
 
     1순위: 오프라인 — 에이전트 미가동 (메트릭 자연스러운 부재, root cause).
     2순위: 온라인이나 메트릭 수집 누락 — 누락 메트릭 명시. saturation 축은 분류가 쓰는 os-aware 축으로
@@ -343,7 +343,7 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
     else:
         if raw.procs_running_p95 is None:
             missing.append("실행 큐")
-    # 디스크 응답(await)은 양 OS 공통 포화 신호 (v2 op_time delta).
+    # 디스크 응답(await)은 양 OS 공통 포화 신호 (op_time delta).
     if raw.disk_await_p95_ms is None:
         missing.append("디스크 응답(await)")
     if raw.worst_mount_used_pct is None:

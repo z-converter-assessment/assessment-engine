@@ -72,7 +72,7 @@ asyncio 마커는 붙이지 않는다 — `asyncio_mode=auto` 라 async 테스�
 # tests/integration/test_my_repo.py
 from tests.factories import make_inventory
 
-async def test_something(collect_repo):
+async def test_something(collect_repo: CollectRepository):
     inv = make_inventory(composite_id="t-001")
     sid = await collect_repo.upsert_server(inv)
     assert sid > 0
@@ -84,7 +84,7 @@ async def test_something(collect_repo):
 
 ```python
 @pytest.mark.parametrize("metric_type", _ALL_METRIC_TYPES)
-async def test_dispatcher(metric_type, query_repo):
+async def test_dispatcher(metric_type: MetricType, query_repo: QueryRepository):
     ...
 ```
 

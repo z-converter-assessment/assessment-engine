@@ -15,7 +15,7 @@ class ServerInventory(Base):
     감사·표시 전용, `hostname` 은 display field (UNIQUE X), `public_id` 는 URL 노출용.
 
     정규화 스토리지/네트워크 그래프는 JSONB pass-through — block_devices(스토리지 트리, swap 노드 포함)·
-    net_interfaces(주소·게이트웨이)·lvm_vgs(Linux VG). mem_total_bytes 는 v2 By canonical.
+    net_interfaces(주소·게이트웨이)·lvm_vgs(Linux VG). mem_total_bytes 는 By 가 canonical.
     """
 
     __tablename__ = "server_inventory"
@@ -61,7 +61,7 @@ class ServerInventory(Base):
 
     cpu_cores: Mapped[int | None] = mapped_column(Integer)
     cpu_model: Mapped[str | None] = mapped_column(String(255))
-    mem_total_bytes: Mapped[int | None] = mapped_column(BigInteger)  # v2 By (swap 은 block_devices type=swap)
+    mem_total_bytes: Mapped[int | None] = mapped_column(BigInteger)  # 단위 By (swap 은 block_devices type=swap)
 
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

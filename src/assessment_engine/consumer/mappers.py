@@ -426,7 +426,7 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
     """metrics 선도착 시 최소 placeholder — 정적 정보는 None/빈 배열. 다음 진짜 inventory 가 upsert 로 덮음.
 
-    v2 metrics 는 hostname 없음 -> agent_id 를 표시명 placeholder 로.
+    metrics 메시지는 hostname 을 싣지 않는다 -> agent_id 를 표시명 placeholder 로.
     """
     return ServerInventoryCreate(
         agent_id=str(data.agent_id),

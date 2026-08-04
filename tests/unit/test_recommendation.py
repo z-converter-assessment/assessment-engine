@@ -80,7 +80,7 @@ def _win(**overrides: Any) -> ResourceStats:
 def test_mem_saturated_linux_uses_page_out_not_static_swap():
     # Linux 메모리 포화 = active page-out(mem_swap_paging), 정적 스왑 점유(swap_used) 아님.
     # swappiness 로 여유 RAM 에도 유휴 페이지 스왑아웃하므로 점유는 압박 신호가 아님.
-    # Gate0 dual-gate(v2): mem_saturated 는 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징일 때만 포화.
+    # Gate0 dual-gate: mem_saturated 는 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징일 때만 포화.
     # 이용률 gate 를 통과시켜(mem_p95_pct=95) 페이징 신호 자체를 검증 — swap_used 는 그래도 무시됨.
     assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", swap_used=True, mem_swap_paging=False)) is False
     assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", swap_used=False, mem_swap_paging=True)) is True
@@ -88,7 +88,7 @@ def test_mem_saturated_linux_uses_page_out_not_static_swap():
 
 def test_mem_saturated_windows_excludes_pagefile_uses_hardfault_rate():
     # Windows pagefile 상시 사용은 신호 아님 -> 하드폴트율(pages_input rate) 로만 판정.
-    # Gate0 dual-gate(v2): 이용률 gate(mem_p95_pct=95 >= 90) 통과시켜 하드폴트율 임계 자체를 검증.
+    # Gate0 dual-gate: 이용률 gate(mem_p95_pct=95 >= 90) 통과시켜 하드폴트율 임계 자체를 검증.
     assert mem_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=WIN_PAGES_INPUT_SATURATION)) is True
     assert mem_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=10.0)) is False  # < 20
     assert mem_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=None)) is None  # perflib 미발행 -> 미관측
