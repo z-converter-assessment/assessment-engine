@@ -126,9 +126,9 @@ def saturation_axis_displays(stats: recommendation.ResourceStats) -> list[Satura
 def build_host_confidence_notes(host: recommendation.HostAssessment) -> list[str]:
     """호스트 confidence 단서 라벨 (신 모델 rollup_host 기반) — 자원별 ConfidenceNote 를 호스트 단위 OR 종합.
 
-    구 단일-assess 대비 rollup_host 기반 — coverage_gap(포화 축 미관측)·low_precision(이력<30h·버스티)를
-    호스트 단위로 노출. biased(virtio 구조 편향)는 disk_io 가 상시 True 라 표시 노이즈 -> 노트 제외
-    (다운사이즈 게이트 내부용). report·attention 이 rollup_host 로 이관 후 본 함수 공용.
+    coverage_gap(포화 축 미관측)·low_precision(이력<30h·버스티)를 호스트 단위로 노출한다. biased(virtio 구조
+    편향)는 disk_io 가 상시 True 라 표시 노이즈여서 노트에서 빼고 다운사이즈 게이트 안에서만 쓴다.
+    report·attention 공용.
 
     '창 대비 관측 부족'은 30h 절대 바닥(low_precision)과 별개 축 — 선택 창을 다 못 덮으면(예: 14일 창에
     2일 데이터) sample_sufficiency 가 낮아 발화. 짧은 창으로 판정 시 저커버리지를 정직하게 노출.

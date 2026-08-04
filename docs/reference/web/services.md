@@ -14,7 +14,7 @@
 | `cache_serializer.py` | Redis serde — `ServerDetailResponse` / `MetricDashboard`. 역직렬화 후 `enrich_*` 재호출 (idempotent) |
 | `serialization_util.py` | `cache_serializer`·`report_serializer` 공용 직렬화 계약 (datetime -> ISO, dataclass -> dict) |
 | `unit_converter.py` | KB->GB / sectors->KB/s / usage_pct 단위 변환 |
-| `device_filters.py` | block_device `type`·fstype·net_interface `kind` 기반 계층 술어 단일 진실 — `is_physical_disk`(type=="disk")·`is_lvm_disk`(lvm/raid/crypt/mpath/dynamic)·`is_partition`(=="part")·`is_swap`(=="swap")·`is_virtual_interface`(kind not in physical/bond_master)·`is_data_volume`(fstype·mountpoint — 가상fs·/boot 제외) + `disk_total_bytes`/`swap_total_bytes` (block_device type 합산 단일 산식 — Windows PhysicalDrive 도 type=disk 발행이라 양 OS 공통, fallback 없음). 부모-자식 조인은 노드 `parent`(부모 id) — major/minor 폐기 |
+| `device_filters.py` | block_device `type`·fstype·net_interface `kind` 기반 계층 술어 단일 진실 — `is_physical_disk`(type=="disk")·`is_lvm_disk`(lvm/raid/crypt/mpath/dynamic)·`is_partition`(=="part")·`is_swap`(=="swap")·`is_virtual_interface`(kind not in physical/bond_master)·`is_data_volume`(fstype·mountpoint — 가상fs·/boot 제외) + `disk_total_bytes`/`swap_total_bytes` (block_device type 합산 단일 산식 — Windows PhysicalDrive 도 type=disk 발행이라 양 OS 공통, fallback 없음). 부모-자식 조인은 노드 `parent`(부모 id) |
 | `service_classifier.py` (도메인 `assessment_engine/`, web·consumer 공용 — `recommendation.py` 동급) | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`/`remote`/`file`/`mail`/`infra` — 원칙·경계 규칙은 `SERVICE_CATALOG` 상단 주석 단일 진실) + 포트 매핑 + 카테고리 집합 사전계산(`compute_service_categories`, ingest 가 `service_categories` 저장). 단일 카탈로그(`SERVICE_CATALOG`) 파생. `MatchedPort` 정의(web view_model re-export) |
 
 ## 서비스 분류 — 3단계 표시 계층
@@ -55,7 +55,7 @@
 
 ## 디바이스 계층 — block_devices[] 평면 DAG (parent-by-id)
 
-스토리지 토폴로지는 agent `block_devices[]` 평면 그래프(lsblk 정석) — 노드 `{name, type, size_bytes, fstype, mountpoint, parent, id, id_type}`. 부모-자식(disk->part->lvm->crypt->fs)은 노드 `parent`(부모 id) 체인 조인 — major/minor 폐기(Windows major=0 해소). 다중 부모(RAID span·striped VG)는 디스크별 그룹으로 노출. 정적 토폴로지(무엇이 존재)와 동적 사용량(server_filesystem, 얼마나 찼나)을 분리해 모든 소비처(용량·상세·export·토폴로지)가 같은 술어를 공유한다.
+스토리지 토폴로지는 agent `block_devices[]` 평면 그래프(lsblk 정석) — 노드 `{name, type, size_bytes, fstype, mountpoint, parent, id, id_type}`. 부모-자식(disk->part->lvm->crypt->fs)은 노드 `parent`(부모 id) 체인 조인. 다중 부모(RAID span·striped VG)는 디스크별 그룹으로 노출. 정적 토폴로지(무엇이 존재)와 동적 사용량(server_filesystem, 얼마나 찼나)을 분리해 모든 소비처(용량·상세·export·토폴로지)가 같은 술어를 공유한다.
 
 ## 디바이스 필터 정책 — block_device `type` · fstype · net `kind`
 
