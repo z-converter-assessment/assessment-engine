@@ -469,7 +469,7 @@ class ReportRowRaw:
     cpu_sufficiency: float | None = None
     mem_sufficiency: float | None = None
 
-    # ─── rollup_host 입력 raw — report_aggregate 산출, build_resource_stats 가 ResourceStats 배선 ───
+    # --- rollup_host 입력 raw — report_aggregate 산출, build_resource_stats 가 ResourceStats 배선 ---
     cpu_steal_p95_pct: float | None = None  # steal% p95 (가상화 경합 — 충실도 편향 + 인과 분리)
     cpu_burst_ratio: float | None = None  # cpu p95/median (버스티 -> 통계 정밀도 하향)
     procs_blocked_p95: float | None = None  # D-state 블록 p95 (IO발 CPU 로드 분리 근본원인)

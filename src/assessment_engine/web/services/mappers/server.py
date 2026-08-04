@@ -105,7 +105,7 @@ def _usage_badge_class(pct: float | None) -> str:
     return _BADGE_CLASS_BY_SEVERITY[_usage_severity(pct)] if pct is not None else ""
 
 
-# ─── raw dict → typed ViewModel 단일 변환 진입점 ──────────────────────────
+# --- raw dict → typed ViewModel 단일 변환 진입점 --------------------------
 
 
 def _to_ip_addrs(net_interfaces: list[JsonObject]) -> list[IpAddr]:
@@ -182,7 +182,7 @@ def build_network_interfaces(
 def _to_volumes(block_devices: list[JsonObject]) -> list[VolumeItem]:
     """block_devices(lsblk) 중 마운트된 데이터 볼륨 노드 → VolumeItem(파일시스템) 목록 (가상·부트 제외, mount ASC).
 
-    물리 디스크(type=disk)와 별개 축 — 양 OS 일관 표시 (fstype 명시). 마운트된 노드(mountpoint 有)만.
+    물리 디스크(type=disk)와 별개 축 — 양 OS 일관 표시 (fstype 명시). 마운트된 노드(mountpoint 있음)만.
     """
     volumes: list[VolumeItem] = []
     for d in block_devices or []:
@@ -314,7 +314,7 @@ def build_cpu_breakdown(raw: CpuBreakdownRaw) -> CpuBreakdown:
     return CpuBreakdown(user_pct=raw.user_pct, system_pct=raw.system_pct, iowait_pct=raw.iowait_pct)
 
 
-# ─── 1차 매핑 (Outbound → ViewModel) ──────────────────────────────────────
+# --- 1차 매핑 (Outbound → ViewModel) --------------------------------------
 
 
 def to_server_list_item(
@@ -429,7 +429,7 @@ def storage_layers_gb(block_devices: list[JsonObject]) -> tuple[float | None, fl
     )
 
 
-# ─── 스토리지 레이아웃 트리 (block_devices 그래프 + lvm_vgs + filesystems 조립) ──────────────
+# --- 스토리지 레이아웃 트리 (block_devices 그래프 + lvm_vgs + filesystems 조립) --------------
 
 _STORAGE_KIND_LABEL = {
     "disk": "디스크",
@@ -784,7 +784,7 @@ def to_network_detail(dto: NetworkWithIo) -> NetworkDetailResponse:
     )
 
 
-# ─── enrich_server_detail (idempotent) ────────────────────────────────────
+# --- enrich_server_detail (idempotent) ------------------------------------
 # cache_serializer가 역직렬화 후 재호출 가능 — 두 번 호출해도 결과 동일.
 # 입력 detail의 services / listen_ports 만 read-only로 사용, 파생 필드만 갱신.
 
@@ -880,7 +880,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     return detail
 
 
-# ─── role 추론 — services[].unit → 카테고리 빈도 최다 (export · report · attention 공용) ───
+# --- role 추론 — services[].unit → 카테고리 빈도 최다 (export · report · attention 공용) ---
 
 
 def workload_category_counter(

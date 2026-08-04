@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
 
-# ─── 헬퍼 ────────────────────────────────────────────────────────────────
+# --- 헬퍼 ----------------------------------------------------------------
 
 
 def _snap(hostname: str, public_id: str, **kw: Any) -> JsonObject:
@@ -97,7 +97,7 @@ def _raw(**kw: Any) -> ReportRowRaw:
     return dataclasses.replace(d, **kw)
 
 
-# ─── build_environment_realtime — capacity-weighted 평균 ─────────────────
+# --- build_environment_realtime — capacity-weighted 평균 -----------------
 
 
 def _two_snaps() -> list[JsonObject]:
@@ -139,7 +139,7 @@ def _two_snaps() -> list[JsonObject]:
 
 
 def test_realtime_cpu_capacity_weighted_not_arithmetic():
-    """CPU 평균 = Σ(usage%·cores)/Σcores — 코어 가중(단순평균 65 아님).
+    """CPU 평균 = sum(usage%·cores)/sum(cores) — 코어 가중(단순평균 65 아님).
 
     (50*2 + 80*8) / (2+8) = 740/10 = 74.0.
     """
@@ -152,7 +152,7 @@ def test_realtime_cpu_capacity_weighted_not_arithmetic():
 
 
 def test_realtime_mem_disk_are_used_over_total_ratio():
-    """메모리 평균 = Σused/Σtotal*100 (byte 풀 비율, 스냅샷 산술평균 아님). 디스크 용량(fill%)·디스크 I/O 이용률
+    """메모리 평균 = sum(used)/sum(total)*100 (byte 풀 비율, 스냅샷 산술평균 아님). 디스크 용량(fill%)·디스크 I/O 이용률
 
     둘 다 utilization 도넛에서 제외 — CPU·메모리 2개만(디스크 I/O 이용률은 장치별 신뢰도 편차라 부하 표 칼럼
     전용, 환경 평균 도넛 없음). mem = 4e9/6e9*100 = 66.7 (round 1).
@@ -330,7 +330,7 @@ def test_realtime_empty_snapshots_none_avgs_and_no_rows():
     assert all(d.dash_length == 0.0 for d in r.saturation_donuts)
 
 
-# ─── build_action_targets — 분류순·심각도 정렬 + 효율 집계 ────────────────
+# --- build_action_targets — 분류순·심각도 정렬 + 효율 집계 ----------------
 
 
 def _classified_raws() -> list[ReportRowRaw]:

@@ -76,7 +76,7 @@ def _win(**overrides: Any) -> ResourceStats:
     return _stats(**base)
 
 
-# ─── 메모리 포화 — Linux page-out(정적 점유 아님) / Windows 하드폴트율 (원칙 P2) ───
+# --- 메모리 포화 — Linux page-out(정적 점유 아님) / Windows 하드폴트율 (원칙 P2) ---
 
 
 def test_mem_saturated_linux_uses_page_out_not_static_swap():
@@ -96,7 +96,7 @@ def test_mem_saturated_windows_excludes_pagefile_uses_hardfault_rate():
     assert mem_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=None)) is None  # perflib 미발행 -> 미관측
 
 
-# ─── CPU 포화 — Linux 실행 큐 / Windows Processor Queue Length (원칙 P2) ───
+# --- CPU 포화 — Linux 실행 큐 / Windows Processor Queue Length (원칙 P2) ---
 
 
 def test_cpu_saturated_os_aware():
@@ -115,7 +115,7 @@ def test_cpu_saturated_os_aware():
     assert cpu_saturated(_stats(cpu_cores=None, procs_running_p95=100.0)) is None
 
 
-# ─── 디스크 I/O 포화 — await 통일(양 OS), Windows await 미배선 시 큐 폴백 (원칙 P2) ───
+# --- 디스크 I/O 포화 — await 통일(양 OS), Windows await 미배선 시 큐 폴백 (원칙 P2) ---
 
 
 def test_disk_io_saturated_os_aware():
@@ -129,7 +129,7 @@ def test_disk_io_saturated_os_aware():
     assert disk_io_saturated(_win(disk_queue_p95=None)) is None
 
 
-# ─── 포화 지수 (실시간 aggregate 통합 축 — 임계 정규화로 OS 무관 한 지수) ───
+# --- 포화 지수 (실시간 aggregate 통합 축 — 임계 정규화로 OS 무관 한 지수) ---
 
 
 def test_cpu_saturation_index_os_aware():
@@ -162,7 +162,7 @@ def test_disk_io_saturation_index_await_priority_queue_fallback():
     assert disk_io_saturation_index(None, None, "windows") is None
 
 
-# ─── 실시간 메모리 압박 — 하드폴트(major fault) rate 기반, os-aware 임계 ───
+# --- 실시간 메모리 압박 — 하드폴트(major fault) rate 기반, os-aware 임계 ---
 
 
 def test_net_signal_active_low_traffic_gate():
@@ -203,7 +203,7 @@ def test_mem_pressure_active_os_aware():
     assert mem_pressure_active(0.1, "windows") is False  # Linux 라면 압박이나 Windows 임계 미달
 
 
-# ─── 포화 축 미관측 판정 — cpu/memory/disk_io 한정 (network·disk_capacity 제외) ───
+# --- 포화 축 미관측 판정 — cpu/memory/disk_io 한정 (network·disk_capacity 제외) ---
 
 
 def _ra(kind: ResourceKind, status: ResourceStatus, *, coverage_gap: bool = False) -> ResourceAssessment:
@@ -238,7 +238,7 @@ def test_host_saturation_unmeasured_limited_to_saturation_axes():
     assert host_saturation_unmeasured(HostAssessment(resources=res_clean)) is False
 
 
-# ─── 근본원인 칼럼 표시 — 4 포맷 분기 (under_prescription 정합) ───
+# --- 근본원인 칼럼 표시 — 4 포맷 분기 (under_prescription 정합) ---
 
 
 def test_root_cause_display_no_under_is_empty():
@@ -283,7 +283,7 @@ def test_root_cause_display_multiple_independent():
     assert root_cause_display(HostAssessment(resources=res)) == "CPU·디스크 용량"
 
 
-# ─── 마운트 용량 사이징 — 분기별 outcome (per-mount, 축소 없음) ───
+# --- 마운트 용량 사이징 — 분기별 outcome (per-mount, 축소 없음) ---
 
 
 def test_assess_mount_capacity_none_when_total_unknown():

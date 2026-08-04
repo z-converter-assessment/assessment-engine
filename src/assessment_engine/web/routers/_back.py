@@ -11,7 +11,9 @@ from pydantic import AfterValidator
 _URL_STRIPPED = {0x09: None, 0x0A: None, 0x0D: None}
 
 
-def _sanitize(back: str | None) -> str | None:
+def _sanitize(
+    back: str | None,
+) -> str | None:
     """back Query 정규화 — 사이트 내부 경로가 아니면 None. 값이 그대로 href 에 들어간다."""
     if not back:
         return None
@@ -29,11 +31,16 @@ BackUrl = Annotated[
 """back Query 파라미터 타입 — 라우터가 이것을 쓰면 검증이 시그니처에서 강제된다."""
 
 
-def safe_back(back: str | None, fallback: str) -> str:
+def safe_back(
+    back: str | None,
+    fallback: str,
+) -> str:
     """BackUrl 이 걸러낸 값에 기본 목적지를 씌운다."""
     return _sanitize(back) or fallback
 
 
-def self_back(request: Request) -> str:
+def self_back(
+    request: Request,
+) -> str:
     """본 페이지 URL — 자식 link 의 back chain 전달용 (URL-encoded)."""
     return quote(f"{request.url.path}?{request.url.query}", safe="")

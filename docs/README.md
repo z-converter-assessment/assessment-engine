@@ -49,7 +49,7 @@ explanation/ (왜):
 - `products/` — 산출물 존재 의의 (dashboard · environment-report · server-report · json-export · install-task).
 
 decisions/ (왜 바꿨나 — 라이브 문서 무의존):
-- `adr/` — 결정 기록 (append-only). 결정 변경 시 새 ADR + 이전은 `Status: Superseded`/`Withdrawn`.
+- `adr/` — 결정 기록 (append-only). 쓰는 기준과 Status 어휘는 `adr/README.md` 가 갖는다.
 - `rfc/` — 제안·탐색 문서 (결정 전).
 
 `temp/` — 임시 자료. 외부 공유 자료(영구 문서·코드와 양방향 의존 0)와 학습 자료 초안(격상 대상)이 들어온다. 영구 문서·코드에서 인용 금지.

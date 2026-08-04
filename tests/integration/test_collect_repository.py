@@ -1,4 +1,4 @@
-"""CollectRepository 통합 테스트 — Phase 1 정확화 6가지(A~F) 검증.
+"""SqlCollectRepository 통합 테스트 — Phase 1 정확화 6가지(A~F) 검증.
 
 각 테스트는 db_session이 function-scope이라 transaction rollback으로 격리.
 테스트 시나리오:
@@ -28,22 +28,22 @@ from tests.factories import make_inventory, make_metrics
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from assessment_engine.db.repositories.collect_repository import CollectRepository
+    from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
 
 pytestmark = pytest.mark.asyncio
 
 
-# ─── upsert_server (C) ────────────────────────────────────────────────────
+# --- upsert_server (C) ----------------------------------------------------
 
 
-async def test_upsert_server_inserts_new(collect_repo: CollectRepository):
+async def test_upsert_server_inserts_new(collect_repo: SqlCollectRepository):
     inv = make_inventory(agent_id="00000000-0000-4000-8000-000000000001", hostname="h1")
     server_id = await collect_repo.upsert_server(inv)
     assert server_id > 0
 
 
 async def test_upsert_server_stores_machine_id(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
     """machine_id 표시 컬럼 저장 (ADR 0027) — agent_id 식별과 별개, 표시 전용 nullable."""
@@ -63,7 +63,7 @@ async def test_upsert_server_stores_machine_id(
 
 
 async def test_upsert_server_overwrites_fields_on_conflict(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
     """ON CONFLICT DO UPDATE — 같은 agent_id 의 다른 필드가 덮어씀."""
@@ -83,7 +83,7 @@ async def test_upsert_server_overwrites_fields_on_conflict(
 
 
 async def test_upsert_server_same_agent_id_converges_across_reboot(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
     """agent_id 단일 UNIQUE 키 — 같은 agent_id 면 composite_id·hostname 이 바뀌어도 한 row 로 수렴 (ADR 0049).
@@ -117,22 +117,22 @@ async def test_upsert_server_same_agent_id_converges_across_reboot(
     assert count == 1
 
 
-# ─── find_server_id ───────────────────────────────────────────────────────
+# --- find_server_id -------------------------------------------------------
 
 
-async def test_find_server_id_existing(collect_repo: CollectRepository):
+async def test_find_server_id_existing(collect_repo: SqlCollectRepository):
     aid = "00000000-0000-4000-8000-000000000011"
     sid = await collect_repo.upsert_server(make_inventory(agent_id=aid, hostname="h"))
     assert await collect_repo.find_server_id(aid) == sid
 
 
-async def test_find_server_id_missing(collect_repo: CollectRepository):
+async def test_find_server_id_missing(collect_repo: SqlCollectRepository):
     # 미존재 agent_id — UUID 컬럼이라 유효 UUID 형식 (비-UUID 문자열은 DataError).
     assert await collect_repo.find_server_id("00000000-0000-4000-8000-0000000000ff") is None
 
 
 async def test_find_server_id_distinct_agent_ids_isolated(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
 ):
     """서로 다른 agent_id 는 각각 다른 server_id 로 격리 (agent_id 단일 UNIQUE 매칭)."""
     aid_a = "00000000-0000-4000-8000-000000000012"
@@ -144,11 +144,11 @@ async def test_find_server_id_distinct_agent_ids_isolated(
     assert sid_a != sid_b
 
 
-# ─── clone 격리 (같은 machine_id+hostname, 다른 agent_id) ───────────────────
+# --- clone 격리 (같은 machine_id+hostname, 다른 agent_id) -------------------
 
 
 async def test_different_agent_id_same_machine_id_hostname_isolated(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
 ):
     """agent_id 가 다르면 machine_id·hostname 이 같아도 별개 행 — clone(미sysprep) 오병합 방지.
 
@@ -171,11 +171,11 @@ async def test_different_agent_id_same_machine_id_hostname_isolated(
     assert sid_b != sid_a  # 별개 행
 
 
-# ─── ensure_server_id (D — facade with auto_registered flag) ──────────────
+# --- ensure_server_id (D — facade with auto_registered flag) --------------
 
 
 async def test_ensure_server_id_auto_registers_when_missing(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
 ):
     """agent_id 미등록 시 fallback inventory로 INSERT, auto_registered=True."""
     aid = "00000000-0000-4000-8000-000000000031"
@@ -186,7 +186,7 @@ async def test_ensure_server_id_auto_registers_when_missing(
 
 
 async def test_ensure_server_id_uses_existing_without_fallback(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
     """기존 server_id 사용. fallback은 미사용 — 데이터가 fallback 값으로 덮이지 않음."""
@@ -209,11 +209,11 @@ async def test_ensure_server_id_uses_existing_without_fallback(
     assert row.cpu_cores == 8
 
 
-# ─── record_metrics (A — 분리, F — MetricInsertResult) ────────────────────
+# --- record_metrics (A — 분리, F — MetricInsertResult) --------------------
 
 
 async def test_record_metrics_inserts_all_four_tables(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
 ):
     sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-rec-1"))
     metrics = make_metrics(
@@ -279,7 +279,7 @@ async def test_record_metrics_inserts_all_four_tables(
 
 
 async def test_record_metrics_stores_pressure_rows(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
 ):
     """agent 발행값 전부 보존(#B) — PSI 는 server_pressure 시계열(resource x scope) 로 저장.
 
@@ -316,7 +316,7 @@ async def test_record_metrics_stores_pressure_rows(
 
 
 async def test_record_metrics_idempotent_on_conflict(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
 ):
     """같은 (server_id, collected_at) 재호출 시 ON CONFLICT DO NOTHING — 모든 카운트 0."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-rec-2"))
@@ -337,7 +337,7 @@ async def test_record_metrics_idempotent_on_conflict(
 
 
 async def test_record_metrics_skips_empty_collections(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
 ):
     """disk_io/filesystems/net_io 빈 리스트면 해당 INSERT skip — count 0."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-rec-3"))
@@ -355,7 +355,7 @@ async def test_record_metrics_skips_empty_collections(
 
 
 async def test_record_metrics_independent_collected_at_succeeds(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
 ):
     """collected_at이 다르면 두 번 다 INSERT (UNIQUE 자연키는 (server_id, collected_at))."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-rec-4"))
@@ -370,7 +370,7 @@ async def test_record_metrics_independent_collected_at_succeeds(
 
 
 async def test_record_metrics_per_device_unique(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
 ):
     """server_disk_io UNIQUE = (server_id, device_id, collected_at) — 같은 ts 다른 device_id는 OK."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-rec-5"))
@@ -389,11 +389,11 @@ async def test_record_metrics_per_device_unique(
     assert result.disk_io == 3
 
 
-# ─── boot_time / agent_started_at 보존 (counter reset 정밀 식별 의존) ───────
+# --- boot_time / agent_started_at 보존 (counter reset 정밀 식별 의존) -------
 
 
 async def test_record_metrics_persists_boot_time_envelope(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
     """boot_time/agent_started_at 은 envelope(server_metrics)에만 저장한다.
@@ -433,11 +433,11 @@ async def test_record_metrics_persists_boot_time_envelope(
         assert count == 1, f"{table} should reference the envelope at same (server_id, collected_at)"
 
 
-# ─── 명시 select 후 _inventory_changed 회귀 (C5) ──────────────────────────
+# --- 명시 select 후 _inventory_changed 회귀 (C5) --------------------------
 
 
 async def test_upsert_server_history_appended_on_change(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
     """C5 명시 select(_INVENTORY_COMPARE_COLS) 후에도 변경 감지 동일 — history 한 행 append.
@@ -461,7 +461,7 @@ async def test_upsert_server_history_appended_on_change(
 
 
 async def test_upsert_server_history_not_appended_when_unchanged(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
     """비교 컬럼 동일 + collected_at만 다름 (1h 주기 재발행 시뮬) → history 추가 없음."""
@@ -483,7 +483,7 @@ async def test_upsert_server_history_not_appended_when_unchanged(
 
 
 async def test_upsert_server_history_appended_on_boot_change(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
     """_inventory_changed 가 boot(JSONB) 변경을 감지 → history append (재현 필드도 변경 감지 대상)."""
@@ -511,7 +511,7 @@ async def test_upsert_server_history_appended_on_boot_change(
 
 
 async def test_upsert_server_persists_reproduction_columns(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
     """_inventory_row/_append_inventory_history 가 재현 컬럼을 server_inventory + history 양쪽에 기록."""

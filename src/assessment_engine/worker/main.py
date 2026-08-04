@@ -15,9 +15,9 @@ from typing import TYPE_CHECKING
 from loguru import logger
 
 from assessment_engine.cache.redis import close_pool, get_redis
-from assessment_engine.db.repositories.collect_repository import CollectRepository
-from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
-from assessment_engine.db.repositories.query.query_repository import QueryRepository
+from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
+from assessment_engine.db.repositories.diagnostic_sql import SqlDiagnosticRepository
+from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
 from assessment_engine.db.session import get_session_factory
 from assessment_engine.log_config import setup_logging
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
 async def _query_service_factory() -> AsyncGenerator[QueryService]:
     """job 마다 독립 세션의 QueryService — 생성 쿼리 트랜잭션 분리."""
     async with get_session_factory()() as session:
-        yield QueryService(QueryRepository(session), get_redis())
+        yield QueryService(SqlQueryRepository(session), get_redis())
 
 
 async def main() -> None:
@@ -53,7 +53,7 @@ async def main() -> None:
 
     diag_service = DiagnosticService(
         session_factory=get_session_factory(),
-        diagnostic_repo_factory=DiagnosticRepository,
+        diagnostic_repo_factory=SqlDiagnosticRepository,
     )
     report_task = asyncio.create_task(
         run_report_worker(
@@ -67,7 +67,7 @@ async def main() -> None:
     reaper_task = asyncio.create_task(
         run_task_reaper(
             session_factory=get_session_factory(),
-            collect_repo_factory=CollectRepository,
+            collect_repo_factory=SqlCollectRepository,
             interval_sec=get_worker_settings().install_reaper_interval_sec,
             stop_event=stop_event,
         )

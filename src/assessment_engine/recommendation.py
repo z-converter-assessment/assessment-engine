@@ -20,7 +20,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Literal
 
-# ─── 임계값 ─────────────
+# --- 임계값 -------------
 
 # 관찰 윈도우 — 평가·차트·보고서 공통 표준 기간 (F10 단일 진실).
 # 14일 = AWS Compute Optimizer 기본 lookback (계층3) — 최근 대표 부하. 분류·신뢰도 입력이 모두 이 창.
@@ -69,7 +69,7 @@ PROCS_BLOCKED_DSTATE_SATURATION = 1.0
 
 
 type Recommendation = Literal[
-    "idle",  # 유휴 — 수요≈0 미사용 상태. 조치(종료·통합)는 파생 권고 층(상태 아님).
+    "idle",  # 유휴 — 수요~0 미사용 상태. 조치(종료·통합)는 파생 권고 층(상태 아님).
     "over_provisioned",
     "under_provisioned",
     "optimal",
@@ -111,7 +111,7 @@ class ResourceStats:
     # mem_pages_input_rate_p95 = Memory\Pages Input/sec rate p95 (하드 페이지 폴트율, mmap 미혼입).
     mem_pages_input_rate_p95: float | None = None
 
-    # ─── per-resource USE 신호 (전부 default None/False — 미보유 agent 는 graceful skip) ───
+    # --- per-resource USE 신호 (전부 default None/False — 미보유 agent 는 graceful skip) ---
     # CPU
     cpu_percore_p95_max: float | None = None  # 코어별 p95 최대 — 단일스레드 병목 감지(집계로는 낮게 보임)
     procs_blocked_p95: float | None = None  # D-state IO 블록 p95 — 근본원인: IO발 CPU 로드 분리
@@ -269,7 +269,7 @@ def mem_saturated(stats: ResourceStats) -> bool | None:
     return stats.mem_swap_paging
 
 
-# ─── UI 라벨 (한국어, 양식 A 사용자 친화 표시용) ──────────────────────────
+# --- UI 라벨 (한국어, 양식 A 사용자 친화 표시용) --------------------------
 
 LABEL_KO: dict[str, str] = {
     "idle": "유휴",
@@ -325,7 +325,7 @@ CLASSIFICATION_ORDER: dict[str, int] = {
 }
 
 
-# ─── 조치 권고 — 상태에서 파생하는 단일 진실 (상태 vs 조치 분리) ──────────────
+# --- 조치 권고 — 상태에서 파생하는 단일 진실 (상태 vs 조치 분리) --------------
 # 상태(LABEL_KO)는 "무엇인가", 본 층은 "그래서 뭘 하나". 표시 계층(report·environment_report)이 소비.
 # class-level 기본 문구 — 분포 막대·분류 요약(per-host stats 없는 맥락). 유휴 per-host 세분은 recommend_action.
 RECOMMENDATION_ACTION_KO: dict[str, str] = {
@@ -358,12 +358,12 @@ def recommend_action(rec: Recommendation, stats: ResourceStats) -> str:
     return RECOMMENDATION_ACTION_KO.get(rec, "")
 
 
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 # 자원 적정성 분류 — 자원 5개를 각각 USE 로 판정하고 인과 근본원인으로 호스트를 종합한다.
 # 임계는 전부 (계층, 출처)를 명기한다. 명세·근거 단일 진실 = `docs/reference/right-sizing.md`.
-# ═══════════════════════════════════════════════════════════════════════════
+# ===========================================================================
 
-# ─── 신 임계 (전부 tier 근거 — 계층·출처 명기) ───
+# --- 신 임계 (전부 tier 근거 — 계층·출처 명기) ---
 RS_CPU_UNDER_PCT = 70  # 계층2 큐잉 무릎(Kleinrock) + 계층3 AWS Compute Optimizer Balanced(<70%, P95)
 RS_CPU_SIZING_TARGET_PCT = 70  # 계층3 AWS Balanced — 증설·다운사이즈 공통 이용률 목표(비대칭 없음)
 RS_CPU_SAT_HEADROOM = 0.7  # 여유 기준 — 증설 시 실행큐/코어를 포화선의 0.7배 아래로
@@ -1021,7 +1021,7 @@ def downsize_prescribable(assessment: ResourceAssessment, stats: ResourceStats) 
     return not (stats.sample_sufficiency is None or stats.sample_sufficiency < RS_DOWNSIZE_MIN_SUFFICIENCY)
 
 
-# ─── 표시 라벨 (한국어, mapper/템플릿 소비) ───
+# --- 표시 라벨 (한국어, mapper/템플릿 소비) ---
 RS_STATUS_LABEL_KO: dict[str, str] = {
     "under": "부족",
     "optimal": "정상",

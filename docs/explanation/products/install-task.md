@@ -117,7 +117,6 @@ ZDM 패키지 contract:
 
 ## 관련 문서·코드
 
-- Task 별도 큐 모델 결정 기록: `docs/decisions/adr/`
 - `docs/reference/contracts/agent-data.md` "J1. task.result" 절 — 메시지 schema·필드 카탈로그
 - `docs/reference/rabbitmq.md` — exchange·queue·routing key 토폴로지
 - `src/assessment_engine/web/services/task_service.py` — Task 발행

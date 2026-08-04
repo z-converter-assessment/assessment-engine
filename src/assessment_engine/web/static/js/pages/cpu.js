@@ -41,7 +41,7 @@ function renderCoreGrid(cores) {
     .join('');
 }
 
-/* ── 스냅샷 ── */
+/* -- 스냅샷 -- */
 async function loadSnapshot() {
   try {
     const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
@@ -67,7 +67,7 @@ async function loadSnapshot() {
   }
 }
 
-/* ── 단일 라인 차트 (CPU 사용률) — usage 만 agg 토글 별도 ── */
+/* -- 단일 라인 차트 (CPU 사용률) — usage 만 agg 토글 별도 -- */
 let usageAgg   = 'avg';
 /** @type {any} */
 let usageChart = null;
@@ -146,7 +146,7 @@ async function loadUsageChart() {
 
 bindToggle('usage-agg-btns', (/** @type {string} */ v) => { usageAgg = v; loadUsageChart(); });
 
-/* ── CPU 분류 추이 (user / system / iowait) ── */
+/* -- CPU 분류 추이 (user / system / iowait) -- */
 /** @type {any} */
 let compChart   = null;
 /** @type {any[]} */
@@ -245,7 +245,7 @@ async function loadCompChart() {
   } catch(e) { console.error(e); }
 }
 
-/* ── 실행 큐 추이 (os-aware: Linux procs_running / Windows Processor Queue, 코어당) ── */
+/* -- 실행 큐 추이 (os-aware: Linux procs_running / Windows Processor Queue, 코어당) -- */
 /** @type {any} */
 let loadChart   = null;
 /** @type {any[]} */
@@ -273,7 +273,7 @@ function renderLoadChart(range, anchorEnd) {
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);
   const labels = grid.map((/** @type {number} */ t) => fmtLabel(new Date(t).toISOString(), range));
-  // cpu.run_queue 는 backend 가 이미 Σ실행큐/Σcores(코어당) 반환 — valueFn 불요. 1.0 Linux·2.0 Windows 포화.
+  // cpu.run_queue 는 backend 가 이미 sum(실행큐)/sum(cores)(코어당) 반환 — valueFn 불요. 1.0 Linux·2.0 Windows 포화.
   const datasets = buildDimDatasets(rows, bMs, grid, RUNQ_META, { pointRadius: 1 });
 
   if (loadChart) {
@@ -323,7 +323,7 @@ async function loadLoadChart() {
   } catch(e) { console.error(e); }
 }
 
-/* ── 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) ── */
+/* -- 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) -- */
 function updateBucketLabels() {
   const r = timeCtl.getRange();
   const pr = ' — ' + RANGE_LABEL[r];
@@ -334,7 +334,7 @@ function updateBucketLabels() {
   set('usage-range-print', pr); set('comp-range-print', pr); set('load-range-print', pr);
 }
 
-/* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
+/* -- 전체 차트 reload (페이지 range/anchor 변경 시) -- */
 function reloadAllCharts() {
   updateBucketLabels();
   loadUsageChart();
@@ -345,9 +345,9 @@ function reloadAllCharts() {
 // 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 3 차트 전체 구동(#F10).
 const timeCtl = pageTimeControl('page-range-btns', 'page-anchor', '15m', reloadAllCharts);
 
-/* ── 30초 polling 자동 갱신 (스냅샷만) ── */
+/* -- 30초 polling 자동 갱신 (스냅샷만) -- */
 initAutoRefresh(loadSnapshot);
 
-/* ── 초기 로드 ── */
+/* -- 초기 로드 -- */
 loadSnapshot();
 reloadAllCharts();

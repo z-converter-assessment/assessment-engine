@@ -71,7 +71,7 @@ cagg 정의에는 WHERE 절이 없어 전 device/interface 를 담는다. 물리
 
 ## 보고서 집계 — `report_aggregate`
 
-USE Method (Brendan Gregg) 기반 N서버 x period_days 통계. CTE 구성과 산식은 `db/repositories/query/report.py` 단일 진실이고, 본 절은 코드만 봐서는 안 서는 판단 근거만 담는다.
+USE Method (Brendan Gregg) 기반 N서버 x period_days 통계. CTE 구성과 산식은 `db/repositories/query/report_sql.py` 단일 진실이고, 본 절은 코드만 봐서는 안 서는 판단 근거만 담는다.
 
 - 입력은 raw hypertable 이 아니라 cagg 5종이다 — `server_metrics_5m`(CPU·mem·run_queue·blocked·steal·paging·oom·retrans·conntrack) / `server_filesystem_5m`(마운트 used%·inode%·runway) / `server_disk_io_5m`(await·iops baseline) / `server_net_io_5m`(drop·retrans 분모) / `server_cpu_core_5m`(per-core p95). `report_disk_io_baseline`·`report_net_io_baseline`·`report_memory_breakdown`·`report_cpu_breakdown` 도 같은 cagg 를 본다.
 - 최종 SELECT 가 `server_inventory` 를 좌변에 두고 통계 CTE 를 전부 LEFT JOIN 하는 이유는 metric 이 한 건도 없는 서버까지 행으로 돌려보내기 위해서다 — 그 행은 service 가 `insufficient_data` 로 분류한다.

@@ -24,12 +24,12 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository, MetricInsertResult
+    from assessment_engine.db.repositories.collect import CollectRepository, MetricInsertResult
 
 
 def make_metrics_handler(
     session_factory: async_sessionmaker[AsyncSession],
-    repo_factory: Callable[[AsyncSession], BaseCollectRepository],
+    repo_factory: Callable[[AsyncSession], CollectRepository],
     redis: Redis,
 ) -> Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]:
     async def _handle(message: AbstractIncomingMessage) -> None:
@@ -54,7 +54,7 @@ def make_metrics_handler(
             dto = to_metric_create(data)
             placeholder = build_placeholder_inventory(data)
 
-            async def save(repo: BaseCollectRepository) -> tuple[int, bool, MetricInsertResult]:
+            async def save(repo: CollectRepository) -> tuple[int, bool, MetricInsertResult]:
                 # ensure_server_id 가 find->upsert 캡슐화. find 성공 시 placeholder 미사용.
                 server_id, auto_registered = await repo.ensure_server_id(str(data.agent_id), placeholder)
                 result = await repo.record_metrics(server_id, dto)

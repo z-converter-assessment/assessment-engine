@@ -118,7 +118,7 @@ model: opus
 짧은 결론 + 권장 액션 (어느 쪽을 어떻게 맞출지)
 ```
 
-주의: 본 출력에는 markdown bold(`**...**`), 비키보드 unicode 기호(↔ 포함), 이모지 사용 금지 (글로벌 CLAUDE.md). 강조는 단어 선택과 표 구조로 표현.
+주의: 본 출력에는 markdown bold(`**...**`), 비키보드 unicode 기호, 이모지 사용 금지 (글로벌 CLAUDE.md). 강조는 단어 선택과 표 구조로 표현.
 
 ## Must Not
 

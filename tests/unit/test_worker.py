@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+    from assessment_engine.db.repositories.collect import CollectRepository
     from assessment_engine.web.services.diagnostic_service import DiagnosticService
     from assessment_engine.web.services.query_service import QueryService
 
@@ -59,7 +59,7 @@ class _FakeDiag:
             raise RuntimeError("claim failed")
 
 
-# ─── WorkerSettings ───────────────────────────────────────────
+# --- WorkerSettings -------------------------------------------
 
 
 def test_worker_settings_exposes_worker_fields():
@@ -74,7 +74,7 @@ def test_worker_settings_exposes_worker_fields():
     assert s.database_url.startswith("postgresql+asyncpg://")
 
 
-# ─── run_report_worker ────────────────────────────────────────
+# --- run_report_worker ----------------------------------------
 
 
 async def test_report_worker_survives_startup_recover_failure():
@@ -132,7 +132,7 @@ async def test_report_worker_survives_claim_failure():
     assert diag.claim_calls >= 1  # 예외에도 반복 시도
 
 
-# ─── run_task_reaper ──────────────────────────────────────────
+# --- run_task_reaper ------------------------------------------
 
 
 class _FakeRepo:
@@ -170,11 +170,11 @@ def _collect(messages: list[str]) -> Callable[[Any], None]:
     return _sink
 
 
-def _repo_factory(repo: object) -> Callable[[AsyncSession], BaseCollectRepository]:
+def _repo_factory(repo: object) -> Callable[[AsyncSession], CollectRepository]:
     """reaper 가 세션마다 부르는 repo 팩토리 — 대역 하나를 그대로 돌려준다."""
 
-    def _factory(_s: AsyncSession) -> BaseCollectRepository:
-        return cast("BaseCollectRepository", repo)
+    def _factory(_s: AsyncSession) -> CollectRepository:
+        return cast("CollectRepository", repo)
 
     return _factory
 
@@ -224,7 +224,7 @@ async def test_task_reaper_stops_on_event():
     assert repo.calls >= 1
 
 
-# ─── graceful_drain (F11 — 진행 중 1건 drain, 초과 시 cancel) ────
+# --- graceful_drain (F11 — 진행 중 1건 drain, 초과 시 cancel) ----
 
 
 async def test_graceful_drain_completes_within_timeout():
@@ -307,7 +307,7 @@ async def test_graceful_drain_swallows_already_cancelled():
     assert stop.is_set()
 
 
-# ─── _resolve_install_dispatch (OS 분기 순수함수, ADR 0019/0020) ──
+# --- _resolve_install_dispatch (OS 분기 순수함수, ADR 0019/0020) --
 
 
 def test_resolve_install_dispatch_linux():

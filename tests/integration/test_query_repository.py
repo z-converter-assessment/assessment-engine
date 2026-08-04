@@ -1,4 +1,4 @@
-"""QueryRepository 통합 테스트 (wire) — 정확화 검증.
+"""SqlQueryRepository 통합 테스트 (wire) — 정확화 검증.
 
 검증 영역:
 - inventory query (resolve_server_id, list_servers, get_server)
@@ -23,8 +23,8 @@ from tests.factories import _DISK_DEVICE_ID, agent_id_for, make_inventory, make_
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-    from assessment_engine.db.repositories.collect_repository import CollectRepository
-    from assessment_engine.db.repositories.query.query_repository import QueryRepository
+    from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
+    from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
     from assessment_engine.db.repositories.query.types import EnvironmentMetricType, MetricType
 
 
@@ -92,7 +92,7 @@ _ALL_ENV_METRIC_TYPES: list[EnvironmentMetricType] = [
 
 
 async def _seed_one_server_with_metrics(
-    collect_repo: CollectRepository,
+    collect_repo: SqlCollectRepository,
     composite_id: str = "q-001",
     n_points: int = 3,
 ) -> tuple[int, datetime]:
@@ -152,12 +152,12 @@ async def _seed_one_server_with_metrics(
     return sid, base_ts
 
 
-# ─── inventory ────────────────────────────────────────────────────────────
+# --- inventory ------------------------------------------------------------
 
 
 async def test_resolve_server_id_existing(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-resolve-1"))
     inv_row = (
@@ -170,13 +170,13 @@ async def test_resolve_server_id_existing(
     assert resolved == sid
 
 
-async def test_resolve_server_id_missing(query_repo: QueryRepository):
+async def test_resolve_server_id_missing(query_repo: SqlQueryRepository):
     assert await query_repo.resolve_server_id("00000000-0000-0000-0000-000000000000") is None
 
 
 async def test_list_servers_returns_with_last_seen_at(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """list_servers DTO에 last_seen_at 포함 — Redis fail-open fallback용."""
     await collect_repo.upsert_server(make_inventory(composite_id="q-list-1", hostname="host-a"))
@@ -188,8 +188,8 @@ async def test_list_servers_returns_with_last_seen_at(
 
 
 async def test_list_servers_search_filter(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     await collect_repo.upsert_server(make_inventory(composite_id="q-srch-1", hostname="alpha-server"))
     await collect_repo.upsert_server(make_inventory(composite_id="q-srch-2", hostname="beta-server"))
@@ -200,8 +200,8 @@ async def test_list_servers_search_filter(
 
 
 async def test_get_server_returns_full_detail(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     sid = await collect_repo.upsert_server(
         make_inventory(composite_id="q-detail-1", hostname="detail-host", cpu_cores=12)
@@ -212,16 +212,16 @@ async def test_get_server_returns_full_detail(
     assert detail.cpu_cores == 12
 
 
-async def test_get_server_missing(query_repo: QueryRepository):
+async def test_get_server_missing(query_repo: SqlQueryRepository):
     assert await query_repo.get_server(999_999) is None
 
 
-# ─── _latest_per_dimension (n=1) — get_storage ────────────────────────────
+# --- _latest_per_dimension (n=1) — get_storage ----------------------------
 
 
 async def test_get_storage_returns_only_latest_per_mount(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """같은 mount의 여러 시점 데이터 중 최신 1행만 반환 (DISTINCT ON)."""
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-stor-1", n_points=3)
@@ -232,12 +232,12 @@ async def test_get_storage_returns_only_latest_per_mount(
     assert storage.filesystems[0].mountpoint == "/"
 
 
-# ─── _latest_per_dimension (n=2) — get_network ────────────────────────────
+# --- _latest_per_dimension (n=2) — get_network ----------------------------
 
 
 async def test_get_network_returns_at_most_2_per_interface(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """delta 계산용 — interface당 최신 2행 (PARTITION BY + ROW_NUMBER)."""
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-net-1", n_points=5)
@@ -248,12 +248,12 @@ async def test_get_network_returns_at_most_2_per_interface(
     assert len(eth0_rows) == 2
 
 
-# ─── collection_status ────────────────────────────────────────────────────
+# --- collection_status ----------------------------------------------------
 
 
 async def test_collection_status_reports_both_timestamps(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-cs-1", n_points=2)
     status = await query_repo.get_collection_status(sid)
@@ -262,16 +262,16 @@ async def test_collection_status_reports_both_timestamps(
     assert status.last_metric_at is not None
 
 
-async def test_collection_status_missing_server(query_repo: QueryRepository):
+async def test_collection_status_missing_server(query_repo: SqlQueryRepository):
     assert await query_repo.get_collection_status(999_999) is None
 
 
-# ─── latest_dashboard — 3번의 _latest_per_dimension 통합 ──────────────────
+# --- latest_dashboard — 3번의 _latest_per_dimension 통합 ------------------
 
 
 async def test_latest_dashboard_returns_all_four_blocks(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-dash-1", n_points=3)
     dash = await query_repo.latest_dashboard(sid)
@@ -286,13 +286,13 @@ async def test_latest_dashboard_returns_all_four_blocks(
     assert len(dash.filesystems) == 1
 
 
-async def test_latest_dashboard_missing_server(query_repo: QueryRepository):
+async def test_latest_dashboard_missing_server(query_repo: SqlQueryRepository):
     assert await query_repo.latest_dashboard(999_999) is None
 
 
 async def test_latest_dashboard_skips_future_timestamp_rows(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """미래 timestamp 행 방어 — 시계 어긋난 agent 가 미래 collected_at 으로 발행해도 그 행을 "최신"으로
 
@@ -344,14 +344,14 @@ async def test_latest_dashboard_skips_future_timestamp_rows(
     assert all(mu.collected_at is not None and mu.collected_at < future_ts for mu in dash.filesystems)
 
 
-# ─── metric_chart dispatcher — 17개 metric_type 모두 무사 dispatch ────────
+# --- metric_chart dispatcher — 17개 metric_type 모두 무사 dispatch --------
 
 
 @pytest.mark.parametrize("metric_type", _ALL_METRIC_TYPES)
 async def test_metric_chart_dispatcher_all_types(
     metric_type: MetricType,
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """모든 metric_type이 dispatcher를 통과하고 SQL이 정상 실행 — 결과는 비어도 OK."""
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id=f"q-mc-{metric_type}", n_points=3)
@@ -370,8 +370,8 @@ async def test_metric_chart_dispatcher_all_types(
 @pytest.mark.parametrize("metric_type", _ALL_ENV_METRIC_TYPES)
 async def test_metric_trend_env_dispatcher_all_types(
     metric_type: EnvironmentMetricType,
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """EnvironmentMetricType 전량이 collapse=True dispatch 를 통과 — 결과는 비어도 OK(#F9)."""
     sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id=f"q-env-{metric_type}", n_points=3)
@@ -388,12 +388,12 @@ async def test_metric_trend_env_dispatcher_all_types(
     assert isinstance(rows, list)
 
 
-# ─── metric_chart helper 결과 정확성 ──────────────────────────────────────
+# --- metric_chart helper 결과 정확성 --------------------------------------
 
 
 async def test_metric_chart_cpu_usage_percent_returns_data(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """_chart_cpu_delta — n_points=3이면 LAG로 d_total > 0인 행 2개 → 시간 버킷 >= 1."""
     sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-cpu-1", n_points=3)
@@ -415,12 +415,12 @@ async def test_metric_chart_cpu_usage_percent_returns_data(
 
 
 async def test_metric_chart_disk_io_saturation_returns_await(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
-    """disk.io_saturation — await(ms) 로 양 OS 통일. Σ(Δop_time)/Σ(Δops)*1000.
+    """disk.io_saturation — await(ms) 로 양 OS 통일. sum(delta(op_time))/sum(delta(ops))*1000.
 
-    시드 op_time/ops 델타 + io_time_s(device util >= RS_DISKIO_UTIL_MIN 게이트 통과 — 60s 간격에 Δ40s=0.67).
+    시드 op_time/ops 델타 + io_time_s(device util >= RS_DISKIO_UTIL_MIN 게이트 통과 — 60s 간격에 40s delta = 0.67).
 
     device_id 는 물리 디스크 필터(`_PHYS_DISK_SQL_FILTER`)가 조인하는 "name:{block_devices.name}" 규약 —
     inventory 에 동일 name 의 disk 노드가 있어야 chart 가 값을 낸다(tests/factories.py 상단 규약 주석).
@@ -445,7 +445,7 @@ async def test_metric_chart_disk_io_saturation_returns_await(
                         ops_write=0,
                         op_read_time_s=1.0 + i * 1.0,
                         op_write_time_s=0.0,
-                        io_time_s=i * 40.0,  # Δ40s / 60s wall = 0.67 util >= 0.5 게이트 통과
+                        io_time_s=i * 40.0,  # 40s delta / 60s wall = 0.67 util >= 0.5 게이트 통과
                         io_read_bytes=0,
                         io_write_bytes=0,
                     )
@@ -467,8 +467,8 @@ async def test_metric_chart_disk_io_saturation_returns_await(
 
 
 async def test_metric_chart_disk_io_saturation_excludes_idle_disk(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """disk.io_saturation — ops 델타 0(유휴 디스크)은 d_ops>0 필터로 제외 → await 값 없음."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-dsat-idle"))
@@ -506,8 +506,8 @@ async def test_metric_chart_disk_io_saturation_excludes_idle_disk(
 
 
 async def test_metric_chart_disk_io_saturation_util_gate_excludes_low_activity(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """disk.io_saturation util-gate(2-1) — ops 델타는 있으나 io_time util < RS_DISKIO_UTIL_MIN 인 저활동
 
@@ -525,10 +525,10 @@ async def test_metric_chart_disk_io_saturation_util_gate_excludes_low_activity(
                         device_id="sda",
                         device_name="sda",
                         ops_read=100 + i * 2,
-                        ops_write=0,  # Δ2 극소 ops
+                        ops_write=0,  # 2 delta, 극소 ops
                         op_read_time_s=i * 10.0,
-                        op_write_time_s=0.0,  # Δ10s -> await 5000ms(폭증)
-                        io_time_s=i * 3.0,  # Δ3s / 60s wall = 0.05 util < 0.5 -> 게이트 탈락
+                        op_write_time_s=0.0,  # 10s delta -> await 5000ms(폭증)
+                        io_time_s=i * 3.0,  # 3s delta / 60s wall = 0.05 util < 0.5 -> 게이트 탈락
                         io_read_bytes=0,
                         io_write_bytes=0,
                     )
@@ -548,8 +548,8 @@ async def test_metric_chart_disk_io_saturation_util_gate_excludes_low_activity(
 
 
 async def test_metric_chart_fs_usage_returns_per_mount(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """_chart_fs — dimension=mount, 시점 값. 각 행에 dimension 채워짐."""
     sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-fs-1", n_points=2)
@@ -571,8 +571,8 @@ async def test_metric_chart_fs_usage_returns_per_mount(
 
 
 async def test_metric_chart_disk_read_iops_per_device(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """_chart_rate_per_dimension — disk_io의 LAG/dt 기반 IOPS. dimension=device 채워짐.
 
@@ -623,8 +623,8 @@ async def test_metric_chart_disk_read_iops_per_device(
 
 
 async def test_metric_chart_cpu_reset_excludes_counter_decrease(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """metric_chart(metric_trend 위임) — CPU counter reset(재부팅 후 jiffies 0 재시작 = 값 감소)은
 
@@ -671,8 +671,8 @@ async def test_metric_chart_cpu_reset_excludes_counter_decrease(
 
 
 async def test_metric_chart_rate_clamps_counter_decrease(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """rate 차트(rate/dim) — counter reset(값 감소)은 GREATEST(delta,0)로 0 클램프.
 
@@ -722,8 +722,8 @@ async def test_metric_chart_rate_clamps_counter_decrease(
 
 
 async def test_reboot_events_classifies_boot_time_change_as_reboot(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """server_inventory_history에 boot_time 변경 시점 → kind='reboot'."""
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=2)
@@ -764,8 +764,8 @@ async def test_reboot_events_classifies_boot_time_change_as_reboot(
 
 
 async def test_reboot_events_classifies_agent_only_change_as_restart(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """boot_time 동일 + agent_started_at만 변경 → kind='restart'."""
     base_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=2)
@@ -805,8 +805,8 @@ async def test_reboot_events_classifies_agent_only_change_as_restart(
 
 
 async def test_metric_chart_dimension_filter(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """dimension 파라미터로 특정 device만 필터.
 
@@ -873,12 +873,12 @@ async def test_metric_chart_dimension_filter(
     assert any(r.dimension == "sdb" for r in rows_all)
 
 
-# ─── metric_snapshots ─────────────────────────────────────────────────────
+# --- metric_snapshots -----------------------------------------------------
 
 
 async def test_metric_snapshots_returns_timestamps(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-snap-1", n_points=5)
     rows = await query_repo.metric_snapshots(sid, cursor=None, limit=10)
@@ -890,8 +890,8 @@ async def test_metric_snapshots_returns_timestamps(
 
 
 async def test_metric_snapshots_cursor_pagination(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """cursor 이전 timestamps만."""
     sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-snap-2", n_points=4)
@@ -900,12 +900,12 @@ async def test_metric_snapshots_cursor_pagination(
     assert all(r.collected_at < cursor for r in rows)
 
 
-# ─── batch resolve / get_servers (C5 N+1 회피) ────────────────────────────
+# --- batch resolve / get_servers (C5 N+1 회피) ----------------------------
 
 
 async def test_resolve_server_ids_batch_returns_dict(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
     db_session: AsyncSession,
 ):
     """N개 public_id → {public_id: server_id} 단일 SQL."""
@@ -928,8 +928,8 @@ async def test_resolve_server_ids_batch_returns_dict(
 
 
 async def test_resolve_server_ids_skips_missing(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
     db_session: AsyncSession,
 ):
     """미존재 public_id는 dict에서 누락 — caller가 missing 분기."""
@@ -946,14 +946,14 @@ async def test_resolve_server_ids_skips_missing(
     assert fake_pid not in result
 
 
-async def test_resolve_server_ids_empty_input(query_repo: QueryRepository):
+async def test_resolve_server_ids_empty_input(query_repo: SqlQueryRepository):
     """빈 입력 → 빈 dict (DB 쿼리 0건)."""
     assert await query_repo.resolve_server_ids([]) == {}
 
 
 async def test_get_servers_batch_returns_all_details(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """N개 server_id → N개 ServerDetail 단일 SQL."""
     sid_a = await collect_repo.upsert_server(make_inventory(composite_id="q-gs-a", hostname="host-a"))
@@ -966,8 +966,8 @@ async def test_get_servers_batch_returns_all_details(
 
 
 async def test_get_servers_skips_missing(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """미존재 server_id는 결과에서 누락 — caller가 dict로 매핑."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gs-missing"))
@@ -976,17 +976,17 @@ async def test_get_servers_skips_missing(
     assert details[0].id == sid
 
 
-async def test_get_servers_empty_input(query_repo: QueryRepository):
+async def test_get_servers_empty_input(query_repo: SqlQueryRepository):
     """빈 입력 → 빈 list (DB 쿼리 0건)."""
     assert await query_repo.get_servers([]) == []
 
 
-# ─── partition pruning (C5 _latest_per_dimension 30d 윈도우) ──────────────
+# --- partition pruning (C5 _latest_per_dimension 30d 윈도우) --------------
 
 
 async def test_latest_per_dimension_excludes_data_older_than_30d(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """_latest_per_dimension은 30d 윈도우. 31일 전 mount 데이터는 get_storage 결과에서 제외."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-prune-1"))
@@ -1009,13 +1009,13 @@ async def test_latest_per_dimension_excludes_data_older_than_30d(
     assert "/old" not in mount_names, "30d 이상 오래된 mount가 결과에 포함됨 — partition pruning 미적용"
 
 
-# ─── attention 신호: metric_gap_warnings (통신 끊김 운영신호) ──────────────
+# --- attention 신호: metric_gap_warnings (통신 끊김 운영신호) --------------
 # disk_usage_warnings 는 운영신호에서 USE Method 로 이동(코드 제거) — 관련 테스트 삭제됨.
 
 
 async def test_metric_gap_warnings_excludes_recent_metric(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """방금 metric 발행한 서버는 갭 없음 — 결과 제외."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gap-fresh", hostname="fresh-host"))
@@ -1025,8 +1025,8 @@ async def test_metric_gap_warnings_excludes_recent_metric(
 
 
 async def test_metric_gap_warnings_includes_gap_in_window(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """5분~24h 윈도우 안에 마지막 metric → 결과 포함."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gap-mid", hostname="gap-host"))
@@ -1039,8 +1039,8 @@ async def test_metric_gap_warnings_includes_gap_in_window(
 
 
 async def test_metric_gap_warnings_excludes_dead_server(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """24h 이상 metric 없는 dead 서버는 갭 결과 제외 (한때 살아있던 서버 대상이 아님)."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gap-dead", hostname="dead-host"))
@@ -1051,8 +1051,8 @@ async def test_metric_gap_warnings_excludes_dead_server(
 
 
 async def test_metric_gap_warnings_no_metric_excluded(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """metric 한 번도 발행 안 한 서버 — JOIN 조건으로 제외."""
     await collect_repo.upsert_server(make_inventory(composite_id="q-gap-none", hostname="never-host"))
@@ -1060,16 +1060,16 @@ async def test_metric_gap_warnings_no_metric_excluded(
     assert all(r.hostname != "never-host" for r in rows)
 
 
-# ─── mount 사용률 신호는 report_aggregate 가 단일 산출 ────────────────
+# --- mount 사용률 신호는 report_aggregate 가 단일 산출 ----------------
 # worst mount used% + 용량 임박 구동 마운트(runway) 모두 report_aggregate (test_query_repository_report.py).
 
 
-# ─── environment_utilization ──────────────────────────────────────────────
+# --- environment_utilization ----------------------------------------------
 
 
 async def test_environment_utilization_returns_averages(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """CPU·MEM·DISK capacity-weighted 평균 정상 산출 (단일 서버라 동등가중과 동치)."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-util-01", hostname="util-host"))
@@ -1106,22 +1106,22 @@ async def test_environment_utilization_returns_averages(
             net_io=[],
         ),
     )
-    # CPU: LAG pair 1개. (1 - Σd_idle/Σd_total)*100 = (1 - 50/100)*100 = 50%
+    # CPU: LAG pair 1개. (1 - sum(d_idle)/sum(d_total))*100 = (1 - 50/100)*100 = 50%
     util = await query_repo.environment_utilization(period_days=1, end=datetime.now(UTC))
     assert util.cpu_avg_pct is not None
     assert 49.0 <= util.cpu_avg_pct <= 51.0
-    # MEM capacity-weighted = Σused/Σtotal = (50+70)/(100+100) = 60%
+    # MEM capacity-weighted = sum(used)/sum(total) = (50+70)/(100+100) = 60%
     assert util.mem_avg_pct is not None
     assert 59.0 <= util.mem_avg_pct <= 61.0
-    # DISK capacity-weighted = Σused/Σtotal = (60+80)/(100+100) = 70%
+    # DISK capacity-weighted = sum(used)/sum(total) = (60+80)/(100+100) = 70%
     assert util.disk_avg_pct is not None
     assert 69.0 <= util.disk_avg_pct <= 71.0
     assert util.sample_size >= 1
 
 
 async def test_environment_utilization_excludes_outside_window(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """기간 밖 메트릭은 평균에서 제외."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-util-stale"))
@@ -1145,8 +1145,8 @@ async def test_environment_utilization_excludes_outside_window(
 
 
 async def test_environment_utilization_capacity_weighted(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """capacity-weighted: 자원 총량(jiffies/KB) 큰 서버가 큰 비중 — 서버 동등가중과 다른 결과."""
     base_ts = _bucket_aligned_base()
@@ -1186,17 +1186,17 @@ async def test_environment_utilization_capacity_weighted(
             ),
         )
     util = await query_repo.environment_utilization(period_days=1, end=end, server_ids=[small, big])
-    # CPU capacity-weighted = (1 - Σd_idle/Σd_total)*100 = (1 - 910/1100)*100 ≈ 17.3% (동등가중이면 50%)
+    # CPU capacity-weighted = (1 - sum(d_idle)/sum(d_total))*100 = (1 - 910/1100)*100 ~ 17.3% (동등가중이면 50%)
     assert util.cpu_avg_pct is not None
     assert 15.0 <= util.cpu_avg_pct <= 20.0
-    # MEM capacity-weighted = Σused/Σtotal = (180+200)/(200+2000)*100 ≈ 17.3% (동등가중이면 50%)
+    # MEM capacity-weighted = sum(used)/sum(total) = (180+200)/(200+2000)*100 ~ 17.3% (동등가중이면 50%)
     assert util.mem_avg_pct is not None
     assert 15.0 <= util.mem_avg_pct <= 20.0
 
 
 async def test_environment_utilization_server_ids_filter(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """server_ids 지정 시 해당 서버만 집계 (selection 보고서 경로)."""
     base_ts = _bucket_aligned_base()
@@ -1231,8 +1231,8 @@ async def test_environment_utilization_server_ids_filter(
 
 
 async def test_metric_trend_capacity_weighted(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """환경 추이 차트도 capacity-weighted — 버킷 값을 큰 자원 서버가 지배 (카드와 동일 가중)."""
     base_ts = _bucket_aligned_base()
@@ -1262,20 +1262,20 @@ async def test_metric_trend_capacity_weighted(
             )
     bucket = "1h"  # 전 데이터 한 버킷으로 강제
     cpu = await query_repo.metric_trend("cpu.usage_percent", start, end, bucket, [small, big])
-    # 버킷 Σd_num/Σd_total = (90+100)/(100+1000)*100 ~ 17.3% (서버 동등가중이면 50%)
+    # 버킷 sum(d_num)/sum(d_total) = (90+100)/(100+1000)*100 ~ 17.3% (서버 동등가중이면 50%)
     assert cpu
     assert cpu[-1].value is not None
     assert 15.0 <= cpu[-1].value <= 20.0
     mem = await query_repo.metric_trend("mem.usage_percent", start, end, bucket, [small, big])
-    # Σused/Σtotal = (180+200)/(200+2000)*100 ≈ 17.3% (서버 동등가중이면 50%)
+    # sum(used)/sum(total) = (180+200)/(200+2000)*100 ~ 17.3% (서버 동등가중이면 50%)
     assert mem
     assert mem[-1].value is not None
     assert 15.0 <= mem[-1].value <= 20.0
 
 
 async def test_metric_trend_cached_null_component_is_gap_not_zero(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """미측정 성분(Windows mem_cached=null)은 0% 가 아니라 gap 으로 표시 — 측정 0 과 구분 (#C2·A1).
 
@@ -1331,12 +1331,12 @@ async def test_metric_trend_cached_null_component_is_gap_not_zero(
     assert 20.0 <= mixed[-1].value <= 30.0
 
 
-# ─── 이번 세션 신규 SQL 정확성 — mem.paging_pressure / net.congested / fs.usage_percent LOCF ──────────
+# --- 이번 세션 신규 SQL 정확성 — mem.paging_pressure / net.congested / fs.usage_percent LOCF ----------
 
 
 async def test_mem_paging_pressure_crosses_on_linux_refault(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """mem.paging_pressure — Linux 는 paging_major rate > 0 이면 즉시 1.0(존재 판정, mem_pressure_active 와 동일).
 
@@ -1371,8 +1371,8 @@ async def test_mem_paging_pressure_crosses_on_linux_refault(
 
 
 async def test_mem_paging_pressure_flat_stays_zero(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """mem.paging_pressure — paging_major 변화 없으면(delta=0) 항상 0.0(정상)."""
     base_ts = _bucket_aligned_base(minutes_ago=10)
@@ -1399,8 +1399,8 @@ async def test_mem_paging_pressure_flat_stays_zero(
 
 
 async def test_mem_paging_pressure_crosses_on_windows_pages_input(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """회귀: Windows 는 paging.operations 를 direction=in 만 발행(type=major 없음) -> server_metrics.paging_major
 
@@ -1441,8 +1441,8 @@ async def test_mem_paging_pressure_crosses_on_windows_pages_input(
 
 
 async def test_mem_paging_pressure_hosts_counts_windows(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """회귀: mem.paging_pressure_hosts(환경 집계)도 Windows paging_in 을 선택해 카운트에 반영해야 한다."""
     base_ts = _bucket_aligned_base(minutes_ago=10)
@@ -1469,8 +1469,8 @@ async def test_mem_paging_pressure_hosts_counts_windows(
 
 
 async def test_latest_saturation_windows_paging_uses_pages_input(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """회귀(HIGH): latest_saturation(실시간 환경/서버 상세 원자료) 이 Windows 는 paging_major(항상 NULL) 대신
 
@@ -1506,8 +1506,8 @@ _PHYS_IFACE_ID = "mac:52:54:00:12:34:56"  # tests/factories.make_inventory 기�
 
 
 async def test_net_congested_crosses_on_retrans_spike(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """net.congested — 재전송율(>1%)이 저트래픽 게이트를 넘는 트래픽에서 발생하면 1.0.
 
@@ -1536,7 +1536,7 @@ async def test_net_congested_crosses_on_retrans_spike(
             ],
         ),
     )
-    # +1분: 재전송 50건 / 송신 패킷 1000건 증가 -> 5% (임계 1% 초과). 트래픽 800,000B/60s ≈ 13kB/s(임계 10 이상 충족).
+    # +1분: 재전송 50건 / 송신 패킷 1000건 증가 -> 5% (임계 1% 초과). 트래픽 800,000B/60s ~ 13kB/s(임계 10 이상 충족).
     await collect_repo.record_metrics(
         sid,
         make_metrics(
@@ -1569,8 +1569,8 @@ async def test_net_congested_crosses_on_retrans_spike(
 
 
 async def test_net_congested_low_traffic_gate_suppresses_retrans(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """net.congested — 트래픽이 저트래픽 게이트(RS_NET_MIN_TRAFFIC_KBPS) 미만이면 재전송율이 임계를 넘어도 억제."""
     base_ts = _bucket_aligned_base(minutes_ago=10)
@@ -1627,8 +1627,8 @@ async def test_net_congested_low_traffic_gate_suppresses_retrans(
 
 
 async def test_fs_usage_percent_collapse_locf_no_first_bucket_distortion(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """fs.usage_percent(collapse=True) — LATERAL LOCF 로 표본 사이 버킷도 직전 값을 유지해야 한다.
 
@@ -1667,12 +1667,12 @@ async def test_fs_usage_percent_collapse_locf_no_first_bucket_distortion(
         assert 55.0 <= r.value <= 65.0, f"버킷 값이 60~61% 범위를 벗어남(LOCF 왜곡 의심): {r.value}"
 
 
-# ─── cpu.saturation / disk.saturation — 신규 서버 상세 이진(0/1) 포화 3축(엔지니어 보고서 포화 추이) ──────
+# --- cpu.saturation / disk.saturation — 신규 서버 상세 이진(0/1) 포화 3축(엔지니어 보고서 포화 추이) ------
 
 
 async def test_cpu_saturation_crosses_when_run_queue_over_per_core_threshold(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """cpu.saturation — cpu.saturation_hosts(환경, crossing 서버 수)와 동일 원자료·임계, 서버 1대 이진 0/1.
 
@@ -1694,8 +1694,8 @@ async def test_cpu_saturation_crosses_when_run_queue_over_per_core_threshold(
 
 
 async def test_cpu_saturation_stays_zero_under_threshold(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """cpu.saturation — run_queue/core 가 임계(1.0) 미만이면 항상 0.0(정상)."""
     base_ts = _bucket_aligned_base(minutes_ago=10)
@@ -1712,8 +1712,8 @@ async def test_cpu_saturation_stays_zero_under_threshold(
 
 
 async def test_disk_saturation_crosses_when_await_over_threshold(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """disk.saturation — disk.saturation_hosts(환경, crossing 서버 수)와 동일 원자료·임계(RS_DISKIO_AWAIT_MS=20ms).
 
@@ -1750,8 +1750,8 @@ async def test_disk_saturation_crosses_when_await_over_threshold(
 
 
 async def test_disk_saturation_stays_zero_under_threshold(
-    collect_repo: CollectRepository,
-    query_repo: QueryRepository,
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
 ):
     """disk.saturation — await 가 임계(20ms) 미만이면 항상 0.0(정상)."""
     base_ts = _bucket_aligned_base(minutes_ago=10)

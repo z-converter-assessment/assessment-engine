@@ -73,7 +73,7 @@ Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파
 
 Self-audit 메타 인용 제외:
 - 본 명세는 금지 토큰·모호 표현·temp 인용 카탈로그 정의를 위해 해당 토큰을 본문에 인용한다 (예: `TODO` · `향후` · `docs/temp/`).
-- Stage 4 의 grep 검사는 본 명세와 CLAUDE.md 전문(前文) 단일 진실 정의를 제외 — `rg ... --glob '!docs/guides/pre-pr-checklist.md' --glob '!.claude/CLAUDE.md'` 또는 출력 후 메타 인용 필터링. CLAUDE.md 본문 결정 항목은 검사 대상 유지.
+- Stage 4 의 grep 검사는 본 명세와 CLAUDE.md 머리말 단일 진실 정의를 제외 — `rg ... --glob '!docs/guides/pre-pr-checklist.md' --glob '!.claude/CLAUDE.md'` 또는 출력 후 메타 인용 필터링. CLAUDE.md 본문 결정 항목은 검사 대상 유지.
 
 ---
 
@@ -94,10 +94,10 @@ Self-audit 메타 인용 제외:
   - Pydantic: `Field(...)` · `model_validator` · `Annotated[..., Field(...)]` · `SecretStr` 정석. `__init_subclass__` · 런타임 dict 수정 X.
   - SQLAlchemy: declarative ORM + `pg_insert(...).on_conflict_do_*` (#C2). raw SQL 은 `text()` + bound param (#C5).
   - asyncpg: 1 transaction = 1 connection. nested 세션·session 공유 X.
-  - FastAPI: `Depends(...)` · `APIRouter` · 라우터 분리. 글로벌 state X.
+  - FastAPI: `Annotated[..., Depends(...)]` · `APIRouter` · 라우터 분리. 글로벌 state X.
   - Jinja2: 필터 · `{% if %}` · `{% for %}` 만 (#E1 P3). 계산 X.
   - aio-pika: `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료 (#F11).
-- [1.2] 추상화는 정석 위치에만. `BaseSettings` · `Base*Repository` · `*Service` 외 ad-hoc abstract 0건.
+- [1.2] 추상화는 정석 위치에만. `BaseSettings` · repository protocol · `*Service` 외 ad-hoc abstract 0건.
 - [1.3] composition root 외 위치에서 `Settings()` 인스턴스 생성 0건 (#F4 6 위치만). 검사: `rg 'Settings\(\)|WebSettings\(\)|ConsumerSettings\(\)|DiagnosticSettings\(\)' src/`.
 - [1.4] 중복 함수·중복 상수 0건. 같은 의미는 단일 모듈 (UI badge 임계 = `mappers/shared.py` / USE Method 임계 = `recommendation.py`). 두 도메인 혼용 0건 (#E3).
 - [1.5] 죽은 코드 0건 — unused import · unreachable branch · 호출처 없는 public 함수. `ruff` · IDE inspection 통과.
@@ -165,7 +165,7 @@ Self-audit 메타 인용 제외:
 - [2.6] asyncio 테스트 작성 패턴이 `docs/guides/testing.md` 4절과 일치.
 - [2.7] `tests/factories.py` 빌더 활용. raw dict 직접 생성 0건. 신규 도메인은 factory 추가 후 활용.
 - [2.8] DB 의존 테스트는 루트 `tests/conftest.py` 의 testcontainers 컨테이너 + `db_session` 사용. repo fixture 는 `tests/integration/conftest.py` 에만 — 함수 안 fixture 정의 0건.
-- [2.9] mock 범위: 추상 인터페이스(`Base*Repository`)와 외부 의존 경계(Redis · HTTP · MQ)에만. 구체 구현 내부 함수 patch 0건. integration 은 실제 컨테이너.
+- [2.9] mock 범위: repository protocol 과 외부 의존 경계(Redis · HTTP · MQ)에만. 구체 구현 내부 함수 patch 0건. integration 은 실제 컨테이너.
 - [2.10] 동일 시나리오 분기(같은 setup + 다른 입력·기대값)는 `@pytest.mark.parametrize`. 중복 함수 0건.
 
 레이어 결정은 `docs/guides/testing.md` 1절.
@@ -213,7 +213,7 @@ Self-audit 메타 인용 제외:
 
 입력:
 - `git diff <base>...HEAD` + 미커밋 변경.
-- 변경 코드 -> 영구 문서 매핑: CLAUDE.md #F9 "변경 영향도 체크리스트" + 전문(前文) "문서 인덱스" 단일 진실 (본 명세 중복 X).
+- 변경 코드 -> 영구 문서 매핑: CLAUDE.md #F9 "변경 영향도 체크리스트" + 머리말 "문서 인덱스" 단일 진실 (본 명세 중복 X).
 
 목적:
 - 본 feature 가 만진 영역의 영구 문서(`docs/reference/`·`docs/guides/`·`docs/explanation/products/`·`docs/explanation/tradeoffs.md`)가 현행 코드를 정확히 반영.
@@ -265,7 +265,7 @@ Self-audit 메타 인용 제외:
 - Stage 1·2·4 에서 넘어온 후보: CLAUDE.md "본 절 결정" 변경 · ADR 신규/Superseded · tradeoffs T 신규 · 본 feature 가 확립한 새 규약·금지·정석 패턴.
 
 목적:
-- 영구 단일 진실(CLAUDE.md + `docs/decisions/adr/` + `docs/reference/*` + `docs/explanation/tradeoffs.md` + `docs/README.md`) 최종 정합.
+- 영구 단일 진실(CLAUDE.md + `docs/reference/*` + `docs/explanation/tradeoffs.md` + `docs/README.md`) 최종 정합.
 - 본 feature 가 만든 규약·결정이 모두 영구화됐거나, 의도적 미영구화가 명시됨.
 
 체크리스트:
@@ -292,7 +292,7 @@ Self-audit 메타 인용 제외:
 - 수동 Read + Edit. 의식적 결정 단계 — 자동화 X.
 
 산출물:
-- `CLAUDE.md` · `docs/decisions/adr/*` · `docs/reference/*` · `docs/explanation/tradeoffs.md` · `docs/README.md` · `docs/reference/observability.md`.
+- `CLAUDE.md` · `docs/reference/*` · `docs/explanation/tradeoffs.md` · `docs/README.md` · `docs/reference/observability.md`.
 
 통과 기준:
 - 12 항목 OK. Stage 1·2·4 에서 넘어온 후보 모두 처리.

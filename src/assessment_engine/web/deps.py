@@ -1,39 +1,33 @@
 """Composition root — FastAPI 의존성 주입 진입점.
 
-라우터는 이 모듈의 helper만 import. 구체 구현체(QueryRepository) 직접 import 금지 (F4).
+라우터는 이 모듈의 helper만 import. 구체 구현체(SqlQueryRepository) 직접 import 금지 (F4).
 """
 
-from typing import TYPE_CHECKING
+from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, HTTPException, Request
+from redis.asyncio import Redis
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.cache.redis import get_redis
-from assessment_engine.db.repositories.collect_repository import CollectRepository
-from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
-from assessment_engine.db.repositories.query.query_repository import QueryRepository
+from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
+from assessment_engine.db.repositories.diagnostic_sql import SqlDiagnosticRepository
+from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
 from assessment_engine.db.session import get_db, get_session_factory
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import HttpZdmPackageResolver, TaskService
 
-if TYPE_CHECKING:
-    from redis.asyncio import Redis
-    from sqlalchemy.ext.asyncio import AsyncSession
+type DbSessionDep = Annotated[AsyncSession, Depends(get_db)]
+type RedisDep = Annotated[Redis, Depends(get_redis)]
 
 
-def get_service(
-    db: AsyncSession = Depends(get_db),
-    redis: Redis = Depends(get_redis),
-) -> QueryService:
-    return QueryService(QueryRepository(db), redis)
+def get_service(db: DbSessionDep, redis: RedisDep) -> QueryService:
+    return QueryService(SqlQueryRepository(db), redis)
 
 
-def get_task_service(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    redis: Redis = Depends(get_redis),
-) -> TaskService:
+def get_task_service(request: Request, db: DbSessionDep, redis: RedisDep) -> TaskService:
     """TaskService DI — router 는 추상만 본다 (F4).
 
     query_repo 는 request-scoped(get_db) 지만 collect_repo 는 task INSERT 용 별도 트랜잭션
@@ -42,9 +36,9 @@ def get_task_service(
     zdm_resolver 는 request-scoped (redis 가 request-scoped) — 상태 없는 가벼운 wrapper.
     """
     return TaskService(
-        query_repo=QueryRepository(db),
+        query_repo=SqlQueryRepository(db),
         session_factory=get_session_factory(),
-        collect_repo_factory=CollectRepository,
+        collect_repo_factory=SqlCollectRepository,
         broker_channel=request.app.state.broker_channel,
         zdm_resolver=HttpZdmPackageResolver(
             http_client=request.app.state.http_client,
@@ -62,17 +56,19 @@ def get_diagnostic_service() -> DiagnosticService:
     """
     return DiagnosticService(
         session_factory=get_session_factory(),
-        diagnostic_repo_factory=DiagnosticRepository,
+        diagnostic_repo_factory=SqlDiagnosticRepository,
     )
 
 
-async def resolve_internal_id(
-    server_id: UUID,
-    service: QueryService = Depends(get_service),
-) -> int:
+type QueryServiceDep = Annotated[QueryService, Depends(get_service)]
+type TaskServiceDep = Annotated[TaskService, Depends(get_task_service)]
+type DiagnosticServiceDep = Annotated[DiagnosticService, Depends(get_diagnostic_service)]
+
+
+async def resolve_internal_id(server_id: UUID, service: QueryServiceDep) -> int:
     """path param `{server_id}` (public_id UUID) → 내부 정수 PK.
 
-    라우터에서 `internal_id: int = Depends(resolve_internal_id)`로 주입.
+    라우터는 `internal_id: ServerIdDep` 으로 받는다.
     - invalid UUID 형식 → FastAPI가 422 자동 변환
     - 형식 OK이지만 DB 미존재 → 404
     resolve 자체는 service에 위임 (Redis 캐시 활용).
@@ -81,3 +77,6 @@ async def resolve_internal_id(
     if sid is None:
         raise HTTPException(status_code=404)
     return sid
+
+
+type ServerIdDep = Annotated[int, Depends(resolve_internal_id)]

@@ -106,7 +106,7 @@ cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_ser
 
 ### web 측 — DI
 
-`src/assessment_engine/web/deps.py:get_service`가 `Depends(get_redis)`로 주입받아 `QueryService`에 전달.
+`src/assessment_engine/web/deps.py:get_service` 가 `RedisDep` 으로 주입받아 `QueryService`에 전달.
 `src/assessment_engine/web/main.py` lifespan 종료 시 `close_pool()` 호출.
 
 ### consumer·worker 측 — 직접 호출
@@ -145,7 +145,7 @@ cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_ser
 
 약화되지 않는 보장: 데이터 정확성. 멱등성 fail-open은 1단 차단을 잃지만 시계열 metric 7개 테이블의 `(server_id, [dim,] collected_at)` UNIQUE 제약이 중복 INSERT를 silent no-op으로 흡수.
 
-Redis 는 강결합 방지용 — 장애 시 fail-open, 진실은 DB. 상세 의사결정과 옵션 비교는 `docs/decisions/adr/` 의 redis decoupling 기록.
+Redis 는 강결합 방지용 — 장애 시 fail-open, 진실은 DB. 옵션 비교와 한계는 `docs/explanation/tradeoffs.md` T11.
 
 ---
 

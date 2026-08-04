@@ -1,8 +1,10 @@
 # Repository 계층
 
-정책: CLAUDE.md #C2 · #F4. 3개 추상 인터페이스 `BaseCollectRepository`(Consumer) / `BaseQueryRepository`(Web) / `BaseDiagnosticRepository`(보고서 발행·diagnostic_jobs 스냅샷). 구체 구현체 import는 composition root(`web/deps.py` / `consumer/main.py` / `worker/main.py`)만.
+정책: CLAUDE.md #C2 · #F4. 인터페이스 규칙(Protocol·이름·상속 안 함)은 `docs/guides/conventions.md` 3절이 갖는다.
 
-## Collect 계층 — `BaseCollectRepository` (Consumer)
+인터페이스는 셋이다 — `CollectRepository`(Consumer) / `QueryRepository`(Web) / `DiagnosticRepository`(보고서 발행·diagnostic_jobs 스냅샷). 구현 import 는 composition root 셋(`web/deps.py` · `consumer/main.py` · `worker/main.py`)만 한다.
+
+## Collect 계층 — `CollectRepository` (Consumer)
 
 | 메서드 | 설명 |
 |--------|------|
@@ -23,9 +25,9 @@
 - `record_metrics`: 7테이블 모두 `pg_insert(...).on_conflict_do_nothing()` — 자연키 UNIQUE 가 충돌을 흡수한다 (D2 2단 방어). `index_elements=` 를 명시하는 곳은 host 집계(`server_metrics`)·history·placeholder INSERT 뿐이고 자식 6테이블은 bare 형태다.
 - `create_task`: `IntegrityError` 가능 (부분 UNIQUE `uq_tasks_pending_per_server_type`) — service가 catch
 
-## Query 계층 — `BaseQueryRepository` (Web)
+## Query 계층 — `QueryRepository` (Web)
 
-`BaseQueryRepository` 는 server / metric / report / attention / task 5개 sub-ABC 결합이고 자기 메서드는 0개다 — 새 메서드는 해당 sub-base 에 추가한다.
+`QueryRepository` 는 server / metric / report / attention / task 5개 도메인 protocol 결합이고 자기 메서드는 0개다 — 새 메서드는 해당 도메인 protocol 에 추가한다.
 
 | 메서드 | 설명 |
 |--------|------|
@@ -57,7 +59,7 @@
 | `report_cpu_breakdown(server_id, period_days, end)` | 개별 보고서 CPU 분류 (user/system/iowait, `server_metrics_5m` cagg counter_agg delta) |
 | `report_memory_breakdown_batch` / `report_cpu_breakdown_batch` | 위 둘의 N대 배치판 (GROUP BY server_id) |
 | `metric_gap_warnings(gap_minutes, recent_hours, limit)` | metric 발행 갭이 gap_minutes 초과 + 최근 recent_hours 안 발행이 있던 서버. limit=None 이면 전수 |
-| `environment_utilization(period_days, end, server_ids?)` | 환경 평균 활용률 도넛 (capacity-weighted, Σused/Σtotal). server_ids 한정 시 선택 N대·단일(selection 보고서), None 이면 전체 환경 |
+| `environment_utilization(period_days, end, server_ids?)` | 환경 평균 활용률 도넛 (capacity-weighted, sum(used)/sum(total)). server_ids 한정 시 선택 N대·단일(selection 보고서), None 이면 전체 환경 |
 | `metric_trend(metric_type, start, end, bucket, server_ids?, agg, dimension, collapse)` | 통일 차트 시계열 — 환경·선택·서버상세 단일 진실. `bucket: BucketSize`(SQL interval·경계 timedelta 는 repo 내부 `_BUCKET_INFO` 파생, 캡슐화). metric_type 풀세트를 내부 SQL 분기로 흡수(그룹별 시점값 산식은 아래). server_ids=None 전체·[1대]=서버상세 동치·[N]=선택. collapse=False 면 device/iface/mount dimension 보존(상세 멀티라인), True 면 합산 단일선(환경). agg=avg/max/p95 |
 
 ### 차트 집계 (`metric_trend`) — 그룹별 시점값 산식
@@ -68,10 +70,10 @@
 |------|-------------|-----------|
 | capacity-weighted util | `cpu.usage/user/system/iowait/nice_percent`, `mem.usage/available/cached/buffers_percent`, `fs.usage_percent` | 시점별 sum(num)/sum(den) x 100. 자원 총량 가중(큰 서버 큰 비중). CPU=시간(s) counter LAG delta(`d_total > 0 AND d_num >= 0` 로 reset 흡수, `_CPU_NUMERATOR`), mem=시점값 바이트(`_ENV_SCALAR_WEIGHTED`), fs=mount bytes(collapse=True 가상 제외 합산 / False mount 보존) |
 | 합산 rate | `disk.read/write_iops`, `disk.read/write_kbps`, `net.rx/tx_bytes_per_sec`, `net.rx/tx_packets_per_sec` | device/iface 별 LAG delta / dt. disk=물리 whole-disk 만(`_PHYS_DISK_SQL_FILTER` — fail-closed EXISTS, `server_inventory.block_devices` 조인해 `type='disk'` 인 항목과 `device_id` 매치되어야 통과. 매치는 `id_type:id` 우선, 실패 시 `name:name` 폴백(Windows agent 가 inventory 는 `id_type:id`, metrics 는 disk name 만 발행하는 스킴 불일치 흡수) — 파티션·LVM 이중계산 회피), net=집계 iface 만(`_PHYS_IFACE_SQL_FILTER` — 동일 EXISTS 패턴, `net_interfaces.kind in ('physical','bond_master')` — loopback·veth·터널·bond_member·bridge·vlan 제외, bond_master 는 본딩 집계 단위라 포함). collapse=False 면 device/iface 보존. dt<=0 은 제외하고 음수 delta 는 `GREATEST(delta, 0)` 로 0 클램프 (boot gate 없음) |
-| 코어 정규화 | `cpu.run_queue` | 시점별 Σ실행큐 / Σcpu_cores (per_ts, server_inventory JOIN) -> 버킷 {agg}. 1.0=코어당 포화. os-aware 단일 `cpu_run_queue`(Linux procs_running / Windows Processor Queue), 환경·상세 공용, dimension=os_family(Linux/Windows 2선) |
-| 응답 지연 (양 OS 단일선) | `disk.io_saturation` | 물리 device 별 Δop_time/Δops = await(ms) 를 내고 시점마다 worst device MAX. io_time 사용률이 `RS_DISKIO_UTIL_MIN` 미만인 유휴 device 는 제외(writeback 잔류 await 오탐 억제). 양 OS 통일, os 분기·dimension 없음. Windows 구세대 viostor 큐 폴백은 스냅샷 판정 전용(차트는 await) |
-| 정체율 (PSI, Linux 전용) | `cpu.psi` · `mem.psi` · `disk.psi` | Σ(Δ stall_time_s)/Σ(Δ wall-time)*100 (server_pressure scope=some, resource cpu/memory/io 매핑, GREATEST reset 흡수). 단일선, Linux 4.20+ 만 행 존재 -> 미지원 OS 빈 결과 |
-| 교차 테이블 rate | `net.retrans_percent` · `net.drop_percent` | retrans%=Σ(Δtcp_retrans)/Σ(Δtx_packets)*100 (server_metrics + server_net_io collected_at 조인), drop%=Σ(Δrx_dropped+Δtx_dropped)/Σ(Δrx+tx_packets)*100 (분모가 rx+tx 라 retrans% 와 다름). GREATEST 로 reset 흡수, 분류 net_retrans·net_drop 과 동일 산식 |
+| 코어 정규화 | `cpu.run_queue` | 시점별 sum(실행큐) / sum(cpu_cores) (per_ts, server_inventory JOIN) -> 버킷 {agg}. 1.0=코어당 포화. os-aware 단일 `cpu_run_queue`(Linux procs_running / Windows Processor Queue), 환경·상세 공용, dimension=os_family(Linux/Windows 2선) |
+| 응답 지연 (양 OS 단일선) | `disk.io_saturation` | 물리 device 별 delta(op_time)/delta(ops) = await(ms) 를 내고 시점마다 worst device MAX. io_time 사용률이 `RS_DISKIO_UTIL_MIN` 미만인 유휴 device 는 제외(writeback 잔류 await 오탐 억제). 양 OS 통일, os 분기·dimension 없음. Windows 구세대 viostor 큐 폴백은 스냅샷 판정 전용(차트는 await) |
+| 정체율 (PSI, Linux 전용) | `cpu.psi` · `mem.psi` · `disk.psi` | sum(delta(stall_time_s))/sum(delta(wall_time))*100 (server_pressure scope=some, resource cpu/memory/io 매핑, GREATEST reset 흡수). 단일선, Linux 4.20+ 만 행 존재 -> 미지원 OS 빈 결과 |
+| 교차 테이블 rate | `net.retrans_percent` · `net.drop_percent` | retrans%=sum(delta(tcp_retrans))/sum(delta(tx_packets))*100 (server_metrics + server_net_io collected_at 조인), drop%=sum(delta(rx_dropped)+delta(tx_dropped))/sum(delta(rx)+tx_packets)*100 (분모가 rx+tx 라 retrans% 와 다름). GREATEST 로 reset 흡수, 분류 net_retrans·net_drop 과 동일 산식 |
 | 포화 이진 (서버 상세) | `cpu.saturation` · `disk.saturation` · `net.congested` · `mem.paging_pressure` | 버킷 안에서 임계를 한 번이라도 넘었는지(`bool_or`)를 1.0/0.0 스텝으로. 임계는 `recommendation` os-aware 상수를 bind — SQL 이 문턱을 새로 정의하지 않는다. 원 rate 를 그리면 OS 간 척도가 달라 비교가 안 되므로 판정 결과를 선으로 낸다 |
 | 판정 crossing 호스트 수 (환경) | `cpu.saturation_hosts` · `mem.paging_pressure_hosts` · `disk.saturation_hosts` · `net.congested_hosts` | 위 이진 판정의 환경판 — 버킷 안 server 별 `bool_or(crossed)` 후 넘은 서버 수 count |
 | gauge (Linux 전용) | `cpu.blocked` | D-state 블록 gauge 평균 — 실행 큐와 달리 코어 정규화 없이 원자값. dimension=os_family |
@@ -80,9 +82,9 @@
 
 `metric_trend(collapse=False)`(서버 상세 멀티라인) 의 범례 `dimension` 은 raw `id_type:id`(예: `mac:fa:16:3e:df:18:87`) 대신 `LEFT JOIN LATERAL` 로 `server_inventory.block_devices`/`net_interfaces` 조회한 사람이 읽는 `name`(예: `enp3s0`·`PhysicalDrive0`) 으로 치환(`COALESCE(dn.name, dim)`, 미매칭 시 raw 폴백) — Linux 는 id_type=mac 인터페이스가 흔해 MAC 원문 노출 시 가독성이 떨어짐. collapse=True(환경 합산)는 dimension 자체가 없어(단일선) 미적용.
 
-### Task 조회 — `BaseTaskQueryRepository`
+### Task 조회 — `TaskQueryRepository`
 
-운영자 가시성 전용 sub-ABC (modal · timeline · 서버별 최신). 반환은 모두 `TaskRow`.
+운영자 가시성 전용 도메인 protocol (modal · timeline · 서버별 최신). 반환은 모두 `TaskRow`.
 
 | 메서드 | 설명 |
 |--------|------|
@@ -90,7 +92,7 @@
 | `list_recent_tasks(target_server_id, limit, cursor?)` | 한 서버의 task timeline — created_at 역순, cursor 기반 (E2) |
 | `latest_tasks_by_servers(server_ids)` | 서버별 최근 task 1건 — `DISTINCT ON (target_server_id)`, 목록 행 표시 source |
 
-## Diagnostic 계층 — `BaseDiagnosticRepository` (보고서 발행 스냅샷)
+## Diagnostic 계층 — `DiagnosticRepository` (보고서 발행 스냅샷)
 
 `diagnostic_jobs` 테이블에 발행 시점 정적 스냅샷을 INSERT·조회 (#C1).
 

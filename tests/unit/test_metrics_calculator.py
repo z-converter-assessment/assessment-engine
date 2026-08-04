@@ -30,7 +30,7 @@ _BOOT_A = datetime(2026, 1, 1, tzinfo=UTC)
 _BOOT_B = datetime(2026, 5, 9, tzinfo=UTC)
 
 
-# ─── helper 단위 ──────────────────────────────────────────────────────────
+# --- helper 단위 ----------------------------------------------------------
 
 
 def test_group_by_dim_groups_by_key():
@@ -66,7 +66,7 @@ def test_clip_to_remaining(raw: float | None, room: float, expected: float | Non
     assert _clip_to_remaining(raw, room) == expected
 
 
-# ─── compute_cpu ──────────────────────────────────────────────────────────
+# --- compute_cpu ----------------------------------------------------------
 
 
 def _cpu_pair(
@@ -183,7 +183,8 @@ def test_compute_cpu_windows_coalesce_null_components():
     """Windows nice/iowait/... None 이어도 cpu_total = user+system+idle COALESCE 합으로 CPU% 실측(#C2/C3).
 
     성분 하나가 None 이라고 total 을 None 으로 만들면 Windows CPU 가 항상 N/A 가 된다.
-    user 100->300(Δ200), system 50->150(Δ100), idle 900->1500(Δ600). total Δ900. usage=100-(600/900*100)≈33.3.
+    user 100->300(+200), system 50->150(+100), idle 900->1500(+600). total delta 900.
+    usage = 100 - (600/900*100) = 약 33.3.
     iowait 는 None 이라 iowait_pct 는 None(N/A 보존).
     """
     t1 = datetime.now(UTC)
@@ -196,7 +197,7 @@ def test_compute_cpu_windows_coalesce_null_components():
     assert snap.iowait_pct is None  # Windows iowait 미측정 보존
 
 
-# ─── is_counter_reset helper (assessment_engine.boot_time) ─────────────────
+# --- is_counter_reset helper (assessment_engine.boot_time) -----------------
 
 
 @pytest.mark.parametrize(
@@ -213,7 +214,7 @@ def test_is_counter_reset(cur: datetime | None, prev: datetime | None, expected:
     assert is_counter_reset(cur, prev) is expected
 
 
-# ─── compute_mem ──────────────────────────────────────────────────────────
+# --- compute_mem ----------------------------------------------------------
 
 
 def _mem_pair(total: int | None, available: int | None, cached: int | None, buffers: int | None) -> MetricPairRaw:
@@ -260,7 +261,7 @@ def test_compute_mem_clips_cached_when_overflow():
     assert snap.buffers_pct == 0.0
 
 
-# ─── compute_disk_io ──────────────────────────────────────────────────────
+# --- compute_disk_io ------------------------------------------------------
 
 
 def _disk(
@@ -328,7 +329,7 @@ def test_compute_disk_io_returns_none_on_system_reboot():
     assert result[0].read_kbps is None
 
 
-# ─── compute_net_io ───────────────────────────────────────────────────────
+# --- compute_net_io -------------------------------------------------------
 
 
 def _net(
@@ -385,7 +386,7 @@ def test_compute_net_io_returns_none_on_system_reboot():
     assert snap.rx_pps is None
 
 
-# ─── compute_mounts ───────────────────────────────────────────────────────
+# --- compute_mounts -------------------------------------------------------
 
 
 def test_compute_mounts_filters_virtual():
@@ -422,7 +423,7 @@ def test_compute_mounts_filters_virtual():
     assert "/snap/core/123" not in paths
 
 
-# ─── PSI 지원 판정 + 포화 신호 (구커널 N/A · 4-2) ──────────────────────────
+# --- PSI 지원 판정 + 포화 신호 (구커널 N/A · 4-2) --------------------------
 
 
 @pytest.mark.parametrize(

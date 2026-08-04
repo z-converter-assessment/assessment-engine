@@ -67,7 +67,7 @@ if TYPE_CHECKING:
 # run_queue/await 는 도메인 판정 임계를 재사용하나, PSI 는 판단 축이 아니라 표시 기준을 여기서 명명.
 PSI_STALL_DISPLAY_PCT = 10.0
 
-# ─── 공통 helper ──────────────────────────────────────────────────────────
+# --- 공통 helper ----------------------------------------------------------
 
 
 def _group_by_dim[T](rows: list[T], key: Callable[[T], str]) -> dict[str, list[T]]:
@@ -115,7 +115,7 @@ def _clip_to_remaining(raw_pct: float | None, remaining_room: float) -> float | 
     return round(min(max(0.0, remaining_room), raw_pct), 1)
 
 
-# ─── 진입점 ───────────────────────────────────────────────────────────────
+# --- 진입점 ---------------------------------------------------------------
 
 
 def _composite_dev_id(node: JsonObject) -> str | None:
@@ -182,7 +182,7 @@ def _aggregate_disk_usage(mounts: list[MountDashSnapshot]) -> float | None:
     return round(used / total * 100, 1) if total > 0 else None
 
 
-# ─── 포화 스냅샷 신호 (os-aware 서버 판정, P2) ─────────────────────────────
+# --- 포화 스냅샷 신호 (os-aware 서버 판정, P2) -----------------------------
 
 
 def _psi_supported(kernel_version: str | None) -> bool | None:
@@ -392,7 +392,7 @@ def build_saturation_signals(
     return {"cpu": cpu, "mem": mem, "disk": disk, "net": net}
 
 
-# ─── 에러 축 표시자 (Errors, 정상=0 발화 E9) ───────────────────────────────
+# --- 에러 축 표시자 (Errors, 정상=0 발화 E9) -------------------------------
 
 
 def _error_counter(
@@ -509,7 +509,7 @@ def build_error_signals(err: ErrorFleetRaw, *, window_label: str, os_family: str
     return signals
 
 
-# ─── CPU ──────────────────────────────────────────────────────────────────
+# --- CPU ------------------------------------------------------------------
 
 
 def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSnapshot | None:
@@ -605,7 +605,7 @@ def compute_cpu_cores(pairs: list[CpuCoreRaw]) -> list[CpuCoreSnapshot]:
     return result
 
 
-# ─── Memory (시점 값, By) ──────────────────────────────────────────────────
+# --- Memory (시점 값, By) --------------------------------------------------
 
 
 def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
@@ -646,7 +646,7 @@ def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
     )
 
 
-# ─── Disk I/O / Net I/O — 누적 카운터 페어 → rate ─────────────────────────
+# --- Disk I/O / Net I/O — 누적 카운터 페어 → rate -------------------------
 
 
 def compute_disk_io(pairs: list[DiskIoRaw], dev_names: dict[str, str] | None = None) -> list[DiskIoSnapshot]:
@@ -711,7 +711,7 @@ def _net_io_snapshot(rows: list[NetIoRaw], iface_names: dict[str, str] | None = 
     )
 
 
-# ─── Mount usage (시점 값 + 가상 마운트 필터) ─────────────────────────────
+# --- Mount usage (시점 값 + 가상 마운트 필터) -----------------------------
 
 
 def compute_mounts(mounts: list[MountUsageRaw]) -> list[MountDashSnapshot]:

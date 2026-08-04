@@ -287,7 +287,7 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 원칙: 모든 페이지 (대시보드 외) 가 동일 back chain 규약 적용. 보고서·진단·이력·detail·tab 페이지 사이 이동은 모두 현재 탭. 새 탭 (`target="_blank"`) 금지. 모든 결과 페이지의 "← 이전" link 는 referrer 를 `back` query 로 명시 보존 → 어떤 진입 경로에서든 정확히 직전 페이지로 복귀.
 
 새 페이지·새 link 추가 시 3 위치 동시 적용 의무:
-1. router endpoint signature 에 `back: str | None = Query(None)` + sanitize 후 `back_url` 산출(아래 "라우터의 결과 페이지 표준") + context 전달.
+1. router endpoint signature 에 `back: BackUrl = None` + sanitize 후 `back_url` 산출(아래 "라우터의 결과 페이지 표준") + context 전달.
 2. 자식 진입 link (template / JS) 에 `?back={{ self_back }}` (또는 JS `back=pathname+search`) 박음. `self_back = quote(f"{request.url.path}?{request.url.query}", safe="")` 산출.
 3. 페이지 `.back` 버튼 = `<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>` (hardcoded 부모 URL 금지).
 

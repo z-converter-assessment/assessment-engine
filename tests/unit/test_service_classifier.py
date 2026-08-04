@@ -10,7 +10,7 @@ from assessment_engine.service_classifier import (
     matched_ports,
 )
 
-# ─── classify: name 신호 (하위호환) ──────────────────────────────────────────
+# --- classify: name 신호 (하위호환) ------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -86,7 +86,7 @@ def test_detect_listen_categories_extended_ports(port: int, expected: str):
     assert list(result.keys()) == [expected]
 
 
-# ─── classify: Windows SCM 이름 (이름 신호로 흡수, ADR 0032) ──────────────────
+# --- classify: Windows SCM 이름 (이름 신호로 흡수, ADR 0032) ------------------
 
 
 @pytest.mark.parametrize(
@@ -101,7 +101,7 @@ def test_classify_windows_scm_name(unit: str, expected: str):
     assert classify(unit) == expected
 
 
-# ─── classify: comm 신호 (이름 미스매치 흡수) ────────────────────────────────
+# --- classify: comm 신호 (이름 미스매치 흡수) --------------------------------
 
 
 def test_classify_comm_signal_name_variant():
@@ -117,7 +117,7 @@ def test_classify_comm_unattributable_stays_unknown():
     assert classify("MyCompanyDB", listen) == "unknown"
 
 
-# ─── classify: port 신호 ────────────────────────────────────────────────────
+# --- classify: port 신호 ----------------------------------------------------
 
 
 def test_classify_port_signal_via_wellknown_name():
@@ -142,7 +142,7 @@ def test_classify_listen_ports_none_name_only():
     assert classify("MyCompanyDB") == "unknown"
 
 
-# ─── matched_ports ────────────────────────────────────────────────────────
+# --- matched_ports --------------------------------------------------------
 
 
 def test_matched_ports_via_comm_match():
@@ -194,7 +194,7 @@ def test_matched_ports_empty_listen():
     assert matched_ports("nginx.service", []) == []
 
 
-# ─── pid 정확 join (comm~name / well-known 폴백과 구별, ADR 0032) ─────────────
+# --- pid 정확 join (comm~name / well-known 폴백과 구별, ADR 0032) -------------
 
 
 def test_matched_ports_pid_join_attributes_unrelated_comm_and_port():
@@ -251,7 +251,7 @@ def test_matched_ports_pid_join_dedupe_proto_port():
     assert len(result) == 2
 
 
-# ─── classify: pid join 을 통한 comm/port 신호 ───────────────────────────────
+# --- classify: pid join 을 통한 comm/port 신호 -------------------------------
 
 
 def test_classify_pid_join_enables_port_signal():
@@ -278,7 +278,7 @@ def test_classify_pid_join_ignores_other_pid_socket():
     assert classify("app.service", listen, pid=100) == "unknown"
 
 
-# ─── 카탈로그 파생 일관성 (drift 회귀, ADR 0032) ─────────────────────────────
+# --- 카탈로그 파생 일관성 (drift 회귀, ADR 0032) -----------------------------
 
 
 def test_catalog_categories_match_derived():
@@ -304,7 +304,7 @@ def test_catalog_ports_no_cross_category_collision():
                 seen[port] = d.key
 
 
-# ─── compute_service_categories: ingest 사전계산 (목록·상세·리포트·필터 단일 진실) ──────────
+# --- compute_service_categories: ingest 사전계산 (목록·상세·리포트·필터 단일 진실) ----------
 
 
 def test_compute_categories_port_only_workload():
