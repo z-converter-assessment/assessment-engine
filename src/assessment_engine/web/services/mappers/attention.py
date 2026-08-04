@@ -142,7 +142,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list[RiskDon
     risk_counts 예: {"under_provisioned": 1, "over_provisioned": 2, "optimal": 7} (키 = _DONUT_SEGMENT_DEFS 5종).
     누락 키는 0으로 취급. dash_length·dash_offset은 누적 비례 계산.
     under_count(자원 부족 카테고리 수)는 EnvironmentOverview.risk_high_count 로 전달되는 요약 신호 —
-    risk 분포는 막대(provisioning_dist_bar)로 렌더돼 도넛 중앙 라벨은 없다(옛 중앙 강조 규약 폐기, #E8).
+    risk 분포는 막대(provisioning_dist_bar)로 렌더돼 도넛 중앙 라벨이 없다.
     """
     total = sum(risk_counts.values())
     segments: list[RiskDonutSegment] = []
@@ -508,7 +508,7 @@ def to_capacity_warning_item(raw: ReportRowRaw):
     """
     stats = build_resource_stats(raw)
     # 분류·근본원인·처방·신뢰도 전부 rollup_host 단일 모델 — 화면 간 정합(#E3). 처방은 자원별 독립(ADR 0056),
-    # confidence_notes 도 host 기반(build_host_confidence_notes) — 구 assess 미경유.
+    # confidence_notes 도 host 기반(build_host_confidence_notes).
     host = recommendation.rollup_host(stats)
     classification = recommendation.host_status_to_recommendation(host.host_status)
     hit = {t for r in host.resources.values() for t in r.triggers}

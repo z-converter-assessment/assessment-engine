@@ -1,6 +1,8 @@
 # Architecture Decision Records
 
-영구·불변 의사결정 기록 — "왜 이렇게 바꿨나"의 append-only 이력 아카이브. 결정 변경 시 새 ADR 추가 + 이전 ADR `Status: Superseded`. 덮어쓰기 금지.
+"왜 이렇게 바꿨나"의 이력 아카이브. 결정이 바뀌면 새 ADR 을 추가하고 이전 ADR 에 `Status: Superseded` 를 단다 — 지난 결정을 지우거나 덮어쓰지 않는다.
+
+기록의 오류는 다르다. 사실과 다른 수치·이름·서술은 그 결정의 근거가 아니라 흠이므로 본문에서 바로 고친다. 정정 블록으로 "위 숫자가 틀렸다"를 덧붙이면 독자가 본문과 정정을 대조해야 하고, 그 대조를 요구하는 것이 오류를 남기는 것보다 나쁘다. 판단 기준은 하나다 — 그때의 결정이 달라지면 새 ADR, 그때의 기록이 틀렸으면 본문 수정.
 
 라이브 문서(architecture·operations·products·development·`.claude/CLAUDE.md`)는 여기 의존하지 않는다 — ADR 은 이력이지 현재 사실의 출처가 아니다. 현재 사실은 라이브 문서 인라인에 있어야 한다 (docs/README.md 4원칙).
 
@@ -80,7 +82,7 @@
 | 0059 | compose 3파일 표준 배치 정렬 | Accepted | ADR 0035 가 base 를 prod-safe 로 둔 근거(릴리즈가 base 를 에셋으로 첨부)는 ADR 0048 의 첨부 폐기로 사라졌고 `deploy.sh` 는 base 와 overlay 를 함께 fetch 한다. base 를 공통 정의로 낮추고(환경 색·비밀번호 설정 제거) dev override 가 env 채널을, `docker-compose.prod.yml`(구 secrets.yml)이 file-secret 채널을 각자 채우게 한다. 3 파일 구성은 유지 — 서비스 레벨 `secrets:` 가 append 병합이라 base 에 넣으면 dev 가 비울 수 없다(ADR 0046). 0035 의 base 성격 조항과 0046 의 파일명을 refine. |
 | 0060 | 컨테이너 실행 명령을 compose 단일 소스로 | Accepted | ADR 0035 가 세운 `ENTRYPOINT ["python","-m"]` + `__ENGINE_VERSION__` 치환 전제가 둘 다 소멸 — 치환 스텝은 ADR 0048 의 에셋 폐기와 함께 사라졌고 placeholder 는 실재하지 않는 태그를 가리키는 기본값으로 남았다. 이미지에서 ENTRYPOINT 를 걷고 `CMD []` 로 기본 실행을 차단, compose `command` 가 완결 명령(`python -m <module>`)을 넘긴다. dev override 는 `entrypoint` 를 덮지 않고 command 하나로 watchfiles 를 감싼다. base 이미지 기본값을 `${ENGINE_IMAGE:-}` 로 비워 미핀 배포를 파싱 단계에서 거부(`:latest` 기본값은 compose 와 다른 버전을 조용히 띄워 채택하지 않음). 이미지 소비 인터페이스 breaking — `docker run <image> <모듈명>` 대신 완결 명령 필요. ADR 0035·0059 refine |
 | 0061 | OS 지원 단계를 경계 3개 기준 4상태로 판정 | Accepted | ADR 0031 refine. 경계를 벤더 용어가 아니라 무엇이 끊기는지로 정의 — support(기능 업데이트)·eol(무상 보안 패치)·extendedSupport(유상 보안 패치). 상태 4개(full·security_only·paid_only·ended)를 표시보다 잘게 유지해 화면이 각자 접어 쓴다(목록 필터 3분기·환경 KPI 4분기) — 표시 변경이 판정을 건드리지 않게. 카탈로그가 경계 셋을 다 싣고, 없는 경계는 그 구간 부재로 읽는다. 벤더 용어 금지 근거는 Microsoft "Extended Support"(무상 구간)와 필드 extendedSupport(유상 구간)의 정반대 의미. 발화는 무상 패치 종료 시점으로 이전과 같은 집합. |
-| 0062 | 타입 검사 강도를 규칙 단위 래칫으로 올린다 | Accepted | 최종 상태 = `typeCheckingMode = "strict"`, include 는 src·scripts·tests, 명시 선언은 두 묶음(채택 안 하는 4개 none / strict 가 끄지만 위반 0 인 4개 error). 한 번에 켜지 않은 이유는 시작점이 4846건이라 소진 전까지 게이트를 꺼야 했고, 그러면 이미 확보한 지점도 함께 되돌아가기 때문. 위반 0 인 규칙만 error 로 못박는 래칫으로 경로별(scripts -> src -> tests) 소진했고 끝난 뒤 경로별 블록을 제거. 뿌리는 값이 아니라 선언이었다 — 타입 인자 없는 dict·list, 어노테이션 없는 파라미터, `d.get(k) or []` 의 빈 리터럴, `field(default_factory=list)` 의 인자 없는 생성자. 거부 사유는 패키지 private 관용구 오탐·프레임워크 인터페이스·도구 소관 중복·별개 결정. |
+| 0062 | 타입 검사 강도를 규칙 단위 래칫으로 올린다 | Accepted | 최종 상태 = `typeCheckingMode = "strict"`, include 는 src·scripts·tests, 명시 선언은 두 묶음(채택 안 하는 4개 none / strict 가 끄지만 위반 0 인 4개 error). 한 번에 켜지 않은 이유는 시작점이 4846건이라 소진 전까지 게이트를 꺼야 했고, 그러면 이미 확보한 지점도 함께 되돌아가기 때문. 위반 0 인 규칙만 error 로 못박는 래칫으로 경로별(scripts -> src -> tests) 소진했고 끝난 뒤 경로별 블록을 제거. 뿌리는 값이 아니라 선언이었다 — 타입 인자 없는 dict·list, 어노테이션 없는 파라미터, `d.get(k) or []` 의 빈 리터럴, `field(default_factory=list)` 의 인자 없는 생성자. 거부 4개는 사유가 둘 — `_` 접두 심볼을 패키지 안 형제 모듈이 쓰는 관용구 오탐(`reportPrivateUsage`·`reportUnusedFunction`·`reportUnusedClass`)과 JSONB 원본 방어 isinstance(`reportUnnecessaryIsInstance`). strict 프리셋이 스스로 끄는 규칙(FastAPI Depends 기본값·반환값 버리기·@override·문자열 스타일 등)은 선언 자체가 불요. |
 
 트레이드오프 카탈로그는 ADR 형식과 맞지 않아 `docs/explanation/tradeoffs.md`로 분리.
 

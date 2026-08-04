@@ -286,8 +286,8 @@ BADGE_CLASS: dict[str, str] = {
     "insufficient_data": "rec-insufficient_data",
 }
 
-# host_status(rollup 5상태) -> Recommendation(표시 5상태). 카드 편입·도넛·배지가 rollup 단일 모델을 쓰게 해
-# classify(옛 flat)와의 불일치(카드엔 있는데 근본원인·권고 빔)를 제거 — 편입 == under_kinds 존재 == root_cause 존재.
+# host_status(rollup 5상태) -> Recommendation(표시 5상태). 카드 편입·도넛·배지가 같은 rollup 결과를 쓴다
+# — 편입 == under_kinds 존재 == root_cause 존재라 카드에만 뜨고 근거가 비는 상태가 생기지 않는다.
 _HOST_STATUS_TO_REC: dict[str, Recommendation] = {
     "under": "under_provisioned",
     "idle": "idle",
