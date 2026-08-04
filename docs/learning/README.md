@@ -55,6 +55,7 @@
 | 문서 | 주제 |
 |------|------|
 | `python-packaging.md` | 파이썬이 코드를 찾고 설치하고 격리하는 5층 |
+| `node-ecosystem-map.md` | Node 도구 체인이 파이썬 쪽 무엇에 대응하나 |
 | `alembic.md` | 스키마 이력 관리와 리비전 사슬 |
 | `docker-port-publishing.md` | compose 포트 한 줄이 커널에 만드는 것 |
 | `release-pipeline.md` | 릴리즈 1회가 만드는 OCI 아티팩트와 서명 |
