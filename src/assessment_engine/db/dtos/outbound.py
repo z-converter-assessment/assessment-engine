@@ -1,5 +1,6 @@
 from dataclasses import dataclass, field
 from datetime import datetime
+from decimal import Decimal
 from typing import Literal
 
 
@@ -365,7 +366,8 @@ class CpuBreakdownRaw:
 @dataclass
 class MetricSeries:
     collected_at: datetime
-    value: float | None
+    # SQL avg·sum 은 numeric 을 Decimal 로 준다 — raw 그대로 싣고 표시 변환은 매퍼가 한다.
+    value: float | Decimal | None
     dimension: str | None
     kind: str | None = None  # per-dimension 차트 필터용 (물리/가상 선별은 query 시 inventory 조인). 환경 합산선 None.
 

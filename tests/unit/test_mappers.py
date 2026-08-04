@@ -1,6 +1,8 @@
 """mappers — Outbound DTO → ViewModel + enrich idempotent 검증."""
 
+import dataclasses
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -82,6 +84,7 @@ def test_to_disk_item_returns_none_for_non_physical():
 
 def test_to_disk_item_for_physical():
     item = _to_disk_item({"name": "sda", "size_bytes": 10**9, "type": "disk", "kind": "physical"})
+    assert item is not None
     assert item.name == "sda"
     assert item.size_gb == 0.93  # bytes_to_gb binary divisor(GB 라벨 표기, df -h 관례) — decimal 1.0 아님
 
@@ -119,8 +122,8 @@ def test_to_service_item_with_listen_ports_matches():
 # ─── to_server_list_item ──────────────────────────────────────────────────
 
 
-def _summary(**overrides) -> ServerSummary:
-    base = dict(
+def _summary(**overrides: Any) -> ServerSummary:
+    base = ServerSummary(
         id=1,
         public_id="pub-1",
         composite_id="m-1",
@@ -136,8 +139,7 @@ def _summary(**overrides) -> ServerSummary:
         service_categories=[],
         last_seen_at=datetime.now(UTC),
     )
-    base.update(overrides)
-    return ServerSummary(**base)
+    return dataclasses.replace(base, **overrides)
 
 
 def test_list_item_storage_total_sum():
@@ -254,8 +256,8 @@ def test_list_item_os_display_windows_product_name_overrides_display_version():
 # ─── to_server_detail + enrich (idempotent) ───────────────────────────────
 
 
-def _detail(**overrides) -> ServerDetail:
-    base = dict(
+def _detail(**overrides: Any) -> ServerDetail:
+    base = ServerDetail(
         id=1,
         public_id="pub-1",
         agent_id="00000000-0000-4000-8000-000000000001",
@@ -302,8 +304,7 @@ def _detail(**overrides) -> ServerDetail:
         ],
         last_seen_at=datetime.now(UTC),
     )
-    base.update(overrides)
-    return ServerDetail(**base)
+    return dataclasses.replace(base, **overrides)
 
 
 def test_to_server_detail_basic():
@@ -519,14 +520,13 @@ def test_to_gap_warning_item_right_size_short_gap():
 # ─── build_server_inventory (개별 보고서 인벤토리, raw 선택적 보강) ────────────
 
 
-def _min_raw(**overrides) -> ReportRowRaw:
-    base = dict(
+def _min_raw(**overrides: Any) -> ReportRowRaw:
+    base = ReportRowRaw(
         server_id=1, public_id="p1", hostname="h", os_family="linux", os_id="ubuntu", os_version="22.04",
         os_codename="jammy", kernel_version="5.15", net_interfaces=[], services=[], last_seen_at=None,
         cpu_p95_pct=None, cpu_avg_pct=None, cpu_peak_pct=None, mem_p95_pct=None, mem_avg_pct=None, mem_peak_pct=None,
     )
-    base.update(overrides)
-    return ReportRowRaw(**base)
+    return dataclasses.replace(base, **overrides)
 
 
 def test_build_server_inventory_enriches_from_raw():

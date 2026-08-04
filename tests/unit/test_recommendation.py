@@ -21,7 +21,9 @@ from assessment_engine.recommendation import (
     HostAssessment,
     MountSizing,
     ResourceAssessment,
+    ResourceKind,
     ResourceStats,
+    ResourceStatus,
     assess_mount_capacity,
     cpu_saturated,
     cpu_saturation_index,
@@ -199,7 +201,7 @@ def test_mem_pressure_active_os_aware():
 # ─── 포화 축 미관측 판정 — cpu/memory/disk_io 한정 (network·disk_capacity 제외) ───
 
 
-def _ra(kind: str, status: str, *, coverage_gap: bool = False) -> ResourceAssessment:
+def _ra(kind: ResourceKind, status: ResourceStatus, *, coverage_gap: bool = False) -> ResourceAssessment:
     return ResourceAssessment(kind, status, confidence=ConfidenceNote(coverage_gap=coverage_gap))
 
 

@@ -157,7 +157,7 @@ async def test_build_child_prefetched_reports_matches_per_server():
         captured[pid] = prefetch
         return MagicMock()
 
-    qs.get_single_server_report = fake_single
+    qs.get_single_server_report = AsyncMock(side_effect=fake_single)
     sid_map = {"pa": 1, "pb": 2}
     anchor = datetime(2026, 5, 12, tzinfo=UTC)
 

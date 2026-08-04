@@ -7,19 +7,21 @@ index 가 실제 배포와 같은 순서로 적용된다. DDL 을 테스트용�
 import os
 import subprocess
 import sys
-from collections.abc import AsyncGenerator, AsyncIterator
+from collections.abc import AsyncGenerator, AsyncIterator, Iterator
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from sqlalchemy.ext.asyncio import AsyncEngine, async_sessionmaker, create_async_engine
-from testcontainers.postgres import PostgresContainer
+
+# testcontainers 는 타입 스텁을 배포하지 않는다.
+from testcontainers.postgres import PostgresContainer  # pyright: ignore[reportMissingTypeStubs]
 
 _REPO_ROOT = Path(__file__).parent.parent
 
 
 @pytest.fixture(scope="session")
-def _postgres_container() -> PostgresContainer:
+def _postgres_container() -> Iterator[PostgresContainer]:
     container = PostgresContainer(
         image="timescale/timescaledb-ha:pg16",
         username="test",

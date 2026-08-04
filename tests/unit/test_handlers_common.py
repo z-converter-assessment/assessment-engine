@@ -51,6 +51,7 @@ async def test_track_restart_first_observation_no_incr_sets_last():
     mincr.assert_not_awaited()
     mset.assert_awaited_once()
     # last_key 에 현재 iso 저장
+    assert mset.await_args is not None
     assert mset.await_args.args[2] == _STARTED.isoformat()
     mlog.warning.assert_not_called()
 
@@ -130,6 +131,7 @@ async def test_check_idempotent_first_returns_true():
         result = await _check_idempotent(redis, _MSG_ID)
     assert result is True
     # message_id.hex 로 키 포맷
+    assert msnx.await_args is not None
     assert msnx.await_args.args[1] == get_consumer_settings().redis_key_idempotent.format(_MSG_ID.hex)
 
 

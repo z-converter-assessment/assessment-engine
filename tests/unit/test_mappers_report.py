@@ -1,6 +1,8 @@
 """report·overview·attention 관련 mapper — 본 세션(v3~v5) 추가 함수 단위 테스트."""
 
+import dataclasses
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 
@@ -45,55 +47,55 @@ _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
 def _raw(
     *,
-    server_id=1,
-    public_id="a",
-    hostname="h",
-    os_family=None,
-    os_id="ubuntu",
-    os_version="22.04",
-    os_codename="jammy",
-    kernel_version="5.15",
-    net_interfaces=None,
-    services=None,
-    cpu_avg=None,
-    cpu_p95=None,
-    cpu_peak=None,
-    mem_avg=None,
-    mem_p95=None,
-    mem_peak=None,
-    iowait_p95=None,
-    iowait_peak=None,
-    cpu_run_queue_p95=None,
-    mem_pages_input_rate_p95=None,
-    cpu_cores=2,
-    mem_total_kb=2 * 1024 * 1024,  # 테스트 편의 단위(KiB) — 아래에서 v2 mem_total_bytes 로 환산
-    block_devices=None,
-    boot_time=None,
-    worst_mount=None,
-    worst_used=None,
-    reboot_count=0,
-    disk_iops=None,
-    disk_throughput=None,
-    net_rx=None,
-    net_tx=None,
-    cpu_sufficiency=None,
-    mem_sufficiency=None,
+    server_id: int = 1,
+    public_id: str = "a",
+    hostname: str = "h",
+    os_family: str | None = None,
+    os_id: str | None = "ubuntu",
+    os_version: str | None = "22.04",
+    os_codename: str | None = "jammy",
+    kernel_version: str | None = "5.15",
+    net_interfaces: list[dict] | None = None,
+    services: list[dict] | None = None,
+    cpu_avg: float | None = None,
+    cpu_p95: float | None = None,
+    cpu_peak: float | None = None,
+    mem_avg: float | None = None,
+    mem_p95: float | None = None,
+    mem_peak: float | None = None,
+    iowait_p95: float | None = None,
+    iowait_peak: float | None = None,
+    cpu_run_queue_p95: float | None = None,
+    mem_pages_input_rate_p95: float | None = None,
+    cpu_cores: int | None = 2,
+    mem_total_kb: int | None = 2 * 1024 * 1024,  # 테스트 편의 단위(KiB) — 아래에서 v2 mem_total_bytes 로 환산
+    block_devices: list[dict] | None = None,
+    boot_time: datetime | None = None,
+    worst_mount: str | None = None,
+    worst_used: float | None = None,
+    reboot_count: int = 0,
+    disk_iops: int | None = None,
+    disk_throughput: float | None = None,
+    net_rx: float | None = None,
+    net_tx: float | None = None,
+    cpu_sufficiency: float | None = None,
+    mem_sufficiency: float | None = None,
     # ADR 0052 신 모델 입력 raw
-    procs_blocked_p95=None,
-    mem_swap_paging=False,
-    disk_await_p95_ms=None,
-    disk_capacity_runway_days=None,
-    disk_inode_runway_days=None,
-    net_retrans_pct=None,
-    net_drop_pct=None,
-    history_hours=None,
-    cpu_burst_ratio=None,
-    cpu_trend_slope=None,
-    mem_trend_slope=None,
-    cpu_steal_p95=None,
-    cpu_percore_p95_max=None,
-    procs_running_p95=None,
-    oom_occurred=False,
+    procs_blocked_p95: float | None = None,
+    mem_swap_paging: bool = False,
+    disk_await_p95_ms: float | None = None,
+    disk_capacity_runway_days: float | None = None,
+    disk_inode_runway_days: float | None = None,
+    net_retrans_pct: float | None = None,
+    net_drop_pct: float | None = None,
+    history_hours: float | None = None,
+    cpu_burst_ratio: float | None = None,
+    cpu_trend_slope: float | None = None,
+    mem_trend_slope: float | None = None,
+    cpu_steal_p95: float | None = None,
+    cpu_percore_p95_max: float | None = None,
+    procs_running_p95: float | None = None,
+    oom_occurred: bool = False,
 ) -> ReportRowRaw:
     return ReportRowRaw(
         server_id=server_id,
@@ -238,7 +240,7 @@ def test_report_row_windows_swap_not_high_risk():
     이용률 92%(>=90)라 양 OS 모두 mem_util 로 under(high)지만, 포화 원인 라벨이 갈린다:
     Linux 는 swap page-out -> '메모리 부족 (스왑 발생)', Windows 는 pages_input 미발행이라 util 만 -> '메모리 압박'.
     """
-    stats = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=92.0, mem_peak=95.0, mem_swap_paging=True)
+    stats: dict[str, Any] = dict(cpu_p95=20.0, cpu_peak=25.0, mem_p95=92.0, mem_peak=95.0, mem_swap_paging=True)
     linux = to_report_row_item(_raw(os_family="linux", **stats), True, _NOW)
     windows = to_report_row_item(_raw(os_family="windows", **stats), True, _NOW)
     assert linux.risk_level == "high"  # mem_util(92>=90) + swap page-out -> under
@@ -1022,8 +1024,8 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
 # ─── _build_recommendation_action (양식 A 권고 컬럼 단일 진실) ─────────────
 
 
-def _rs(**kw):
-    base = dict(
+def _rs(**kw: Any) -> recommendation.ResourceStats:
+    base = recommendation.ResourceStats(
         cpu_p95_pct=None,
         cpu_peak_pct=None,
         cpu_load_15m_max=None,
@@ -1034,11 +1036,10 @@ def _rs(**kw):
         iowait_p95_pct=None,
         net_avg_kbytes_per_s=None,
     )
-    base.update(kw)
-    return recommendation.ResourceStats(**base)
+    return dataclasses.replace(base, **kw)
 
 
-def _host(status: str) -> recommendation.HostAssessment:
+def _host(status: recommendation.HostStatus) -> recommendation.HostAssessment:
     """신 모델 host_status 만 지정한 최소 HostAssessment (비-under 조치 테스트용 — resources 불요)."""
     return recommendation.HostAssessment(resources={}, host_status=status)
 

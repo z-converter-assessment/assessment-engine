@@ -68,3 +68,17 @@ pyright 버전이 오르면 프리셋 구성이 바뀔 수 있다. 명시 선언
 경로별 강도 차이는 `executionEnvironments` 로 표현한다. src 에 아직 위반이 남은 strict 규칙 8개(`reportUnknown*` 4종·`reportMissingParameterType`·`reportMissingTypeArgument`·`reportUnknownLambdaType`·`reportPrivateUsage`)를 `root = "scripts"` 아래에서만 error 로 올린다. pyright 1.1.411 은 이 블록 안에서 `typeCheckingMode` 를 받지 않아 규칙을 직접 나열한다 — 프리셋 이름으로는 경로별 강도를 표현할 수 없다.
 
 src 가 같은 규칙을 통과하면 이 블록의 규칙들을 최상위 목록으로 올리고 블록을 지운다.
+
+## 정정 (2026-08-04, tests 편입)
+
+`tests` 를 `include` 에 넣었다. 현재 강도에서 331건이 나왔고 전부 소진했다. 뿌리는 셋이다.
+
+빌더가 dict 로 기본값을 조립해 `**` 로 dataclass 생성자에 넘기고 있었다. pyright 는 그 dict 의 값 타입을 전 필드의 합집합으로 좁히므로 어떤 인자도 어떤 파라미터에도 맞지 않는다. `dataclasses.replace(base, **overrides)` 로 바꾸면 base 를 실제 타입으로 한 번 만들고 덮어쓰기만 넘기게 되어 합집합이 생기지 않는다. 빌더 6개가 이 형태였고 331건 중 232건이 여기서 나왔다.
+
+파라미터 어노테이션이 없는 빌더는 기본값에서 타입이 추론돼 `None` 기본값이 곧 `None` 타입이 됐다. DTO 필드 타입에서 역으로 어노테이션을 채웠다.
+
+`T | None` 을 돌려주는 호출 결과를 좁히지 않고 그대로 다음 인자로 넘기거나 속성 접근하고 있었다. `assert x is not None` 을 앞에 세웠다 — 검사기를 만족시키는 동시에 그 테스트가 실제로 전제하던 것을 명시한다.
+
+이 과정에서 src 결함 하나가 드러났다. `MetricSeries.value` 가 `float | None` 으로 선언돼 있는데 SQL `avg`·`sum` 은 numeric 을 `Decimal` 로 준다 — 매퍼 주석이 이미 그 사실을 적고 있었고 환경 보고서 경로는 `float(v)` 로 변환하는데 `to_metric_series_item` 은 변환 없이 그대로 ViewModel 에 실었다. JSON API 응답 타입(codegen 원천)이 `float` 라 선언과 실물이 갈렸다. 선언을 `float | Decimal | None` 으로 정정하고(raw 그대로 싣는 P1) 변환은 매퍼로 옮겼다(P2).
+
+`scripts` 처럼 strict 로 고정하지는 않았다. tests 에는 strict 규칙 위반이 아직 1906건 남아 있고, 지배적 원인은 픽스처의 미어노테이션 파라미터다.

@@ -35,6 +35,7 @@ def _make_create(
 
 async def test_enqueue_new_returns_uuid(diagnostic_repo: DiagnosticRepository, db_session):
     job_id = await diagnostic_repo.enqueue(_make_create(input_hash="a" * 64))
+    assert job_id is not None
     await db_session.commit()
     assert job_id is not None
     assert len(job_id) == 36  # UUID 문자열 (8-4-4-4-12)
@@ -46,10 +47,10 @@ async def test_enqueue_active_conflict_returns_none(
 ):
     """같은 (scope, input_hash, job_type)가 active 상태면 두 번째 INSERT는 do_nothing → None."""
     first = await diagnostic_repo.enqueue(_make_create(input_hash="b" * 64))
+    assert first is not None
     await db_session.commit()
     second = await diagnostic_repo.enqueue(_make_create(input_hash="b" * 64))
     await db_session.commit()
-    assert first is not None
     assert second is None
 
 
@@ -59,11 +60,13 @@ async def test_enqueue_after_first_succeeded_allows_new(
 ):
     """첫 job을 succeeded로 옮기면 active UNIQUE 해제 — 같은 input_hash로 새 job 가능."""
     first = await diagnostic_repo.enqueue(_make_create(input_hash="c" * 64))
+    assert first is not None
     await db_session.commit()
     await diagnostic_repo.mark_succeeded(first, {"result": "ok"})
     await db_session.commit()
 
     second = await diagnostic_repo.enqueue(_make_create(input_hash="c" * 64))
+    assert second is not None
     await db_session.commit()
     assert second is not None
     assert second != first
@@ -75,7 +78,9 @@ async def test_enqueue_different_scope_same_hash_independent(
 ):
     """server scope와 environment scope는 input_hash 같아도 충돌 없음."""
     a = await diagnostic_repo.enqueue(_make_create(scope="server", input_hash="d" * 64))
+    assert a is not None
     b = await diagnostic_repo.enqueue(_make_create(scope="environment", input_hash="d" * 64))
+    assert b is not None
     await db_session.commit()
     assert a is not None and b is not None
     assert a != b
@@ -87,7 +92,9 @@ async def test_enqueue_different_job_type_same_hash_independent(
 ):
     """customer_report와 engineer_report는 (scope, input_hash) 같아도 job_type 달라 충돌 없음."""
     c = await diagnostic_repo.enqueue(_make_create(input_hash="j" * 64, job_type="customer_report"))
+    assert c is not None
     e = await diagnostic_repo.enqueue(_make_create(input_hash="j" * 64, job_type="engineer_report"))
+    assert e is not None
     await db_session.commit()
     assert c is not None and e is not None
     assert c != e
@@ -98,6 +105,7 @@ async def test_enqueue_different_job_type_same_hash_independent(
 
 async def test_get_active_by_hash_active(diagnostic_repo: DiagnosticRepository, db_session):
     new_id = await diagnostic_repo.enqueue(_make_create(input_hash="e" * 64))
+    assert new_id is not None
     await db_session.commit()
     found = await diagnostic_repo.get_active_by_hash("environment", "e" * 64, "customer_report")
     assert found == new_id
@@ -108,6 +116,7 @@ async def test_get_active_by_hash_succeeded_returns_none(
     db_session,
 ):
     new_id = await diagnostic_repo.enqueue(_make_create(input_hash="g" * 64))
+    assert new_id is not None
     await db_session.commit()
     await diagnostic_repo.mark_succeeded(new_id, {})
     await db_session.commit()
@@ -118,6 +127,7 @@ async def test_get_active_by_hash_succeeded_returns_none(
 async def test_get_active_by_hash_job_type_scoped(diagnostic_repo: DiagnosticRepository, db_session):
     """active 회수는 job_type 일치만 — 다른 job_type 으로 조회하면 None."""
     new_id = await diagnostic_repo.enqueue(_make_create(input_hash="k" * 64, job_type="customer_report"))
+    assert new_id is not None
     await db_session.commit()
     assert await diagnostic_repo.get_active_by_hash("environment", "k" * 64, "customer_report") == new_id
     assert await diagnostic_repo.get_active_by_hash("environment", "k" * 64, "engineer_report") is None
@@ -137,6 +147,7 @@ async def test_get_by_id_returns_full_record(
             requested_by="user-x",
         )
     )
+    assert jid is not None
     await db_session.commit()
     rec = await diagnostic_repo.get_by_id(jid)
     assert rec is not None
@@ -162,10 +173,12 @@ async def test_mark_succeeded_sets_result_and_finished(
     db_session,
 ):
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="q" * 64))
+    assert jid is not None
     await db_session.commit()
     await diagnostic_repo.mark_succeeded(jid, {"kind": "env_report", "k": 1})
     await db_session.commit()
     rec = await diagnostic_repo.get_by_id(jid)
+    assert rec is not None
     assert rec.status == "succeeded"
     assert rec.finished_at is not None
     assert rec.progress_stage is None
@@ -181,6 +194,7 @@ async def test_delete_retention_purges_old_finished(
 ):
     """finished_at이 90일 초과인 job 삭제."""
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="t" * 64))
+    assert jid is not None
     await db_session.commit()
     await diagnostic_repo.mark_succeeded(jid, {})
     await db_session.commit()
@@ -202,6 +216,7 @@ async def test_delete_retention_keeps_recent(
 ):
     """방금 succeeded한 job은 삭제 대상 아님."""
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="u" * 64))
+    assert jid is not None
     await db_session.commit()
     await diagnostic_repo.mark_succeeded(jid, {})
     await db_session.commit()
@@ -218,6 +233,7 @@ async def test_delete_retention_ignores_active_jobs(
 ):
     """finished_at IS NULL (pending)은 retention 영향 안 받음."""
     jid = await diagnostic_repo.enqueue(_make_create(input_hash="v" * 64))
+    assert jid is not None
     await db_session.commit()
     # finished_at NULL인 상태로 retention 호출
     deleted = await diagnostic_repo.delete_retention(90)

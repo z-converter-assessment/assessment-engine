@@ -8,6 +8,8 @@
 TRUNCATE로 setup·teardown 양쪽에서 격리 강제 — 이전·이후 테스트의 누적 commit 데이터 차단.
 """
 
+from collections.abc import AsyncIterator
+
 import pytest_asyncio
 from sqlalchemy import text
 
@@ -27,7 +29,7 @@ async def query_repo(db_session) -> QueryRepository:
 
 
 @pytest_asyncio.fixture
-async def diagnostic_repo(db_session) -> DiagnosticRepository:
+async def diagnostic_repo(db_session) -> AsyncIterator[DiagnosticRepository]:
     await db_session.execute(text("TRUNCATE diagnostic_jobs"))
     await db_session.commit()
     yield DiagnosticRepository(db_session)
