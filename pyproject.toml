@@ -53,8 +53,7 @@ filterwarnings = [
 # 편집기에서 통과한 것이 CLI 에서도 통과한다. .vscode/settings.json 은 어떤 도구를 쓸지만 정한다.
 typeCheckingMode = "standard"
 # 검사 범위는 여기서만 정한다 — Makefile·워크플로는 인자 없이 `pyright` 를 부른다.
-# tests 는 아직 이 강도를 통과하지 못해 제외 상태다 (강도 정책 = ADR 0062).
-include = ["src", "scripts"]
+include = ["src", "scripts", "tests"]
 # uv 가 만드는 가상환경. CLI 가 활성 인터프리터 대신 이 경로의 의존성을 보게 한다.
 venvPath = "."
 venv = ".venv"

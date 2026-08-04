@@ -12,9 +12,10 @@
 """
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
-from sqlalchemy import text
+from sqlalchemy import Row, text
 
 from assessment_engine.db.dtos.inbound import TaskCreate
 from assessment_engine.db.repositories.collect_repository import CollectRepository
@@ -81,6 +82,7 @@ async def test_complete_task_success(collect_repo: CollectRepository) -> None:
             {"pid": pid},
         )
     ).first()
+    assert row is not None
     assert row.status == "success"
     assert row.exit_code == 0
     assert row.duration_ms == 42
@@ -110,6 +112,7 @@ async def test_complete_task_failure_with_reason(collect_repo: CollectRepository
             {"pid": pid},
         )
     ).first()
+    assert row is not None
     assert row.status == "failure"
     assert row.failure_reason == "sha256_mismatch"
     assert row.exit_code is None
@@ -174,13 +177,15 @@ async def test_expire_all_overdue_tasks_transitions_overdue_only(collect_repo: C
     n = await collect_repo.expire_all_overdue_tasks()
     assert n == 1
 
-    async def _row(pid: str):
-        return (
+    async def _row(pid: str) -> Row[Any]:
+        row = (
             await collect_repo.session.execute(
                 text("SELECT status, failure_reason FROM tasks WHERE public_id=:pid"),
                 {"pid": pid},
             )
         ).first()
+        assert row is not None
+        return row
 
     overdue_row = await _row(overdue)
     assert overdue_row.status == "failure"
@@ -309,13 +314,15 @@ async def test_expire_overdue_tasks_scopes_to_server_ids(collect_repo: CollectRe
     n = await collect_repo.expire_overdue_tasks([s1])
     assert n == 1
 
-    async def _row(pid: str):
-        return (
+    async def _row(pid: str) -> Row[Any]:
+        row = (
             await collect_repo.session.execute(
                 text("SELECT status, failure_reason FROM tasks WHERE public_id=:pid"),
                 {"pid": pid},
             )
         ).first()
+        assert row is not None
+        return row
 
     in_row = await _row(in_scope)
     assert in_row.status == "failure"

@@ -25,11 +25,17 @@ def _sa_error(cls):
     return cls("stmt", {}, Exception("orig"))
 
 
-def _deadlock_error():
+class _SqlstateError(Exception):
+    """asyncpg 예외 대역 — _db_retry 가 보는 것은 orig.sqlstate 하나다."""
+
+    def __init__(self, message: str, sqlstate: str) -> None:
+        super().__init__(message)
+        self.sqlstate = sqlstate
+
+
+def _deadlock_error() -> DBAPIError:
     """asyncpg deadlock — base DBAPIError(OperationalError 아님) + orig sqlstate 40P01."""
-    orig = Exception("deadlock detected")
-    orig.sqlstate = "40P01"
-    return DBAPIError("stmt", {}, orig)
+    return DBAPIError("stmt", {}, _SqlstateError("deadlock detected", "40P01"))
 
 
 async def test_db_retry_success_commits_once():

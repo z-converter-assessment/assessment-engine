@@ -55,7 +55,8 @@ def test_v2_example_validates(name: str, msg: dict) -> None:
 def test_metrics_datapoint_array_shape() -> None:
     """metrics = system.* 네임스페이스(datapoint-array). 필수 4축 present, Windows pressure=null."""
     lin = MetricsInput.model_validate(_EXAMPLES["linux_metrics"])
-    assert "cpu.time" in (lin.system_cpu or {})
+    assert lin.system_cpu is not None
+    assert "cpu.time" in lin.system_cpu
     assert lin.system_cpu["cpu.time"].type == "counter"
     assert lin.system_cpu["cpu.time"].unit == "s"
     # per-cpu x state 는 points 배열, attr 로 구분
@@ -143,6 +144,7 @@ def test_inventory_reproduction_descriptors_parse() -> None:
     assert isinstance(inv.boot, BootInfo)
     assert inv.boot.root_ref_type == "label"
     assert inv.boot.grub_install_target is None
+    assert inv.nonblock_mounts is not None
     assert len(inv.nonblock_mounts) == 1
     assert isinstance(inv.nonblock_mounts[0], NonblockMountInfo)
     assert inv.nonblock_mounts[0].fstype == "tmpfs"

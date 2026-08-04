@@ -111,6 +111,7 @@ def test_compute_cpu_calculates_percent_from_seconds_delta():
     prev = _cpu_pair(t1, 100, 900)
     cur = _cpu_pair(t2, 200, 1700)
     snap = compute_cpu(cur, prev)
+    assert snap is not None
     assert snap.usage_pct == pytest.approx(11.1, abs=0.1)
     assert snap.user_pct == pytest.approx(100 / 900 * 100, abs=0.1)
 
@@ -121,6 +122,7 @@ def test_compute_cpu_handles_counter_reset():
     prev = _cpu_pair(t1, 200, 1700)
     cur = _cpu_pair(t1 + timedelta(seconds=60), 100, 900)  # 감소
     snap = compute_cpu(cur, prev)
+    assert snap is not None
     assert snap.usage_pct is None
 
 
@@ -130,6 +132,7 @@ def test_compute_cpu_returns_none_when_boot_time_changed():
     prev = _cpu_pair(t1, 100, 900, boot_time=_BOOT_A)
     cur = _cpu_pair(t1 + timedelta(seconds=60), 200, 1700, boot_time=_BOOT_B)
     snap = compute_cpu(cur, prev)
+    assert snap is not None
     assert snap.usage_pct is None
     assert snap.user_pct is None
 
@@ -142,6 +145,7 @@ def test_compute_cpu_normal_when_only_agent_restart():
     prev = _cpu_pair(t1, 100, 900, boot_time=_BOOT_A, agent_started_at=agent1)
     cur = _cpu_pair(t1 + timedelta(seconds=60), 200, 1700, boot_time=_BOOT_A, agent_started_at=agent2)
     snap = compute_cpu(cur, prev)
+    assert snap is not None
     assert snap.usage_pct is not None  # 정상 계산
 
 
@@ -233,6 +237,7 @@ def test_compute_mem_returns_none_when_total_missing():
 def test_compute_mem_basic():
     """total=1000B, available=400B → used=600B (60%)"""
     snap = compute_mem(_mem_pair(1000, 400, 100, 50))
+    assert snap is not None
     assert snap.usage_pct == pytest.approx(60.0, abs=0.1)
     assert snap.cached_pct == pytest.approx(10.0, abs=0.1)
     assert snap.buffers_pct == pytest.approx(5.0, abs=0.1)
@@ -242,6 +247,7 @@ def test_compute_mem_clips_cached_when_overflow():
     """cached가 used 이후 남은 공간보다 크면 잘린다 (stacked bar 100% 초과 방지)."""
     # used=99%, cached_raw=10%, remaining=1% → cached_pct=1%
     snap = compute_mem(_mem_pair(total=10000, available=100, cached=1000, buffers=500))
+    assert snap is not None
     assert snap.usage_pct == pytest.approx(99.0, abs=0.1)
     assert snap.cached_pct == pytest.approx(1.0, abs=0.1)
     assert snap.buffers_pct == 0.0
@@ -279,6 +285,7 @@ def test_compute_disk_io_groups_by_device():
         _disk("sda1", t1, 0, 0),
     ]
     result = compute_disk_io(rows)
+    assert result is not None
     # 단일 flat 리스트, device_id 문자열 정렬 (dm-0 < sda < sda1).
     assert [s.device for s in result] == ["dm-0", "sda", "sda1"]
 
@@ -287,6 +294,7 @@ def test_compute_disk_io_single_row_returns_none_rates():
     """페어가 없으면 rate 계산 불가 → None."""
     t1 = datetime.now(UTC)
     result = compute_disk_io([_disk("sda", t1, 100, 50)])
+    assert result is not None
     assert result[0].read_iops is None
     assert result[0].write_iops is None
 
@@ -300,6 +308,7 @@ def test_compute_disk_io_returns_none_on_system_reboot():
         _disk("sda", t1, 100, 50, boot_time=_BOOT_A),
     ]
     result = compute_disk_io(rows)
+    assert result is not None
     assert result[0].read_iops is None
     assert result[0].write_iops is None
     assert result[0].read_kbps is None
@@ -385,6 +394,7 @@ def test_compute_mounts_filters_virtual():
         ),
     ]
     result = compute_mounts(rows)
+    assert result is not None
     paths = [m.mount for m in result]
     assert "/" in paths
     assert "/proc" not in paths

@@ -7,6 +7,7 @@
 """
 
 from datetime import UTC, datetime
+from decimal import Decimal
 
 import pytest
 
@@ -215,7 +216,7 @@ def test_to_environment_report_classification_dist_empty_rows_zero_pct():
 # ---------- build_metric_trend ----------
 
 
-def _series(pairs: list[tuple[datetime, float | None]]) -> list[MetricSeries]:
+def _series(pairs: list[tuple[datetime, float | Decimal | None]]) -> list[MetricSeries]:
     """MetricSeries list 헬퍼 — collected_at·value 만 build_metric_trend 가 사용."""
     return [MetricSeries(collected_at=t, value=v, dimension=None) for t, v in pairs]
 
@@ -243,8 +244,6 @@ def test_build_metric_trend_merges_three_series_on_timestamps():
 def test_build_metric_trend_rounds_to_one_decimal_and_keeps_none():
     """value 는 float 변환 + 소수 1자리 반올림, None 표본은 그대로 None (차트 gap)."""
     t1 = datetime(2026, 5, 12, 0, 0, tzinfo=UTC)
-    from decimal import Decimal
-
     cpu = _series([(t1, Decimal("12.34"))])
     mem = _series([(t1, None)])
     disk = _series([(t1, 99.96)])

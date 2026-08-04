@@ -6,11 +6,15 @@ stop_event 종료를 검증. 실제 claim/expire SQL 은 통합 테스트(test_t
 
 import asyncio
 import contextlib
-from contextlib import asynccontextmanager
+from contextlib import AbstractAsyncContextManager, asynccontextmanager
+from typing import cast
 
 from loguru import logger
 
 from assessment_engine.config import WorkerSettings
+from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
+from assessment_engine.web.services.diagnostic_service import DiagnosticService
+from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.task_service import (
     TaskNotConfigured,
     _resolve_install_dispatch,
@@ -19,6 +23,11 @@ from assessment_engine.web.settings import get_web_settings
 from assessment_engine.worker.report_worker import run_report_worker
 from assessment_engine.worker.task_reaper import run_task_reaper
 from assessment_engine.worker.worker_lifecycle import graceful_drain
+
+
+def _no_query_service() -> AbstractAsyncContextManager[QueryService]:
+    """이 경로는 보고서를 만들지 않으므로 QueryService 를 열지 않아야 한다."""
+    raise AssertionError("query_service_factory 가 호출되면 안 되는 경로다")
 
 
 class _FakeDiag:
@@ -67,7 +76,7 @@ async def test_report_worker_survives_startup_recover_failure():
     stop.set()  # 루프 진입 전 종료 조건 (recover 가드만 실행)
     diag = _FakeDiag(recover_raises=True)
     await run_report_worker(
-        diag_service=diag, query_service_factory=None,
+        diag_service=cast(DiagnosticService, diag), query_service_factory=_no_query_service,
         poll_interval_sec=0.01, stale_seconds=1, stop_event=stop,
     )
     assert diag.recover_calls == 1  # 시도했고, 예외는 삼켜짐(await 이 raise 안 함)
@@ -79,7 +88,7 @@ async def test_report_worker_stops_on_event():
     stop = asyncio.Event()
     diag = _FakeDiag()
     task = asyncio.create_task(run_report_worker(
-        diag_service=diag, query_service_factory=None,
+        diag_service=cast(DiagnosticService, diag), query_service_factory=_no_query_service,
         poll_interval_sec=0.01, stale_seconds=1, stop_event=stop,
     ))
     await asyncio.sleep(0.05)  # 몇 차례 claim 돌게
@@ -94,7 +103,7 @@ async def test_report_worker_survives_claim_failure():
     stop = asyncio.Event()
     diag = _FakeDiag(claim_raises=True)
     task = asyncio.create_task(run_report_worker(
-        diag_service=diag, query_service_factory=None,
+        diag_service=cast(DiagnosticService, diag), query_service_factory=_no_query_service,
         poll_interval_sec=0.01, stale_seconds=1, stop_event=stop,
     ))
     await asyncio.sleep(0.05)
@@ -144,7 +153,7 @@ async def test_task_reaper_survives_tick_failure():
     stop = asyncio.Event()
     repo = _FakeRepo(raises=True)
     task = asyncio.create_task(run_task_reaper(
-        session_factory=_session_factory(), collect_repo_factory=lambda _s: repo,
+        session_factory=_session_factory(), collect_repo_factory=lambda _s: cast(BaseCollectRepository, repo),
         interval_sec=0.01, stop_event=stop,
     ))
     await asyncio.sleep(0.05)
@@ -159,7 +168,7 @@ async def test_task_reaper_stops_on_event():
     repo = _FakeRepo()
     sess_factory = _session_factory()
     task = asyncio.create_task(run_task_reaper(
-        session_factory=sess_factory, collect_repo_factory=lambda _s: repo,
+        session_factory=sess_factory, collect_repo_factory=lambda _s: cast(BaseCollectRepository, repo),
         interval_sec=0.01, stop_event=stop,
     ))
     await asyncio.sleep(0.05)

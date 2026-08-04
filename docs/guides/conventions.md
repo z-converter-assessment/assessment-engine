@@ -19,7 +19,7 @@ pyright 강도는 프리셋 `standard` 에 규칙 단위 승격을 얹은 형태
 
 경로마다 도달한 강도가 다르면 `[[tool.pyright.executionEnvironments]]` 로 그 경로에만 규칙을 올린다. 현재 `scripts` 가 strict 규칙 8개를 추가로 받는다. pyright 는 이 블록에서 `typeCheckingMode` 를 받지 않으므로 프리셋 이름이 아니라 규칙을 나열한다.
 
-`tests` 는 아직 `include` 밖이다. 픽스처가 dict 리터럴을 넘기고 반환에 `| None` 이 붙은 함수 결과를 바로 쓰는 방식 탓에 위반이 남아 있고, 소진한 뒤 목록에 넣는다.
+테스트 픽스처는 dict 로 기본값을 조립해 `**` 로 넘기지 않는다. 그렇게 하면 값 타입이 전 필드의 합집합이 되어 어떤 인자도 맞지 않는다. dataclass 는 `dataclasses.replace(base, **overrides)` 로 base 를 실제 타입으로 한 번 만들고 덮어쓰기만 넘긴다. `T | None` 을 돌려주는 호출은 `assert x is not None` 으로 좁힌 뒤 쓴다 — 그 테스트가 전제하던 것을 명시하는 효과도 있다.
 
 저장소가 공유하는 편집기 설정은 `.vscode/` 두 파일이다. `settings.json` 은 워크스페이스 우선순위로 개인 설정을 덮으므로 팀이 통일해야 할 것만 담는다 (ruff 포맷터·저장 시 포맷·import 정렬·pytest 활성화). `extensions.json` 은 추천일 뿐 강제가 아니며, 이 저장소에 검사 대상이 있는 확장만 올린다.
 

@@ -19,6 +19,6 @@ def to_collection_status_item(dto: CollectionStatus, is_online: bool) -> Collect
 def to_metric_series_item(dto: MetricSeries) -> MetricSeriesItem:
     return MetricSeriesItem(
         collected_at=dto.collected_at,
-        value=dto.value,
+        value=float(dto.value) if dto.value is not None else None,
         dimension=dto.dimension,
     )
