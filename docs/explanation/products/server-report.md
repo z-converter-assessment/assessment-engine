@@ -89,7 +89,7 @@ CPU/메모리/스토리지/네트워크 상세 카드(engineer 전용) — 윈�
 
 | 항목 | 내용 | source |
 |------|------|--------|
-| 평가 윈도우 | 서버 보고서 default 14일, URL `?time_range=`(15m~30d) override | `recommendation.WINDOW_DAYS` 또는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` |
+| 평가 윈도우 | 서버 보고서 default = `recommendation.WINDOW_DAYS`, URL `?time_range=`(15m~30d) override | `recommendation.WINDOW_DAYS` 또는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` |
 | Anchor 시점 | 현재 또는 발행 시점 | default now |
 | 분류(배지) | under_provisioned / over_provisioned / idle / optimal / insufficient_data | `classify_host`(배지) + `rollup_host`(근본원인) |
 | 권장 action | 자원별 독립 한국어 처방 (증설 검토·축소 검토·종료·통합 검토·적정 유지·표본 부족) | `under_prescription`/`recommend_action` -> `RECOMMENDATION_ACTION_KO` |
@@ -101,7 +101,7 @@ CPU/메모리/스토리지/네트워크 상세 카드(engineer 전용) — 윈�
 
 ### 분류 임계값·판정
 
-5분류·트리거 조건·임계 상수·벤더 출처 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. host_status 판정 순서 = under -> insufficient -> idle -> over -> optimal (`rollup_host`/`classify_host`, 상세 right-sizing.md 3절, 임계 상수는 `recommendation.py`).
+5분류·트리거 조건 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. 호스트 요약 상태 판정 순서는 같은 문서 3절(`rollup_host`/`classify_host`).
 
 Windows (원칙 P2/P4): 포화 3축 모두 perflib 실측 — CPU=Processor Queue Length(`cpu_saturated` os-aware run queue), 메모리=Pages Input/sec p95 >= 20(하드 read 폴트, Linux swap page-out 대응 — 정적 pagefile 점유는 신호 아님), 디스크 I/O=await(IOCTL ReadTime/WriteTime, 구세대 viostor 미부착 시 큐 깊이 폴백). perflib 미부착 축만 coverage_gap -> "포화 수치 미관측" 마커. 상세 `docs/reference/right-sizing.md` 5절.
 
@@ -115,7 +115,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 
 ### 평가 윈도우
 
-- 서버 보고서 default 14일 (`recommendation.WINDOW_DAYS`). URL `?time_range=`(15m·1h·6h·24h·7d·14d·30d) override 가능. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
+- 서버 보고서 default = `recommendation.WINDOW_DAYS`. URL `?time_range=`(15m·1h·6h·24h·7d·14d·30d) override 가능. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
 
 ### view 분기 의도
 

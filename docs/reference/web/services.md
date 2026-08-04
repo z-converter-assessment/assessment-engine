@@ -102,7 +102,7 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 
 ## Recommendation 분류 — USE Method 출처
 
-도메인 모듈: `assessment_engine/recommendation.py` (web·diagnostic 양쪽 import). `WINDOW_DAYS=14` 평가 윈도우(#F10)·USE Method 임계값 모두 본 모듈 코드 단일 진실(모듈 상단 명명 상수).
+도메인 모듈: `assessment_engine/recommendation.py` (web·diagnostic 양쪽 import). `WINDOW_DAYS` 평가 윈도우(#F10)·USE Method 임계값 모두 본 모듈 코드 단일 진실(모듈 상단 명명 상수).
 
 UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
@@ -112,11 +112,11 @@ right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기·벤더 임
 
 ## 환경 개요 상단 요약 — environment_overview (`/`)
 
-환경 개요(`/`)는 `EnvironmentOverview` 만 노출 — 환경 요약 KPI(OS 지원 4상태 포함)·주요 워크로드·자원 적정성 막대·자원 이용/포화 도넛·시스템 에러. 운영신호 3 카탈로그(`AttentionSignals` — 통신끊김/OS지원종료/에이전트재시작)는 독립 라이브 카드로 렌더되지 않고 보고서 경로에서만 소비된다 (#E9, view-models.md "환경 개요 상단 요약" 절). 라이브 운영 현황은 별도 `/environment/realtime`(`get_environment_realtime` — 서버별 순간 스냅샷, 갱신 흐름은 본 문서 "실시간 현황" 절). 평균 활용률·자원 적정성 현황은 `recommendation.WINDOW_DAYS`(14일, #F10) 윈도우 — 분류와 한 창 통일. 홈 카드 레이아웃은 `docs/explanation/products/dashboard.md` 단일 진실. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 조립부 `_assemble_overview` 를 attention/trend 제외 경량 재사용, 서버별 표는 `build_action_targets` 로 전 서버·전 분류를 절단 없이 산출). 자원 부족 상세 표의 소유는 `/environment/assessment`.
+환경 개요(`/`)는 `EnvironmentOverview` 만 노출 — 환경 요약 KPI(OS 지원 4상태 포함)·주요 워크로드·자원 적정성 막대·자원 이용/포화 도넛·시스템 에러. 운영신호 3 카탈로그(`AttentionSignals` — 통신끊김/OS지원종료/에이전트재시작)는 독립 라이브 카드로 렌더되지 않고 보고서 경로에서만 소비된다 (#E9, view-models.md "환경 개요 상단 요약" 절). 라이브 운영 현황은 별도 `/environment/realtime`(`get_environment_realtime` — 서버별 순간 스냅샷, 갱신 흐름은 본 문서 "실시간 현황" 절). 평균 활용률·자원 적정성 현황은 `recommendation.WINDOW_DAYS`(#F10) 윈도우 — 분류와 한 창 통일. 홈 카드 레이아웃은 `docs/explanation/products/dashboard.md` 단일 진실. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 조립부 `_assemble_overview` 를 attention/trend 제외 경량 재사용, 서버별 표는 `build_action_targets` 로 전 서버·전 분류를 절단 없이 산출). 자원 부족 상세 표의 소유는 `/environment/assessment`.
 
 | 영역 | service 메서드 | repo SQL | 시간 축 | 분류 |
 |------|----------------|----------|---------|------|
-| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS, end)` + `report_aggregate(WINDOW_DAYS)` + `fleet_error_summary` + Redis online mget | 14일 USE Method + 14일 평균 활용률 (capacity-weighted) | `_assemble_overview`: `build_resource_stats` -> `classify_host`(프로비저닝 도넛) + `cpu/mem/disk_io_saturated`·`assess_network`(포화 4도넛) + `to_capacity_warning_item`(under_provisioned 상세, os-aware triggers) |
+| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS, end)` + `report_aggregate(WINDOW_DAYS)` + `fleet_error_summary` + Redis online mget | 창 USE Method + 창 평균 활용률 (capacity-weighted) | `_assemble_overview`: `build_resource_stats` -> `classify_host`(프로비저닝 도넛) + `cpu/mem/disk_io_saturated`·`assess_network`(포화 4도넛) + `to_capacity_warning_item`(under_provisioned 상세, os-aware triggers) |
 | get_attention_signals (보고서 교차참조) | `get_attention_signals` | gap `metric_gap_warnings(gap_min=5, recent_h=24)` + os_eol `report_aggregate` raws `resolve_os_eol` + agent `agent_restart_counts_recent(now-1h)` | 신호별 상이 | gap "한때 살아있다 끊김" / os_eol 무상 보안 패치가 끊긴 OS(Linux distro + Windows build) / agent restart_count >= `agent_restart_alert_threshold`(WebSettings, 기본 3) |
 
 운영신호 카탈로그(`AttentionSignals`)는 위 3개 — public `get_attention_signals` 가 내부 `_assemble_attention` 으로 조립, 보고서 `attention_for_host` 로 소비. 중복 회피 분리 소유: capacity(under_provisioned)는 environment_overview, days_until_full 은 보고서 스토리지 컬럼.
