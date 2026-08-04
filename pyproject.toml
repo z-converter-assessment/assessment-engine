@@ -69,6 +69,8 @@ reportUnreachable = "error"
 reportUnnecessaryTypeIgnoreComment = "error"
 reportPropertyTypeMismatch = "error"
 reportUninitializedInstanceVariable = "error"
+# 상위 메서드를 덮어쓰는 자리는 @override 로 선언한다 (PEP 698) — 상위 시그니처가 바뀌면 여기서 잡힌다.
+reportImplicitOverride = "error"
 
 [tool.ruff]
 line-length = 120

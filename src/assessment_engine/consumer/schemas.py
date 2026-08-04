@@ -80,7 +80,7 @@ class Metric(BaseModel):
 
 
 # 네임스페이스 = {metric명: Metric}. metric명(cpu.time 등)은 dict 키라 dot 무관.
-Namespace = dict[str, Metric]
+type Namespace = dict[str, Metric]
 
 
 # ---------------------------------------------------------------------------

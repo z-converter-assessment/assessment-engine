@@ -68,7 +68,7 @@ WIN_PAGES_INPUT_SATURATION = 20.0
 PROCS_BLOCKED_DSTATE_SATURATION = 1.0
 
 
-Recommendation = Literal[
+type Recommendation = Literal[
     "idle",  # 유휴 — 수요≈0 미사용 상태. 조치(종료·통합)는 파생 권고 층(상태 아님).
     "over_provisioned",
     "under_provisioned",
@@ -421,8 +421,8 @@ def util_trend_rising_from_slopes(cpu_slope: float | None, mem_slope: float | No
     return any(s >= RS_UTIL_TREND_RISING_PCT_PER_DAY for s in slopes)
 
 
-ResourceKind = Literal["cpu", "memory", "disk_capacity", "disk_io", "network"]
-ResourceStatus = Literal[
+type ResourceKind = Literal["cpu", "memory", "disk_capacity", "disk_io", "network"]
+type ResourceStatus = Literal[
     "under",
     "optimal",
     "over",
@@ -465,7 +465,7 @@ class ResourceAssessment:
     detail: str = ""
 
 
-HostStatus = Literal["under", "idle", "over", "optimal", "insufficient"]
+type HostStatus = Literal["under", "idle", "over", "optimal", "insufficient"]
 
 
 @dataclass

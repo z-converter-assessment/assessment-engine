@@ -4,8 +4,6 @@
 스냅샷이 동일 규칙을 쓰도록 한 곳에서 정의 (각 serializer 가 byte-identical 헬퍼를 복제하지 않음).
 """
 
-from __future__ import annotations
-
 import dataclasses
 import json
 from datetime import datetime

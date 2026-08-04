@@ -821,8 +821,7 @@ export interface components {
     schemas: {
         /** Assessment */
         Assessment: {
-            /** Classification */
-            classification: ("idle" | "over_provisioned" | "under_provisioned" | "optimal" | "insufficient_data") | null;
+            classification: components["schemas"]["Recommendation"] | null;
             /** Confidence */
             confidence: ("low" | "medium" | "high") | null;
             data_quality: components["schemas"]["DataQuality"];
@@ -976,8 +975,7 @@ export interface components {
             /** Confidence Notes */
             confidence_notes: string[] | null;
             saturation: components["schemas"]["DiagSaturation"] | null;
-            /** Status */
-            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
+            status: components["schemas"]["ResourceStatus"] | null;
             utilization: components["schemas"]["DiagUtilization"];
         };
         /** DiagSaturation */
@@ -1090,6 +1088,9 @@ export interface components {
             /** Zdm User */
             zdm_user?: string | null;
         };
+        JsonObject: {
+            [key: string]: unknown;
+        };
         /** MemSnapshot */
         MemSnapshot: {
             /** Available Bytes */
@@ -1200,6 +1201,8 @@ export interface components {
              */
             kind: "reboot" | "restart";
         };
+        /** @enum {string} */
+        Recommendation: "idle" | "over_provisioned" | "under_provisioned" | "optimal" | "insufficient_data";
         /** ReproAddress */
         ReproAddress: {
             /** Address */
@@ -1403,6 +1406,8 @@ export interface components {
             os: components["schemas"]["ReproOs"];
             storage: components["schemas"]["ReproStorage"];
         };
+        /** @enum {string} */
+        ResourceStatus: "under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured";
         /** RightSizingEnvelope */
         RightSizingEnvelope: {
             /** Count */
@@ -1423,8 +1428,7 @@ export interface components {
         };
         /** RightSizingServer */
         RightSizingServer: {
-            /** Classification */
-            classification: ("idle" | "over_provisioned" | "under_provisioned" | "optimal" | "insufficient_data") | null;
+            classification: components["schemas"]["Recommendation"] | null;
             /** Classification Label */
             classification_label: string | null;
             /** Confidence Notes */
@@ -1477,8 +1481,7 @@ export interface components {
             saturation: components["schemas"]["RsSaturation"] | null;
             /** Sizing Target Cores */
             sizing_target_cores: number | null;
-            /** Status */
-            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
+            status: components["schemas"]["ResourceStatus"] | null;
             /** Status Label */
             status_label: string | null;
             /** Utilization P95 Pct */
@@ -1505,8 +1508,7 @@ export interface components {
             recommendation: string | null;
             /** Sizing Target Gb */
             sizing_target_gb: number | null;
-            /** Status */
-            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
+            status: components["schemas"]["ResourceStatus"] | null;
             /** Status Label */
             status_label: string | null;
             /** Worst Mount */
@@ -1523,8 +1525,7 @@ export interface components {
             /** Evidence */
             evidence: string[] | null;
             saturation: components["schemas"]["RsSaturation"] | null;
-            /** Status */
-            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
+            status: components["schemas"]["ResourceStatus"] | null;
             /** Status Label */
             status_label: string | null;
         };
@@ -1554,8 +1555,7 @@ export interface components {
             saturation: components["schemas"]["RsSaturation"] | null;
             /** Sizing Target Mb */
             sizing_target_mb: number | null;
-            /** Status */
-            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
+            status: components["schemas"]["ResourceStatus"] | null;
             /** Status Label */
             status_label: string | null;
             /** Utilization P95 Pct */
@@ -1585,8 +1585,7 @@ export interface components {
             /** Detail */
             detail: string | null;
             signals: components["schemas"]["RsNetSignals"];
-            /** Status */
-            status: ("under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured") | null;
+            status: components["schemas"]["ResourceStatus"] | null;
             /** Status Label */
             status_label: string | null;
         };
@@ -1742,10 +1741,7 @@ export interface components {
             failure_label: string | null;
             /** Failure Reason */
             failure_reason: string | null;
-            /** Params */
-            params?: {
-                [key: string]: unknown;
-            } | null;
+            params?: components["schemas"]["JsonObject"] | null;
             /** Signal Label */
             signal_label: string | null;
             /** Signal No */

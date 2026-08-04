@@ -8,8 +8,6 @@ reproduction 은 인벤토리(os 서술자·boot·nonblock_mounts 컬럼 + block
 계약 OUTPUT 형태로 reshape. sizing 은 near-peak 메모리 + p95 CPU + per-mount 디스크(도메인 assess_*).
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 from assessment_engine import recommendation

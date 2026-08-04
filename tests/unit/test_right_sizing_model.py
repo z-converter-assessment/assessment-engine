@@ -480,9 +480,9 @@ def test_host_network_congested_flag():
 def test_labels_cover_all_statuses():
     from typing import get_args
 
-    for status in get_args(r.ResourceStatus):
+    for status in get_args(r.ResourceStatus.__value__):
         assert status in r.RS_STATUS_LABEL_KO, f"missing status label: {status}"
-    for hs in get_args(r.HostStatus):
+    for hs in get_args(r.HostStatus.__value__):
         assert hs in r.RS_HOST_STATUS_LABEL_KO, f"missing host status label: {hs}"
 
 

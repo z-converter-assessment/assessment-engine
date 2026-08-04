@@ -1,5 +1,7 @@
 """Attention warning 도메인 concrete — metric gap (통신 끊김 운영신호) 전용."""
 
+from typing import override
+
 from sqlalchemy import text
 
 from assessment_engine.db.dtos.outbound import MetricGapWarningRaw
@@ -8,6 +10,7 @@ from assessment_engine.db.repositories.query.base_attention import BaseAttention
 
 
 class AttentionQueryRepository(_BaseQueryMixin, BaseAttentionQueryRepository):
+    @override
     async def metric_gap_warnings(
         self,
         gap_minutes: int,

@@ -27,7 +27,7 @@ _USAGE_DANGER_PCT = 90  # 사용률 위험 임계 — disk_warning · server det
 _USAGE_WARN_PCT = 75  # 사용률 주의 임계
 
 # 보고서 view 분기 — 라우터 Pydantic Literal 정합 (#F3)
-ReportView = Literal["customer", "engineer"]
+type ReportView = Literal["customer", "engineer"]
 
 # 자원 부족 원인 라벨 — trigger key -> os-neutral 축 이름 (단일 진실, P2). attention capacity 카드 active_causes·
 # environment_report 원인 집계 순서(_UNDER_CAUSE_ORDER = 본 dict 삽입순) 공유. Windows paging/run queue 포화도

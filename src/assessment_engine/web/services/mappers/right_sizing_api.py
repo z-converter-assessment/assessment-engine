@@ -6,8 +6,6 @@ stats 원자료·임계 상수로 numeric(파싱 계약).
 자원 3축(CPU/메모리/디스크) 사이징 + 네트워크는 별도 품질 플래그(사이징 아님, ADR 0052 정합).
 """
 
-from __future__ import annotations
-
 from typing import TYPE_CHECKING
 
 from assessment_engine import recommendation
