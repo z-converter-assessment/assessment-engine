@@ -15,7 +15,7 @@ from assessment_engine.db.dtos.outbound import (
     ServerDetail,
 )
 from assessment_engine.db.repositories.query.types import DIAGNOSTIC_RANGE_DAYS, TimeRange
-from assessment_engine.json_types import JsonObject
+from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.web.services.mappers.assessment_api import build_assessment_entry
 from assessment_engine.web.services.mappers.attention import (
     build_action_targets,
@@ -207,7 +207,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         ambiguous = {h for h, c in name_counts.items() if c > 1}
 
         def _addrs(s: ServerDetail) -> Iterator[str | None]:
-            return (a.get("address") for i in s.net_interfaces or [] for a in i.get("addresses") or [])
+            return (a.get("address") for i in s.net_interfaces or [] for a in json_list(i, "addresses"))
 
         def _disc_match(s: ServerDetail, disc: str) -> bool:
             return disc == s.public_id or any(addr == disc for addr in _addrs(s))

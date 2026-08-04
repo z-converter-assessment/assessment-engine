@@ -107,13 +107,16 @@ reportMissingParameterType = "error"
 reportMissingTypeArgument = "error"
 reportPrivateUsage = "error"
 
-# src 는 선언(파라미터 타입·제네릭 인자)을 다 채웠다. 값 추론에서 오는 Unknown 은 아직 남아 있다.
+# src 는 strict 를 통과한다 — 거부 목록(reportPrivateUsage 등, ADR 0062)만 예외다.
 [[tool.pyright.executionEnvironments]]
 root = "src"
 reportMissingParameterType = "error"
 reportMissingTypeArgument = "error"
 reportUnknownParameterType = "error"
 reportUnknownLambdaType = "error"
+reportUnknownMemberType = "error"
+reportUnknownArgumentType = "error"
+reportUnknownVariableType = "error"
 
 [tool.ruff]
 line-length = 120

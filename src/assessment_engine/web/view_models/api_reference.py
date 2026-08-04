@@ -23,14 +23,14 @@ class ApiEndpoint:
     description: str  # 상세 설명
     badge_bg: str = "#e2e8f0"  # method 뱃지 배경 — mapper precompute (P3)
     badge_fg: str = "#475569"  # method 뱃지 글자색
-    params: list[ApiParam] = field(default_factory=list)
+    params: list[ApiParam] = field(default_factory=list[ApiParam])
     # 요청 본문(POST 등) 필드 — $ref 스키마 property + required(스키마 `required` 배열 기준). ApiParam 재사용
     # (location="body") — 필수 표시(*)를 query/path 파라미터와 동일 렌더링으로 통일.
-    body_fields: list[ApiParam] = field(default_factory=list)
+    body_fields: list[ApiParam] = field(default_factory=list[ApiParam])
 
 
 @dataclass
 class ApiGroup:
     tag: str  # OpenAPI tag ("api" / "exports")
     label: str  # 한국어 표시 라벨
-    endpoints: list[ApiEndpoint] = field(default_factory=list)
+    endpoints: list[ApiEndpoint] = field(default_factory=list[ApiEndpoint])

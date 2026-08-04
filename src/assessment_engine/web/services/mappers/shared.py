@@ -13,7 +13,7 @@ from typing import Literal, NamedTuple
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
-from assessment_engine.json_types import JsonObject
+from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.service_classifier import SERVICE_CATALOG
 from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
@@ -148,7 +148,7 @@ def primary_ip(raw: ReportRowRaw) -> str | None:
     for i in raw.net_interfaces or []:
         if is_virtual_interface(i.get("kind")):
             continue
-        for a in i.get("addresses") or []:
+        for a in json_list(i, "addresses"):
             if a.get("family") == "ipv4":
                 return a.get("address")
     return None
@@ -464,7 +464,7 @@ def _eol_info(os_id: str | None, os_version: str | None, kernel_version: str | N
     for entry in _EOL_CATALOG.get(product, []):
         cycle = entry["cycle"]
         if ver == cycle or ver.startswith(cycle + "."):
-            label = " ".join(p for p in [os_id, os_version] if p) or "-"
+            label = " ".join(part for part in (os_id, os_version) if part) or "-"
             status = _classify_eol(entry.get("support"), entry["eol"], entry.get("extendedSupport"), today)
             return OsEolInfo(entry["eol"], entry.get("support"), entry.get("extendedSupport"), label, status)
     return None

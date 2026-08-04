@@ -6,7 +6,7 @@ metrics/inventory = envelope + system.* datapoint-array + inventory 배열. task
 
 from datetime import datetime
 from ipaddress import ip_address, ip_interface
-from typing import Literal
+from typing import Literal, cast
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
@@ -67,7 +67,7 @@ class AgentMessageBase(MessageBase):
 class Datapoint(BaseModel):
     model_config = ConfigDict(extra="ignore")
     # attr — 차원 구분(device/state/direction/resource/scope/window/source/cpu/kind/class). 생략=단일 스칼라.
-    attr: dict[str, str | int] = Field(default_factory=dict)
+    attr: dict[str, str | int] = Field(default_factory=dict[str, str | int])
     # value — number 또는 null(측정불가, 0 과 구분).
     value: float | None = None
 
@@ -76,7 +76,7 @@ class Metric(BaseModel):
     model_config = ConfigDict(extra="ignore")
     type: Literal["counter", "gauge"]
     unit: str = Field(max_length=32)
-    points: list[Datapoint] = Field(default_factory=list)
+    points: list[Datapoint] = Field(default_factory=list[Datapoint])
 
 
 # 네임스페이스 = {metric명: Metric}. metric명(cpu.time 등)은 dict 키라 dot 무관.
@@ -178,7 +178,7 @@ class NetInterfaceInfo(BaseModel):
     id_type: str | None = Field(default=None, max_length=16)
     kind: str | None = Field(default=None, max_length=32)
     speed_mbps: int | None = Field(default=None, ge=0)
-    addresses: list[NetAddressInfo] = Field(default_factory=list)
+    addresses: list[NetAddressInfo] = Field(default_factory=list[NetAddressInfo])
     gateway: str | None = Field(default=None, max_length=64)
     # 레이아웃 상세 (reproduction, agent 확장). bond_mode raw(엔진 정규화).
     mtu: int | None = Field(default=None, ge=0)
@@ -275,24 +275,27 @@ class InventoryInput(AgentMessageBase):
     boot: BootInfo | None = None
     nonblock_mounts: list[NonblockMountInfo] | None = None
 
-    block_devices: list[BlockDeviceInfo] = Field(default_factory=list)
-    net_interfaces: list[NetInterfaceInfo] = Field(default_factory=list)
-    lvm_vgs: list[LvmVgInfo] = Field(default_factory=list)  # Linux 전용(Windows 미발행)
+    block_devices: list[BlockDeviceInfo] = Field(default_factory=list[BlockDeviceInfo])
+    net_interfaces: list[NetInterfaceInfo] = Field(default_factory=list[NetInterfaceInfo])
+    lvm_vgs: list[LvmVgInfo] = Field(default_factory=list[LvmVgInfo])  # Linux 전용(Windows 미발행)
     services: list[InventoryServiceInfo] | None = None
-    listen_ports: list[InventoryListenPortInfo] = Field(default_factory=list)
+    listen_ports: list[InventoryListenPortInfo] = Field(default_factory=list[InventoryListenPortInfo])
 
     @field_validator("ip_external", mode="before")
     @classmethod
     def _validate_ip_external(cls, v: object) -> object:
+        # 검증만 하고 값은 그대로 돌려준다 — 아래 isinstance 로 좁혀진 이름을 반환하면
+        # 원소 타입이 미상인 채 반환 타입에 실린다.
+        original = v
         if v is None:
-            return v
+            return original
         if not isinstance(v, (list, tuple)):
             # ValueError 만 ValidationError 로 수렴한다 — TypeError 는 model_validate_json 밖으로 새어
             # 핸들러의 검증 실패 로그를 건너뛴다.
             raise ValueError(f"expected list of IP strings, got {type(v).__name__}")
-        for item in v:
+        for item in cast("list[object] | tuple[object, ...]", v):
             ip_interface(str(item))
-        return v
+        return original
 
 
 # ---------------------------------------------------------------------------

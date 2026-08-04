@@ -5,6 +5,7 @@ URL 명사 분리: 환경 단위(개요·자원평가·실시간·성능·토폴
 """
 
 from datetime import UTC, datetime
+from typing import Any
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request
@@ -156,7 +157,7 @@ async def assessment(
     환경 단위 `/environment` 그룹. fragment=result: 결과 partial 만 재렌더 (JS swap, 풀 reload 회피)."""
     result = await service.get_environment_assessment(time_range, anchor_at)
     qs = f"?time_range={time_range}" + (f"&anchor_at={quote(anchor_at.isoformat(), safe='')}" if anchor_at else "")
-    ctx = {
+    ctx: dict[str, Any] = {
         "overview": result.overview,
         "action": result.action,
         "time_range": time_range,
@@ -180,7 +181,7 @@ async def overview(
     서버 목록은 `/servers`, 환경 단위 분석은 `/environment/*` 로 분리. 집계형 위젯만 본 페이지에 남는다.
     운영 신호는 실시간 현황(`/environment/realtime`)으로 분리. 자동 갱신 없음 — 정적 집계라 진입 시 1회 렌더."""
     overview = await service.get_dashboard_overview()
-    ctx = {
+    ctx: dict[str, Any] = {
         "overview": overview,
         # 페이지 렌더(새로고침) 시각 — 우측 상단 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
         "generated_at": datetime.now(UTC),

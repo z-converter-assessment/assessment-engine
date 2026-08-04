@@ -197,7 +197,8 @@ class DashboardRaw:
     # disk_io/net_io 를 물리 계층으로 좁힌다 (I/O 활동 축 = 물리 디스크·인터페이스 단일 규칙, device_filters).
     block_devices: list[JsonObject] | None = None
     net_interfaces: list[JsonObject] | None = None
-    cpu_cores: list[CpuCoreRaw] = field(default_factory=list)  # 코어당 최대 2행 — 단일스레드 병목 실시간 표시
+    # 코어당 최대 2행 — 단일스레드 병목 실시간 표시
+    cpu_cores: list[CpuCoreRaw] = field(default_factory=list[CpuCoreRaw])
 
 
 # ---------- Storage / Network 풍부화 DTOs ----------
@@ -227,7 +228,7 @@ class NetworkWithIo:
     os_family: str | None = None  # OS 분기 표시(conntrack N/A 등, #E6 data-os-family)
     # iface_id -> 최신 link_speed_bps(bit/s) — 인벤토리 speed_mbps null(virtio·Windows NT5.2) 폴백용
     # (latest_link_speed 재사용, environment.py 와 동일 목적).
-    link_speed_by_iface: dict[str, int] = field(default_factory=dict)
+    link_speed_by_iface: dict[str, int] = field(default_factory=dict[str, int])
 
 
 @dataclass
@@ -310,7 +311,7 @@ class ErrorFleetRaw:
     corrupted_bytes: int | None = None  # 현재 EDAC hardware corrupted (>0=메모리 손상)
     net_error_count: int = 0  # rx_errors+tx_errors 창내 증가분 (전 iface 합)
     disk_error_count: int = 0  # server_disk_error count 창내 증가분 (전 device/kind 합)
-    disk_error_kinds: list[str] = field(default_factory=list)  # 발생 종류 "kind/class" (예 mdraid/degraded)
+    disk_error_kinds: list[str] = field(default_factory=list[str])  # 발생 종류 "kind/class" (예 mdraid/degraded)
     last_error_at: datetime | None = None  # 창 안 최근 에러 관측 표본 시각 (approx 시점 컨텍스트)
 
 

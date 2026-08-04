@@ -33,6 +33,7 @@ from assessment_engine.contract import AGENT_CONTRACT_VERSION
 from assessment_engine.db.dtos.inbound import TaskCreate
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.settings import get_diagnostic_settings, get_web_settings
 
 _TASK_TYPE_INSTALL = "zconverter_install"
@@ -374,7 +375,7 @@ class TaskService:
         install_script: str | None,
     ) -> None:
         download_url = f"http://{zdm_host}{package_path}"
-        payload = {
+        payload: JsonObject = {
             "message_type": "task.install",
             # 특권 실행 경로라 에이전트가 실행 전 major 게이트 — 모르는 major/부재 시 다운로드·실행 전
             # 거부(unsupported_contract_version).

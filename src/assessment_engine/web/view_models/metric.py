@@ -57,10 +57,10 @@ class PeriodResource:
     verdict_color: str
     # 자원별 상세 탭 전용 추가 지표 — U/S 2축엔 안 들어가지만 진단에 유용한 원신호, 성격별 그룹(예: CPU/메모리
     # "부하 신호"/"통계 신뢰도"). 자원마다 선택적으로 채움(빈 list = 해당 자원 미제공). 상세 탭 "신뢰도" 카드.
-    extra_groups: list[PeriodExtraGroup] = field(default_factory=list)
+    extra_groups: list[PeriodExtraGroup] = field(default_factory=list[PeriodExtraGroup])
     # 자원별 상세 탭 전용 에러 축 — error_rows(호스트 전체) 중 이 자원 key 접두(mem_ 등)만 필터. 현재 메모리만
     # 채움(OOM Kill·EDAC) — 다른 자원은 빈 list(상세 탭이 U/S 2열 유지, 메모리만 에러 3열째 추가).
-    error_rows: list[PeriodErrorRow] = field(default_factory=list)
+    error_rows: list[PeriodErrorRow] = field(default_factory=list[PeriodErrorRow])
     # 스토리지 전용 2번째 판정 — 용량(disk_capacity)·성능/IO(disk_io)는 서로 독립 축이라 하나의 배지로
     # 합치면(우선순위 승자만 노출) 나머지 축 상태가 안 보임("I/O 병목"만 뜨면 용량은 괜찮은지 알 수 없음).
     # verdict_label/color = 용량 축, 이 필드 = 성능(I/O) 축. 빈 문자열("") = 미사용(스토리지 외 자원).
@@ -211,14 +211,14 @@ class MetricDashboard:
     disk_usage_pct: float | None = None
     # 포화(S) 스냅샷 신호 (os-aware 서버 판정, P2) — 자원별 SaturationSignal 리스트. 클라는 렌더만.
     # build_saturation_signals(mappers/metric) 단일 산출. 개요·자원 탭 스냅샷 카드 공통 소비.
-    cpu_saturation: list[SaturationSignal] = field(default_factory=list)
-    mem_saturation: list[SaturationSignal] = field(default_factory=list)
-    disk_saturation: list[SaturationSignal] = field(default_factory=list)
-    net_saturation: list[SaturationSignal] = field(default_factory=list)
+    cpu_saturation: list[SaturationSignal] = field(default_factory=list[SaturationSignal])
+    mem_saturation: list[SaturationSignal] = field(default_factory=list[SaturationSignal])
+    disk_saturation: list[SaturationSignal] = field(default_factory=list[SaturationSignal])
+    net_saturation: list[SaturationSignal] = field(default_factory=list[SaturationSignal])
     # 에러 축 표시자 (호스트 공통 fleet — MCE·OOM·EDAC·디스크·네트워크). 정상=0 발화(E9). build_error_signals 산출.
-    errors: list[ErrorSignal] = field(default_factory=list)
+    errors: list[ErrorSignal] = field(default_factory=list[ErrorSignal])
     # 코어별 순간 사용률 — 단일스레드 병목 실시간(Linux 전용, Windows 빈 list). CPU 상세 전용 축.
-    cpu_cores: list[CpuCoreSnapshot] = field(default_factory=list)
+    cpu_cores: list[CpuCoreSnapshot] = field(default_factory=list[CpuCoreSnapshot])
 
 
 @dataclass

@@ -17,9 +17,13 @@ ruff 는 검증 워크플로(`ci.yml`)가 PR 마다 `ruff check` 를 돌린다 �
 
 pyright 강도는 프리셋 `standard` 에 규칙 단위 승격을 얹은 형태다. 위반이 0 인 규칙만 error 로 선언해 확보한 지점을 고정하고, 위반이 남은 규칙은 승격하지 않는다. 규칙별 승격·거부 사유는 ADR 0062 가 단일 진실이다. 새 규칙을 켤 때도 같은 기준을 쓴다 — 위반을 남긴 채 켜지 않는다.
 
-경로마다 도달한 강도가 다르면 `[[tool.pyright.executionEnvironments]]` 로 그 경로에만 규칙을 올린다. 현재 `scripts` 가 strict 규칙 8개, `src` 가 선언 규칙 4개를 추가로 받는다. pyright 는 이 블록에서 `typeCheckingMode` 를 받지 않으므로 프리셋 이름이 아니라 규칙을 나열한다.
+경로마다 도달한 강도가 다르면 `[[tool.pyright.executionEnvironments]]` 로 그 경로에만 규칙을 올린다. 현재 `scripts` 와 `src` 가 strict 규칙을 추가로 받는다 — 거부 목록만 예외다. pyright 는 이 블록에서 `typeCheckingMode` 를 받지 않으므로 프리셋 이름이 아니라 규칙을 나열한다.
 
 wire·JSONB 원본을 담는 자리는 `assessment_engine.json_types.JsonObject` 를 쓴다. 계약 밖 필드가 도착해도 통과시켜야 하므로 원본은 열린 채로 두고 읽는 쪽이 필요한 축만 좁힌다. JSON 이 아닌 dict(MQ 큐 선언 인자·SQLAlchemy 컬럼-값 맵·in-memory 인덱스)에는 쓰지 않는다 — 이름이 거짓이 된다.
+
+그 원본에서 중첩 배열·객체를 꺼낼 때는 같은 모듈의 `json_list`·`json_obj`·`json_str_list` 를 쓴다. `d.get(key) or []` 로 꺼내면 빈 리터럴이 원소 타입을 잃은 채 결과 타입을 정한다. 세 헬퍼는 형태가 아니면 빈 값으로 읽으므로 호출부 가드가 필요 없다.
+
+dataclass·Pydantic 의 기본값 팩토리는 `field(default_factory=list[X])` 처럼 선언과 같은 제네릭 별칭을 쓴다. 인자 없는 `list`·`dict` 는 원소 타입이 없는 생성자라 선언과 이어지지 않는다 — 제네릭 별칭도 호출 가능해 런타임 동작은 같다.
 
 테스트 픽스처는 dict 로 기본값을 조립해 `**` 로 넘기지 않는다. 그렇게 하면 값 타입이 전 필드의 합집합이 되어 어떤 인자도 맞지 않는다. dataclass 는 `dataclasses.replace(base, **overrides)` 로 base 를 실제 타입으로 한 번 만들고 덮어쓰기만 넘긴다. `T | None` 을 돌려주는 호출은 `assert x is not None` 으로 좁힌 뒤 쓴다 — 그 테스트가 전제하던 것을 명시하는 효과도 있다.
 

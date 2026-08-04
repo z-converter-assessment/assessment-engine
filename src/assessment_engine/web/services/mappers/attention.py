@@ -571,7 +571,7 @@ def build_action_targets(raws: list[ReportRowRaw]) -> ActionTargets:
     CapacityWarningItem 단일 행 타입(분류·근본원인·권고·신뢰도). 자원 평가 페이지·환경 보고서 공유 단일 진실.
     """
     items: list[CapacityWarningItem] = []
-    eff_raws = []
+    eff_raws: list[ReportRowRaw] = []
     for raw in raws:
         # to_capacity_warning_item 이 이미 rollup_host 로 classification 산출 — 재계산 대신 결과 재사용(요청당 rollup 1회, #E3 동일 산식).
         item = to_capacity_warning_item(raw)

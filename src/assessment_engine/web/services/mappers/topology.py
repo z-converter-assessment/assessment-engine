@@ -19,10 +19,10 @@ IPv4 only: 그래프는 physical+bond_master 인터페이스의 IPv4 주소만. 
 
 import ipaddress
 from collections import defaultdict
-from typing import NamedTuple
+from typing import NamedTuple, cast
 
 from assessment_engine.db.dtos.outbound import ServerDetail
-from assessment_engine.json_types import JsonObject
+from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import is_virtual_interface
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
@@ -75,7 +75,7 @@ def build_network_topology(
         host_meta[pid] = (h.hostname, h.os_family or "unknown")
         # 시그니처 워크로드만(SIGNATURE_CATEGORIES) — file·mail·infra·remote 등 baseline·관리는 토폴로지 뱃지 노이즈라 제외.
         host_roles[pid] = sorted(
-            c for c in (getattr(h, "service_categories", None) or []) if c in SIGNATURE_CATEGORIES
+            c for c in cast("list[str]", getattr(h, "service_categories", None) or []) if c in SIGNATURE_CATEGORIES
         )
         ifaces: list[JsonObject] = []
         seen_nets: set[str] = set()  # 호스트 스코프 — 여러 인터페이스/주소가 같은 서브넷 잡아도 멤버십 1회
@@ -95,7 +95,7 @@ def build_network_topology(
                     "gateway": gateway,
                 }
             )
-            for a in iface_info.get("addresses") or []:
+            for a in json_list(iface_info, "addresses"):
                 if a.get("family") != "ipv4":
                     continue  # IPv4 only (IPv6 은 그래프 제외)
                 addr = a.get("address")

@@ -3,6 +3,7 @@
 from typing import Any
 
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
+from assessment_engine.json_types import json_list, json_obj
 from assessment_engine.web.services.mappers.shared import DIAGNOSTIC_RANGE_LABEL_KR
 
 _VIEW_LABEL: dict[str, str] = {
@@ -45,8 +46,8 @@ def _environment_server_count(rec: DiagnosticJobRecord) -> int | None:
     등록 서버 총수(base.total)를 대신 표시. 스냅샷 부재(pending/running/failed)면 None —
     표시 단계에서 수량을 생략한다("환경 전체").
     """
-    snapshot = (rec.result or {}).get("snapshot") or {}
-    base = snapshot.get("base") or {}
+    snapshot = json_obj(rec.result or {}, "snapshot")
+    base = json_obj(snapshot, "base")
     total = base.get("total")
     return total if isinstance(total, int) else None
 
@@ -60,7 +61,7 @@ def _result_link(rec: DiagnosticJobRecord, back: str = "") -> str:
     back_suffix = f"&back={back}" if back else ""
     if rec.scope == "environment":
         return f"/reports/environment?job={rec.id}{back_suffix}"
-    server_public_ids = rec.input_params.get("server_public_ids") or []
+    server_public_ids = json_list(rec.input_params, "server_public_ids")
     # server scope 1대는 단일 양식(`/servers/{pid}/report`), 2대+ 는 N대 표(`/reports/servers`).
     if len(server_public_ids) == 1:
         return f"/servers/{server_public_ids[0]}/report?job={rec.id}{back_suffix}"
@@ -69,7 +70,7 @@ def _result_link(rec: DiagnosticJobRecord, back: str = "") -> str:
 
 def to_report_history_item(rec: DiagnosticJobRecord, back: str = "") -> dict[str, Any]:
     """보고서 이력 행 1개 — 발행 시각·양식·서버 수·윈도우·재조회 link."""
-    server_public_ids = rec.input_params.get("server_public_ids") or []
+    server_public_ids = json_list(rec.input_params, "server_public_ids")
     period_days = float(rec.input_params.get("period_days", 14))
     view = _view_from_job_type(rec.job_type)
     # environment scope 는 선택 list 부재라 등록 서버 총수(스냅샷 base.total)로 산출,

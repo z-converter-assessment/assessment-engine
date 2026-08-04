@@ -100,3 +100,19 @@ src 의 strict 위반 2903건 중 2903건을 소진해 선언 관련 규칙 넷(
 `/reports/{job_id}/status` 는 반환 어노테이션이 없어 생성 타입이 `unknown` 이었다. 채우니 폴링 JS 가 보는 응답 타입이 실제 형태로 좁혀졌다.
 
 `reportPrivateUsage`·`reportUnusedFunction`·`reportUnusedClass` 는 거부 목록 그대로다. `reportUnknownMemberType`·`reportUnknownArgumentType`·`reportUnknownVariableType` 은 남은 작업이며, 소진하면 `typeCheckingMode = "strict"` 를 켠다.
+
+## 정정 (2026-08-04, src strict 도달)
+
+src 가 strict 전 규칙을 통과한다. 거부 목록(`reportPrivateUsage`·`reportUnusedFunction`·`reportUnusedClass`·`reportUnnecessaryIsInstance`)만 예외이고, 나머지 strict 규칙 전부를 `root = "src"` 아래 error 로 고정했다.
+
+값 추론이 낳던 Unknown 423건의 뿌리는 셋이었다.
+
+`d.get(key) or []` 관용구다. 왼쪽이 열린 타입이면 오른쪽 빈 리터럴이 원소 타입을 잃은 채 결과 타입을 정한다. `json_types` 에 `json_list`·`json_obj`·`json_str_list` 를 두어 중첩 배열·객체를 꺼내는 자리가 그 자리에서 형태를 확정하게 했다. 세 헬퍼는 `object` 를 받아 형태가 아니면 빈 값으로 읽으므로 호출부에 가드가 필요 없다. 334건이 여기서 사라졌다.
+
+`field(default_factory=list)` 다. 인자 없는 `list`·`dict` 는 원소 타입이 없는 생성자라 선언한 `list[X]` 와 이어지지 않는다. 87곳을 `default_factory=list[X]` 로 바꿨다 — 제네릭 별칭도 호출 가능해 런타임 동작은 같다.
+
+어노테이션 없는 dict·list 리터럴이다. 라우터 컨텍스트·MQ payload·bulk INSERT 행처럼 값 종류가 섞이는 자리가 대상이고, 선언을 붙여 좁혔다.
+
+외부 패키지가 타입을 주지 않는 세 자리는 이유를 적고 그 줄만 억제했다. redis 는 `ConnectionPool.from_url` 의 `**kwargs` 를 타입 없이 선언하고, SQLAlchemy 의 `__table__` 은 declarative 매핑이 런타임에 붙이는 속성이라 선언에 없으며, jinja2 는 `Environment.globals`·`filters` 의 값 타입을 소비자가 볼 수 있는 형태로 주지 않는다.
+
+남은 것은 tests 뿐이다. tests 가 같은 지점에 닿으면 `typeCheckingMode = "strict"` 를 켜고 거부 목록만 `none` 으로 남긴 뒤 `executionEnvironments` 블록을 지운다.

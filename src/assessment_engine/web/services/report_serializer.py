@@ -19,7 +19,7 @@ from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV as REPORT
 
 # result 구조 계약(키·dict 조립)은 diagnostic.report_result 단일 진실 — web view_models 에 의존하지
 # 않는 중립 모듈에 분리.
-from assessment_engine.json_types import JsonObject
+from assessment_engine.json_types import JsonObject, json_list, json_obj
 from assessment_engine.web.services.serialization_util import parse_dt as _dt
 from assessment_engine.web.services.serialization_util import to_jsonable as _to_jsonable
 from assessment_engine.web.view_models.attention import (
@@ -101,8 +101,8 @@ _LEGACY_OS_EOL_STATUS = {"eol": "ended", "extended": "security_only", "supported
 def _report_row_from_dict(r: JsonObject) -> ReportRowItem:
     """ReportRowItem 복원 — nested 구동 서비스 2 필드(list[dataclass]) 재구성 포함."""
     data = dict(r)
-    data["workload_groups"] = [_build(ReportWorkloadGroup, g) for g in data.get("workload_groups") or []]
-    data["listen_ports_detail"] = [_build(ReportListenItem, p) for p in data.get("listen_ports_detail") or []]
+    data["workload_groups"] = [_build(ReportWorkloadGroup, g) for g in json_list(data, "workload_groups")]
+    data["listen_ports_detail"] = [_build(ReportListenItem, p) for p in json_list(data, "listen_ports_detail")]
     status = data.get("os_eol_status")
     if status in _LEGACY_OS_EOL_STATUS:
         data["os_eol_status"] = _LEGACY_OS_EOL_STATUS[status]
@@ -111,7 +111,7 @@ def _report_row_from_dict(r: JsonObject) -> ReportRowItem:
 
 def report_summary_from_dict(d: JsonObject) -> ReportSummary:
     data = dict(d)
-    data["rows"] = [_report_row_from_dict(r) for r in data.get("rows") or []]
+    data["rows"] = [_report_row_from_dict(r) for r in json_list(data, "rows")]
     totals = data.get("totals")
     data["totals"] = _build(ReportTotals, totals) if totals else ReportTotals(0, 0.0, 0)
     data["generated_at"] = _dt(data.get("generated_at"))
@@ -131,9 +131,9 @@ def env_report_from_dict(d: JsonObject) -> EnvironmentReportSummary:
     data["overview"] = _overview_from_dict(data["overview"])
     data["attention"] = _attention_from_dict(data["attention"])
     data["base"] = report_summary_from_dict(data["base"])
-    data["classification_dist"] = [_build(ClassificationCount, c) for c in data.get("classification_dist") or []]
-    data["os_distribution"] = [_build(OsCount, o) for o in data.get("os_distribution") or []]
-    data["os_family_dist"] = [_build(DistributionBar, b) for b in data.get("os_family_dist") or []]
+    data["classification_dist"] = [_build(ClassificationCount, c) for c in json_list(data, "classification_dist")]
+    data["os_distribution"] = [_build(OsCount, o) for o in json_list(data, "os_distribution")]
+    data["os_family_dist"] = [_build(DistributionBar, b) for b in json_list(data, "os_family_dist")]
     topo = data.get("topology")
     if topo:
         # subnets nested 복원 (SubnetGroup/SubnetHost) — 보고서 서브넷 요약 표가 .net_key/.host_count 접근.
@@ -142,39 +142,39 @@ def env_report_from_dict(d: JsonObject) -> EnvironmentReportSummary:
             SubnetGroup(
                 net_key=s["net_key"],
                 host_count=s.get("host_count", 0),
-                hosts=[_build(SubnetHost, h) for h in s.get("hosts") or []],
+                hosts=[_build(SubnetHost, h) for h in json_list(s, "hosts")],
             )
-            for s in topo.get("subnets") or []
+            for s in json_list(topo, "subnets")
         ]
         data["topology"] = _build(NetworkTopology, topo)
     else:
         data["topology"] = None
     # trend 는 plain dict list (at=isoformat str) — 라운드트립 시 그대로 보존 (복원 불필요).
-    data["top_risks"] = [_report_row_from_dict(r) for r in data.get("top_risks") or []]
+    data["top_risks"] = [_report_row_from_dict(r) for r in json_list(data, "top_risks")]
     # 통합 조치 대상 표 — hosts nested(CapacityWarningItem, metrics 포함) 복원.
-    data["action"] = _action_targets_from_dict(data.get("action") or {})
+    data["action"] = _action_targets_from_dict(json_obj(data, "action"))
     data["service_catalog"] = [
         ServiceCatalogGroup(
             category=g["category"],
             total_count=g.get("total_count", 0),
             services=[
                 ServiceNameCount(
-                    name=s["name"], count=s["count"], hosts=[_build(ServiceHost, h) for h in s.get("hosts") or []]
+                    name=s["name"], count=s["count"], hosts=[_build(ServiceHost, h) for h in json_list(s, "hosts")]
                 )
-                for s in g.get("services") or []
+                for s in json_list(g, "services")
             ],
         )
-        for g in data.get("service_catalog") or []
+        for g in json_list(data, "service_catalog")
     ]
-    data["attention_hosts"] = [_build(AttentionHostItem, a) for a in data.get("attention_hosts") or []]
-    data["capacity_imminent"] = [_build(CapacityImminentItem, c) for c in data.get("capacity_imminent") or []]
+    data["attention_hosts"] = [_build(AttentionHostItem, a) for a in json_list(data, "attention_hosts")]
+    data["capacity_imminent"] = [_build(CapacityImminentItem, c) for c in json_list(data, "capacity_imminent")]
     data["anchor_at"] = _dt(data.get("anchor_at"))
     data["generated_at"] = _dt(data.get("generated_at"))
     si = data.get("server_inventory")
     if si:
         sid = dict(si)
-        sid["ip_internal"] = [_build(IpAddr, a) for a in sid.get("ip_internal") or []]
-        sid["ip_external"] = [_build(IpAddr, a) for a in sid.get("ip_external") or []]
+        sid["ip_internal"] = [_build(IpAddr, a) for a in json_list(sid, "ip_internal")]
+        sid["ip_external"] = [_build(IpAddr, a) for a in json_list(sid, "ip_external")]
         sid["boot_time"] = _dt(sid.get("boot_time"))
         sid["agent_started_at"] = _dt(sid.get("agent_started_at"))
         sid["last_seen_at"] = _dt(sid.get("last_seen_at"))
@@ -187,8 +187,8 @@ def env_report_from_dict(d: JsonObject) -> EnvironmentReportSummary:
         data["cpu_breakdown"] = _build(CpuBreakdown, cb)
     pa = data.get("period_assessment")
     data["period_assessment"] = _period_assessment_from_dict(pa) if pa else None
-    data["storage_tree"] = [_storage_node_from_dict(n) for n in data.get("storage_tree") or []]
-    data["network_interfaces"] = [_network_interface_from_dict(n) for n in data.get("network_interfaces") or []]
+    data["storage_tree"] = [_storage_node_from_dict(n) for n in json_list(data, "storage_tree")]
+    data["network_interfaces"] = [_network_interface_from_dict(n) for n in json_list(data, "network_interfaces")]
     return _build(EnvironmentReportSummary, data)
 
 
@@ -215,17 +215,17 @@ def _period_assessment_from_dict(d: JsonObject) -> PeriodAssessment:
             verdict_color=r.get("verdict_color", ""),
             extra_groups=[
                 PeriodExtraGroup(label=g["label"], rows=_period_signal_rows(g.get("rows")))
-                for g in r.get("extra_groups") or []
+                for g in json_list(r, "extra_groups")
             ],
-            error_rows=[_build(PeriodErrorRow, e) for e in r.get("error_rows") or []],
+            error_rows=[_build(PeriodErrorRow, e) for e in json_list(r, "error_rows")],
             verdict_label2=r.get("verdict_label2", ""),
             verdict_color2=r.get("verdict_color2", ""),
         )
-        for r in d.get("resources") or []
+        for r in json_list(d, "resources")
     ]
     return PeriodAssessment(
         resources=resources,
-        error_rows=[_build(PeriodErrorRow, e) for e in d.get("error_rows") or []],
+        error_rows=[_build(PeriodErrorRow, e) for e in json_list(d, "error_rows")],
         window_days=d.get("window_days", 0),
         classification_label=d.get("classification_label", ""),
         classification_color=d.get("classification_color", ""),
@@ -235,24 +235,24 @@ def _period_assessment_from_dict(d: JsonObject) -> PeriodAssessment:
 def _storage_node_from_dict(d: JsonObject) -> StorageNode:
     """StorageNode 복원 — children 재귀 트리(storage.html 과 동일 구조)."""
     data = dict(d)
-    data["children"] = [_storage_node_from_dict(c) for c in data.get("children") or []]
+    data["children"] = [_storage_node_from_dict(c) for c in json_list(data, "children")]
     return _build(StorageNode, data)
 
 
 def _network_interface_from_dict(d: JsonObject) -> NetworkInterfaceInfo:
     data = dict(d)
-    data["addresses"] = [_build(NetIfaceAddress, a) for a in data.get("addresses") or []]
+    data["addresses"] = [_build(NetIfaceAddress, a) for a in json_list(data, "addresses")]
     return _build(NetworkInterfaceInfo, data)
 
 
 def _overview_from_dict(d: JsonObject) -> EnvironmentOverview:
     data = dict(d)
-    data["utilization"] = [_build(UtilizationBar, u) for u in data.get("utilization") or []]
-    data["utilization_p95"] = [_build(UtilizationBar, u) for u in data.get("utilization_p95") or []]
-    data["risk_donut"] = [_build(RiskDonutSegment, s) for s in data.get("risk_donut") or []]
-    data["saturation_donuts"] = [_build(SaturationDonut, s) for s in data.get("saturation_donuts") or []]
-    data["error_fleet"] = [_build(FleetErrorItem, e) for e in data.get("error_fleet") or []]
-    uph = data.get("under_provisioned_hosts") or []
+    data["utilization"] = [_build(UtilizationBar, u) for u in json_list(data, "utilization")]
+    data["utilization_p95"] = [_build(UtilizationBar, u) for u in json_list(data, "utilization_p95")]
+    data["risk_donut"] = [_build(RiskDonutSegment, s) for s in json_list(data, "risk_donut")]
+    data["saturation_donuts"] = [_build(SaturationDonut, s) for s in json_list(data, "saturation_donuts")]
+    data["error_fleet"] = [_build(FleetErrorItem, e) for e in json_list(data, "error_fleet")]
+    uph = json_list(data, "under_provisioned_hosts")
     data["under_provisioned_hosts"] = [_capacity_warning_from_dict(c) for c in uph]
     return _build(EnvironmentOverview, data)
 
@@ -260,9 +260,9 @@ def _overview_from_dict(d: JsonObject) -> EnvironmentOverview:
 def _attention_from_dict(d: JsonObject) -> AttentionSignals:
     # catalog/has_any 는 @property — field 만 재구성하면 자동 복원.
     return AttentionSignals(
-        gap_warnings=[_attention_row_from_dict(r) for r in d.get("gap_warnings") or []],
-        os_eol_warnings=[_attention_row_from_dict(r) for r in d.get("os_eol_warnings") or []],
-        agent_unstable=[_attention_row_from_dict(r) for r in d.get("agent_unstable") or []],
+        gap_warnings=[_attention_row_from_dict(r) for r in json_list(d, "gap_warnings")],
+        os_eol_warnings=[_attention_row_from_dict(r) for r in json_list(d, "os_eol_warnings")],
+        agent_unstable=[_attention_row_from_dict(r) for r in json_list(d, "agent_unstable")],
     )
 
 
@@ -282,5 +282,5 @@ def _capacity_warning_from_dict(d: JsonObject) -> CapacityWarningItem:
 def _action_targets_from_dict(d: JsonObject) -> ActionTargets:
     data = dict(d)
     # hosts = CapacityWarningItem list. 지금 dataclass 에 없는 키는 _drop_unknown_fields 가 걸러낸다.
-    data["hosts"] = [_capacity_warning_from_dict(c) for c in data.get("hosts") or []]
+    data["hosts"] = [_capacity_warning_from_dict(c) for c in json_list(data, "hosts")]
     return _build(ActionTargets, data)

@@ -1,7 +1,7 @@
 from collections.abc import Callable, Sequence
 from typing import Any, cast
 
-from sqlalchemy import CursorResult, Row, UniqueConstraint, func, select, update
+from sqlalchemy import CursorResult, Row, Table, UniqueConstraint, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -37,7 +37,9 @@ def _natural_key(model: type) -> list[str]:
     `Table.constraints` 는 set 이라 UNIQUE 가 둘 이상이면 어느 쪽이 잡힐지 프로세스마다 달라진다.
     자연키를 하나로 특정할 수 없는 모델은 침묵 대신 거부한다.
     """
-    uniques = [c for c in model.__table__.constraints if isinstance(c, UniqueConstraint)]
+    # __table__ 은 declarative 매핑이 런타임에 붙이는 속성이라 선언에 없다.
+    table = cast("Table", model.__table__)  # pyright: ignore[reportUnknownMemberType]
+    uniques = [c for c in table.constraints if isinstance(c, UniqueConstraint)]
     if len(uniques) != 1:
         raise RuntimeError(f"{model.__name__} 의 자연키 UNIQUE 가 {len(uniques)}개 — 충돌 대상을 특정할 수 없다")
     return [col.name for col in uniques[0].columns]
@@ -400,7 +402,9 @@ class CollectRepository(BaseCollectRepository):
         """
         if not entries:
             return 0
-        rows = [{"server_id": server_id, "collected_at": data.collected_at, **vars(e)} for e in entries]
+        rows: list[dict[str, Any]] = [
+            {"server_id": server_id, "collected_at": data.collected_at, **vars(e)} for e in entries
+        ]
         if row_hook is not None:
             rows = [row_hook(row) for row in rows]
         stmt = pg_insert(model).values(rows).on_conflict_do_nothing(index_elements=_NATURAL_KEYS[model])

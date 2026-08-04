@@ -10,6 +10,7 @@ from datetime import UTC, date, datetime
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import ReportRowRaw
+from assessment_engine.json_types import json_list
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES, detect_listen_categories
 from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
 from assessment_engine.web.services.mappers.server import (
@@ -851,7 +852,7 @@ def to_report_row_item(
                 a.get("address")
                 for i in raw.net_interfaces or []
                 if not is_virtual_interface(i.get("kind"))  # physical + bond_master (topology·상세와 동일 술어)
-                for a in i.get("addresses") or []
+                for a in json_list(i, "addresses")
                 if a.get("family") == "ipv4"
             ),
             None,

@@ -40,11 +40,11 @@ class CapacityWarningItem:
     classification_label: str = "자원 부족"  # 표시 라벨 (LABEL_KO)
     badge_class: str = "rec-under_provisioned"  # 뱃지 CSS (BADGE_CLASS)
     classification_rank: int = 0  # 분류 칼럼 정렬값 (ACTION_PRIORITY — 자원 부족 0 > 과다 1 > 유휴 2)
-    active_causes: list[str] = field(default_factory=list)
-    services: dict[str, int] = field(default_factory=dict)
+    active_causes: list[str] = field(default_factory=list[str])
+    services: dict[str, int] = field(default_factory=dict[str, int])
     # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (shared.build_host_confidence_notes,
     # 원칙2). 보고서 행과 동일 채널 — 카드가 list 렌더(P3). 발화 trigger(빨강)와 시각 구분.
-    confidence_notes: list[str] = field(default_factory=list)
+    confidence_notes: list[str] = field(default_factory=list[str])
     # 증설 권고 — 자원별 독립 처방(recommendation.under_prescription 단일 진실, ADR 0056). 자원 부족 표 권고 칼럼.
     recommendation_action: str = ""
     # 근본원인 — recommendation.root_cause_display 단일 진실. 단일 부족=자원명 / 인과 결합="메모리 (CPU 유발)" /
@@ -90,8 +90,8 @@ class AttentionSignals:
     """
 
     gap_warnings: list[AttentionRow]
-    os_eol_warnings: list[AttentionRow] = field(default_factory=list)
-    agent_unstable: list[AttentionRow] = field(default_factory=list)
+    os_eol_warnings: list[AttentionRow] = field(default_factory=list[AttentionRow])
+    agent_unstable: list[AttentionRow] = field(default_factory=list[AttentionRow])
 
     @property
     def catalog(self) -> list[AttentionCatalogEntry]:
@@ -153,31 +153,31 @@ class EnvironmentOverview:
     total_memory_gb: float
     total_disk_gb: int
     # os_family(windows/linux/unknown) 별 서버 수. count DESC.
-    os_distribution: dict[str, int] = field(default_factory=dict)
+    os_distribution: dict[str, int] = field(default_factory=dict[str, int])
     # 주요 워크로드 분포 — 카테고리별 환경 전체 인스턴스 개수(호스트 dedup 아님, 모든 카테고리 0 포함, #E7 E9).
-    role_distribution: dict[str, int] = field(default_factory=dict)
+    role_distribution: dict[str, int] = field(default_factory=dict[str, int])
     # 주요 워크로드 원형차트 세그먼트(RiskDonutSegment 재사용 — color·count·dash precompute) + 총 인스턴스.
-    workload_donut: list[RiskDonutSegment] = field(default_factory=list)
+    workload_donut: list[RiskDonutSegment] = field(default_factory=list[RiskDonutSegment])
     workload_total: int = 0
     role_unknown_count: int = 0  # 특징 워크로드 0 호스트 수 (보고서 workload_unknown_count 용)
-    utilization: list[UtilizationBar] = field(default_factory=list)
+    utilization: list[UtilizationBar] = field(default_factory=list[UtilizationBar])
     # 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일).
-    utilization_p95: list[UtilizationBar] = field(default_factory=list)
+    utilization_p95: list[UtilizationBar] = field(default_factory=list[UtilizationBar])
     util_sample_size: int = 0
     # 포화 4축 도넛 (CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡) — 자원 적정성 창(14일) 기준 호스트 카운트/표본.
     # 실시간현황 7도넛(이용률 3 + 신호 4)과 동일 시각·게이지색, 다만 스냅샷 아닌 윈도우 기준(#E3 화면 간 정합).
-    saturation_donuts: list["SaturationDonut"] = field(default_factory=list)
+    saturation_donuts: list["SaturationDonut"] = field(default_factory=list["SaturationDonut"])
     # 에러축 fleet 표시자 (MCE·OOM·EDAC·디스크·NIC) — 창내 발생 호스트 수/표본. 정상=0 발화(E9). 대시보드 전용.
-    error_fleet: list["FleetErrorItem"] = field(default_factory=list)
+    error_fleet: list["FleetErrorItem"] = field(default_factory=list["FleetErrorItem"])
     # OS 지원(EOL) 4상태 종합 — 서버 목록 칼럼(os_eol_status)과 동일 판정(lookup_os_eol). os_id 있는 서버만 집계.
     os_eol_passed: int = 0  # 무상 보안 패치 종료 (paid_only·ended 합산 — 유상 계약 여부는 수집 불가)
     os_eol_security_only: int = 0  # 보안 패치만 (기능 업데이트 종료)
     os_eol_unknown: int = 0  # 미상(카탈로그 미수록·미매칭 — 판정 불가)
     os_eol_supported: int = 0  # 기능 업데이트 + 보안 패치
-    risk_donut: list[RiskDonutSegment] = field(default_factory=list)
+    risk_donut: list[RiskDonutSegment] = field(default_factory=list[RiskDonutSegment])
     risk_donut_total: int = 0  # 도넛 중심 표시 (분류된 서버 수)
     risk_high_count: int = 0  # 도넛 중심 강조 — "위험 N대"
-    under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list)
+    under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list[CapacityWarningItem])
     under_provisioned_hosts_count: int = 0  # 전체 자원 부족 호스트 수 — P3 회피 mapper precompute
     under_provisioned_hosts_shown: int = 0  # 표시 호스트 수(상위 N) — "shown/total" 표기 (P3 회피)
 
@@ -191,7 +191,7 @@ class ActionTargets:
     under_count/efficiency_*: 캡션용 카운트·점유 자원 합.
     """
 
-    hosts: list[CapacityWarningItem] = field(default_factory=list)
+    hosts: list[CapacityWarningItem] = field(default_factory=list[CapacityWarningItem])
     total: int = 0  # 표 총 행수 = len(hosts) (전 서버, P3 회피 precompute)
     under_count: int = 0
     efficiency_count: int = 0
@@ -280,8 +280,8 @@ class EnvironmentRealtime:
     online: int
     offline: int
     sample_size: int  # 평균 표본 = 최신 스냅샷 신선(now-TTL 이내) 서버 수 (avg 분자)
-    utilization: list[UtilizationBar] = field(default_factory=list)
+    utilization: list[UtilizationBar] = field(default_factory=list[UtilizationBar])
     last_collected_at: datetime | None = None
-    load_rows: list[RealtimeLoadRow] = field(default_factory=list)
+    load_rows: list[RealtimeLoadRow] = field(default_factory=list[RealtimeLoadRow])
     # 포화 비율 도넛 (CPU 포화·디스크 I/O 포화·메모리 압박 = 포화 호스트 수/표본).
-    saturation_donuts: list[SaturationDonut] = field(default_factory=list)
+    saturation_donuts: list[SaturationDonut] = field(default_factory=list[SaturationDonut])
