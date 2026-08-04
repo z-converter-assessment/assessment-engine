@@ -10,21 +10,20 @@ server scope 보고서. 환경 단위 high-level 보고서는 `/reports/environm
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     TimeRange,
 )
 from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, normalize_anchor
-from assessment_engine.web.deps import get_diagnostic_service, get_service
+from assessment_engine.web.deps import DiagnosticServiceDep, QueryServiceDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.routers.reports import _render_job_progress
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
-from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_generator import attention_by_host, attention_for_host
 from assessment_engine.web.services.report_serializer import env_report_from_dict
 from assessment_engine.web.templating import templates
@@ -42,15 +41,19 @@ _REPORT_VIEW_TITLES: dict[str, str] = {
 @report_multi_router.get("/servers")
 async def report(
     request: Request,
-    ids: str | None = Query(None, description="comma-separated public_id 목록 (live preview). job 모드 시 무시"),
-    job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
-    time_range: TimeRange = Query(
-        DIAGNOSTIC_DEFAULT_TIME_RANGE, description="윈도우 (live preview). job 모드 시 input_params 사용"
-    ),
-    view: Literal["customer", "engineer"] = Query("customer", description="고객용(A) / 엔지니어용(B) (live preview)"),
+    service: QueryServiceDep,
+    diag_service: DiagnosticServiceDep,
+    ids: Annotated[
+        str | None, Query(description="comma-separated public_id 목록 (live preview). job 모드 시 무시")
+    ] = None,
+    job: Annotated[str | None, Query(description="발행된 보고서 job_id — 정적 스냅샷 렌더")] = None,
+    time_range: Annotated[
+        TimeRange, Query(description="윈도우 (live preview). job 모드 시 input_params 사용")
+    ] = DIAGNOSTIC_DEFAULT_TIME_RANGE,
+    view: Annotated[
+        Literal["customer", "engineer"], Query(description="고객용(A) / 엔지니어용(B) (live preview)")
+    ] = "customer",
     back: BackUrl = None,
-    service: QueryService = Depends(get_service),
-    diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """Server scope N대 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview."""
     back_url = safe_back(back, "/")
@@ -122,11 +125,11 @@ async def _render_summary_snapshot(
 
 @report_multi_router.post("/servers/emit")
 async def report_emit(
-    ids: str = Query(..., description="comma-separated public_id 목록 (1개=단일 양식, 2개+=N대 표)"),
-    time_range: TimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE),
-    view: Literal["customer", "engineer"] = Query("customer"),
-    anchor_at: str | None = Query(None, description="발행 기준 시각 (ISO 8601). 미명시 시 발행 시점"),
-    diag_service: DiagnosticService = Depends(get_diagnostic_service),
+    diag_service: DiagnosticServiceDep,
+    ids: Annotated[str, Query(description="comma-separated public_id 목록 (1개=단일 양식, 2개+=N대 표)")],
+    time_range: TimeRange = DIAGNOSTIC_DEFAULT_TIME_RANGE,
+    view: Literal["customer", "engineer"] = "customer",
+    anchor_at: Annotated[str | None, Query(description="발행 기준 시각 (ISO 8601). 미명시 시 발행 시점")] = None,
 ):
     """Server scope 보고서 발행 (PRG) — parent job enqueue 후 즉시 `?job={id}` 반환(워커가 비동기 생성).
 
@@ -155,12 +158,12 @@ async def report_emit(
 async def single_server_report(
     request: Request,
     server_id: UUID,
-    job: str | None = Query(None, description="발행된 보고서 job_id — 정적 스냅샷 렌더"),
-    time_range: TimeRange = Query(DIAGNOSTIC_DEFAULT_TIME_RANGE, description="윈도우 (live preview)"),
-    view: Literal["customer", "engineer"] = Query("customer"),
+    service: QueryServiceDep,
+    diag_service: DiagnosticServiceDep,
+    job: Annotated[str | None, Query(description="발행된 보고서 job_id — 정적 스냅샷 렌더")] = None,
+    time_range: Annotated[TimeRange, Query(description="윈도우 (live preview)")] = DIAGNOSTIC_DEFAULT_TIME_RANGE,
+    view: Literal["customer", "engineer"] = "customer",
     back: BackUrl = None,
-    service: QueryService = Depends(get_service),
-    diag_service: DiagnosticService = Depends(get_diagnostic_service),
 ):
     """단일 서버 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview (단순화 양식, T13)."""
     self_back_url = self_back(request)

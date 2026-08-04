@@ -146,21 +146,6 @@ ignore = [
 ]
 
 
-[tool.ruff.lint.flake8-bugbear]
-# FastAPI `Depends()` / `Query()` 등은 default-argument로 호출되는 표준 패턴이라 B008 false positive 발생.
-# 본 호출들을 immutable로 취급해 B008에서 제외 — FastAPI 공식 권장.
-extend-immutable-calls = [
-    "fastapi.Depends",
-    "fastapi.Query",
-    "fastapi.Path",
-    "fastapi.Body",
-    "fastapi.Header",
-    "fastapi.Cookie",
-    "fastapi.File",
-    "fastapi.Form",
-    "fastapi.Security",
-]
-
 [tool.ruff.lint.flake8-type-checking]
 # 이 base class 를 상속하는 모델은 런타임에 어노테이션을 resolve 한다 — import 를 TYPE_CHECKING 으로
 # 옮기면 model build 가 NameError 로 깨진다 (#F1).

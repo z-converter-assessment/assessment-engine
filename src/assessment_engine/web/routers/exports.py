@@ -8,12 +8,11 @@ GET /api/assessment 와 완전 동일한 데이터/envelope 를 다운로드 파
 import json
 from datetime import UTC, datetime, timedelta
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
 
-from assessment_engine.web.deps import get_service
+from assessment_engine.web.deps import QueryServiceDep
 from assessment_engine.web.services.mappers.assessment_api import build_assessment_envelope
-from assessment_engine.web.services.query_service import QueryService
 
 exports_router = APIRouter(prefix="/api/exports", tags=["exports"])
 
@@ -32,7 +31,9 @@ class AssessmentExportRequest(BaseModel):
     end: datetime | None = None
 
 
-def _split_pairs(tokens: list[str]) -> list[tuple[str, str]]:
+def _split_pairs(
+    tokens: list[str],
+) -> list[tuple[str, str]]:
     """순서쌍 파싱 — "hostname~discriminator". discriminator=IP 또는 public_id. 형식 불량 무시."""
     out: list[tuple[str, str]] = []
     for token in tokens:
@@ -47,7 +48,7 @@ def _split_pairs(tokens: list[str]) -> list[tuple[str, str]]:
 @exports_router.post("/inventory")
 async def export_inventory(
     req: AssessmentExportRequest,
-    service: QueryService = Depends(get_service),
+    service: QueryServiceDep,
 ):
     """assessment 계약을 다운로드 JSON 파일로 반환 — GET /api/assessment 와 데이터 동일, 전달만 파일.
 

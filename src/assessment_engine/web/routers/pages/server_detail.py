@@ -7,10 +7,10 @@ storage/network 는 별도 service 메서드라 분리.
 (static-assets.md "네비게이션 규약" 절 단일 진실).
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request
 
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
-from assessment_engine.web.deps import get_service, resolve_internal_id
+from assessment_engine.web.deps import QueryServiceDep, ServerIdDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.settings import get_web_settings
@@ -61,9 +61,9 @@ async def _render_server_tab(
 async def get_server(
     request: Request,
     server_id: str,
+    internal_id: ServerIdDep,
+    service: QueryServiceDep,
     back: BackUrl = None,
-    internal_id: int = Depends(resolve_internal_id),
-    service: QueryService = Depends(get_service),
 ):
     server = await service.get_server(internal_id)
     if not server:
@@ -96,9 +96,9 @@ async def get_server(
 async def get_cpu(
     request: Request,
     server_id: str,
+    internal_id: ServerIdDep,
+    service: QueryServiceDep,
     back: BackUrl = None,
-    internal_id: int = Depends(resolve_internal_id),
-    service: QueryService = Depends(get_service),
 ):
     return await _render_server_tab(
         request,
@@ -116,9 +116,9 @@ async def get_cpu(
 async def get_memory(
     request: Request,
     server_id: str,
+    internal_id: ServerIdDep,
+    service: QueryServiceDep,
     back: BackUrl = None,
-    internal_id: int = Depends(resolve_internal_id),
-    service: QueryService = Depends(get_service),
 ):
     return await _render_server_tab(
         request,
@@ -136,9 +136,9 @@ async def get_memory(
 async def get_services(
     request: Request,
     server_id: str,
+    internal_id: ServerIdDep,
+    service: QueryServiceDep,
     back: BackUrl = None,
-    internal_id: int = Depends(resolve_internal_id),
-    service: QueryService = Depends(get_service),
 ):
     return await _render_server_tab(
         request, "servers/services.html", internal_id=internal_id, server_id=server_id, back=back, service=service
@@ -149,9 +149,9 @@ async def get_services(
 async def get_metrics(
     request: Request,
     server_id: str,
+    internal_id: ServerIdDep,
+    service: QueryServiceDep,
     back: BackUrl = None,
-    internal_id: int = Depends(resolve_internal_id),
-    service: QueryService = Depends(get_service),
 ):
     return await _render_server_tab(
         request, "servers/metrics.html", internal_id=internal_id, server_id=server_id, back=back, service=service
@@ -165,9 +165,9 @@ async def get_metrics(
 async def get_storage(
     request: Request,
     server_id: str,
+    internal_id: ServerIdDep,
+    service: QueryServiceDep,
     back: BackUrl = None,
-    internal_id: int = Depends(resolve_internal_id),
-    service: QueryService = Depends(get_service),
 ):
     result = await service.get_storage(internal_id)
     if not result:
@@ -193,9 +193,9 @@ async def get_storage(
 async def get_network(
     request: Request,
     server_id: str,
+    internal_id: ServerIdDep,
+    service: QueryServiceDep,
     back: BackUrl = None,
-    internal_id: int = Depends(resolve_internal_id),
-    service: QueryService = Depends(get_service),
 ):
     result = await service.get_network(internal_id)
     if not result:

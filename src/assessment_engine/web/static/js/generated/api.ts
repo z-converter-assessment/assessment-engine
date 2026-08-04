@@ -1793,6 +1793,8 @@ export interface components {
             /** Task Type */
             task_type: string;
         };
+        /** @enum {string} */
+        TimeRange: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
         /** ValidationError */
         ValidationError: {
             /** Context */
@@ -2552,7 +2554,7 @@ export interface operations {
                 /** @description 발행된 보고서 job_id — 정적 스냅샷 렌더 */
                 job?: string | null;
                 /** @description 윈도우 (live preview) — 7개 (15m/1h/6h/24h/7d/14d/30d) */
-                time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
+                time_range?: components["schemas"]["TimeRange"];
                 /** @description 분석 기준 시각 (live preview). 미명시 시 현재 */
                 anchor_at?: string | null;
                 view?: "customer" | "engineer";
@@ -2670,7 +2672,7 @@ export interface operations {
                 /** @description 발행된 보고서 job_id — 정적 스냅샷 렌더 */
                 job?: string | null;
                 /** @description 윈도우 (live preview). job 모드 시 input_params 사용 */
-                time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
+                time_range?: components["schemas"]["TimeRange"];
                 /** @description 고객용(A) / 엔지니어용(B) (live preview) */
                 view?: "customer" | "engineer";
                 /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
@@ -2986,7 +2988,7 @@ export interface operations {
                 /** @description 발행된 보고서 job_id — 정적 스냅샷 렌더 */
                 job?: string | null;
                 /** @description 윈도우 (live preview) */
-                time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
+                time_range?: components["schemas"]["TimeRange"];
                 view?: "customer" | "engineer";
                 /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
