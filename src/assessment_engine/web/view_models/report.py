@@ -151,7 +151,7 @@ class ReportRowItem:
 
     # OS 지원 종료 — ServerListItem 과 동일 4상태 판정(lookup_os_eol, mapper 가 report 기준 시각(now)으로 계산
     # — live "오늘"이 아니라 정적 스냅샷 발행 시점 기준, #C1 스냅샷 불변). os_eol=매칭 iso(경과·미래 무관),
-    # os_eol_status: "eol"/"extended"(연장지원)/"supported"/"unknown"(카탈로그 미수록·미매칭 — 판정 불가).
+    # os_eol_status: "ended"/"paid_only"/"security_only"/"full"/"unknown"(카탈로그 미수록·미매칭 — 판정 불가).
     os_eol: str = ""
     os_eol_status: str = ""
     # 운영 이벤트 — 보고서 창(window) 내 에러 발생 유무(OOM kill·MCE·메모리 손상·net/disk 에러 5축 중 1+).

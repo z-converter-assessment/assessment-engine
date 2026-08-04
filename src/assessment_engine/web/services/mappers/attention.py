@@ -191,25 +191,26 @@ def _build_error_fleet(err: FleetErrorRaw | None) -> list[FleetErrorItem]:
 
 
 def _os_eol_summary(details: list, today) -> tuple[int, int, int, int]:
-    """OS 지원(EOL) 4상태 종합 -> (지원 종료, 연장지원, 미상, 지원 중). 서버 목록 os_eol_status 와 동일 판정.
+    """OS 지원 단계 종합 -> (무상 패치 종료, 보안 패치만, 미상, 지원 중). 서버 목록과 동일 판정.
 
-    os_id 없는 서버(인벤토리 미수집)는 EOL 종합 대상 아님 — 미상(판정 불가)과 구분해 제외.
-    lookup_os_eol: None=미상(카탈로그 미수록·미매칭) / status eol=완전 종료 / extended=연장지원 / supported=지원 중.
+    os_id 없는 서버(인벤토리 미수집)는 종합 대상 아님 — 미상(판정 불가)과 구분해 제외.
+    무상 패치가 끊긴 두 단계(paid_only·ended)를 한 칸으로 합친다 — 유상 계약 여부를 수집할 수 없어
+    운영자가 취할 행동이 같기 때문이다.
     """
-    passed = extended = unknown = supported = 0
+    passed = security_only = unknown = supported = 0
     for d in details:
         if not d.os_id:
             continue
         info = lookup_os_eol(d.os_id, d.os_version, d.kernel_version, today)
         if info is None:
             unknown += 1
-        elif info.status == "eol":
+        elif info.status in ("paid_only", "ended"):
             passed += 1
-        elif info.status == "extended":
-            extended += 1
+        elif info.status == "security_only":
+            security_only += 1
         else:
             supported += 1
-    return passed, extended, unknown, supported
+    return passed, security_only, unknown, supported
 
 
 def _workload_donut_segments(role_sorted: dict[str, int]) -> tuple[list, int]:
@@ -313,7 +314,7 @@ def build_environment_overview(
             _build_saturation_donut("네트워크 혼잡", saturation_counts.get("net", 0), _sat_total),
         ]
 
-    _eol_passed, _eol_extended, _eol_unknown, _eol_supported = _os_eol_summary(details, datetime.now(UTC).date())
+    _eol_passed, _eol_security_only, _eol_unknown, _eol_supported = _os_eol_summary(details, datetime.now(UTC).date())
     return EnvironmentOverview(
         total=total,
         online=online_count,
@@ -339,7 +340,7 @@ def build_environment_overview(
         saturation_donuts=sat_donuts,
         error_fleet=_build_error_fleet(error_summary),
         os_eol_passed=_eol_passed,
-        os_eol_extended=_eol_extended,
+        os_eol_security_only=_eol_security_only,
         os_eol_unknown=_eol_unknown,
         os_eol_supported=_eol_supported,
     )

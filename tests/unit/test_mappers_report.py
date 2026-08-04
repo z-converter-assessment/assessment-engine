@@ -868,42 +868,43 @@ def test_os_eol_matching(os_id, os_version, should_match):
     assert (item is not None) == should_match
 
 
-def test_windows_ambiguous_build_prefers_longer_supported_cycle():
-    """빌드 17763 은 SAC(1809, support=eol=2020-11-10)·LTSC(2019, support=2024·eol=2029) 양쪽에 매핑.
-    후보 전부 support 경과·일부만 eol 경과 -> extended(연장지원) 판정, 대표 라벨·날짜는 LTSC(eol 최장)."""
+def test_windows_ambiguous_build_takes_least_severe_candidate():
+    """빌드 17763 은 SAC(1809)·LTSC(2019) 양쪽에 매핑. 후보 판정이 갈리면 심각도 최소를 택한다 —
+    불확실할 때 과소지원으로 오판하지 않는 쪽. 대표 라벨·날짜는 eol 최장(LTSC)."""
     info = lookup_os_eol("windows", None, "17763.4644", _NOW.date())
     assert info is not None
     assert info.label == "Windows Server 2019"
     assert info.eol_iso == "2029-01-09"
     assert info.support_iso == "2024-01-09"
-    assert info.status == "extended"
+    assert info.status == "security_only"
 
 
-def test_windows_2019_not_falsely_flagged_eol_passed():
-    """회귀: 빌드 우선순위 버그로 정상 지원 중(연장지원)인 Server 2019 가 완전 EOL 로 발화되던 문제.
-    extended 는 보안 패치 유지라 resolve_os_eol(발화용)이 None 이어야 한다."""
+def test_windows_2019_security_only_does_not_fire():
+    """security_only 는 무상 보안 패치가 유지되므로 발화(resolve_os_eol)하지 않는다."""
     assert resolve_os_eol("windows", None, "17763.4644", _NOW.date()) is None
 
 
-def test_windows_2012_r2_fully_eol_fires():
-    """빌드 9600(2012 R2, support 2018·eol 2023) — 둘 다 경과. status=eol, 발화."""
+def test_windows_2012_r2_fires():
+    """빌드 9600(2012 R2) — 무상 패치가 끝났다. 유상 연장(ESU) 유무와 무관하게 발화한다."""
     info = lookup_os_eol("windows", None, "9600.1", _NOW.date())
-    assert info is not None and info.status == "eol"
+    assert info is not None and info.status in ("paid_only", "ended")
     assert resolve_os_eol("windows", None, "9600.1", _NOW.date()) is not None
 
 
-def test_windows_2022_supported():
-    """빌드 20348(2022, support 2026-10·eol 2031) — 2026-05 기준 둘 다 미도래. status=supported."""
+def test_windows_2022_full_support():
+    """빌드 20348(2022) — support·eol 둘 다 미도래라 기능 업데이트까지 받는 단계."""
     info = lookup_os_eol("windows", None, "20348.2340", _NOW.date())
-    assert info is not None and info.status == "supported"
+    assert info is not None and info.status == "full"
 
 
-def test_linux_has_no_extended_state():
-    """Linux 카탈로그는 support 미수록 -> extended 없이 eol/supported 2상태(기존 동작 유지)."""
-    supported = lookup_os_eol("ubuntu", "22.04", "5.15", _NOW.date())
-    assert supported is not None and supported.status == "supported" and supported.support_iso is None
-    eol = lookup_os_eol("centos", "7.9", "3.10", _NOW.date())
-    assert eol is not None and eol.status == "eol"
+def test_linux_carries_all_boundaries():
+    """Linux 도 경계 셋을 싣는다 — ubuntu 는 support·extendedSupport 가 모두 있고,
+    유상 연장 경로가 없는 배포(fedora·centos)는 무상 종료가 곧 ended 다."""
+    ubuntu = lookup_os_eol("ubuntu", "22.04", "5.15", _NOW.date())
+    assert ubuntu is not None
+    assert ubuntu.support_iso is not None and ubuntu.extended_support_iso is not None
+    ended = lookup_os_eol("centos", "7.9", "3.10", _NOW.date())
+    assert ended is not None and ended.status == "ended" and ended.extended_support_iso is None
 
 
 def test_agent_unstable_item_fields():

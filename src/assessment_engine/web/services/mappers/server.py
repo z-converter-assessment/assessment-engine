@@ -310,7 +310,7 @@ def to_server_list_item(
     today 주어지면 OS EOL 3상태 판정(lookup_os_eol) — 카탈로그 매칭 여부로 "지원 중"과 "미상(판정 불가)" 분리.
     카탈로그 미수록(oracle 외 tencent 등)·미매칭을 "지원 중"으로 단정하지 않는다.
     """
-    # OsEolInfo 또는 미매칭 시 None. os_eol 은 매칭 iso(경과·미래 무관), status 는 eol/extended/supported/unknown.
+    # OsEolInfo 또는 미매칭 시 None. os_eol 은 매칭 iso(경과·미래 무관), status 는 판정 4단계 또는 unknown.
     info = lookup_os_eol(dto.os_id, dto.os_version, dto.kernel_version, today) if today else None
     if info is None:
         os_eol, os_eol_status = "", ("unknown" if today else "")

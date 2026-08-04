@@ -95,8 +95,8 @@ class ServerListItem:
     spec_display: str = ""
     # OS 지원 종료(EOL) — 카탈로그 매칭 시 eol date iso("2024-06-30", 경과·미래 무관), 미매칭 시 빈 문자열.
     os_eol: str = ""
-    # EOL 4상태 — "eol"(연장지원까지 경과) / "extended"(메인스트림 종료·연장지원 단계, Windows Server 전용) /
-    # "supported"(메인스트림 지원 중) / "unknown"(카탈로그 미수록·미매칭 = 판정 불가). 미매칭을 "지원 중"으로
+    # 지원 단계 — "ended"(패치 없음) / "paid_only"(무상 종료·유상 연장만) / "security_only"(보안 패치만) /
+    # "full"(기능+보안) / "unknown"(카탈로그 미수록·미매칭 = 판정 불가). 미매칭을 "지원 중"으로
     # 단정하지 않기 위한 분리 (lookup_os_eol 매칭 여부 + status 기반).
     os_eol_status: str = ""
     # 권장 조치 — USE Method 분류 한국어 라벨(recommendation.LABEL_KO 단일 진실). mapper 단일 결정 (P2).

@@ -298,8 +298,8 @@ DIAGNOSTIC_RANGE_LABEL_KR: dict[str, str] = {
 }
 
 # ─── OS EOL — endoflife.date 스냅샷 카탈로그 기반 (scripts/snapshot_os_eol.py 생성) ───
-# 정적 JSON 을 모듈 로드 시 1회 읽음. 런타임 외부 의존 0 (폐쇄 내부망 #A0). 갱신 = 스냅샷 재실행 + commit.
-# 신뢰성: endoflife.date 는 벤더 공식 문서 기반 + 분기 검토 (ADR 0031). 미등록 OS 는 침묵 (의식적 한계).
+# 정적 JSON 을 모듈 로드 시 1회 읽는다. 판정이 이미지 안에서 닫혀 있어야 같은 이미지가 언제 돌든
+# 같은 결과를 낸다. 갱신 = 스냅샷 재실행 + commit.
 _EOL_CATALOG_PATH = Path(__file__).parent / "os_eol_catalog.json"
 _EOL_CATALOG: dict[str, list[dict]] = json.loads(_EOL_CATALOG_PATH.read_text(encoding="utf-8"))
 
@@ -354,40 +354,52 @@ def os_id_to_distro(os_id: str | None) -> str:
 
 
 class OsEolInfo(NamedTuple):
-    """OS 지원 종료 판정 결과 — 대표 eol/메인스트림 종료일/라벨/상태. 미매칭(판정 불가)은 None 으로 표현.
+    """OS 지원 단계 판정 결과. 미매칭(판정 불가)은 None 으로 표현하므로 unknown 은 여기 안 담긴다.
 
-    status 4상태 중 unknown 은 여기 안 담김(None) — 담기는 건 eol/extended/supported 3상태:
-    - "eol"        연장지원까지 종료(보안 패치 중단). eol 경과.
-    - "extended"   메인스트림 지원 종료, 연장지원 단계(보안 패치는 유지). support 경과 + eol 미도래.
-    - "supported"  메인스트림 지원 중. support 미도래(또는 support 미수록 + eol 미도래).
-    support_iso 는 메인스트림 종료일(있으면) — 현재 Windows Server 만 채움(Linux 카탈로그 미수록 -> None).
+    경계 셋이 릴리즈 하나의 수명을 넷으로 가른다 — support 는 기능 업데이트가, eol 은 무상 보안
+    패치가, extended_support 는 유상 보안 패치가 끊기는 시점이다.
+    - "full"           기능 업데이트 + 보안 패치. support 미도래(또는 support 미수록 + eol 미도래).
+    - "security_only"  보안 패치만, 무상. support 경과 + eol 미도래.
+    - "paid_only"      유상 계약자만 보안 패치. eol 경과 + extended_support 미도래.
+    - "ended"          어떤 경로로도 패치 없음. extended_support 경과, 또는 eol 경과인데 유상 경로 부재.
+
+    벤더가 부르는 이름은 다르다 (Windows 는 Mainstream·Extended·ESU, RHEL 은 Full·Maintenance·ELS).
+    특히 Microsoft 의 "Extended Support" 는 여기서 security_only 구간이라 카탈로그 필드명과 반대다.
     """
 
     eol_iso: str
     support_iso: str | None
+    extended_support_iso: str | None
     label: str
-    status: str  # "eol" | "extended" | "supported"
+    status: str  # "full" | "security_only" | "paid_only" | "ended"
 
 
-def _classify_eol(support_iso: str | None, eol_iso: str, today: date) -> str:
-    """support/eol 2 날짜 -> 3상태. support 없으면 eol 단일 판정(Linux — extended 개념 없음)."""
+# 심각도 순 — Windows 커널 build 가 복수 채널에 겹칠 때 후보 중 최소 심각도를 택하는 데 쓴다.
+_EOL_SEVERITY = ("full", "security_only", "paid_only", "ended")
+
+
+def _classify_eol(support_iso: str | None, eol_iso: str, extended_iso: str | None, today: date) -> str:
+    """경계 3개 -> 4상태. 없는 경계는 그 구간이 존재하지 않는다는 뜻이다."""
+    if extended_iso and date.fromisoformat(extended_iso) <= today:
+        return "ended"
     if date.fromisoformat(eol_iso) <= today:
-        return "eol"
+        return "paid_only" if extended_iso else "ended"
     if support_iso and date.fromisoformat(support_iso) <= today:
-        return "extended"
-    return "supported"
+        return "security_only"
+    return "full"
 
 
 def _eol_info(os_id: str | None, os_version: str | None, kernel_version: str | None, today: date) -> OsEolInfo | None:
-    """카탈로그 매칭 + support/eol 2단계 상태 판정 단일 진실. 미매칭(판정 불가)은 None.
+    """카탈로그 매칭 + 4단계 상태 판정 단일 진실. 미매칭(판정 불가)은 None.
 
     - Windows: os_id=="windows" -> windows-server 카탈로그, kernel build == latest build 매칭
       (운영=Server 가정). kernel_version "26100.8457" -> build "26100". 커널 빌드 하나가 복수 채널에
-      겹치면(예: 17763 = SAC "1809-sac" + LTSC "2019") 후보 전체로 정직하게 판정 — 후보 전부 eol 경과면
-      "eol", 전부 support 경과면 "extended", 아니면 "supported". 대표 라벨·날짜는 eol 최장(LTSC) 후보로
-      표시(불확실하면 과소지원 오판정보다 안전 쪽 — #E9 침묵 원칙과 동일 방향).
-    - Linux: os_id -> product slug, os_version == cycle 또는 startswith(cycle+"."). support 미수록이라
-      extended 없이 eol/supported 2상태(기존 동작 유지).
+      겹치면(예: 17763 = SAC "1809-sac" + LTSC "2019") 후보 전체를 판정한 뒤 심각도가 가장 낮은 것을
+      택한다 — 불확실할 때 과소지원으로 오판하지 않는 쪽이다(#E9 침묵 원칙과 동일 방향). 대표 라벨·날짜는
+      eol 최장(LTSC) 후보로 표시.
+    - Linux: os_id -> product slug, os_version == cycle 또는 startswith(cycle+".").
+    카탈로그가 경계를 다 싣지는 않는다. 어느 경계가 없으면 그 구간이 없다는 뜻이라 판정이 건너뛴다 —
+    fedora·opensuse 처럼 유상 연장이 없는 배포는 eol 경과가 곧 "ended" 다.
     카탈로그 미등록 OS 는 None (판정 불가 = 침묵, false negative 한계는 의식적 트레이드오프).
     """
     if not os_id:
@@ -398,10 +410,13 @@ def _eol_info(os_id: str | None, os_version: str | None, kernel_version: str | N
         if not matches:
             return None
         rep = max(matches, key=lambda e: e["eol"])  # 대표 = eol 최장(LTSC) — 표시 라벨·날짜
-        all_eol_passed = all(date.fromisoformat(e["eol"]) <= today for e in matches)
-        all_support_passed = all(e.get("support") and date.fromisoformat(e["support"]) <= today for e in matches)
-        status = "eol" if all_eol_passed else ("extended" if all_support_passed else "supported")
-        return OsEolInfo(rep["eol"], rep.get("support"), f"Windows Server {rep['cycle']}", status)
+        status = min(
+            (_classify_eol(e.get("support"), e["eol"], e.get("extendedSupport"), today) for e in matches),
+            key=_EOL_SEVERITY.index,
+        )
+        return OsEolInfo(
+            rep["eol"], rep.get("support"), rep.get("extendedSupport"), f"Windows Server {rep['cycle']}", status
+        )
     product = _OS_ID_TO_EOL_PRODUCT.get(os_id)
     if product is None:
         return None
@@ -410,8 +425,8 @@ def _eol_info(os_id: str | None, os_version: str | None, kernel_version: str | N
         cycle = entry["cycle"]
         if ver == cycle or ver.startswith(cycle + "."):
             label = " ".join(p for p in [os_id, os_version] if p) or "-"
-            status = _classify_eol(entry.get("support"), entry["eol"], today)
-            return OsEolInfo(entry["eol"], entry.get("support"), label, status)
+            status = _classify_eol(entry.get("support"), entry["eol"], entry.get("extendedSupport"), today)
+            return OsEolInfo(entry["eol"], entry.get("support"), entry.get("extendedSupport"), label, status)
     return None
 
 
@@ -421,14 +436,14 @@ def resolve_os_eol(
     kernel_version: str | None,
     today: date,
 ) -> tuple[str, str] | None:
-    """OS 지원 종료 발화 판정 — 연장지원까지 끝난(보안 패치 중단) 경우만 (eol_iso, 제품 라벨), 아니면 None.
+    """OS 지원 발화 판정 — 무상 보안 패치가 끊긴 경우만 (eol_iso, 제품 라벨), 아니면 None.
 
-    attention OS EOL 카드 + 보고서 정성 요약 공용 (P2 단일 판정). 연장지원(extended) 단계는 보안 패치가
-    유지되므로 여기서 발화하지 않는다 — 발화는 status=="eol"(완전 종료) 한정. extended 는 서버별 상태
-    칼럼(지원 중/연장지원/종료)으로만 노출(lookup_os_eol).
+    attention OS EOL 카드 + 보고서 정성 요약 공용 (P2 단일 판정). security_only 는 무상 패치가
+    유지되므로 발화하지 않는다. paid_only 는 발화한다 — 유상 계약 여부는 수집할 수 없으므로 계약이
+    없다는 쪽으로 본다. 발화하지 않는 단계도 서버별 상태 칼럼으로는 노출된다(lookup_os_eol).
     """
     info = _eol_info(os_id, os_version, kernel_version, today)
-    if info is None or info.status != "eol":
+    if info is None or info.status not in ("paid_only", "ended"):
         return None
     return (info.eol_iso, info.label)
 

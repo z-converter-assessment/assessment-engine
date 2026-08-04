@@ -48,7 +48,7 @@ engineer view 의 진단·분류 칼럼이 USE Method 임계값 기반 자동 �
 
 구성 = 환경 보고서 본문 공유(customer 분기 — 요약·환경 요약(인벤토리·메트릭·OS 구성)·서비스 구성·자원 적정성 평가(분류 분포·효율화·조치 필요 호스트)·OS 지원 종료, 단일 진실 `docs/explanation/products/environment-report.md`) + 세부 서버 목록 표.
 
-세부 서버 목록 컬럼(customer): 상태 · 서버 · 구동 서비스(시그니처 워크로드만, `signature_workload_categories` — 서버 목록 뱃지와 동일 기준) · OS · OS 지원종료(4상태: 지원종료·연장지원·지원중·미상, 보고서 발행 기준 시각 고정) · 인벤토리(vCPU·메모리·디스크) · 운영 이벤트(보고서 window 내 OOM·MCE·메모리손상·net/disk 에러 발생 유무) · 프로비저닝 · 개별 보고서 링크 (`_shared.html` `detail_server_list` 단일 진실, 환경·선택 공유). CPU/MEM 평균·디스크 최대 칼럼은 지엽적 원시 수치라 제외 — 자원 적정성 분류(프로비저닝 칼럼)가 그 판정 결론.
+세부 서버 목록 컬럼(customer): 상태 · 서버 · 구동 서비스(시그니처 워크로드만, `signature_workload_categories` — 서버 목록 뱃지와 동일 기준) · OS · OS 지원(지원 종료·무상 종료·보안 패치만·지원 중·미상, 보고서 발행 기준 시각 고정) · 인벤토리(vCPU·메모리·디스크) · 운영 이벤트(보고서 window 내 OOM·MCE·메모리손상·net/disk 에러 발생 유무) · 프로비저닝 · 개별 보고서 링크 (`_shared.html` `detail_server_list` 단일 진실, 환경·선택 공유). CPU/MEM 평균·디스크 최대 칼럼은 지엽적 원시 수치라 제외 — 자원 적정성 분류(프로비저닝 칼럼)가 그 판정 결론.
 
 정성 요약 불릿은 환경 보고서 본문 공유 — view 무관 단일 (구성·항목은 `docs/explanation/products/environment-report.md` "정성 요약" 절).
 
