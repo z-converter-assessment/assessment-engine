@@ -51,72 +51,24 @@ filterwarnings = [
 [tool.pyright]
 # 타입 검사 강도를 편집기 설정이 아니라 저장소에 둔다 — Pylance 와 pyright CLI 가 같은 파일을 읽으므로
 # 편집기에서 통과한 것이 CLI 에서도 통과한다. .vscode/settings.json 은 어떤 도구를 쓸지만 정한다.
-typeCheckingMode = "standard"
+typeCheckingMode = "strict"
 # 검사 범위는 여기서만 정한다 — Makefile·워크플로는 인자 없이 `pyright` 를 부른다.
 include = ["src", "scripts", "tests"]
 # uv 가 만드는 가상환경. CLI 가 활성 인터프리터 대신 이 경로의 의존성을 보게 한다.
 venvPath = "."
 venv = ".venv"
 
-# strict 프리셋 규칙 중 현재 위반 0 인 것을 error 로 못박는다 — 이미 확보한 지점이 되돌아가지 않게 한다.
-# 위반이 남은 규칙은 여기 없다 (승격·거부 판단과 근거는 ADR 0062).
-reportAssertAlwaysTrue = "error"
-reportDuplicateImport = "error"
-reportIncompleteStub = "error"
-reportInconsistentConstructor = "error"
-reportInvalidStringEscapeSequence = "error"
-reportInvalidStubStatement = "error"
-reportInvalidTypeVarUse = "error"
-reportMatchNotExhaustive = "error"
-reportMissingTypeStubs = "error"
-reportSelfClsParameterName = "error"
-reportTypeCommentUsage = "error"
-reportUnnecessaryCast = "error"
-reportUnnecessaryComparison = "error"
-reportUnnecessaryContains = "error"
-reportUnsupportedDunderAll = "error"
-reportUntypedBaseClass = "error"
-reportUntypedClassDecorator = "error"
-reportUntypedFunctionDecorator = "error"
-reportUntypedNamedTuple = "error"
-reportUnusedExpression = "error"
-reportWildcardImportFromLibrary = "error"
-reportDeprecated = "error"
-reportUnusedImport = "error"
-reportUnusedVariable = "error"
-reportConstantRedefinition = "error"
-reportIncompatibleVariableOverride = "error"
+# strict 프리셋이 켜지만 이 저장소가 채택하지 않는 규칙 — 사유는 ADR 0062.
+reportPrivateUsage = "none"
+reportUnusedFunction = "none"
+reportUnusedClass = "none"
+reportUnnecessaryIsInstance = "none"
 
-# strict 프리셋도 끄는 규칙이나 위반 0 이라 켠다 — 죽은 코드·낡은 억제 주석을 잡는다.
+# strict 프리셋이 끄지만 위반 0 이라 켜 두는 규칙 — 죽은 코드·낡은 억제 주석을 잡는다.
 reportUnreachable = "error"
 reportUnnecessaryTypeIgnoreComment = "error"
 reportPropertyTypeMismatch = "error"
 reportUninitializedInstanceVariable = "error"
-
-# 경로마다 도달한 강도가 다르면 그 경로에만 규칙을 올린다 — 이미 통과한 지점이 되돌아가지 못하게 고정한다.
-# 전 경로가 같은 규칙을 통과하면 위 최상위 목록으로 합치고 해당 절을 지운다.
-# (pyright 는 executionEnvironments 안에서 typeCheckingMode 를 받지 않아 규칙을 직접 나열한다.)
-[[tool.pyright.executionEnvironments]]
-root = "scripts"
-reportUnknownParameterType = "error"
-reportUnknownArgumentType = "error"
-reportUnknownVariableType = "error"
-reportUnknownMemberType = "error"
-reportUnknownLambdaType = "error"
-reportMissingParameterType = "error"
-reportMissingTypeArgument = "error"
-reportPrivateUsage = "error"
-
-# src 는 strict 를 통과한다 — 거부 목록(reportPrivateUsage 등, ADR 0062)만 예외다.
-[[tool.pyright.executionEnvironments]]
-root = "src"
-reportMissingParameterType = "error"
-reportMissingTypeArgument = "error"
-reportUnknownParameterType = "error"
-reportUnknownLambdaType = "error"
-reportUnknownMemberType = "error"
-reportUnknownArgumentType = "error"
-reportUnknownVariableType = "error"
 
 [tool.ruff]
 line-length = 120

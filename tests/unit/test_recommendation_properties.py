@@ -6,9 +6,11 @@
 """
 
 import math
+from typing import Any
 
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from hypothesis.strategies import DrawFn
 
 from assessment_engine import recommendation as R
 from assessment_engine.recommendation import ResourceStats
@@ -18,7 +20,7 @@ _HOST_STATUS = {"under", "idle", "over", "optimal", "insufficient"}
 _RES_KINDS = {"cpu", "memory", "disk_capacity", "disk_io", "network"}
 
 
-def _opt(strat):
+def _opt(strat: st.SearchStrategy[Any]) -> st.SearchStrategy[Any]:
     """None 또는 값 (미측정 축 포함)."""
     return st.one_of(st.none(), strat)
 
@@ -29,7 +31,7 @@ _mb = st.sampled_from([512, 1024, 2048, 4096, 8192, 16384, 32768, 65536])
 
 
 @st.composite
-def stats_strategy(draw) -> ResourceStats:
+def stats_strategy(draw: DrawFn) -> ResourceStats:
     return ResourceStats(
         cpu_p95_pct=draw(_opt(_pct)),
         cpu_peak_pct=draw(_opt(_pct)),

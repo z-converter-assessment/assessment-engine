@@ -8,6 +8,7 @@
 - safe_mget: keys=[]면 redis 호출 없이 즉시 [] (short-circuit)
 """
 
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -127,7 +128,9 @@ async def test_safe_mget_returns_none_on_redis_error_for_fallback():
 # ─── safe_incr_with_ttl — 슬라이딩 윈도우 카운터 (INCR + EXPIRE 원자) ────────
 
 
-def _redis_with_pipe(*, execute_result=None, execute_error=None):
+def _redis_with_pipe(
+    *, execute_result: list[Any] | None = None, execute_error: BaseException | None = None
+) -> tuple[AsyncMock, MagicMock]:
     """redis.pipeline(transaction=True) as pipe async context manager mock 구성.
 
     pipe.incr/expire는 명령 큐잉(동기), pipe.execute()는 await되어 results 반환.

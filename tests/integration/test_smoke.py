@@ -5,11 +5,12 @@ repo round-trip 검증은 `test_collect_repository.py` 가 더 깊게 다룸 (�
 """
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 pytestmark = pytest.mark.asyncio
 
 
-async def test_engine_alive(db_session):
+async def test_engine_alive(db_session: AsyncSession):
     """가장 단순한 round-trip — DB 연결·query·async session 모두 정상."""
     from sqlalchemy import text
 
@@ -17,7 +18,7 @@ async def test_engine_alive(db_session):
     assert result.scalar_one() == 1
 
 
-async def test_timescaledb_extension_loaded(db_session):
+async def test_timescaledb_extension_loaded(db_session: AsyncSession):
     """schema bootstrap이 CREATE EXTENSION timescaledb를 실행했는지."""
     from sqlalchemy import text
 

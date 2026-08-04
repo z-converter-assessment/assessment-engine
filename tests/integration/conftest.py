@@ -12,6 +12,7 @@ from collections.abc import AsyncIterator
 
 import pytest_asyncio
 from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.repositories.collect_repository import CollectRepository
 from assessment_engine.db.repositories.diagnostic_repository import DiagnosticRepository
@@ -19,17 +20,17 @@ from assessment_engine.db.repositories.query.query_repository import QueryReposi
 
 
 @pytest_asyncio.fixture
-async def collect_repo(db_session) -> CollectRepository:
+async def collect_repo(db_session: AsyncSession) -> CollectRepository:
     return CollectRepository(db_session)
 
 
 @pytest_asyncio.fixture
-async def query_repo(db_session) -> QueryRepository:
+async def query_repo(db_session: AsyncSession) -> QueryRepository:
     return QueryRepository(db_session)
 
 
 @pytest_asyncio.fixture
-async def diagnostic_repo(db_session) -> AsyncIterator[DiagnosticRepository]:
+async def diagnostic_repo(db_session: AsyncSession) -> AsyncIterator[DiagnosticRepository]:
     await db_session.execute(text("TRUNCATE diagnostic_jobs"))
     await db_session.commit()
     yield DiagnosticRepository(db_session)

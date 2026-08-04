@@ -116,3 +116,15 @@ src 가 strict 전 규칙을 통과한다. 거부 목록(`reportPrivateUsage`·`
 외부 패키지가 타입을 주지 않는 세 자리는 이유를 적고 그 줄만 억제했다. redis 는 `ConnectionPool.from_url` 의 `**kwargs` 를 타입 없이 선언하고, SQLAlchemy 의 `__table__` 은 declarative 매핑이 런타임에 붙이는 속성이라 선언에 없으며, jinja2 는 `Environment.globals`·`filters` 의 값 타입을 소비자가 볼 수 있는 형태로 주지 않는다.
 
 남은 것은 tests 뿐이다. tests 가 같은 지점에 닿으면 `typeCheckingMode = "strict"` 를 켜고 거부 목록만 `none` 으로 남긴 뒤 `executionEnvironments` 블록을 지운다.
+
+## 정정 (2026-08-04, strict 전환 완료)
+
+`typeCheckingMode = "strict"` 를 켰다. 래칫이 끝나 `executionEnvironments` 블록 둘과 규칙별 승격 선언을 모두 지웠고, 남은 명시 선언은 두 묶음뿐이다 — 거부 목록 4개를 `none` 으로, strict 프리셋이 끄지만 위반 0 이라 켜 두는 4개를 `error` 로.
+
+tests 의 잔량 2060건은 src 와 같은 뿌리였다. `**` spread 로 dict 를 생성자에 넘기는 kwargs 빌더(541건), 어노테이션 없는 픽스처·parametrize 파라미터, 타입 인자 없는 `dict`·`list`. 픽스처는 conftest 의 반환 타입을 정직하게 만든 뒤 이름으로 역전파했고, parametrize 파라미터는 값 리터럴에서 타입을 유도했다.
+
+외부 패키지가 타입을 주지 않아 우리 코드로 못 고치는 자리는 셋 더 늘었다 — pytest 는 `approx` 의 expected·rel·abs 를, jsonschema 는 `iter_errors` 를, testcontainers 는 패키지 전체를 타입 없이 준다. 앞의 둘은 타입 있는 얇은 래퍼(`tests/approx.py`, `_schema_errors`)로 한 자리에 가두고 그 자리에서만 억제했다. 래퍼를 두는 이유는 억제 범위를 좁히기 위해서다 — 호출부마다 억제하면 그 줄의 실제 오류까지 함께 묻힌다.
+
+`executionEnvironments` 의 `root` 는 진단 범위만이 아니라 import 해석 기준도 바꾼다. `root = "tests"` 로 두면 `tests.factories` 가 해석되지 않고, `extraPaths` 로 저장소 루트를 보태면 이번엔 `assessment_engine` 이 로컬 소스가 아닌 라이브러리로 잡혀 스텁을 요구한다. 경로별 강도가 필요 없어진 시점에 블록을 지운 것이 이 문제도 함께 없앴다.
+
+이제 새 코드는 strict 를 통과해야 들어온다. 거부 목록은 프리셋과 무관하게 유지되고, pyright 버전이 올라 새 규칙이 strict 에 들어오면 그때 위반 0 기준으로 판단한다.

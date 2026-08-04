@@ -11,6 +11,7 @@
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
@@ -889,7 +890,7 @@ async def test_metric_snapshots_cursor_pagination(
 async def test_resolve_server_ids_batch_returns_dict(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """N개 public_id → {public_id: server_id} 단일 SQL."""
     sid_a = await collect_repo.upsert_server(make_inventory(composite_id="q-batch-a"))
@@ -913,7 +914,7 @@ async def test_resolve_server_ids_batch_returns_dict(
 async def test_resolve_server_ids_skips_missing(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
-    db_session,
+    db_session: AsyncSession,
 ):
     """미존재 public_id는 dict에서 누락 — caller가 missing 분기."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-batch-missing"))

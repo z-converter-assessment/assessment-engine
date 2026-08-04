@@ -8,7 +8,7 @@ import asyncio
 import contextlib
 from collections.abc import AsyncGenerator, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
-from typing import cast
+from typing import Any, cast
 
 from loguru import logger
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -35,13 +35,13 @@ def _no_query_service() -> AbstractAsyncContextManager[QueryService]:
 class _FakeDiag:
     """DiagnosticService 대역 — recover/claim 을 프로그래밍 가능하게."""
 
-    def __init__(self, *, recover_raises=False, claim_raises=False):
+    def __init__(self, *, recover_raises: bool = False, claim_raises: bool = False) -> None:
         self.recover_raises = recover_raises
         self.claim_raises = claim_raises
         self.recover_calls = 0
         self.claim_calls = 0
 
-    async def recover_stale(self, stale_seconds):
+    async def recover_stale(self, stale_seconds: int) -> int:
         self.recover_calls += 1
         if self.recover_raises:
             raise RuntimeError("db down at startup")
@@ -118,7 +118,7 @@ async def test_report_worker_survives_claim_failure():
 
 
 class _FakeRepo:
-    def __init__(self, *, raises=False):
+    def __init__(self, *, raises: bool = False) -> None:
         self.raises = raises
         self.calls = 0
 
@@ -139,8 +139,26 @@ class _FakeSession:
     async def __aenter__(self):
         return self
 
-    async def __aexit__(self, *exc):
+    async def __aexit__(self, *exc: object) -> bool:
         return False
+
+
+def _collect(messages: list[str]) -> Callable[[Any], None]:
+    """loguru sink — 기록된 메시지 문자열만 모은다."""
+
+    def _sink(message: Any) -> None:
+        messages.append(str(message.record["message"]))
+
+    return _sink
+
+
+def _repo_factory(repo: object) -> Callable[[AsyncSession], BaseCollectRepository]:
+    """reaper 가 세션마다 부르는 repo 팩토리 — 대역 하나를 그대로 돌려준다."""
+
+    def _factory(_s: AsyncSession) -> BaseCollectRepository:
+        return cast(BaseCollectRepository, repo)
+
+    return _factory
 
 
 def _session_factory() -> Callable[[], AbstractAsyncContextManager[AsyncSession]]:
@@ -156,7 +174,7 @@ async def test_task_reaper_survives_tick_failure():
     stop = asyncio.Event()
     repo = _FakeRepo(raises=True)
     task = asyncio.create_task(run_task_reaper(
-        session_factory=_session_factory(), collect_repo_factory=lambda _s: cast(BaseCollectRepository, repo),
+        session_factory=_session_factory(), collect_repo_factory=_repo_factory(repo),
         interval_sec=0.01, stop_event=stop,
     ))
     await asyncio.sleep(0.05)
@@ -171,7 +189,7 @@ async def test_task_reaper_stops_on_event():
     repo = _FakeRepo()
     sess_factory = _session_factory()
     task = asyncio.create_task(run_task_reaper(
-        session_factory=sess_factory, collect_repo_factory=lambda _s: cast(BaseCollectRepository, repo),
+        session_factory=sess_factory, collect_repo_factory=_repo_factory(repo),
         interval_sec=0.01, stop_event=stop,
     ))
     await asyncio.sleep(0.05)
@@ -194,8 +212,8 @@ async def test_graceful_drain_completes_within_timeout():
         return "ok"
 
     task = asyncio.create_task(quick())
-    messages = []
-    sink_id = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+    messages: list[str] = []
+    sink_id = logger.add(_collect(messages), level="WARNING")
     try:
         await graceful_drain(
             task, stop, shutdown_timeout_sec=1.0, timeout_warning="should-not-fire",
@@ -219,8 +237,8 @@ async def test_graceful_drain_cancels_on_timeout():
         await never.wait()
 
     task = asyncio.create_task(stuck())
-    messages = []
-    sink_id = logger.add(lambda m: messages.append(m.record["message"]), level="WARNING")
+    messages: list[str] = []
+    sink_id = logger.add(_collect(messages), level="WARNING")
     try:
         await graceful_drain(
             task, stop, shutdown_timeout_sec=0.02, timeout_warning="drain overrun requeue",

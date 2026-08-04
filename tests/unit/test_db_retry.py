@@ -20,7 +20,7 @@ def _mock_session_factory():
     return MagicMock(return_value=cm)
 
 
-def _sa_error(cls):
+def _sa_error(cls: type[DBAPIError]) -> DBAPIError:
     """SQLAlchemy DBAPI 계열 예외 인스턴스 (statement, params, orig)."""
     return cls("stmt", {}, Exception("orig"))
 
@@ -42,7 +42,7 @@ async def test_db_retry_success_commits_once():
     factory = _mock_session_factory()
     calls = 0
 
-    async def fn(repo):
+    async def fn(repo: object) -> str:
         nonlocal calls
         calls += 1
         return "ok"
@@ -57,7 +57,7 @@ async def test_db_retry_retries_operational_error_then_raises():
     factory = _mock_session_factory()
     calls = 0
 
-    async def fn(repo):
+    async def fn(repo: object) -> str:
         nonlocal calls
         calls += 1
         raise _sa_error(OperationalError)
@@ -73,7 +73,7 @@ async def test_db_retry_integrity_error_no_retry():
     factory = _mock_session_factory()
     calls = 0
 
-    async def fn(repo):
+    async def fn(repo: object) -> str:
         nonlocal calls
         calls += 1
         raise _sa_error(IntegrityError)
@@ -93,7 +93,7 @@ async def test_db_retry_permanent_dbapi_error_no_retry():
     factory = _mock_session_factory()
     calls = 0
 
-    async def fn(repo):
+    async def fn(repo: object) -> str:
         nonlocal calls
         calls += 1
         raise _sa_error(ProgrammingError)
@@ -114,7 +114,7 @@ async def test_db_retry_retries_deadlock():
     factory = _mock_session_factory()
     calls = 0
 
-    async def fn(repo):
+    async def fn(repo: object) -> str:
         nonlocal calls
         calls += 1
         if calls == 1:

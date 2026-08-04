@@ -1,8 +1,9 @@
 """api_reference mapper 단위 테스트 — 외부 연동 화이트리스트 태그 필터·JSON-only 필터 (P2)."""
 
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.api_reference import build_api_reference
 
-_SPEC: dict = {
+_SPEC: JsonObject = {
     "paths": {
         "/servers": {  # /api/ 접두 아님 — SSR 페이지 라우트, 항상 제외
             "get": {"tags": ["pages"], "responses": {"200": {"content": {"text/html": {}}}}},
@@ -135,7 +136,7 @@ def test_assessment_endpoint_labeled_and_summarized():
 
 def test_includes_endpoint_whose_only_success_code_is_201():
     """200 하나만 보면 201 Created 전용 엔드포인트를 오탈락시킨다 — 모든 2xx 응답 검사."""
-    spec = {
+    spec: JsonObject = {
         "paths": {
             "/api/right-sizing/refresh": {
                 "post": {

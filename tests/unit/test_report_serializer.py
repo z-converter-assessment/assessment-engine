@@ -9,9 +9,11 @@ fields`)를 고정한다.
 
 import dataclasses
 from datetime import UTC, datetime
+from typing import Any
 
 import pytest
 
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.environment_report import to_environment_report
 from assessment_engine.web.services.report_serializer import (
     _report_row_from_dict,
@@ -204,9 +206,9 @@ def test_env_report_roundtrip_empty_period_assessment_and_storage_stay_default()
     assert restored.network_interfaces == []
 
 
-def _minimal_row_dict() -> dict:
+def _minimal_row_dict() -> JsonObject:
     """최소 유효 row dict — 필수 필드만. 필드 변경 시 자동 추종(라운드트립 dict->dataclass 검증용)."""
-    d: dict = {}
+    d: JsonObject = {}
     for f in dataclasses.fields(ReportRowItem):
         if f.default is dataclasses.MISSING and f.default_factory is dataclasses.MISSING:
             d[f.name] = False if f.type == "bool" else (1 if f.name == "server_id" else None)
@@ -305,9 +307,9 @@ def test_nested_overview_and_storage_drop_removed_fields_via_build():
     assert not hasattr(node, "_legacy_major_minor") and node.name == "vda"
 
 
-def _row_kwargs(**overrides) -> dict:
+def _row_kwargs(**overrides: Any) -> JsonObject:
     """ReportRowItem 복원 입력 — 필수 필드를 타입별 최소값으로 채운다."""
-    base: dict = {}
+    base: JsonObject = {}
     for f in dataclasses.fields(ReportRowItem):
         if f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING:
             continue
@@ -332,7 +334,7 @@ def _row_kwargs(**overrides) -> dict:
         ("", ""),
     ],
 )
-def test_legacy_os_eol_status_restored(stored, expected):
+def test_legacy_os_eol_status_restored(stored: str, expected: str):
     """보고서는 발행 시점 정적 스냅샷이라 옛 상태 문자열이 그대로 되살아난다.
 
     표시 계층이 현행 어휘만 분기하므로 역직렬화에서 옮긴다. 매핑이 빠지면 예외 없이

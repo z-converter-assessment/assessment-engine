@@ -9,8 +9,6 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-import pytest
-
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import MetricSeries
 from assessment_engine.web.services.mappers import environment_report as erm
@@ -23,6 +21,7 @@ from assessment_engine.web.view_models.attention import (
     EnvironmentOverview,
 )
 from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
+from tests.approx import approx
 
 
 def test_provisioning_segment_defs_single_truth():
@@ -161,12 +160,12 @@ def test_to_environment_report_precomputes_classification_pct():
         action=ActionTargets(),
     )
     by_key = {c.key: c for c in result.classification_dist}
-    assert by_key["optimal"].pct == pytest.approx(66.7, abs=0.1)
-    assert by_key["under_provisioned"].pct == pytest.approx(33.3, abs=0.1)
+    assert by_key["optimal"].pct == approx(66.7, abs=0.1)
+    assert by_key["under_provisioned"].pct == approx(33.3, abs=0.1)
     # 미해당 segment 는 pct 0
     assert by_key["idle"].pct == 0.0
     # pct 합 == 100 (insufficient_data 제외하면 100, 모두 합치면 100)
-    assert sum(c.pct for c in result.classification_dist) == pytest.approx(100.0, abs=0.1)
+    assert sum(c.pct for c in result.classification_dist) == approx(100.0, abs=0.1)
 
 
 def test_to_environment_report_classification_dist_empty_rows_zero_pct():

@@ -16,10 +16,11 @@ import pytest
 from pydantic import ValidationError
 
 from assessment_engine.consumer.schemas import TaskResultInput
+from assessment_engine.json_types import JsonObject
 from tests.factories import make_task_result_payload
 
 
-def _validate(payload: dict) -> TaskResultInput:
+def _validate(payload: JsonObject) -> TaskResultInput:
     return TaskResultInput.model_validate_json(json.dumps(payload))
 
 

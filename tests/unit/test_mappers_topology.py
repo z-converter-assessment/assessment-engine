@@ -17,10 +17,12 @@ from types import SimpleNamespace
 from typing import cast
 
 from assessment_engine.db.dtos.outbound import ServerDetail
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.topology import build_network_topology
+from assessment_engine.web.view_models.topology import NetworkTopology
 
 
-def _iface(cidr: str, kind: str = "physical", gateway: str | None = None) -> dict:
+def _iface(cidr: str, kind: str = "physical", gateway: str | None = None) -> JsonObject:
     """CIDR 문자열 -> v2 구조화 net_interface dict. family(ipv4/ipv6) 자동 판정, prefix 파싱 불가는 None.
 
     테스트 편의 헬퍼 — agent 는 이미 구조화된 InterfaceInfo 를 발행하나, 케이스별 주소·kind·gateway 를
@@ -38,16 +40,16 @@ def _iface(cidr: str, kind: str = "physical", gateway: str | None = None) -> dic
     }
 
 
-def _host(pid: str, name: str, os_family: str, ifaces: list[dict]) -> ServerDetail:
+def _host(pid: str, name: str, os_family: str, ifaces: list[JsonObject]) -> ServerDetail:
     """build_network_topology 가 읽는 축만 가진 대역 — public_id·hostname·os_family·net_interfaces."""
     return cast(ServerDetail, SimpleNamespace(public_id=pid, hostname=name, os_family=os_family, net_interfaces=ifaces))
 
 
-def _subnet_ids(t) -> list[str]:
+def _subnet_ids(t: NetworkTopology) -> list[str]:
     return sorted(e["data"]["id"] for e in t.elements if e["data"].get("kind") == "subnet")
 
 
-def _edges(t) -> set[tuple[str, str]]:
+def _edges(t: NetworkTopology) -> set[tuple[str, str]]:
     return {(e["data"]["source"], e["data"]["target"]) for e in t.elements if "source" in e["data"]}
 
 
@@ -187,7 +189,7 @@ def test_gateway_disambiguates_overlapping_subnet():
 
 
 def _host_roles(
-    pid: str, name: str, os_family: str, ifaces: list[dict], roles: list[str] | None
+    pid: str, name: str, os_family: str, ifaces: list[JsonObject], roles: list[str] | None
 ) -> ServerDetail:
     """service_categories(E7) 를 실은 대역 — _host 는 해당 속성이 없어 roles 테스트용 별도 구성."""
     return cast(
@@ -333,7 +335,14 @@ def test_null_gateway_host_joins_single_gateway_subnet():
 # ─── 3계층 재설계 — 게이트웨이 라우터 노드 · 멀티홈 · SubnetHost 상세 필드 ──────
 
 
-def _rich_iface(name, cidr, gateway, origin="dhcp", mac="fa:16:3e:00:00:01", mtu=1450):
+def _rich_iface(
+    name: str,
+    cidr: str,
+    gateway: str | None,
+    origin: str = "dhcp",
+    mac: str = "fa:16:3e:00:00:01",
+    mtu: int = 1450,
+) -> JsonObject:
     """툴팁·표 필드까지 담은 net_interface — name/id(mac)/mtu/gateway/addresses.origin."""
     addr, _, prefix_s = cidr.partition("/")
     return {
@@ -342,11 +351,11 @@ def _rich_iface(name, cidr, gateway, origin="dhcp", mac="fa:16:3e:00:00:01", mtu
     }
 
 
-def _gateways(t):
+def _gateways(t: NetworkTopology) -> dict[str, int]:
     return {e["data"]["label"]: e["data"]["subnetCount"] for e in t.elements if e["data"].get("kind") == "gateway"}
 
 
-def _route_edges(t):
+def _route_edges(t: NetworkTopology) -> set[tuple[str, str]]:
     return {(e["data"]["source"], e["data"]["target"]) for e in t.elements if e["data"].get("kind") == "route"}
 
 

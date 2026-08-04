@@ -6,12 +6,20 @@
 그 외 모든 경우는 입력 그대로 통과. allowlist 변경 시 본 test 회귀 가시화.
 """
 
+
 from assessment_engine.task_policy import effective_task_result
 
 ALLOW = {"20348": [2], "rocky:9": [3], "almalinux:9": [3], "ol:9": [3], "centos:9": [3]}
 
 
-def _eff(status, reason, exit_code, os_family, os_version, os_id=None):
+def _eff(
+    status: str,
+    reason: str | None,
+    exit_code: int | None,
+    os_family: str | None,
+    os_version: str | None,
+    os_id: str | None = None,
+) -> tuple[str, str | None]:
     return effective_task_result(
         status=status,
         failure_reason=reason,
@@ -97,7 +105,15 @@ def test_success_passthrough() -> None:
 # ─── task_policy 우선순위 (실제 설치 신호 > exit_code, zinstall-verdict 개선) ──────────
 
 
-def _effv(status, reason, exit_code, task_policy, os_family="linux", os_version=None, os_id=None):
+def _effv(
+    status: str,
+    reason: str | None,
+    exit_code: int | None,
+    task_policy: bool | None,
+    os_family: str | None = "linux",
+    os_version: str | None = None,
+    os_id: str | None = None,
+) -> tuple[str, str | None]:
     return effective_task_result(
         status=status, failure_reason=reason, exit_code=exit_code, os_family=os_family,
         os_version=os_version, os_id=os_id, success_exit_codes=ALLOW, task_policy=task_policy,
