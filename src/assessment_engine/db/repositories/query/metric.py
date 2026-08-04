@@ -44,6 +44,7 @@ from assessment_engine.db.repositories.query.types import (
     TIME_RANGE_TD,
     AggFunc,
     BucketSize,
+    EnvironmentMetricType,
     MetricType,
     TimeRange,
 )
@@ -636,12 +637,12 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
     async def metric_trend(
         self,
-        metric_type: str,
+        metric_type: MetricType | EnvironmentMetricType,
         start: datetime,
         end: datetime,
         bucket: BucketSize,
         server_ids: list[int] | None = None,
-        agg: str = "avg",
+        agg: AggFunc = "avg",
         dimension: str | None = None,
         collapse: bool = True,
     ) -> list[MetricSeries]:
