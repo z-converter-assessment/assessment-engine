@@ -156,7 +156,8 @@ def build_network_interfaces(
         items.append(
             NetworkInterfaceInfo(
                 name=iface.get("name", ""),
-                mac=iface.get("id", "") if iface.get("id_type") == "mac" else "",
+                # .get(key, "") 는 키가 있고 값이 None 이면 None 을 돌려준다 — id 는 nullable 이라 or 로 받는다.
+                mac=(iface.get("id") or "") if iface.get("id_type") == "mac" else "",
                 mtu=iface.get("mtu"),
                 speed_mbps=speed_mbps,
                 gateway=iface.get("gateway") or "",
