@@ -45,6 +45,10 @@ wire·JSONB 원본을 담는 자리는 `assessment_engine.json_types.JsonObject`
 
 그 원본에서 중첩 배열·객체를 꺼낼 때는 같은 모듈의 `json_list`·`json_obj`·`json_str_list` 를 쓴다. `d.get(key) or []` 로 꺼내면 빈 리터럴이 원소 타입을 잃은 채 결과 타입을 정한다.
 
+타입 별칭은 `type X = ...`(PEP 695) 로 쓴다. 런타임에 별칭 안을 들여다볼 때는 `X.__value__` 를 거친다 — `get_args(X)` 는 빈 튜플을 주므로, 이걸 놓치면 순회가 0회 돌면서 테스트가 조용히 통과한다.
+
+상위 메서드를 덮어쓰는 자리에는 `@override`(PEP 698) 를 단다. 상위 시그니처가 바뀌면 그 자리에서 잡힌다.
+
 dataclass·Pydantic 의 기본값 팩토리는 `field(default_factory=list[X])` 처럼 선언과 같은 제네릭 별칭을 쓴다. 인자 없는 `list`·`dict` 는 원소 타입이 없는 생성자라 선언과 이어지지 않는다 — 제네릭 별칭도 호출 가능해 런타임 동작은 같다.
 
 테스트 픽스처는 dict 로 기본값을 조립해 `**` 로 넘기지 않는다. 그렇게 하면 값 타입이 전 필드의 합집합이 되어 어떤 인자도 맞지 않는다. dataclass 는 `dataclasses.replace(base, **overrides)` 로 base 를 실제 타입으로 한 번 만들고 덮어쓰기만 넘긴다. `T | None` 을 돌려주는 호출은 `assert x is not None` 으로 좁힌 뒤 쓴다 — 그 테스트가 전제하던 것을 명시하는 효과도 있다.

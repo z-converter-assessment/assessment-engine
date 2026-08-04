@@ -1,7 +1,7 @@
 """Server 도메인 concrete — inventory · storage · network · collection status."""
 
 from datetime import UTC, datetime, timedelta
-from typing import Protocol, cast
+from typing import Protocol, cast, override
 
 from sqlalchemy import func, select
 
@@ -33,10 +33,12 @@ class _LinkSpeedProvider(Protocol):
 
 
 class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
+    @override
     async def resolve_server_id(self, public_id: str) -> int | None:
         result = await self.session.execute(select(ServerInventory.id).where(ServerInventory.public_id == public_id))
         return result.scalar_one_or_none()
 
+    @override
     async def resolve_server_ids(self, public_ids: list[str]) -> dict[str, int]:
         if not public_ids:
             return {}
@@ -45,6 +47,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         )
         return {str(r.public_id): r.id for r in result.all()}
 
+    @override
     async def list_servers(
         self,
         page: int,
@@ -128,21 +131,25 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             edition=r.edition,
         )
 
+    @override
     async def get_server(self, server_id: int) -> ServerDetail | None:
         result = await self.session.execute(select(ServerInventory).where(ServerInventory.id == server_id))
         r = result.scalars().one_or_none()
         return self._row_to_server_detail(r) if r is not None else None
 
+    @override
     async def get_servers(self, server_ids: list[int]) -> list[ServerDetail]:
         if not server_ids:
             return []
         result = await self.session.execute(select(ServerInventory).where(ServerInventory.id.in_(server_ids)))
         return [self._row_to_server_detail(r) for r in result.scalars().all()]
 
+    @override
     async def list_all_server_public_ids(self) -> list[str]:
         result = await self.session.execute(select(ServerInventory.public_id).order_by(ServerInventory.id))
         return list(result.scalars().all())
 
+    @override
     async def get_storage(self, server_id: int) -> StorageWithUsage | None:
         inv_result = await self.session.execute(
             select(
@@ -184,6 +191,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             os_family=r.os_family,
         )
 
+    @override
     async def get_network(self, server_id: int) -> NetworkWithIo | None:
         inv_result = await self.session.execute(
             select(
@@ -236,6 +244,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             link_speed_by_iface=link_speed_by_iface,
         )
 
+    @override
     async def get_collection_status(self, server_id: int) -> CollectionStatus | None:
         inv_result = await self.session.execute(
             select(ServerInventory.last_seen_at).where(ServerInventory.id == server_id)
@@ -255,6 +264,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
             last_inventory_at=row,
         )
 
+    @override
     async def list_server_ids(self, limit: int | None = 1000) -> list[int]:
         stmt = select(ServerInventory.id).order_by(ServerInventory.id.asc())
         if limit is not None:
@@ -262,6 +272,7 @@ class ServerQueryRepository(_BaseQueryMixin, BaseServerQueryRepository):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
+    @override
     async def latest_metric_at(self) -> datetime | None:
         """fleet 전체 최신 메트릭 수집 시각 — 상단 바 데이터 최신성(#C5 window 술어로 partition pruning).
 

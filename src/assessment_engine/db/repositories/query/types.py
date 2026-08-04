@@ -16,7 +16,7 @@ from assessment_engine.boot_time import BOOT_TIME_JITTER_TOLERANCE
 BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
 
 # ─── chart metric 카탈로그 (router Literal whitelist) ───
-MetricType = Literal[
+type MetricType = Literal[
     "cpu.usage_percent",
     "cpu.user_percent",
     "cpu.system_percent",
@@ -54,7 +54,7 @@ MetricType = Literal[
 # 없어 높다/낮다를 못 읽고, 후자는 Linux 만의 값이 "환경 전체"로 읽힌다. 서버 상세는 단일 호스트라 혼합
 # 문제가 없어 `MetricType` 전체를 쓴다.
 # 축 선정 근거·화면별 표현 차이 단일 진실 = `docs/reference/web/services.md` "환경 성능 추이" 절.
-EnvironmentMetricType = Literal[
+type EnvironmentMetricType = Literal[
     "cpu.usage_percent",
     "cpu.saturation_hosts",
     "mem.usage_percent",
@@ -65,9 +65,9 @@ EnvironmentMetricType = Literal[
     "net.tx_bytes_per_sec",
     "net.congested_hosts",
 ]
-TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
-BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
-AggFunc = Literal["avg", "max", "p95"]
+type TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
+type BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
+type AggFunc = Literal["avg", "max", "p95"]
 
 # TimeRange → timedelta. metric_chart·reboot_events 양쪽 사용 (service·repo 중복 방지).
 # 14d는 right-sizing 윈도우(recommendation.WINDOW_DAYS)와 동일 — 보고서·대시보드·차트 일관.

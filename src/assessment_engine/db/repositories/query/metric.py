@@ -5,7 +5,7 @@ rate/CPU reset 은 boot gate 없이 GREATEST(delta,0)/d_total>0 로 흡수. 물�
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from sqlalchemy import select, text
 
@@ -68,6 +68,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
     # cursor pagination 윈도우 — C5 partition pruning 하한. cursor 마다 cursor-30d 동적.
     _METRIC_SNAPSHOTS_WINDOW = timedelta(days=30)
 
+    @override
     async def latest_dashboard(self, server_id: int) -> DashboardRaw | None:
         inv = await self.session.execute(
             select(
@@ -203,6 +204,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             cpu_cores=cpu_cores,
         )
 
+    @override
     async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
         """서버별 실시간 포화 원자료 (os 통일):
 
@@ -378,6 +380,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             for r in result
         }
 
+    @override
     async def latest_errors(self, server_id: int, since: datetime) -> ErrorFleetRaw:
         """창내 에러 축 카운트 (단일 서버, bounded raw). counter delta = MAX-MIN(reset 은 >=0 자연 클램프).
 
@@ -446,6 +449,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             last_error_at=de.last_at,
         )
 
+    @override
     async def fleet_error_summary(self, server_ids: list[int], since: datetime) -> FleetErrorRaw:
         """전 서버 에러축 영향 호스트 수 (환경 개요 fleet 표시자). 창내 counter delta > 0(또는 corrupted 현재>0) 호스트 count."""
         if not server_ids:
@@ -511,6 +515,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             disk_error_hosts=int(disk_hosts or 0),
         )
 
+    @override
     async def fleet_error_hosts(self, server_ids: list[int], since: datetime) -> set[int]:
         """에러 발생 server_id 집합 (서버 목록 "운영 이벤트" 칼럼). 5축(mce·oom·corrupted·net·disk) 중
 
@@ -576,6 +581,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         hosts.update(disk_rows)
         return {int(h) for h in hosts}
 
+    @override
     async def latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]:
         """서버·iface별 최신 link_speed_bps (bit/s gauge). assessment reproduction 의 inventory speed_mbps
 
@@ -600,6 +606,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             out.setdefault(r.server_id, {})[r.iface_id] = int(r.link_speed_bps)
         return out
 
+    @override
     async def metric_snapshots(
         self,
         server_id: int,
@@ -622,6 +629,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         result = await self.session.execute(stmt)
         return [MetricSeries(collected_at=ts, value=None, dimension=None) for ts in result.scalars().all()]
 
+    @override
     async def metric_chart(
         self,
         server_id: int,
@@ -649,6 +657,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             collapse=collapse,
         )
 
+    @override
     async def metric_trend(
         self,
         metric_type: MetricType | EnvironmentMetricType,
@@ -1435,6 +1444,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
             for row in result.all()
         ]
 
+    @override
     async def reboot_events(
         self,
         server_id: int,

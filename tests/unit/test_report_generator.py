@@ -224,4 +224,4 @@ async def test_report_trend_uses_valid_metric_types():
     await svc._build_report_trend("24h", datetime(2026, 1, 1, tzinfo=UTC), [1])
 
     assert seen == ["cpu.usage_percent", "mem.usage_percent", "fs.usage_percent"]
-    assert set(seen) <= set(get_args(MetricType))
+    assert set(seen) <= set(get_args(MetricType.__value__))

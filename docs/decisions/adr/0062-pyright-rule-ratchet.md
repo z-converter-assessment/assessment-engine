@@ -1,6 +1,6 @@
 # ADR 0062 — 타입 검사 강도를 규칙 단위 래칫으로 올린다
 
-상태: Accepted (2026-08-04)
+상태: Accepted (2026-08-04) — Refined by ADR 0063. 규칙 단위 래칫이라는 절차는 존속하고, 도달 기준선(Python 3.14·ruff format·확장 lint·`reportImplicitOverride`)은 0063 이 정한다.
 
 ## Context
 
@@ -35,7 +35,7 @@ pyright 를 `basic` 으로 돌리고 있었고, 게이트(`Makefile`·`ci.yml`)�
 | `reportUnusedClass` | 동일. `_BaseQueryMixin` 은 repository 넷이 상속한다 |
 | `reportUnnecessaryIsInstance` | JSONB 원본을 방어하는 `isinstance(s, dict)` 가 대상이다. 선언 타입이 dict 라 불필요 판정이 나는 것이고, JSONB 경계 타입이 더 정확해지면 다시 본다 |
 
-`reportCallInDefaultInitializer`·`reportUnusedCallResult`·`reportImplicitOverride`·`reportImplicitStringConcatenation`·`reportMissingSuperCall`·`reportImportCycles` 는 strict 프리셋 자신이 끄므로 별도 선언이 필요 없다. 각각 FastAPI 의 `Depends()` 기본값 호출, Python 의 반환값 버리기 관용구, `@override` 전면 도입이라는 별개 결정, ruff 소관인 문자열 스타일, 상위 호출 강제, `TYPE_CHECKING` 로 순환을 끊는 규약(#F1)과 부딪힌다.
+`reportCallInDefaultInitializer`·`reportUnusedCallResult`·`reportImplicitOverride`·`reportImplicitStringConcatenation`·`reportMissingSuperCall`·`reportImportCycles` 는 strict 프리셋 자신이 끄므로 별도 선언이 필요 없다. 각각 FastAPI 의 `Depends()` 기본값 호출, Python 의 반환값 버리기 관용구, `@override` 전면 도입이라는 별개 결정, ruff 소관인 문자열 스타일, 상위 호출 강제, `TYPE_CHECKING` 로 순환을 끊는 규약(#F1)과 부딪힌다. 그중 `@override` 는 ADR 0063 이 채택했다.
 
 ## 소진한 것
 

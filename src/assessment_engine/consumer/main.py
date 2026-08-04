@@ -34,7 +34,7 @@ _TASK_RESULT_MAX_LEN = 100_000
 # SIGKILL 이 drain 을 자르지 않는다.
 _SHUTDOWN_DRAIN_SEC = 5.0
 
-_Handler = Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]
+type _Handler = Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]
 
 
 @dataclass

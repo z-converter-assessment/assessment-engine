@@ -81,7 +81,7 @@ if TYPE_CHECKING:
 # cache_serializer 가 본 상수를 import 해 역직렬화 후 enrich 재호출 시 동일 분기 적용.
 DYNAMIC_PORT_MIN = 49152
 
-_Severity = Literal["ok", "warn", "danger"]
+type _Severity = Literal["ok", "warn", "danger"]
 
 _BADGE_CLASS_BY_SEVERITY: dict[_Severity, str] = {
     "ok": "badge-ok",

@@ -6,7 +6,7 @@ server_metrics_5m/server_filesystem_5m/server_disk_io_5m/server_net_io_5m/server
 """
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, override
 
 from sqlalchemy import text
 
@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 
 class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
+    @override
     async def report_aggregate(
         self,
         server_ids: list[int],
@@ -363,6 +364,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             for r in result.all()
         ]
 
+    @override
     async def report_uptime_stats(self, server_ids: list[int], period_days: float, end: datetime) -> dict[int, int]:
         """period 안 boot_time DISTINCT count - 1 (=재부팅 횟수). 현재 boot_time 포함이라 -1."""
         start = end - timedelta(days=period_days)
@@ -375,6 +377,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
         return {r.server_id: int(r.reboot_count) for r in result.all()}
 
+    @override
     async def report_agent_restart_stats(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, int]:
@@ -390,6 +393,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
         return {r.server_id: int(r.restart_count) for r in result.all()}
 
+    @override
     async def agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]:
         """since 이후 server별 agent 재시작 횟수 — attention agent_unstable fixed 윈도우 (Redis sliding 대체)."""
         if not server_ids:
@@ -403,6 +407,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
         result = await self.session.execute(sql, {"sids": server_ids, "since": since})
         return {r.server_id: int(r.restart_count) for r in result.all()}
 
+    @override
     async def report_disk_io_baseline(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, DiskIoBaselineRaw]:
@@ -457,6 +462,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             for r in result.all()
         }
 
+    @override
     async def report_net_io_baseline(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, NetIoBaselineRaw]:
@@ -505,6 +511,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             for r in result.all()
         }
 
+    @override
     async def environment_utilization(
         self, period_days: float, end: datetime, server_ids: list[int] | None = None
     ) -> EnvironmentUtilizationRaw:
@@ -569,18 +576,21 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             mem_p95_pct=float(row.mem_p95) if row.mem_p95 is not None else None,
         )
 
+    @override
     async def report_memory_breakdown(self, server_id: int, period_days: float, end: datetime) -> MemoryBreakdownRaw:
         """메모리 구성 윈도우 평균 — batch 의 N=1 특수화. 데이터 없으면 전 축 None."""
         return (await self.report_memory_breakdown_batch([server_id], period_days, end)).get(
             server_id, MemoryBreakdownRaw(None, None, None, None)
         )
 
+    @override
     async def report_cpu_breakdown(self, server_id: int, period_days: float, end: datetime) -> CpuBreakdownRaw:
         """CPU 분류 윈도우 평균 — batch 의 N=1 특수화. 데이터 없으면 전 축 None."""
         return (await self.report_cpu_breakdown_batch([server_id], period_days, end)).get(
             server_id, CpuBreakdownRaw(None, None, None)
         )
 
+    @override
     async def report_mount_capacity_batch(
         self, server_ids: list[int], end: datetime
     ) -> dict[int, list[MountCapacityRaw]]:
@@ -652,6 +662,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             )
         return out
 
+    @override
     async def report_memory_breakdown_batch(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, MemoryBreakdownRaw]:
@@ -680,6 +691,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
             for r in result.all()
         }
 
+    @override
     async def report_cpu_breakdown_batch(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, CpuBreakdownRaw]:

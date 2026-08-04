@@ -11,7 +11,7 @@
 from typing import Any, cast
 
 # JSON object 하나 — wire payload 또는 JSONB 컬럼 원본.
-JsonObject = dict[str, Any]
+type JsonObject = dict[str, Any]
 
 
 def _member(d: object, key: str) -> object:
