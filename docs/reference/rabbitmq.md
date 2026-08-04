@@ -8,7 +8,7 @@
 
 vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도메인 시스템과 나눠 쓸 때만 추가 vhost 도입. AMQP URL은 `amqp://user:pass@host:port/assessment` 형식 — 이름에 `/`가 없어 인코딩 무영향(config.py 가 슬래시 포함 vhost 를 `%2F`로 자동 인코딩하는 방어 로직은 유지).
 
-권한 모델: RabbitMQ는 `(user, vhost)` 쌍에 configure/write/read 3비트를 정규식 패턴으로 부여. dev는 단일 user `assessment`가 셋 모두 보유. prod는 4-user least-privilege로 분리 (#3 dev/prod 분기).
+권한 모델: RabbitMQ 는 `(user, vhost)` 쌍에 configure/write/read 3비트를 정규식 패턴으로 부여한다. 이 저장소가 실제로 두는 user 는 3절.
 
 도구 일반론(vhost·권한 비트 의미)은 RabbitMQ 공식 문서.
 
@@ -83,75 +83,10 @@ docker compose restart consumer
 
 ## 3. dev/prod 분기
 
-### 차용 (이미 dev에 적용됨)
+dev 와 prod 는 같은 토폴로지를 쓴다 — vhost·exchange·DLX·durable·persistent 전부 2절 정의 그대로다.
 
-production 표준을 dev에도 적용 — namespace 격리·내구성 외 부담 없음.
-
-| 항목 | 적용 |
-|------|------|
-| Vhost `assessment` | `docker-compose.yml` 의 `RABBITMQ_DEFAULT_VHOST` + `src/assessment_engine/config.py` 의 `rabbitmq_vhost` + agent 의 `RABBITMQ_VHOST` 모두 `assessment`(무슬래시) |
-| Collector exchange `assessment` (direct, durable) | 동일 |
-| Collector DLX `assessment.dlx` (direct, durable) | 동일 |
-| Task exchange `assessment.tasks` (direct, durable) | 동일 (web 측 lifespan + consumer 측 main.py 양쪽 declare, idempotent) |
-| Task DLX `assessment.tasks.dlx` (direct, durable) | 동일 (consumer 측 declare) |
-| 메시지 `delivery_mode=persistent` (2) | 모든 발행 측 설정 |
-
-### 분기 유지 (dev 이점이 큼)
-
-#### AMQP / TLS
-
-| 환경 | 정책 |
-|------|------|
-| dev | plain AMQP, port 5672 |
-| prod | AMQPS, port 5671, TLS 1.2+ + hostname verify, optional mTLS |
-
-dev 이점:
-- self-signed 인증서·내부 CA 발급·분배 부담 큼.
-- `rabbitmqadmin` / 관리 UI 직접 디버깅 편의 손실 (TLS 핸드셰이크가 매번 가로막음).
-
-#### 권한 모델 — dev 단일 user vs prod least-privilege
-
-dev: 단일 user `assessment` 가 collector·worker·engine 역할 모두 보유 (declare 자유). 한 credential 유출 시 broker 무방비.
-
-prod: 역할별 least-privilege 분리. 발행·소비 채널 별 권한.
-
-| user | configure / write / read | 역할 |
-|------|--------------------------|------|
-| `agent-publisher` | `none / ^assessment$ / none` | 원격 호스트 collector 발행 (inventory/metrics/error) |
-| `agent-worker` | `none / ^assessment\.tasks$ / ^agent\.tasks\..*$` | 원격 호스트 worker 가 `agent.tasks.<agent_id>` consume + `assessment.tasks` 에 `task.result` publish |
-| `engine-publisher` | `none / ^assessment\.tasks$ / none` | 엔진 web 이 `task.install` publish |
-| `engine-consumer` | `^agent\.tasks\..* / ^assessment(\.tasks)?$ / ^(server\..*\|worker\.result\|agent\.tasks\..*)$` | 엔진 consumer read·ack + 머신별 큐 동적 declare |
-| `dlq-handler` | `none / none / ^.*\.dead$` | DLQ read 전용 (운영 도구) |
-| `topology-admin` | `.* / .* / .*` | 초기 셋업 1회만, 이후 회수 또는 user 삭제 |
-
-dev 에서 안 쓰는 이유: 큐 동적 declare (`agent.tasks.<agent_id>`) 가 매 task 발행마다 발생. dev 사이클에서 매번 권한 분리 적용은 부자연.
-
----
-
-## 4. Production 전환 체크리스트
-
-dev → production 시 #3 "분기 유지" 항목을 적용:
-
-### 4.1 TLS 활성화
-- 내부 CA 발급 + RabbitMQ 서버 인증서·키 배치
-- `docker-compose.yml`의 rabbitmq 서비스에 TLS 설정 추가 (`rabbitmq.conf` 마운트 또는 환경변수)
-- port `5671` 노출, `5672` 비활성화
-- 에이전트 측 `RABBITMQ_TLS_*` env 활성화 + `/etc/assessment-agent/ca.pem` 분배
-
-### 4.2 권한 분리
-- `topology-admin` user 생성 (one-shot)
-- `topology-admin` 로 exchange / queue / DLX declare 1회 실행 후 권한 회수 또는 user 삭제
-- `agent-publisher` / `agent-worker` / `engine-publisher` / `engine-consumer` / `dlq-handler` user 생성 + 각 vhost permission set
-- 엔진 consumer 의 `RABBITMQ_USER` 를 `engine-consumer` 로 교체. 엔진 web 의 publish 채널은 `engine-publisher`
-- 원격 호스트 collector credentials 는 `agent-publisher`, worker credentials 는 `agent-worker` 로 배포 (`RABBITMQ_USER` vs `RABBITMQ_WORKER_USER` 분리)
-
-### 4.3 단일 broker → HA cluster 검토 (선택)
-본 시스템 단일 인스턴스 정책은 `docs/explanation/tradeoffs.md` T11. SLA 요구가 강해질 때 재검토.
-
-### 4.4 broker disk 용량 정책
-`server.metrics` 큐의 `x-max-length` / TTL 보강 — 운영 환경 메시지 발생량·디스크 SLA에 맞춰 별도 결정.
-
----
+접속 자체도 지금은 갈리지 않는다. 양쪽 다 plain AMQP(5672) + 단일 user 이고, TLS 와 역할별 권한 분리는
+적용하지 않았다 — 근거와 재검토 트리거는 `docs/explanation/tradeoffs.md` T22.
 
 ## 관련 문서
 

@@ -262,7 +262,7 @@
           "system.disk":       { "$ref": "#/$defs/namespace", "$comment": "device attr = '<scheme>:<value>' 안정 id(non-null). scheme 카탈로그(D4): gptid|mbrsig|serial|wwid|by-path|dm|partuuid(물리/파티션) + md|btrfsuuid|fsuuid(disk.errors 는 RAID 배열/fs 레벨 참조). io/operations/io_time(%util)/operation_time(await)/pending_operations(queue)/errors(mdraid/btrfs/ext4/ioerr)" },
           "system.filesystem": { "$ref": "#/$defs/namespace" },
           "system.network":    { "$ref": "#/$defs/namespace", "$comment": "device attr=안정 id=MAC(id_type mac; 폴백 ifguid/by-path). name 은 표시용 아님. io/packets/errors/dropped/link.speed/tcp.retransmits/conntrack" },
-          "system.pressure":   { "$ref": "#/$defs/namespace", "$comment": "pressure.stall.ratio(gauge,1; resource/scope/window) | pressure.stall.time(counter,s; 14일 saturation canonical). Linux 4.20+; else null" },
+          "system.pressure":   { "$ref": "#/$defs/namespace", "$comment": "pressure.stall.ratio(gauge,1; resource/scope/window) | pressure.stall.time(counter,s; 수집·저장만, 판정 미사용). Linux 4.20+; else null" },
           "system.cgroup":     { "$ref": "#/$defs/namespace" },
           "block_devices":     { "type": "array", "items": { "$ref": "#/$defs/block_device" } },
           "net_interfaces":    { "type": "array", "items": { "$ref": "#/$defs/net_interface" } },

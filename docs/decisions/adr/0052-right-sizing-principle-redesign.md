@@ -1,6 +1,6 @@
 # ADR 0052 — 자원 적정성 분류 원칙 재설계 (전제 기반 유도 + USE 5자원 + tier 근거)
 
-상태: Accepted (2026-07-05) — Supersedes ADR 0029. 구현 대기 — 코드(`recommendation.py`)·구현 상태 문서(`right-sizing.md`)는 구현 단계에서 갱신(문서-코드 정합, CLAUDE.md #F12).
+상태: Accepted (2026-07-05) — Supersedes ADR 0029. Amended by ADR 0056 (처방 억제 조항만 supersede, 5자원 USE 판정틀·근본원인 종합은 존속). 신호 배선은 ADR 0053 이 잇는다.
 
 ## Context
 

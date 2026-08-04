@@ -110,13 +110,8 @@ interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedel
 
 ### 타입·윈도우 상수 (`db/repositories/query/types.py`)
 - `MetricType` Literal — chart metric (카탈로그는 `types.py` 단일 진실)
-- `TimeRange` Literal — 15m/1h/6h/24h/7d/14d/30d (차트·진단 공통). 기본 14d 는 right-sizing 윈도우(`recommendation.WINDOW_DAYS`)와 동일 — F10 단일 진실
-- `BucketSize` Literal — 1m/5m/15m/30m/1h/3h/6h/12h/1d. 6h는 14d 토글 자동 매핑용
-- `AggFunc` Literal — avg/max/p95
-- `TIME_RANGE_TD` — TimeRange -> timedelta 매핑 (repo·service 공유)
-- `DIAGNOSTIC_RANGE_DAYS` — TimeRange -> float day 매핑 (`TIME_RANGE_TD` 파생, fraction 지원)
-- `DIAGNOSTIC_DEFAULT_TIME_RANGE` — 진단 발행·분류 기본 윈도우(14d)
-- 신규 range·bucket 추가 시 backend Literal·`_BUCKET_INFO`·`chart-utils.js` `RANGE_LABEL`/`AUTO_BUCKET`/`BUCKET_LABEL`/`RANGE_MS`/`BUCKET_MS`·UI 토글 4곳 동시 갱신 의무 (F10)
+- range·bucket·집계 함수는 `db/repositories/query/types.py` 의 Literal 이 값을 갖는다. 기본 14d 는 `recommendation.WINDOW_DAYS` 와 같은 값이라 한쪽만 바꾸면 분류 창과 갈린다(#F10).
+- 신규 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 넷을 동시에 갱신한다(#F10).
 
 (`DIAGNOSTIC_RANGE_LABEL_KR` time_range 한국어 표시 라벨은 표시 소속이라 `mappers/shared.py`.)
 

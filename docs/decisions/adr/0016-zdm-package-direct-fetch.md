@@ -1,6 +1,6 @@
 # ADR 0016 — Self-host install bundle 제거 + ZDM 본체 패키지 직접 fetch (0008·0009 supersede)
 
-상태: 채택 (2026-05-21) — Supersedes ADR 0008, 0009. Linux 만 지원 (Windows 별도 결정).
+상태: 채택 (2026-05-21) — Supersedes ADR 0008, 0009. Refined by ADR 0019 (install type enum). Linux 만 지원 (Windows 별도 결정).
 
 ## Context
 

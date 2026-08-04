@@ -1,6 +1,6 @@
 # ADR 0012 — CI 산출물 정책: Python wheel + GitHub Release
 
-상태: Accepted (2026-05-16)
+상태: Superseded by ADR 0048 (2026-07-01) — 배포 산출물이 wheel + GitHub Release 에서 GHCR 이미지 단일로 바뀌었다. wheel 빌드는 CI 패키징 검증으로 존속(ADR 0057).
 
 ## Context
 

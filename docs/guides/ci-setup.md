@@ -65,7 +65,7 @@ Branch protection rules 가 아니라 ruleset 을 쓴다 — 여러 패턴을 �
 | Target | `refs/tags/v*` | |
 | Restrict deletions | 활성 | 발행된 tag 불변 보존 |
 | Block force pushes | 활성 | tag 재지정 차단 |
-| Restrict creations | 비활성 | 저장소 ruleset 은 GitHub Actions 를 bypass actor 로 받지 않는다 — 설치된 앱이 아니라 API 가 422 로 거부한다. 켜면 `release.yml` 의 tag push 가 막혀 릴리즈가 완료되지 못한다 |
+| Restrict creations | 비활성 | 사유는 3.5 |
 | Bypass list | 비움 | |
 
 tag 는 `release.yml` 이 `pyproject.toml` 의 version 에서 파생 생성하며, 사람이 붙이지 않는 것은 규약으로 지킨다 (`docs/guides/release.md` 2절).
@@ -160,8 +160,6 @@ gh api repos/<owner>/<repo>/automated-security-fixes  # enabled = security updat
 ## 5. Secrets
 
 `GITHUB_TOKEN` 외 추가 secret 을 쓰지 않는다. 배포는 대상 VM 에서 실행되며 GitHub secret·runner·Environment 를 쓰지 않는다(public 이미지 pull + cosign 공개 검증).
-
-추가가 필요해지는 시점은 PyPI publish(`PYPI_API_TOKEN`), 사내 mirror push(`NEXUS_USER`·`NEXUS_PASSWORD`), Codecov upload(`CODECOV_TOKEN`) 정도다.
 
 ## 6. 활성 체크리스트
 

@@ -89,7 +89,7 @@ CPU/메모리/스토리지/네트워크 상세 카드(engineer 전용) — 윈�
 
 | 항목 | 내용 | source |
 |------|------|--------|
-| 평가 윈도우 | 서버 보고서 default 14일, URL `?time_range=`(15m~30d) override | `recommendation.WINDOW_DAYS` 또는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` |
+| 평가 윈도우 | 서버 보고서 default = `recommendation.WINDOW_DAYS`, URL `?time_range=`(15m~30d) override | `recommendation.WINDOW_DAYS` 또는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` |
 | Anchor 시점 | 현재 또는 발행 시점 | default now |
 | 분류(배지) | under_provisioned / over_provisioned / idle / optimal / insufficient_data | `classify_host`(배지) + `rollup_host`(근본원인) |
 | 권장 action | 자원별 독립 한국어 처방 (증설 검토·축소 검토·종료·통합 검토·적정 유지·표본 부족) | `under_prescription`/`recommend_action` -> `RECOMMENDATION_ACTION_KO` |
@@ -101,7 +101,7 @@ CPU/메모리/스토리지/네트워크 상세 카드(engineer 전용) — 윈�
 
 ### 분류 임계값·판정
 
-5분류·트리거 조건·임계 상수·벤더 출처 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. host_status 판정 순서 = under -> insufficient -> idle -> over -> optimal (`rollup_host`/`classify_host`, 상세 right-sizing.md 3절, 임계 상수는 `recommendation.py`).
+5분류·트리거 조건 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. 호스트 요약 상태 판정 순서는 같은 문서 3절(`rollup_host`/`classify_host`).
 
 Windows (원칙 P2/P4): 포화 3축 모두 perflib 실측 — CPU=Processor Queue Length(`cpu_saturated` os-aware run queue), 메모리=Pages Input/sec p95 >= 20(하드 read 폴트, Linux swap page-out 대응 — 정적 pagefile 점유는 신호 아님), 디스크 I/O=await(IOCTL ReadTime/WriteTime, 구세대 viostor 미부착 시 큐 깊이 폴백). perflib 미부착 축만 coverage_gap -> "포화 수치 미관측" 마커. 상세 `docs/reference/right-sizing.md` 5절.
 
@@ -115,7 +115,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 
 ### 평가 윈도우
 
-- 서버 보고서 default 14일 (`recommendation.WINDOW_DAYS`). URL `?time_range=`(15m·1h·6h·24h·7d·14d·30d) override 가능. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
+- 서버 보고서 default = `recommendation.WINDOW_DAYS`. URL `?time_range=`(15m·1h·6h·24h·7d·14d·30d) override 가능. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
 
 ### view 분기 의도
 
@@ -135,26 +135,17 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 
 ## 환경 단위 산출물과의 분기
 
-| 항목 | 환경 (`environment-report.md`) | 서버 (본 문서) |
-|------|-------------------------------|----------------|
-| 발행 단위 | 환경 전체 1건 | 1대 또는 N대 batch (각 1건씩) |
-| 보고서 라우터 | `/reports/environment` | `/reports/servers?ids=...` (단일 1대 `/servers/{id}/report`) |
-| scope | environment | server |
-| 산출물 | 분류 분포 카운트 + 우선순위 권장 | 개별 서버 분류·action |
-| 답 | "환경 안 over-provisioned 5대 있음" | "이 서버는 under_provisioned, 업사이즈 검토" |
-| 운영 단계 | 1단계 — 환경 전체 현황 한눈 | 2단계 — 개별 서버 판단 |
-
-운영자 표준 흐름: 환경 단위로 분포 확인 → 시급한 카테고리의 서버 list 식별 → 서버 단위 batch 로 개별 판단 → detail 화면에서 검증.
+`docs/explanation/products/environment-report.md` 가 갖는다.
 
 ## 한계
 
 1. 분류 라벨 어휘가 운영자에게 항상 직관적이지 않음 — "over_provisioned"·"under_provisioned" 의미는 명시적 가이드 (`recommendation.py` 상수) 에 의존. 한국어 라벨이 한국어 사용자에게 더 명확하지만 영어 분류 식별자는 코드·메시지에 박힘.
-2. 워크로드 역할 무관 임계 — DB·캐시·앱서버가 같은 자원별 임계를 공유한다 (값은 `docs/reference/right-sizing.md` 4절 단일 진실). DB 는 메모리 압박이 정상 운영일 수 있는데도 자원 부족으로 잡힐 가능성. 역할별 정밀 분기는 향후 별도 결정.
+2. 워크로드 역할 무관 임계 — DB·캐시·앱서버가 같은 자원별 임계를 공유한다 (값은 `docs/reference/right-sizing.md` 4절 단일 진실). DB 는 메모리 압박이 정상 운영일 수 있는데도 자원 부족으로 잡힐 가능성.
 3. anchor 임의 선택 가능 — 운영자가 특정 시점 (부하 spike 발생 직후 등) anchor 로 잡으면 분류가 그 윈도우 한정. 표준 14d default 외 사용 시 운영자가 의도 인지 의무.
 4. 정성 요약의 표현 한정 — 결정론 템플릿이라 운영자가 추가 컨텍스트 반영 불가.
 5. engineer 세부 서버 목록은 화면에서 최대 11 컬럼. 인쇄는 구성 표(6칼럼)/평가 표(engineer 5칼럼) 2분할로 갈라 A4 가로에 맞춘다 — 백엔드 PDF export 는 미도입이라 브라우저 인쇄 의존.
-6. 표는 위험 우선 기본 정렬 (발행 시점 under -> attention -> normal, 동순위 cpu_p95 DESC). 사용자 임의 재정렬·필터는 미지원 — 추후 client-side sort 도입 검토 후보.
-7. URL 길이 한계 — `ids` query string 에 N개 public_id 넣음. N 이 매우 크면 URL 한계. 추후 POST + session 도입 검토.
+6. 표는 위험 우선 기본 정렬 (발행 시점 under -> attention -> normal, 동순위 cpu_p95 DESC). 사용자 임의 재정렬·필터는 미지원.
+7. URL 길이 한계 — `ids` query string 에 N개 public_id 넣음. N 이 매우 크면 URL 한계.
 
 ## 관련 문서·코드
 

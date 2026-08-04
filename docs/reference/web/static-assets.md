@@ -28,7 +28,7 @@
 | `makeBucketGrid(range, bucket, anchor)` / `joinToGrid(grid, rows, bMs)` | 버킷 그리드 + 응답 join |
 | `bindToggle(groupId, onChange)` | range/agg 컨트롤 바인딩 — element 가 `<select>`면 change, `.toggle` 버튼이면 click 자동 분기 (호출처 동일) |
 | `pageTimeControl(rangeBtnsId, anchorId, default, onChange)` | 페이지 단일 시간축 컨트롤러(#F10) — range 토글 + anchor 하나가 페이지 전 차트를 구동. `{getRange, getAnchor}` 반환. 변경 시 onChange 로 전체 reload. anchor 미입력=live now, 입력=고정(과거 조사). 서버 상세 자원 탭 공용 |
-| `initAutoRefresh(onRefresh, intervalMs)` | 30초 polling 자동 갱신 (setInterval + pagehide 정리) |
+| `initAutoRefresh(onRefresh, intervalMs)` | 호출자가 준 주기로 자동 갱신 (setInterval + pagehide 정리) |
 | `safeArray(arr)` | `Array.isArray` 방어 (P4 c) |
 | `buildDimDatasets(rows, bMs, grid, metaMap, opts)` | dimension별(device/iface/mount) 멀티라인 dataset 조립 — grid join + 색·라벨 매핑 |
 | `fmtThroughput(kb)` | kB/s -> B/s·kB/s·MB/s 표시 단위 자동 결정 (P4) |
@@ -88,7 +88,7 @@
 - 추이 차트의 면적 음영은 avg+max ghost(`buildAvgMaxDatasets`, avg dataset `fill:'+1'`)만 — avg~max 사이를 채워 burst(순간 최대-평균 차)를 시각화. 이것이 "음영"의 유일한 의미.
 - 선 아래 zero 까지 채우는 area fill(`fill:true`) 금지 — 추이 차트는 추세선만(`fill:false`). area fill 은 burst 음영과 혼동되고 값 밀집 시 가독성을 떨어뜨림.
 - 15분 구간(1분 버킷)은 버킷당 데이터 1포인트라 max=avg → ghost 음영 0. `buildAvgMaxDatasets` 가 `bMs <= BUCKET_MS['1m']` 일 때 maxRows 를 비워 전 차트 일괄 자동 비활성.
-- 실행 큐 차트(`cpu.run_queue`, os-aware — Linux procs_running / Windows Processor Queue Length)는 backend 가 이미 실행큐 합/코어 합(코어당, 1.0 Linux·2.0 Windows 포화)으로 반환 — 클라는 값 그대로 표시. 서버 상세는 연속값 단일선(`cpu.js`), 환경 성능 추이는 같은 임계 판정을 SQL 로 이식한 crossing 서버 수(`cpu.saturation_hosts`, count) 단일선 — 스코프별 표현 단위 차이는 `services.md` "서버 상세 성능 추이" 절.
+- 실행 큐 차트(`cpu.run_queue`, os-aware — Linux procs_running / Windows Processor Queue Length)는 backend 가 이미 실행큐 합/코어 합(코어당 값, 포화선은 OS 별)으로 반환 — 클라는 값 그대로 표시. 서버 상세는 연속값 단일선(`cpu.js`), 환경 성능 추이는 같은 임계 판정을 SQL 로 이식한 crossing 서버 수(`cpu.saturation_hosts`, count) 단일선 — 스코프별 표현 단위 차이는 `services.md` "서버 상세 성능 추이" 절.
 
 ## 색 테마 — `:root` 변수 + 주색 단일 진실 (예외 0)
 - 테마 변수 = `base.html :root` 단일 선언. `--color-title`(#2563eb) = 주색 — `.btn-primary` 채움·`.toggle.active`·정렬 칼럼 강조·`.list-filter` 테두리·네비 진행바·스토리지 막대. 사이드바 계열은 `--sidebar-*` 변수군(바탕·글씨·hover·active). `--color-table-head`(#e5e7eb) = 전 테이블 제목행 하단 경계선. 색 변경 시 `:root` 만 수정.
@@ -171,7 +171,7 @@
 | `.empty-state` | 발화 가능하나 비어있는 슬롯 placeholder (#E9 discoverability) | 박스 없음 / 회색 텍스트 #94a3b8 |
 | `.stree` (+ `.stree-row`/`.stree-kind`/`.stree-usage` 등) | 스토리지 레이아웃 트리 (중첩 ul, `servers/_storage_tree.html` `storage_tree()` 매크로) — 스토리지 상세·서버 보고서 공용 | 좌측 가이드선 #e2e8f0 |
 
-금지: `<div style="border:1px solid #e2e8f0; border-radius:6px; padding:14px;">` 같은 inline 박스 재구현. 위 클래스로 치환. (P3 직접 위반 — 모양 통일성 + 추후 일괄 조정 시 단일 진실.)
+금지: `<div style="border:1px solid #e2e8f0; border-radius:6px; padding:14px;">` 같은 inline 박스 재구현. 위 클래스로 치환. (P3 직접 위반 — 박스 모양을 한 곳에서 바꿀 수 있어야 한다.)
 
 ### 공통 매크로 (`_shared.html`)
 
@@ -249,8 +249,8 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 | case | 정공 / 예외 | 이유 |
 |------|-------------|------|
 | 1회 fetch + render (예: task-modal body, 자원 평가 `?fragment=result`, 발행 이력 `?fragment=1`) | 정공 — fragment endpoint (`/api/tasks/{id}/detail` 등) + JS `innerHTML = await fetch().text()` | overhead 0, P3 완전 정공 |
-| 저빈도 polling + 파생 많은 SSR 영역 (예: 실시간 현황 30초 자동갱신) | 정공 — fragment endpoint (`/environment/realtime?fragment=realtime`) HTML 반환 + JS `#rt-mount` innerHTML 교체 | 30초 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
-| polling 흐름 (예: detail page metrics/latest 30초 polling / storage snapshot) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
+| 저빈도 polling + 파생 많은 SSR 영역 (예: 실시간 현황 자동갱신) | 정공 — fragment endpoint (`/environment/realtime?fragment=realtime`) HTML 반환 + JS `#rt-mount` innerHTML 교체 | 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
+| polling 흐름 (예: detail page metrics/latest polling / storage snapshot) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
 
 폴링 흐름 JS render 의무:
 - inline `style="color:#xxx"` 금지 — base.html 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`/`.text-unknown`(판정 불가 전용 보라 — 경고 `.text-warn`과 다른 범주), 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·값 컴포넌트(`.stat-*`/`.metric-*`/`.kpi-*`/`.pre-output`) 우선, 그 외 보조 텍스트는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`)을 색 유틸과 조합.

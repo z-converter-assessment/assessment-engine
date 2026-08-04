@@ -1,6 +1,6 @@
 # ADR 0045 — dev 런타임 경계 확정: libvirt VM 파이프라인·ZDM mock 제거
 
-상태: Accepted (2026-06-26)
+상태: Accepted (2026-06-26) — Refined by ADR 0047 (pgAdmin 제거).
 
 Supersedes: ADR 0037 (dev libvirt 재전환), ADR 0018 (dev ZDM mock endpoint)
 Refines: ADR 0036 (dev/배포 2분류 — dev 메커니즘만 갱신, 분류 자체는 존속)

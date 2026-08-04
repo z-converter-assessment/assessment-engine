@@ -1,6 +1,6 @@
 # ADR 0035 — compose base(prod) + override(dev) 분리, 빌드 없는 prod base 를 릴리즈 에셋으로
 
-상태: Accepted (2026-06-08)
+상태: Accepted (2026-06-08) — Refined by ADR 0046·0048·0059·0060. base 의 역할은 0059 가 prod-safe 에서 공통 정의로 낮췄고, 실행 명령은 0060 이 compose 로 옮겼다.
 
 ## Context
 

@@ -9,22 +9,22 @@
 
 ## 1. 목적·범위
 
-right-sizing = 관측 부하(`WINDOW_DAYS` = 14일 통계) 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류.
+right-sizing = 평가 윈도우(`WINDOW_DAYS`) 통계로 본 관측 부하 대비 할당 자원의 적정성 평가. 규칙 기반 결정적 분류.
 자원 5개(CPU · 메모리 · 디스크 용량 · 디스크 I/O · 네트워크)를 각각 USE(이용률·포화·오류)로 판정한 뒤, 인과
 근본원인으로 호스트 하나로 종합한다. 가진 데이터로 항상 결론을 내며, 포화 축은 OS별 실측 신호로 정규화하되
 해당 카운터를 못 읽어 값이 없는 축만 분류를 막지 않고 confidence 단서(coverage_gap)로 노출한다.
 
-UI badge 임계(`mappers._USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`, 90/75)와는 별 도메인이다 — 그쪽은 시점 사용량 시각
-신호, 본 모듈은 윈도우 통계 기반 사이징 결정. 혼용 금지.
+UI badge 임계(#E3)와는 별 도메인이다 — 그쪽은 시점 사용량 시각 신호, 본 모듈은 윈도우 통계 기반 사이징
+결정. 혼용 금지.
 
 ## 2. 자원별 판정 (per-resource USE)
 
 각 자원은 자기 어휘로 판정한다 (`assess_cpu`/`assess_memory`/`assess_disk_capacity`/`assess_disk_io`/`assess_network`).
 
-- CPU: under(이용률 p95 >= 70% OR 실행 큐 포화 OR 사이징 목표 > 현재 코어) / over(AWS Balanced 사이징 목표 < 현재 코어, 단일스레드 보호 시 보류) / optimal. 실행 큐 포화는 dual-gate(실행 큐 >= 임계 AND 이용률 >= 70% — 저활동 실행큐 노이즈 차단, 5절). 목표 = 이용률 70% + 포화 headroom 중 큰 쪽.
-- 메모리: under(이용률 p95 >= 90% OR OOM) / over / optimal. 페이징(하드 폴트)은 독립 under 트리거가 아니라 dual-gate 포화 신호 — 이용률 >= 90% AND 페이징이라야 mem_saturation(5절), util < 90 이면 페이징이 있어도 under 아님(mmap 정상 폴트 오탐 차단). 단 이용률 미측정 + OOM 은 그대로 under. 사이징 목표 = near-peak(관측 피크) 80% 착지 — 비탄력·OOM 회피라 평균 아닌 피크 통계. swapless 다수는 이용률이 주신호.
-- 디스크 용량: filling(소진 runway < 30일 OR 정적 가드 used% >= 85%, 바이트·inode 각 축) / capacity_ok. under/over 아닌 "남은 시간" 예측(누적 자원). runway 는 마운트별 이력 전체의 2점(first/last) fill rate 외삽이고, 확장 목표 GB 를 동반한다.
-- 디스크 I/O: io_bound(응답 지연 await p95 > 20ms) / io_ok. await 는 device 사용률 게이트를 통과한 버킷에서만 산출돼, 저활동 device 는 await 미산출이라 io_ok(병목 아님)로 남는다. 증분 불가라 사이징 없음 — 티어 상향 검토 표시.
+- CPU: under(이용률 p95 임계 초과 OR 실행 큐 포화 OR 사이징 목표 > 현재 코어) / over(사이징 목표 < 현재 코어, 단일스레드 보호 시 보류) / optimal. 실행 큐 포화는 dual-gate(실행 큐 AND 이용률 — 저활동 실행큐 노이즈 차단, 5절). 목표 = 이용률 착지와 포화 headroom 중 큰 쪽.
+- 메모리: under(이용률 p95 임계 초과 OR OOM) / over / optimal. 페이징(하드 폴트)은 독립 under 트리거가 아니라 dual-gate 포화 신호 — 이용률과 페이징이 함께라야 mem_saturation(5절), 이용률이 임계 아래면 페이징이 있어도 under 아님(mmap 정상 폴트 오탐 차단). 단 이용률 미측정 + OOM 은 그대로 under. 사이징 목표는 near-peak(관측 피크) 착지 — 비탄력·OOM 회피라 평균 아닌 피크 통계. swapless 다수는 이용률이 주신호.
+- 디스크 용량: filling(소진 runway 임박 OR 정적 가드 used% 초과, 바이트·inode 각 축) / capacity_ok. under/over 아닌 "남은 시간" 예측(누적 자원). runway 는 마운트별 이력 전체의 2점(first/last) fill rate 외삽이고, 확장 목표 GB 를 동반한다.
+- 디스크 I/O: io_bound(응답 지연 await p95 임계 초과) / io_ok. await 는 device 사용률 게이트를 통과한 버킷에서만 산출돼, 저활동 device 는 await 미산출이라 io_ok(병목 아님)로 남는다. 증분 불가라 사이징 없음 — 티어 상향 검토 표시.
 - 네트워크: congested(품질) / quality_ok. 사이징 축 아님(vNIC 링크 속도 부재). 재전송·드롭·conntrack 은 품질 신호이며, 재전송·드롭은 저트래픽 호스트에서 판정 보류(비율 분모 붕괴 방지)·conntrack 은 트래픽 무관 절대 신호다.
 
 ## 3. 호스트 종합 + 판정 순서
@@ -45,7 +45,7 @@ I/O -> CPU. 판별 신호 = 메모리 포화(dual-gate 페이징, 메모리발) 
 |------|---------------------|------|
 | 1 | under -> under_provisioned | under_kinds 비어있지 않음 — 자원 status 가 under 또는 filling(CPU under · 메모리 under · 디스크 용량 filling). io_bound·congested 제외(아래 orthogonal) |
 | 2 | insufficient -> insufficient_data | CPU AND 메모리 둘 다 unmeasured/insufficient — 사이징 2축 부재라 disk/network 부분 데이터 있어도 optimal 위장 금지 |
-| 3 | idle -> idle | 활동 3축 quiescent — cpu_p95 <= 3% AND net <= 2 Mbps AND 디스크 I/O baseline <= 5 IOPS(측정된 활동만, 미측정 불배제) |
+| 3 | idle -> idle | 활동 3축 quiescent — CPU p95·네트워크·디스크 I/O baseline 이 모두 유휴 임계 아래(측정된 활동만, 미측정 불배제) |
 | 4 | over -> over_provisioned | cpu 또는 memory 가 over |
 | 5 | optimal -> optimal | 그 외 |
 
@@ -84,9 +84,9 @@ I/O -> CPU. 판별 신호 = 메모리 포화(dual-gate 페이징, 메모리발) 
 포화 3축 모두 OS별 실측 신호로 정규화 — 동일 분류 체계·임계 도메인, 신호원만 상이. 전용 helper 단일 진실 경유
 (임계 재계산·직접 해석 금지), 값 None 이면 helper 가 None -> 해당 자원 coverage_gap.
 
-- cpu_saturation: `cpu_saturated` — dual-gate: 실행 큐 포화 AND 이용률 p95 >= 70%. 실행 큐 = Linux procs_running/cores >= 1.0, Windows System\Processor Queue Length p95/cores >= 2. 저활동 실행큐 노이즈(수집기 R-state 자기포함, 특히 1코어) 차단 — util 미측정이면 측정된 실행큐 신뢰.
-- mem_saturation: `mem_saturated` — dual-gate: 이용률 p95 >= 90% AND 페이징. 페이징 = Linux paging_major(디스크에서 페이지를 다시 읽는 하드 폴트, `mem_swap_paging` 필드가 싣는 값 — swap 점유량도 swap in/out 도 신호 아님. swappiness 로 여유 RAM 에도 유휴 페이지를 스왑아웃하므로 점유는 압박을 뜻하지 않는다), Windows Memory Pages Input/sec rate p95 >= 20(하드 read 폴트, 총 Pages/sec 과 달리 mmap 미혼입). util < 90 이면 페이징이 있어도 비포화. pagefile 사용량 직접 해석 금지.
-- disk_io: `disk_io_saturated` — 양 OS await p95 > 20ms 통일. Windows 도 IOCTL_DISK_PERFORMANCE ReadTime/WriteTime(device 합산 counter_agg)로 await 산출(Linux time_reading/writing 등가, 같은 IOCTL 라 큐와 커버리지 동일). await 미배선/구세대 viostor(IOCTL 미부착)면 Windows 는 큐 깊이(disk_queue_p95 >= 2) 폴백.
+- cpu_saturation: `cpu_saturated` — dual-gate: 실행 큐 포화 AND 이용률 p95 임계 초과. 실행 큐 신호원은 Linux procs_running/cores, Windows System\Processor Queue Length p95/cores (OS 별 임계는 다르다). 저활동 실행큐 노이즈(수집기 R-state 자기포함, 특히 1코어) 차단 — util 미측정이면 측정된 실행큐 신뢰.
+- mem_saturation: `mem_saturated` — dual-gate: 이용률 p95 임계 초과 AND 페이징. 페이징 신호원은 Linux paging_major(디스크에서 페이지를 다시 읽는 하드 폴트, `mem_swap_paging` 필드가 싣는 값 — swap 점유량도 swap in/out 도 신호 아님. swappiness 로 여유 RAM 에도 유휴 페이지를 스왑아웃하므로 점유는 압박을 뜻하지 않는다), Windows Memory Pages Input/sec rate(하드 read 폴트, 총 Pages/sec 과 달리 mmap 미혼입). 이용률이 임계 아래면 페이징이 있어도 비포화. pagefile 사용량 직접 해석 금지.
+- disk_io: `disk_io_saturated` — await p95 임계는 양 OS 통일. Windows 도 IOCTL_DISK_PERFORMANCE ReadTime/WriteTime(device 합산 counter_agg)로 await 산출(Linux time_reading/writing 등가, 같은 IOCTL 라 큐와 커버리지 동일). await 미배선/구세대 viostor(IOCTL 미부착)면 Windows 는 큐 깊이 폴백.
 
 각 포화 축은 Windows 에서 해당 perflib 미부착·미발행이면 그 축만 coverage_gap -> `host_saturation_unmeasured`(cpu·mem·disk_io 한정) -> "포화 수치 미관측" confidence 단서. 분류 자체는 utilization·측정된 나머지 축으로 완결.
 
@@ -94,13 +94,13 @@ I/O -> CPU. 판별 신호 = 메모리 포화(dual-gate 페이징, 메모리발) 
 
 신뢰도는 분류와 별개 출력 — 측정 불확실성을 종류별로 가른다(`ConfidenceNote`):
 
-- 통계 정밀도(low_precision): 이력 < 30h(계층3 AWS insufficient-data 14일 창 누적 30h floor) OR 버스티(p95/median > 2).
+- 통계 정밀도(low_precision): 이력이 최소 시간(`RS_CONFIDENCE_MIN_HOURS`) 미만이거나 버스티(p95/median 비가 임계 초과).
 - 커버리지(coverage_gap): 필요 포화 축 미측정(is_partial). 측정된 축만으로 분류 + "포화 수치 미관측" 마커.
-- 충실도(biased): virtio 오염(steal p95 >= 5%, 게스트 await 하이퍼바이저 간섭) — 표본 늘려도 안 줄어드는 편향.
+- 충실도(biased): virtio 오염(steal p95 임계 초과, 게스트 await 하이퍼바이저 간섭) — 표본 늘려도 안 줄어드는 편향.
 - 정상성(nonstationary): 이용률 상승 추세 — forward-looking 결정(다운사이즈·용량 runway)에만.
 
 다운사이즈 "처방"은 over 분류가 저사용이면 늘 뜨나, 구체 처방은 신뢰도 높음(정밀·커버리지·충실도 온전) AND 상승
-추세 아님 AND 창 관측 충분(sample_sufficiency >= 0.7)일 때만. 미충족이면 과다 표시하되 권고는 "관찰만". 잘못된
+추세 아님 AND 창 관측 충분(`RS_DOWNSIZE_MIN_SUFFICIENCY`)일 때만. 미충족이면 과다 표시하되 권고는 "관찰만". 잘못된
 다운사이즈가 최악이라 위험 방향은 넉넉한 이력을 요구.
 
 ## 7. 근거(triggers) 재사용
@@ -119,8 +119,8 @@ host.resources 상태·trigger 파생)·권고(`under_prescription(host)`, root 
 
 ## 8. 한계
 
-- Windows 포화 축 임계 근거: run queue(>= 2/core)는 MS 표준, 메모리는 Pages Input/sec rate p95 >= 20(하드 read 폴트) — 총 Pages/sec(mmap 혼입) 미사용. disk await 는 구세대 viostor(fleet 실측 11대 중 5대) IOCTL 미부착이면 미측정 -> coverage_gap(별도 ETW 트랙). `docs/explanation/tradeoffs.md` T14.
+- Windows 포화 축은 신호원이 다르다 — run queue 는 MS 표준, 메모리는 Pages Input/sec rate(하드 read 폴트, 총 Pages/sec 은 mmap 혼입이라 미사용). disk await 는 구세대 viostor(fleet 실측 11대 중 5대) IOCTL 미부착이면 미측정 -> coverage_gap(별도 ETW 트랙). `docs/explanation/tradeoffs.md` T14.
 - 디스크 용량 환경 집계: 개별 호스트 판정(worst mount)은 OS 무관 신뢰 가능하나, 환경 전체 합산은 Windows 물리디스크/디바이스 인식 불완전으로 신뢰 저하 — 환경 disk 합산 지표 도입 시 주의.
-- 용량 runway 는 가용 이력 전체 span 기반(분류 14일 창과 별개 — 누적 신호라 길수록 정확). 성장 가속·월간 계절성(약 1개월 데이터)은 놓칠 수 있음.
+- 용량 runway 는 가용 이력 전체 span 기반(분류 창과 별개 — 누적 신호라 길수록 정확). 성장 가속·월간 계절성(약 1개월 데이터)은 놓칠 수 있음.
 - net_retrans% 분모는 TCP OutSegs 대신 physical NIC tx_packets 근사(에이전트 OutSegs 미발행) — 비-TCP 프레임 혼입으로 과소평가 방향.
-- p95 표본: 윈도우(14일)보다 데이터가 짧으면 신뢰도 저하. CPU·메모리 둘 다 unmeasured 면 insufficient_data(disk/network 부분 데이터 있어도).
+- p95 표본: 평가 윈도우보다 데이터가 짧으면 신뢰도 저하. CPU·메모리 둘 다 unmeasured 면 insufficient_data(disk/network 부분 데이터 있어도).

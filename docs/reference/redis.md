@@ -36,7 +36,7 @@
 
 ## PUB/SUB 채널
 
-현재 사용하는 PUB/SUB 채널 없음. 서버 상세 실시간 메트릭과 4탭 현재 상태는 브라우저 30초 polling(`setInterval`)으로 `/metrics/latest` 를 재요청한다 — Redis PUB/SUB 푸시 메커니즘은 사용하지 않는다.
+현재 사용하는 PUB/SUB 채널 없음. 서버 상세 실시간 메트릭과 4탭 현재 상태는 브라우저 polling 으로 `/metrics/latest` 를 재요청한다 — Redis PUB/SUB 푸시 메커니즘은 사용하지 않는다 (`docs/explanation/tradeoffs.md` T5).
 
 ---
 
@@ -58,13 +58,13 @@
 2. DELETE cache:metrics:{server_id}      — 캐시 즉시 무효화
 ```
 
-브라우저는 30초 polling(`setInterval`)으로 `/metrics/latest` AJAX 재요청 → 캐시 MISS → DB 조회 → 새 캐시 SET.
+브라우저 polling 이 `/metrics/latest` 를 재요청 → 캐시 MISS → DB 조회 → 새 캐시 SET.
 
 ### cache-aside race (알려진 한계)
 
 web의 `get_latest_metric`이 cache MISS 후 DB query를 마쳤지만 SET을 수행하기 전에 consumer가 새 metrics 커밋 + DELETE를 끝낼 수 있다. 이 경우 web의 SET이 stale 데이터를 60s TTL로 캐싱.
 
-실용적 영향은 최대 1회 표시 지연 (다음 30초 polling 주기에 회복). exactly-once 캐시 일관성 대신 단순성 선택. `docs/explanation/tradeoffs.md` T2.
+실용적 영향은 최대 1회 표시 지연 (다음 polling 주기에 회복). exactly-once 캐시 일관성 대신 단순성 선택. `docs/explanation/tradeoffs.md` T2.
 
 ---
 
@@ -74,15 +74,7 @@ web의 `get_latest_metric`이 cache MISS 후 DB query를 마쳤지만 SET을 수
 
 서버 목록 페이지가 N개 서버의 온라인 상태를 조회할 때, N번 직렬 `EXISTS online:{id}` 대신 `safe_mget(online:{id} ...)` 한 번으로.
 
-```python
-# web/services/query/server.py:list_servers
-keys = [get_web_settings().redis_key_online.format(dto.id) for dto in dtos]
-online_flags = await safe_mget(self.redis, keys)  # 장애 시 None -> last_seen_at fallback
-# mget 은 키 개수만큼 반환 — dtos 와 길이 일치
-for dto, flag in zip(dtos, online_flags, strict=True):
-    item = to_server_list_item(dto)
-    item.is_online = flag is not None
-```
+목록은 `safe_mget` 1회로 온라인 플래그를 받고, 장애면 `last_seen_at` 으로 폴백한다.
 
 페이지당 라운드트립 N → 1.
 
@@ -107,22 +99,7 @@ cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_ser
 
 ### 커넥션 풀 (cache/redis.py)
 
-```python
-_pool: ConnectionPool | None = None
-
-def get_pool() -> ConnectionPool:      # 첫 호출에서 만든다 — import 만으로 설정을 요구하지 않는다
-    global _pool
-    pool = _pool
-    if pool is None:
-        pool = ConnectionPool.from_url(WebSettings().redis_url, decode_responses=True, ...)
-        _pool = pool
-    return pool
-
-def get_redis() -> Redis:
-    return Redis(connection_pool=get_pool())
-
-async def close_pool() -> None: ...
-```
+풀은 `cache/redis.py` 모듈이 단일 인스턴스로 갖고 첫 호출 때 만든다. 각 entry 는 종료 시 `close_pool` 로 닫는다.
 
 - 단일 모듈 레벨 `_pool`. 모든 호출이 같은 풀 공유.
 - `decode_responses=True` — bytes가 아닌 str로 자동 디코딩. JSON 캐시 직렬화/역직렬화 단순화.
@@ -164,7 +141,7 @@ async def close_pool() -> None: ...
 약화되는 보장:
 - 멱등성 1단: 평시 1회 RTT 차단 → 장애 시 매번 DB INSERT 시도 + UNIQUE 충돌 흡수. 트래픽 규모에서 영향 미미.
 - list 화면 online: Redis 300s TTL 기반 → DB `last_seen_at` 기반. 정밀도 거의 동일, DB N개 행 비교 부하 추가.
-- 실시간 메트릭 polling: 캐시 MISS 로 매 30초 요청이 DB 직접 조회. 응답 정상, 부하만 증가.
+- 실시간 메트릭 polling: 캐시 MISS 로 매 요청이 DB 직접 조회. 응답 정상, 부하만 증가.
 
 약화되지 않는 보장: 데이터 정확성. 멱등성 fail-open은 1단 차단을 잃지만 시계열 metric 7개 테이블의 `(server_id, [dim,] collected_at)` UNIQUE 제약이 중복 INSERT를 silent no-op으로 흡수.
 
@@ -198,4 +175,4 @@ INFO stats | grep evicted_keys                 # evict 누적 (T11: 멱등성 �
 | 새 inventory 반영 안 됨 | consumer cache DELETE 실패 — `DEL cache:inventory:{id}` 수동 |
 | 같은 message_id 중복 행 | Redis 키 만료/evict — DB UNIQUE 2단이 흡수, 중복 행 없으면 정상 |
 | 온라인 뱃지 깜빡임 | TTL(300s) 안 inventory·metrics 5분 연속 미수신 — 에이전트 다운·네트워크 단절 확인 |
-| 실시간 메트릭 갱신 안 됨 | 브라우저 30초 polling(`setInterval`)이 `/metrics/latest` 재요청 — 네트워크 탭에서 주기 요청 확인 |
+| 실시간 메트릭 갱신 안 됨 | 브라우저 polling 이 `/metrics/latest` 재요청 — 네트워크 탭에서 주기 요청 확인 |

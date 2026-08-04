@@ -438,10 +438,10 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 ## T18. 용량 runway 전체 이력 집계 — cagg 하한 술어 예외
 
 무엇을
-- `report_aggregate` 의 mount_span CTE 는 `server_filesystem_5m` cagg 를 `WHERE server_id = ANY(:sids) AND bucket <= :end` 로 조회한다 — 다른 CTE(분류·포화·품질)가 전부 `bucket >= :start`(14일 창) 인 것과 달리 하한 술어가 없다. 용량 runway(바이트·inode 소진 일수)는 실제 관측 span 전체의 fill_rate 로 산출하기 때문이다(#C5 partition pruning 하한 술어 원칙의 의식적 예외).
+- `report_aggregate` 의 mount_span CTE 는 `server_filesystem_5m` cagg 를 `WHERE server_id = ANY(:sids) AND bucket <= :end` 로 조회한다 — 다른 CTE(분류·포화·품질)가 전부 `bucket >= :start`(평가 윈도우) 인 것과 달리 하한 술어가 없다. 용량 runway(바이트·inode 소진 일수)는 실제 관측 span 전체의 fill_rate 로 산출하기 때문이다(#C5 partition pruning 하한 술어 원칙의 의식적 예외).
 
 왜 전체 이력인가
-- CPU·메모리 이용률은 변동 신호라 최근 14일 대표 부하로 p95 를 뽑는다(오래된 데이터는 지금을 대변 못 함). 반면 디스크 용량은 누적 신호라 채워지는 속도(추세)가 곧 모델이고, 데이터가 길수록 기울기가 정확하다. 14일 창으로 자르면 완만히 차는 볼륨의 runway 를 과소·과대 추정한다. 그래서 runway 만 분류 창과 분리해 전체 이력을 쓴다(윈도우 2분리 기준, #F10).
+- CPU·메모리 이용률은 변동 신호라 최근 평가 윈도우의 대표 부하로 p95 를 뽑는다(오래된 데이터는 지금을 대변 못 함). 반면 디스크 용량은 누적 신호라 채워지는 속도(추세)가 곧 모델이고, 데이터가 길수록 기울기가 정확하다. 평가 윈도우로 자르면 완만히 차는 볼륨의 runway 를 과소·과대 추정한다. 그래서 runway 만 분류 창과 분리해 전체 이력을 쓴다(윈도우 2분리 기준, #F10).
 
 포기한 것 / 한계
 - 하한 없는 조회라 해당 서버의 데이터 볼륨 마운트 전 chunk 를 스캔한다 — cagg 보존 기간이 길어질수록 스캔량이 unbounded 로 증가. 현재는 5분 버킷·데이터 볼륨 한정이라 규모가 작아 수용하나, cagg retention 이 수개월+로 늘면 runway 조회 비용이 선형 증가한다.
@@ -480,7 +480,7 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 ## T20. 실시간 스냅샷 포화 축 — 윈도우 분류 경로와의 미세 원자료·경계 불일치
 
 무엇을
-- 포화 판정에는 두 경로가 있다: (A) 윈도우(14일) 분류·환경·보고서 = `recommendation` 도메인의 os-aware verdict helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`, dual-gate) 경유(#E3). (B) 실시간 현황·서버 상세 순간 스냅샷 = sibling index/active helper(`cpu_saturation_index`·`mem_pressure_active`·`disk_io_saturation_index`·`net_signal_active`, 목적상 single-gate) 경유. 두 경로가 같은 `RS_*` 상수를 공유하나, 두 축에서 미세하게 어긋나 같은 서버가 화면 간 다른 포화 판정을 낼 수 있다.
+- 포화 판정에는 두 경로가 있다: (A) 평가 윈도우 분류·환경·보고서 = `recommendation` 도메인의 os-aware verdict helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`, dual-gate) 경유(#E3). (B) 실시간 현황·서버 상세 순간 스냅샷 = sibling index/active helper(`cpu_saturation_index`·`mem_pressure_active`·`disk_io_saturation_index`·`net_signal_active`, 목적상 single-gate) 경유. 두 경로가 같은 `RS_*` 상수를 공유하나, 두 축에서 미세하게 어긋나 같은 서버가 화면 간 다른 포화 판정을 낼 수 있다.
 - 네트워크(실무 심각도 중): 서버 상세 실시간 네트워크 축(`metrics_calculator.build_saturation_signals`)이 단일 진실 `net_signal_active` 를 경유하지 않고 ratio 비교를 직접 조립한다. 두 이탈 — (1) 저트래픽 게이트 부재: `net_signal_active`/`assess_network` 는 트래픽 < `RS_NET_MIN_TRAFFIC_KBPS`(10 kB/s)면 retrans/drop 을 억제하나, 실시간 net 축은 무조건 임계 비교(`SaturationRaw` 에 net traffic 필드가 없어 구조적으로 게이트 불가). (2) 경계 연산자: 실시간은 `>=`, `net_signal_active` 는 strict `>`. -> 유휴 저트래픽 서버의 retrans 1.5% 나 정확히 1.0%/0.5% 경계값이 서버 상세엔 "혼잡", 환경/보고서엔 "정상".
 - 디스크 await(실무 심각도 하): `disk_io_saturated` 는 `await_p95 > RS_DISKIO_AWAIT_MS`(strict `>`), `disk_io_saturation_index` 소비 게이트는 `>= 1.0`(실질 `await >= 20`). await == 20.000ms 정확값에서만 갈린다(measure-zero) — index docstring "동일 로직" 선언과의 latent slip.
 
@@ -521,3 +521,46 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 언제 다시 봐야 하는가
 - 에이전트 저장소와 CI 를 연동할 수 있게 되면 -> C 소스에서 발행 필드 목록을 추출해 예시·스키마와 대조하는 게이트 추가.
 - 실 환경에서 원인 불명의 축 유실이 관측되면 -> 그 시점에 메시지를 캡처해 예시 파일을 갱신하고, 같은 유형을 잡는 경계 fixture 를 추가.
+
+---
+
+## T22. broker 는 단일 credential + plain AMQP 로 운영한다
+
+> 관련 문서: `docs/reference/rabbitmq.md`
+
+무엇을
+- RabbitMQ 접속은 단일 user 하나가 collector·worker·engine 역할을 모두 갖는다. 역할별 권한 분리를 두지 않았다.
+- 전송은 plain AMQP(5672)다. TLS(5671)를 켜지 않았다.
+
+왜 이대로 두나
+- 큐를 동적으로 declare 한다. `agent.tasks.{agent_id}` 가 task 발행마다 생기므로 least-privilege 를 걸면 configure 권한을 어디까지 열지가 매번 판단 대상이 된다.
+- TLS 는 내부 CA 발급·인증서 분배·갱신이 따라온다. 인증서를 받아야 하는 쪽이 엔진이 아니라 고객사 호스트마다 떠 있는 에이전트라 분배·갱신 비용이 호스트 수에 비례한다.
+- 관리 UI·`rabbitmqadmin` 직접 디버깅이 TLS 핸드셰이크 없이 그대로 된다.
+
+포기한 것 / 한계
+- credential 하나가 새면 발행·소비·토폴로지 변경이 모두 가능하다. 역할별 회수가 안 된다.
+- 에이전트가 broker 로 보내는 구간이 평문이다. broker 는 5672 를 외부 호스트에 열어 두므로(에이전트 발행 통로) 그 경로에서 트래픽을 볼 수 있는 위치라면 메시지 본문이 보인다.
+
+언제 다시 봐야 하는가
+- 고객사 망이 신뢰 경계로 충분하지 않다고 판단되면 -> TLS 를 먼저 켠다. 에이전트 배포에 CA 분배가 함께 실려야 한다.
+- 에이전트 credential 을 고객사별로 나눠야 하는 요구가 생기면 -> 역할별 user 로 분리한다. 그 시점에 초기 셋업용 admin 을 one-shot 으로 쓰고 회수하는 절차를 `docs/guides/deploy.md` 에 신설한다.
+
+## T23. 요청 흐름을 식별자 grep 으로 따라간다
+
+Request/Correlation ID 를 심지 않는다. HTTP 진입점이 `X-Request-ID` 를 읽거나 만들지 않고, MQ `message_id` 는
+멱등성 키로만 쓴다. 한 흐름을 따라가려면 `agent_id`·`server_id`·`message_id` 로 로그를 grep 한다.
+
+왜 이대로 두나
+- 컴포넌트가 셋(web·consumer·worker)이고 각자 자기 진입점에서 식별자를 로그에 싣는다. 흐름 하나가 여러
+  프로세스를 건너는 경우가 보고서 발행과 task 발행 둘뿐이라 식별자만으로 이어붙는다.
+- trace ID 를 심으려면 contextvars 전파를 전 계층에 넣어야 하고, 그 배선은 안 쓰는 동안에도 유지 대상이 된다.
+
+포기한 것 / 한계
+- 같은 사용자의 연쇄 요청을 하나로 묶을 수 없다. 요청 단위 지연 분해도 안 된다.
+- 로그 aggregator 를 붙여도 필드가 없으니 trace 뷰가 서지 않는다.
+
+언제 다시 봐야 하는가
+- prod 에서 식별자 grep 으로 흐름을 못 잇는 사례가 나오면 -> `contextvars` + loguru `contextualize` 로 심는다.
+- OpenTelemetry 를 도입하면 -> trace_id 가 그 자리를 대신하므로 별도 request_id 를 만들지 않는다.
+
+둘 다 계약 표면(로그 format)이 바뀌므로 ADR 을 먼저 쓴다.
