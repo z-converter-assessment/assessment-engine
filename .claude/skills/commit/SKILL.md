@@ -7,7 +7,7 @@ description: TRIGGER when the user wants to commit work in progress ("커밋", "
 
 feature branch 의 working diff 를 커밋한다. 가볍게 자주 커밋하는 것이 목적이라 무거운 검증을 걸지 않는다.
 
-검증 배치 단일 진실 = `docs/guides/wrap-up.md` 0절. 본 skill 은 그중 커밋 단계(lint)만 담당한다.
+검증 배치 단일 진실 = `docs/guides/pre-pr-checklist.md` 0절. 본 skill 은 그중 커밋 단계(lint)만 담당한다.
 
 ## 진입 조건
 
