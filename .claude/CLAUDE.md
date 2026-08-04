@@ -308,7 +308,7 @@ Pagination 정책:
 
 원칙: 자동화 변환(sed · `Edit replace_all` · 디렉토리 mv · Python 일괄 갱신) 직후 검증을 2 채널로 분담. 로컬 훅은 두지 않는다 — 우회 가능한 자리라 강제 수단이 못 된다(`docs/guides/conventions.md` 2절).
 - 메인 세션 — 자가 검증. 변환 직후 매 회 의무 (아래 4 항목).
-- 에이전트 (code-reviewer / schema-contract-auditor) — 본 절 맥락(변환 직후 점검)에서는 사용자 명시 요청(`리뷰해줘`·`스키마 일관성 확인` 등) 시에만 발동. PR 게이트의 코드 리뷰는 별개 채널이며 배치는 `docs/guides/wrap-up.md` 0절이 정한다 (develop PR = `/pr` 이 code-reviewer 발동).
+- 에이전트 (code-reviewer / schema-contract-auditor) — 본 절 맥락(변환 직후 점검)에서는 사용자 명시 요청(`리뷰해줘`·`스키마 일관성 확인` 등) 시에만 발동. PR 게이트의 코드 리뷰는 별개 채널이며 배치는 `docs/guides/pre-pr-checklist.md` 0절이 정한다 (develop PR = `/pr` 이 code-reviewer 발동).
 
 메인 자가 검증 의무:
 1. 옛 패턴 잔존 0건 grep.
@@ -375,7 +375,7 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 
 원칙: 영향받는 모든 곳 동시 갱신 의무 — 한 곳만 수정 후 PR 금지.
 
-적용 시점: 게이트 배치는 `docs/guides/wrap-up.md` 0절 단일 진실.
+적용 시점: 게이트 배치는 `docs/guides/pre-pr-checklist.md` 0절 단일 진실.
 
 기능 개발 중간 단계에서는 기능 코드만 작성한다 — 동작 검증은 사용자가 실행 화면으로 하고, 메인 세션이 기능 추가와 함께 테스트·문서를 선제 작성하지 않는다. (테스트 자동 실행·보고 금지는 #F5 와 일관.)
 
