@@ -1,6 +1,6 @@
 ---
 name: doc-auditor
-description: TRIGGER when auditing live docs against the 4 principles (docs/README.md) — duplication, purpose-mixing, history narrative, ADR/old-path references, Diátaxis fit. Read-only — reports violations ranked by severity, does not modify. Invoked by /pr --base main or on request ("문서 감사", "doc audit").
+description: TRIGGER when auditing live docs against the 4 principles (docs/README.md) — duplication, purpose-mixing, history narrative, ADR/old-path references, 목적 배치 적합성. Read-only — reports violations ranked by severity, does not modify. Invoked by /pr --base main or on request ("문서 감사", "doc audit").
 tools: Read, Grep, Glob, Bash
 ---
 
@@ -14,16 +14,16 @@ tools: Read, Grep, Glob, Bash
 
 1. 중복 (원칙 1) — 같은 사실이 둘 이상 문서에 서술됨. 한 곳이 소유하고 나머지는 pointer 여야 한다. `git grep` 으로 특징 토큰(상수명·임계값·함수명)을 교차 검색해 같은 사실의 재서술을 찾는다. 가장 중요한 축.
 2. 이력 서사 (원칙 2) — "옛 X"·"폐기"·"~에서 전환"·"한때"·"이전 방식/구현"·"정정" 이 회고형으로 쓰였나. 단 "옛 데이터 행"·"롤링 배포 중 이전 컨테이너"·"옛 syntax" 같은 present-state 개념(프로젝트 이력 아님)은 위반 아님 — 문맥으로 구분한다.
-3. 목적 혼선 (원칙 3) — reference 문서에 절차(how-to)가 섞였나, explanation 에 단계별 지시가 있나, guides 에 subsystem 동작 서술이 있나. Diátaxis 목적 이탈.
+3. 목적 혼선 (원칙 3) — reference 문서에 절차(how-to)가 섞였나, explanation 에 단계별 지시가 있나, guides 에 subsystem 동작 서술이 있나. 목적 이탈.
 4. 아카이브 의존 (원칙 4) — 라이브 문서가 특정 ADR/RFC 를 전제로 참조하나 (번호는 훅이 잡지만, "자세히는 X 결정 참조" 식 서사 의존도 포함).
 
-추가 — Diátaxis 배치: 각 문서가 올바른 목적 디렉토리에 있나. reference 인데 사실상 절차서면 guides 로 가야 함 등.
+추가 — 목적 배치: 각 문서가 올바른 목적 디렉토리에 있나. reference 인데 사실상 절차서면 guides 로 가야 함 등.
 
 ## 절차
 
 1. 라이브 문서 트리 파악 (`Glob docs/reference/**` 등).
 2. 축 1(중복) — 각 문서의 핵심 사실(상수·임계·불변식)을 뽑아 교차 검색, 재서술 위치 목록화.
-3. 축 2-4 + Diátaxis — 각 문서를 목적 관점으로 읽어 이탈 식별.
+3. 축 2-4 + 목적 배치 — 각 문서를 목적 관점으로 읽어 이탈 식별.
 4. 심각도 순 보고 — (파일:라인) + 위반 축 + 한 줄 근거 + 권고(어디로 pointer/이동/삭제). 수정은 안 함.
 
 ## 출력

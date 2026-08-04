@@ -32,7 +32,7 @@ description: TRIGGER when the user wants documentation brought in line with the 
 
 ### 3. 현재 상태로 다시 쓴다
 
-Diátaxis 목적별로 갱신한다 — 동작은 `docs/reference/`, 계약은 `docs/reference/contracts/`, 절차는 `docs/guides/`, 설계·한계는 `docs/explanation/`.
+목적별로 갱신한다 — 동작은 `docs/reference/`, 계약은 `docs/reference/contracts/`, 절차는 `docs/guides/`, 설계·한계는 `docs/explanation/`.
 
 4원칙 적용: 현재 상태만 선언(이력 서사 0) · 사실 1곳(중복이면 pointer) · 문서 하나 = 목적 하나 · ADR 번호·옛 경로 참조 0.
 
