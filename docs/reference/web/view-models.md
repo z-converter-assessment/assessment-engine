@@ -9,7 +9,7 @@
 | `ServerListItem` | `to_server_list_item` | `os_display` / `mem_total_gb` / `storage_total_gb` / `is_online` / `known_services` (카테고리 dedup) / `show_unknown_badge` / `recommendation_label`(한국어 분류명 `recommendation.LABEL_KO`) / `provisioning_class`(raw enum — 목록 색은 이 필드 기반 under-only 강조, 분류 다색 배지는 상세/보고서 전용) / `os_eol_status`(지원 단계 — full·security_only·paid_only·ended·unknown, 카탈로그 미매칭을 "지원 중"으로 단정 안 함) / `has_operational_event`(전기간 에러 발생 유무, `fleet_error_hosts` 집합) |
 | `ServerDetailResponse` | `to_server_detail` + `enrich_server_detail` | `os_display`(Windows 는 `product_name` 연도/세대 라벨 우선 — `_os_display` 4단 폴백) / `edition`(Windows SKU pass-through, `detail.html` os_display 조합 표시) / `cpu_display` / `disk_total_gb` / `services` (ServiceItem) / `sorted_listen_ports` / `agent_id`(식별 단일 키 표시) / `cpu_arch`+`cpu_bits`(ISA·비트, pass-through) |
 | `ServiceItem` | mapper | `category` (`service_classifier.classify`) / `matched_ports` (port 리스트) / `display_name` |
-| `ListenPortItem` | mapper | `is_well_known` (boolean) — 템플릿 분기는 이걸로 |
+| `ListenPortItem` | mapper | `is_significant` (boolean, port < 49152 = 비동적 포트) — 매퍼가 `key_listen_ports` 를 고를 때 쓴다 |
 | `MountUsageItem` | `_build_mount_item` | `mount` / `fstype` / `total_gb`·`used_gb`·`avail_gb` / `usage_pct` / `badge_class`·`bar_color` (임계값 분류) |
 
 ## 메트릭 대시보드

@@ -162,7 +162,7 @@ class MemSnapshot:
     cached_bytes: int | None
     buffered_bytes: int | None
     usage_pct: float | None
-    # stacked bar 표시용 비율 (P5: 클라이언트 재계산 금지, metrics_calculator 산출).
+    # stacked bar 표시용 비율 — metrics_calculator 산출값이고 클라가 다시 계산하지 않는다.
     # 메모리 구성 모델(_METRIC_EXPR): Used + Available = 100, Cached/Buffers 는 Available 안 회수 가능 세부.
     # bar 구획 = used(usage_pct) | cached_pct | buffers_pct | free_pct, 합 = 100.
     cached_pct: float | None = None

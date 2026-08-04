@@ -55,7 +55,7 @@ async def _seed_server_with_period_metrics(
                     device_name="sda",
                     ops_read=100 + i * 50,  # 분당 50 IOPS reads
                     ops_write=50 + i * 30,  # 분당 30 IOPS writes
-                    io_read_bytes=(2000 + i * 1000) * 512,  # v1 sectors*512 -> By. 분당 512000 By
+                    io_read_bytes=(2000 + i * 1000) * 512,  # By (sectors*512 환산). 분당 512000 By
                     io_write_bytes=(1000 + i * 500) * 512,
                 ),
             ],
@@ -411,7 +411,7 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(
                         device_name="sda",
                         ops_read=rd,
                         ops_write=0,
-                        io_read_bytes=rd * 8 * 512,  # v1 sectors*512
+                        io_read_bytes=rd * 8 * 512,  # By (sectors*512 환산)
                         io_write_bytes=0,
                     )
                 ],
@@ -649,7 +649,7 @@ async def test_report_aggregate_runqueue_oom_absent(collect_repo: CollectReposit
 
 # ─── ADR 0052 신 신호 값 검증 — disk await(counter_agg) · conntrack ratio · inode used% ───
 async def test_report_aggregate_await_conntrack_inode(collect_repo: CollectRepository, query_repo: QueryRepository):
-    """신 신호 3종 실값 검증 (v2 — await 는 물리 device op_time delta 로 양 OS 통일):
+    """신 신호 3종 실값 검증 — await 는 물리 device op_time delta 로 양 OS 통일):
 
     - disk await: Σ(Δ op_read_time_s + Δ op_write_time_s) / Σ(Δ ops_read + Δ ops_write) * 1000 = ms.
       매 분당 op_time += 2.5s · ops += 100 -> await = 25ms(> 20 임계). io_time 분당 +50s -> %util 0.83(게이트 0.5).

@@ -69,7 +69,7 @@ def _raw(
     cpu_run_queue_p95: float | None = None,
     mem_pages_input_rate_p95: float | None = None,
     cpu_cores: int | None = 2,
-    mem_total_kb: int | None = 2 * 1024 * 1024,  # 테스트 편의 단위(KiB) — 아래에서 v2 mem_total_bytes 로 환산
+    mem_total_kb: int | None = 2 * 1024 * 1024,  # 테스트 편의 단위(KiB) — 아래에서 mem_total_bytes 로 환산
     block_devices: list[JsonObject] | None = None,
     boot_time: datetime | None = None,
     worst_mount: str | None = None,
@@ -206,7 +206,7 @@ def test_report_row_uptime_none_when_boot_time_missing():
 
 
 def test_report_row_under_provisioned_maps_to_high():
-    # cpu_p95 95 (>=70) + mem_p95 92 (>=90) 만으로도 under_provisioned. mem_swap_paging(v2 active page-out) 동반.
+    # cpu_p95 95 (>=70) + mem_p95 92 (>=90) 만으로도 under_provisioned. mem_swap_paging(active page-out) 동반.
     raw = _raw(cpu_p95=95.0, cpu_peak=99.0, mem_p95=92.0, mem_peak=98.0, mem_swap_paging=True)
     item = to_report_row_item(raw, is_online=True, now=_NOW)
     assert item.risk_level == "high"
@@ -235,7 +235,7 @@ def test_report_row_is_partial_by_unmeasured_saturation():
 
 
 def test_report_row_windows_swap_not_high_risk():
-    """v2 Gate0 dual-gate: 메모리 포화 = 이용률>=90 AND 페이징. Windows 는 page-out(mem_swap_paging) 축을
+    """Gate0 dual-gate: 메모리 포화 = 이용률>=90 AND 페이징. Windows 는 page-out(mem_swap_paging) 축을
     보지 않고 Pages Input/sec 만 본다 — 같은 mem_swap_paging 신호라도 Windows 진단은 '스왑'으로 오라벨 안 함.
 
     이용률 92%(>=90)라 양 OS 모두 mem_util 로 under(high)지만, 포화 원인 라벨이 갈린다:
@@ -313,7 +313,7 @@ def _detail(
     disk_size: int,
     role_unit: str | None = None,
 ):
-    # mem_total_kb 는 테스트 편의 단위(KiB) — v2 ServerDetail.mem_total_bytes 로 환산.
+    # mem_total_kb 는 테스트 편의 단위(KiB) — ServerDetail.mem_total_bytes 로 환산.
     return ServerDetail(
         id=id_,
         public_id=f"p{id_}",
@@ -534,7 +534,7 @@ def test_donut_segment_from_rec_mapping(rec: str, expected_key: str):
 def test_capacity_warning_active_causes_only_hit():
     """active_causes 는 발화(hit)한 trigger 의 os-neutral 원인 라벨만 — 비발화(cpu·disk) 미포함.
 
-    v2 Gate0 dual-gate: 메모리 포화는 이용률>=90 AND page-out. mem_p95 92 + swap 발화 -> mem_util+mem_saturation 만.
+    Gate0 dual-gate: 메모리 포화는 이용률>=90 AND page-out. mem_p95 92 + swap 발화 -> mem_util+mem_saturation 만.
     """
     item = to_capacity_warning_item(_raw(mem_p95=92.0, mem_swap_paging=True))
     assert item.active_causes == ["메모리 이용률", "메모리 포화"]
@@ -550,7 +550,7 @@ def test_capacity_warning_active_causes_os_neutral_windows():
     """Windows paging/run queue 포화도 os-neutral 라벨로 집계 — Linux 'swap'/'Load' 로 오라벨 안 함(배지 제거).
 
     Windows: Pages Input/sec p95 >= WIN_PAGES_INPUT_SATURATION -> mem_saturation,
-    run queue p95/cores(12/4=3) >= 2 -> cpu_saturation. (v2 는 swap 점유 축 폐기 — 스왑 라벨 자체가 없음.)
+    run queue p95/cores(12/4=3) >= 2 -> cpu_saturation. 스왑 점유는 축이 아니라 라벨 자체가 없다.
     """
     item = to_capacity_warning_item(
         _raw(
@@ -779,7 +779,7 @@ def test_capacity_warning_item_fields():
     "cpu_p95, mem_p95, mem_swap_paging, expected_causes",
     [
         # _raw default: procs_running=None(cpu 포화 미발동)·mount 없음(디스크 미발동). 발화 원인만 고정순 나열.
-        # v2 Gate0 dual-gate: 이용률 미측정(None)이면 page-out 있어도 포화 아님 -> 발화 원인 0.
+        # Gate0 dual-gate: 이용률 미측정(None)이면 page-out 있어도 포화 아님 -> 발화 원인 0.
         (None, None, True, []),
         (95.0, 92.0, True, ["CPU 이용률", "메모리 이용률", "메모리 포화"]),  # cpu+mem util + page-out
         (95.0, 92.0, False, ["CPU 이용률", "메모리 이용률"]),  # cpu+mem util
@@ -980,7 +980,7 @@ def test_resolve_os_eol_known_eol_distros(os_id: str, os_version: str):
 @pytest.mark.parametrize(
     "kwargs, expected",
     [
-        # v2 Gate0 dual-gate: 스왑 발생 진단은 이용률>=90 AND page-out (mem_saturation trigger). util 미측정이면 미도달.
+        # Gate0 dual-gate: 스왑 발생 진단은 이용률>=90 AND page-out (mem_saturation trigger). util 미측정이면 미도달.
         ({"mem_p95": 92.0, "mem_swap_paging": True}, "메모리 부족 (스왑 발생)"),
         ({"cpu_p95": 20.0, "mem_p95": 30.0, "disk_await_p95_ms": 25.0}, "디스크 I/O 병목"),  # 다른 축 정상
         ({"cpu_cores": 4, "procs_running_p95": 5.0}, "CPU 포화"),
@@ -988,13 +988,13 @@ def test_resolve_os_eol_known_eol_distros(os_id: str, os_version: str):
         ({"cpu_p95": 75.0}, "CPU 압박"),
         ({"cpu_p95": 50.0, "cpu_peak": 99.0}, "부하 변동 큼"),  # variance + peak 99>30 -> 발화
         # peak 가 sizing 유의미 수준(>30)일 때만 variance 발화 — 저부하 지터는 gate (거의 미사용 우선).
-        # v2 idle 은 활동 3축(cpu·net·disk_io) 관측+quiescent 요구 — net 0 을 줘야 유휴 확정(미측정은 유휴 아님).
+        # idle 은 활동 3축(cpu·net·disk_io) 관측+quiescent 요구 — net 0 을 줘야 유휴 확정(미측정은 유휴 아님).
         ({"cpu_p95": 0.8, "cpu_peak": 1.3, "net_rx": 0.0, "net_tx": 0.0}, "거의 미사용"),  # peak 1.3<30 -> 지터 gate
         # mem burst: mem_peak>50 이면 cpu 저부하여도 variance 발화 (VM-WIN2025 패턴).
         ({"cpu_p95": 20.0, "cpu_peak": 25.0, "mem_p95": 34.0, "mem_peak": 60.0}, "부하 변동 큼"),
         ({"cpu_p95": 2.0, "net_rx": 0.0, "net_tx": 0.0}, "거의 미사용"),  # cpu<=3 + net quiescent -> idle
         ({"cpu_p95": 20.0, "mem_p95": 30.0}, "여유 있음"),
-        # v2 near-peak 80% 사이징: mem 85% 는 목표>=현재라 optimal. (60% 는 축소 여지 -> over/여유)
+        # near-peak 80% 사이징: mem 85% 는 목표>=현재라 optimal. (60% 는 축소 여지 -> over/여유)
         ({"cpu_p95": 50.0, "mem_p95": 85.0}, "정상"),
     ],
 )

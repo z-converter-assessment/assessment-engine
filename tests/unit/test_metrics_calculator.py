@@ -77,7 +77,7 @@ def _cpu_pair(
     boot_time: datetime | None = None,
     agent_started_at: datetime | None = None,
 ) -> MetricPairRaw:
-    # v2: CPU 시간은 seconds counter(cpu_*_s), 메모리는 By(mem_*_bytes). swap/load 컬럼 폐기.
+    # CPU 시간은 seconds counter(cpu_*_s), 메모리는 By(mem_*_bytes).
     return MetricPairRaw(
         collected_at=t,
         cpu_user_s=user,
@@ -111,7 +111,7 @@ def test_compute_cpu_returns_unset_pcts_without_prev():
 
 
 def test_compute_cpu_calculates_percent_from_seconds_delta():
-    """user 100->200 (d100), idle 900->1700 (d800), total d900. usage = 100-(800/900*100) ~= 11.1 (v2 s counter)."""
+    """user 100->200 (d100), idle 900->1700 (d800), total d900. usage = 100-(800/900*100) ~= 11.1 (s counter)."""
     t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=60)
     prev = _cpu_pair(t1, 100, 900)
@@ -218,7 +218,7 @@ def test_is_counter_reset(cur: datetime | None, prev: datetime | None, expected:
 def _mem_pair(
     total: int | None, available: int | None, cached: int | None, buffers: int | None
 ) -> MetricPairRaw:
-    # v2: total 축은 mem_limit_bytes, 회수가능 세부는 mem_cached_bytes/mem_buffered_bytes (모두 By).
+    # total 축은 mem_limit_bytes, 회수가능 세부는 mem_cached_bytes/mem_buffered_bytes (모두 By).
     return MetricPairRaw(
         collected_at=datetime.now(UTC),
         cpu_user_s=0,
@@ -274,7 +274,7 @@ def _disk(
     *,
     boot_time: datetime | None = None,
 ) -> DiskIoRaw:
-    # v2: 안정키 device_id, ops_*(operations counter), io_*_bytes(By counter). device type(kind) 축 폐기.
+    # 안정키 device_id, ops_*(operations counter), io_*_bytes(By counter).
     return DiskIoRaw(
         device_id=device_id,
         collected_at=t,
@@ -288,7 +288,7 @@ def _disk(
 
 
 def test_compute_disk_io_groups_by_device():
-    """v2 는 device type 축이 없어 물리/LVM/파티션 분류 없이 device_id 별 flat 그룹 (device_id 정렬, 3-tuple 아님)."""
+    """device type 축이 없어 물리/LVM/파티션 분류 없이 device_id 별 flat 그룹 (device_id 정렬, 3-tuple 아님)."""
     t1 = datetime.now(UTC)
     t2 = t1 + timedelta(seconds=60)
     rows = [
@@ -342,7 +342,7 @@ def _net(
     *,
     boot_time: datetime | None = None,
 ) -> NetIoRaw:
-    # v2: 안정키 iface_id(mac:..), rx/tx_bytes(By counter). kind 축은 inventory 조인으로 이관(NetIoRaw 부재).
+    # 안정키 iface_id(mac:..), rx/tx_bytes(By counter). kind 축은 inventory 조인으로 이관(NetIoRaw 부재).
     return NetIoRaw(
         iface_id=iface_id,
         collected_at=t,
@@ -390,7 +390,7 @@ def test_compute_net_io_returns_none_on_system_reboot():
 
 
 def test_compute_mounts_filters_virtual():
-    """v2 가상 필터는 is_data_volume(fstype, mountpoint) 기준 — kind 축 폐기. proc/squashfs 제외."""
+    """가상 필터는 is_data_volume(fstype, mountpoint) 기준이다. proc/squashfs 제외."""
     now = datetime.now(UTC)
     rows = [
         MountUsageRaw(

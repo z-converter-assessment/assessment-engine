@@ -1,7 +1,7 @@
 """Metric chart 도메인 concrete — dashboard snapshot · 시계열 cursor · 차트 dispatch · reboot marker.
 
-v2: 단위 s/By, device_id/iface_id/mountpoint 안정키. child 시계열(disk_io/net_io)은 boot_time 미보유 ->
-rate/CPU reset 은 GREATEST(delta,0)/d_total>0 로 흡수(boot gate 폐기). 물리/가상 필터는 types 상수(현재 no-op).
+단위 s/By, device_id/iface_id/mountpoint 안정키. child 시계열(disk_io/net_io)은 boot_time 미보유 ->
+rate/CPU reset 은 boot gate 없이 GREATEST(delta,0)/d_total>0 로 흡수. 물리/가상 필터는 types 상수(현재 no-op).
 """
 
 from datetime import UTC, datetime, timedelta
@@ -196,7 +196,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         )
 
     async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
-        """서버별 실시간 포화 원자료 (v2, os 통일):
+        """서버별 실시간 포화 원자료 (os 통일):
         - run_queue: 최신 cpu_run_queue gauge (Linux procs_running / Windows Processor Queue).
         - await_ms: server_disk_io op_time delta / ops delta (양 OS, ms, 물리 disk only — `_PHYS_DISK_SQL_FILTER`
           fail-closed, chart/report_aggregate 와 동일). pending_ops 는 큐 폴백.
@@ -651,7 +651,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
 
         시점값 = 활용률 sum(num)/sum(den), 처리량 sum(rate), run_queue sum/sum(cores). server_ids=None 전체·
         [1대]=서버 상세·[N]=선택. collapse=False 면 device/iface/mount dimension 보존(멀티라인).
-        v2: child 시계열 boot_time 부재 -> rate reset 은 GREATEST(delta,0), CPU reset 은 d_total>0 로 흡수.
+        child 시계열 boot_time 부재 -> rate reset 은 GREATEST(delta,0), CPU reset 은 d_total>0 로 흡수.
         """
         bi, bucket_td = _BUCKET_INFO[bucket]
         ae = _AGG[agg]
@@ -699,7 +699,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
             """)
         elif metric_type == "cpu.run_queue":
-            # 실행 큐/코어 os-aware — v2 단일 cpu_run_queue(Linux procs_running / Windows Processor Queue).
+            # 실행 큐/코어 os-aware — 단일 cpu_run_queue(Linux procs_running / Windows Processor Queue).
             # 항상 os_family dimension(Linux/Windows 2선). capacity-weighted SUM(run_queue)/SUM(cpu_cores).
             sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
             sql = text(f"""
@@ -786,7 +786,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
                 FROM per_ts WHERE v IS NOT NULL GROUP BY ts, dim ORDER BY ts
             """)
         elif metric_type == "disk.io_saturation":
-            # 디스크 I/O 포화 — v2 await(ms) 양 OS 통일. device 별 Δop_time/Δops, io_time util >= min 인
+            # 디스크 I/O 포화 — await(ms) 양 OS 통일. device 별 Δop_time/Δops, io_time util >= min 인
             # 실제 바쁜 device 만 채택 후 worst(MAX) — report.py·disk_io_saturated 동일(유휴 device writeback await 억제).
             # child 시계열 boot_time 부재 -> reset 은 GREATEST(delta,0). 단일선(os 분기 없음).
             sid_dio = "AND server_id = ANY(:server_ids)" if server_ids else ""

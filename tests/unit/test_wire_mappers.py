@@ -94,7 +94,7 @@ def test_inventory_v2_shape() -> None:
 
 
 def test_placeholder_uses_agent_id_for_hostname() -> None:
-    """v2 metrics 는 hostname 없음 -> placeholder hostname = agent_id."""
+    """metrics 메시지는 hostname 을 싣지 않는다 -> placeholder hostname = agent_id."""
     from assessment_engine.consumer.mappers import build_placeholder_inventory
 
     ph = build_placeholder_inventory(MetricsInput.model_validate(_EX["linux_metrics"]))

@@ -3,7 +3,7 @@
 본 문서는 본 repo 가 제공하는 관측 contract 단일 진실. 두 절로 구분:
 
 - 1 부 — 현재 활성 (로그 레벨·실패 매트릭스·log format)
-- 2 부 — 향후 확장 (Request/Correlation ID 분산 trace — 미구현, 도입 트리거·정석 패턴·ADR 의무)
+- 2 부 — 미적용 확장 (Request/Correlation ID 분산 trace — 도입 트리거·정석 패턴·ADR 의무)
 
 정책 출처: CLAUDE.md #F7 (로깅) · #F6 (외부 의존 실패 모드).
 
@@ -63,7 +63,7 @@ stdout 로그 출력 format 을 `LOG_FORMAT` 환경변수로 토글.
 
 ---
 
-# 2 부. 향후 확장
+# 2 부. 미적용 확장
 
 현재 미구현. 운영 신호가 발견되면 ADR 의무 + 본 절 가이드 따라 도입.
 

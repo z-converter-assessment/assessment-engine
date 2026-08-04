@@ -47,7 +47,7 @@ def _make_row(public_id: str, hostname: str, rec: str = "optimal") -> ReportRowI
         mem_avg_pct=20.0,
         mem_p95_pct=30.0,
         mem_peak_pct=40.0,
-        # v1 load_15m_max/swap_used 폐기 — v2 CPU 포화는 os-aware cpu_run_queue_p95,
+        # CPU 포화는 os-aware cpu_run_queue_p95,
         # 메모리 압박은 mem_swap_paging(둘 다 default 존재, 본 카운트/pct 회귀와 무관).
         recommendation=rec,
         recommendation_label=rec,

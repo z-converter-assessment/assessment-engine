@@ -1,7 +1,7 @@
 """인바운드 wire Pydantic 스키마 — 계약 = docs/reference/contracts/agent-data.md + wire.schema.json.
 
 metrics/inventory = envelope + system.* datapoint-array + inventory 배열. task.result/error = envelope + 평면 body.
-검증은 진입점 1회 (#F3). `extra=ignore` 로 v2 내부 forward-compat.
+검증은 진입점 1회 (#F3). `extra=ignore` 로 계약 내부 forward-compat.
 """
 
 from datetime import datetime
@@ -332,7 +332,7 @@ class TaskResultInput(MessageBase):
 
     # task_id — wire 계약상 free string(예 "task-abc123"). agent_id(불변 UUID)와 달리 UUID 강제 안 함.
     task_id: str = Field(min_length=1, max_length=128)
-    # v2 free string(minLength 1) — 새 status 값 silent pass.
+    # free string(minLength 1) — 새 status 값 silent pass.
     status: str = Field(min_length=1, max_length=32)
     failure_reason: str | None = Field(default=None, max_length=32)
     # exit_code/signal_no POSIX wait status 상호배타. signal_no Windows 항상 null.

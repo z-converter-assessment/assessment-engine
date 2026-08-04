@@ -343,7 +343,7 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
     else:
         if raw.procs_running_p95 is None:
             missing.append("실행 큐")
-    # 디스크 응답(await)은 양 OS 공통 포화 신호 (v2 op_time delta).
+    # 디스크 응답(await)은 양 OS 공통 포화 신호 (op_time delta).
     if raw.disk_await_p95_ms is None:
         missing.append("디스크 응답(await)")
     if raw.worst_mount_used_pct is None:

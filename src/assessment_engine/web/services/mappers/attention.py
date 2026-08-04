@@ -59,7 +59,7 @@ _ATTN_ACTIVE_BADGE = "attn-active"
 # UtilizationBar 게이지 색 — 환경 평균 활용률 도넛/바 단색 (그라데이션·임계 분기 제거).
 # 활용률 정도는 게이지 길이(dash_length)로, 색은 값 무관 단일 푸른색. 색으로 임계 의미를 주지
 # 않는다 — 위험도 색은 Right-sizing 분류 도넛이 별도 담당.
-_UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR  # 푸른 단색 (blue-500) — shared.UTIL_GAUGE_COLOR 단일 진실
+_UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR  # 테마 주색 단색 — shared.UTIL_GAUGE_COLOR 단일 진실
 _UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 
 # 주요 워크로드 도넛 세그먼트 색 — SIGNATURE_CATEGORIES 대응. base.html .badge-cat-* 뱃지 색의 시각적 쌍둥이
@@ -311,7 +311,7 @@ def build_environment_overview(
     # 원형차트 도넛 세그먼트 — 카테고리별 인스턴스 비율(누적 dash). 0 카테고리도 세그먼트 유지(범례 노출, E9).
     workload_segments, _wl_total = _workload_donut_segments(role_sorted)
 
-    # 포화 3축 도넛 — 자원 적정성 창 기준 포화 호스트 카운트/표본 (호출자가 raws 순회로 산출).
+    # 포화 4축 도넛 — 자원 적정성 창 기준 포화 호스트 카운트/표본 (호출자가 raws 순회로 산출).
     sat_donuts: list[SaturationDonut] = []
     if saturation_counts is not None:
         _sat_total = saturation_counts.get("total", 0)

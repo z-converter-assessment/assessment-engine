@@ -52,8 +52,10 @@ Branch protection rules 가 아니라 ruleset 을 쓴다 — 여러 패턴을 �
 | Restrict deletions · Block force pushes | 활성 | |
 | Require linear history | 비활성 | `develop` 이 merge commit 을 받을 수 있어야 승격 정합이 맞는다 |
 | Require a pull request before merging | 활성 | |
+| Dismiss stale pull request approvals | 활성 | main 과 동일 |
 | Allowed merge methods | Squash 만 | feature 의 작업 커밋을 압축한다. PR title 이 그대로 커밋 메시지가 되므로 형식 검사가 의미를 갖는다 |
 | Require status checks to pass | 활성 (아래 3.4 develop 목록) | |
+| Require branches to be up to date | 비활성 | develop 은 통합 지점이라 PR 마다 재실행을 강제하면 대기가 길어진다. main 승격은 활성 |
 | Bypass list | 비움 | |
 
 ### 3.3. release tags
@@ -173,6 +175,6 @@ gh api repos/<owner>/<repo>/automated-security-fixes  # enabled = security updat
 
 ## 7. 관련 문서
 
-- 워크플로 책임 카탈로그: 루트 `README.md` "CI 파이프라인" 절 (발화 조건·required check 는 본 문서 3.4 소유)
+- 워크플로 책임 카탈로그: 루트 `README.md` "워크플로" 절 (발화 조건·required check 는 본 문서 3.4 소유)
 - 릴리즈 artifact·절차: `docs/guides/release.md`
 - 배포(rollout): `docs/guides/deploy.md`

@@ -85,7 +85,7 @@ _BADGE_CLASS_BY_SEVERITY: dict[_Severity, str] = {
     "warn": "badge-warn",
     "danger": "badge-danger",
 }
-# 파일시스템 사용량 게이지 막대 = 테마 주색(blue-500) 단색 (사용자 결정 — 임계별 색 분기 없이 통일).
+# 파일시스템 사용량 게이지 막대 = 테마 주색 단색 (사용자 결정 — 임계별 색 분기 없이 통일).
 # 사용률 위험/주의 신호는 badge_class(_usage_badge_class)가 담당. 게이지 막대는 단색.
 _MOUNT_BAR_COLOR = "var(--color-title)"  # 테마색1 (base.html :root) — 마운트 usage 막대 CSS background
 
@@ -108,7 +108,7 @@ def _usage_badge_class(pct: float | None) -> str:
 def _to_ip_addrs(net_interfaces: list[JsonObject]) -> list[IpAddr]:
     """net_interface 노드 목록 → IpAddr(value=CIDR, is_ipv4). IPv4 우선 정렬(안정), loopback 제외.
 
-    v2 노드는 kind 는 인터페이스 레벨, 주소는 nested addresses[]({address,prefix,family}) — 다중 IP 호스트는
+    노드의 kind 는 인터페이스 레벨, 주소는 nested addresses[]({address,prefix,family}) — 다중 IP 호스트는
     전 주소 표출. IPv4 는 실제 접속·식별 주력이라 상단·진하게 표시, IPv6(ULA/link-local)는 보조(연하게).
     """
     items: list[IpAddr] = []

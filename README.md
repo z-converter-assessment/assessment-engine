@@ -102,12 +102,12 @@
 | Schema 관리 | Alembic 단일 진실 |
 | 진단 | 규칙 기반 right-sizing (USE Method, 도메인 모듈 `recommendation.py` — web·repository 공용) |
 | 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
-| 패키징 | uv (빌드 백엔드 `uv_build`). CI 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
+| 패키징 | uv (빌드 백엔드 `uv_build`). 릴리즈 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
 | 정적 자원 | Chart.js · Cytoscape.js (네트워크 토폴로지) — 둘 다 vendored (`static/js/vendor/`, 내부망 offline) · 외부 `.js` + `defer` |
 
 ---
 
-## CI 파이프라인
+## 워크플로
 
 - git flow — `feature/*`·`fix/*` → `develop` PR(squash) → `develop` → `main` PR(merge) → release(이미지 발행) → VM에서 `deploy.sh vX.Y.Z` 실행.
 - 버전은 `pyproject.toml` 의 `version` 단일 진실 — 릴리즈 절차는 `docs/guides/release.md`. 브랜치·태그 보호와 required check 는 GitHub ruleset (`docs/guides/ci-setup.md`).
@@ -115,12 +115,12 @@
 | workflow | 검증·작업 |
 |----------|------|
 | `pr-title-check.yml` | PR title 형식(Conventional Commits) + AI 메타데이터 부재 |
-| `ci.yml` | lint(ruff+hadolint) · 단위 테스트 · 프론트 타입 계약 · wheel build · 통합 테스트 |
-| `alembic-check.yml` | ORM·migrations 라운드트립 정합 |
+| `ci.yml` | lint(ruff+pyright+hadolint) · 단위 테스트 · 프론트 타입 계약 · wheel build · 통합 테스트 |
+| `alembic-check.yml` | ORM 모델과 migrations 의 drift (`alembic upgrade head` 후 `alembic check`) |
 | `codeql.yml` | CodeQL SAST (Security 탭 alert) |
 | `release.yml` | `main` push 시 멀티아치 엔진 이미지 빌드 → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
 
-CI(코드 quality + 이미지 발행)는 GitHub Actions가 담당한다. 배포(rollout)는 GitHub Actions가 아니라 배포 대상 VM에서 `deploy.sh vX.Y.Z` 를 실행한다 — 내부망 outbound-only VM이라 밖에서 push하지 않고 VM이 이미지를 pull한다(아래 배포 절).
+검증 워크플로는 GitHub Actions 가 PR 마다 돌리고, 이미지 발행은 `main` push 시 릴리즈 워크플로(`release.yml`)가 한다. 배포(rollout)는 GitHub Actions가 아니라 배포 대상 VM에서 `deploy.sh vX.Y.Z` 를 실행한다 — 내부망 outbound-only VM이라 밖에서 push하지 않고 VM이 이미지를 pull한다(아래 배포 절).
 
 ---
 
