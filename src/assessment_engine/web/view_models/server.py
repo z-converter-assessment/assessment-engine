@@ -88,7 +88,7 @@ class ServerListItem:
     is_online: bool
     ip_external: list[str] | None
     services: list[ServiceItem] | None
-    known_services: list[ServiceItem] = field(default_factory=list)
+    known_services: list[ServiceItem] = field(default_factory=list[ServiceItem])
     show_unknown_badge: bool = False
     os_display: str = ""
     # 정적 사양 한 줄 — "2코어 · 16.4GB · 30GB" (CPU 코어·메모리·디스크). mapper precompute(P2), 값 부재는 "—".
@@ -153,11 +153,11 @@ class ServerDetailResponse:
     # Windows only pass-through — product_name 은 os_display 짧은 라벨 파싱 소스, edition 은 상세 조합 표시(SKU).
     product_name: str | None = None
     edition: str | None = None
-    sorted_services: list[ServiceItem] = field(default_factory=list)  # P3: unit ASC 정렬
-    sorted_listen_ports: list[ListenPortItem] = field(default_factory=list)  # P3: port ASC 정렬
-    known_services: list[ServiceItem] = field(default_factory=list)
+    sorted_services: list[ServiceItem] = field(default_factory=list[ServiceItem])  # P3: unit ASC 정렬
+    sorted_listen_ports: list[ListenPortItem] = field(default_factory=list[ListenPortItem])  # P3: port ASC 정렬
+    known_services: list[ServiceItem] = field(default_factory=list[ServiceItem])
     show_unknown_badge: bool = False
-    key_listen_ports: list[ListenPortItem] = field(default_factory=list)
+    key_listen_ports: list[ListenPortItem] = field(default_factory=list[ListenPortItem])
     os_display: str = ""
     cpu_display: str = ""
     disk_total_gb: float | None = None  # 배정 블록 — disk_total_bytes 단일 산식(물리 우선·fs fallback, #C)
@@ -167,7 +167,7 @@ class ServerDetailResponse:
     listen_ports_count: int = 0
     disks_count: int = 0
     # 파일시스템(논리 볼륨) — block_devices 중 마운트된 데이터 볼륨 노드. 물리 디스크와 별개 축, fstype 명시.
-    volumes: list[VolumeItem] = field(default_factory=list)
+    volumes: list[VolumeItem] = field(default_factory=list[VolumeItem])
     volume_total_gb: float | None = None
     volumes_count: int = 0
 
@@ -213,7 +213,7 @@ class StorageNode:
     kind_label: str  # "디스크"/"파티션"/"LV"/"RAID"/"암호화"/"스왑"/"볼륨"/"미할당"/"VG 여유"
     size_gb: float | None
     meta: str = ""  # 계층 속성 한 줄 ("SSD · GPT" / "ext4 · /boot" / "linear · VG rhel")
-    badges: list[str] = field(default_factory=list)  # ["LUKS"], ["RAID5"] 표식
+    badges: list[str] = field(default_factory=list[str])  # ["LUKS"], ["RAID5"] 표식
     # 파일시스템 사용량 2축 — 마운트된 데이터 볼륨 노드만 (아니면 usage_pct None). inode 는 Windows/미측정 시 None.
     mount: str = ""
     usage_pct: float | None = None
@@ -222,7 +222,7 @@ class StorageNode:
     inode_pct: float | None = None
     inode_label: str = ""  # "1%"
     inode_class: str = ""
-    children: list["StorageNode"] = field(default_factory=list)
+    children: list["StorageNode"] = field(default_factory=list["StorageNode"])
     # 게이지(usage_pct) 있는 행에만 설정 — 트리 depth 들여쓰기를 상쇄해 모든 게이지 시작 x 를 통일하는
     # .stree-info 폭(px). None = 게이지 없음(폭 고정 불요, 자연 크기). mapper precompute(P3 계산 회피).
     gauge_info_width_px: int | None = None
@@ -242,7 +242,7 @@ class StorageDetailResponse:
     disk_total_gb: float | None = None
     disk_unallocated_gb: float | None = None
     # 레이아웃 트리 — 물리 디스크 루트(+ 디스크 미도달 논리 볼륨 그룹). 계층 조립·속성 precompute(P2).
-    tree: list[StorageNode] = field(default_factory=list)
+    tree: list[StorageNode] = field(default_factory=list[StorageNode])
     os_family: str | None = None  # OS 분기 표시(Windows I/O PSI N/A 등, #E6 data-os-family)
 
 
@@ -269,8 +269,8 @@ class NetworkInterfaceInfo:
     mtu: int | None = None
     speed_mbps: int | None = None
     gateway: str = ""
-    dns: list[str] = field(default_factory=list)
-    addresses: list[NetIfaceAddress] = field(default_factory=list)
+    dns: list[str] = field(default_factory=list[str])
+    addresses: list[NetIfaceAddress] = field(default_factory=list[NetIfaceAddress])
 
 
 @dataclass
@@ -284,5 +284,5 @@ class NetworkDetailResponse:
     inventory_at: datetime | None
     snapshot_at: datetime | None
     # 인터페이스 정적 정보(MAC·MTU·속도·게이트웨이·DNS·주소) — 레이아웃 카드 "네트워크 정보"에서 소비.
-    interfaces_info: list[NetworkInterfaceInfo] = field(default_factory=list)
+    interfaces_info: list[NetworkInterfaceInfo] = field(default_factory=list[NetworkInterfaceInfo])
     os_family: str | None = None  # OS 분기 표시(conntrack N/A 등, #E6 data-os-family)

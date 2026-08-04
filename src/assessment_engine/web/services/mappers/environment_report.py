@@ -180,7 +180,7 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
         listen_only = len(all_hosts - named_hosts.get(cat, set()))
         if listen_only:
             groups.setdefault(cat, []).append(ServiceNameCount(name="(포트 탐지)", count=listen_only, hosts=[]))
-    result = []
+    result: list[ServiceCatalogGroup] = []
     for cat in SIGNATURE_CATEGORIES:
         result.append(
             ServiceCatalogGroup(category=cat, total_count=len(cat_hosts.get(cat, set())), services=groups.get(cat, []))

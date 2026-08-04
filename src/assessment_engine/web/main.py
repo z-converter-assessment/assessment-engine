@@ -20,7 +20,7 @@ from assessment_engine.web.routers.reports import reference_router, reports_rout
 from assessment_engine.web.routers.right_sizing import right_sizing_router
 from assessment_engine.web.routers.tasks import tasks_router
 from assessment_engine.web.settings import get_diagnostic_settings, get_web_settings
-from assessment_engine.web.templating import templates
+from assessment_engine.web.templating.setup import env_globals
 
 
 @asynccontextmanager
@@ -93,7 +93,7 @@ async def disable_html_cache(request: Request, call_next: Callable[[Request], Aw
     dev = getattr(request.app.state, "dev_assets", False)
     # dev — 매 요청 asset_v 재발급: 정적 자원 URL(`?v=`)이 매번 바뀌어 브라우저 disk cache·304 까지 회피.
     if dev:
-        templates.env.globals["asset_v"] = format(int(time.time() * 1000), "x")
+        env_globals["asset_v"] = format(int(time.time() * 1000), "x")
     response = await call_next(request)
     ct = response.headers.get("content-type", "")
     if ct.startswith("text/html") or (dev and request.url.path.startswith("/static/")):

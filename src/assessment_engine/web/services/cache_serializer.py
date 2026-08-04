@@ -2,6 +2,7 @@ import dataclasses
 import json
 from datetime import datetime
 
+from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.web.services.mappers.server import (
     DYNAMIC_PORT_MIN,
     enrich_server_detail,
@@ -49,15 +50,30 @@ _DETAIL_DISPLAY_FIELDS = frozenset(
 )
 
 
+def _error_signal_from_dict(e: JsonObject) -> ErrorSignal:
+    """ErrorSignal 복원 — last_at 만 datetime 재구성, 나머지는 그대로."""
+    last_at = e.get("last_at")
+    return ErrorSignal(
+        key=e["key"],
+        label=e["label"],
+        state=e["state"],
+        count=e.get("count"),
+        context=e.get("context"),
+        last_at=datetime.fromisoformat(last_at) if last_at else None,
+        window_label=e.get("window_label"),
+        detail=e.get("detail"),
+    )
+
+
 def server_detail_to_json(v: ServerDetailResponse) -> str:
     return json.dumps(dataclasses.asdict(v), default=_json_default)
 
 
 def server_detail_from_json(raw: str) -> ServerDetailResponse:
     data = json.loads(raw)
-    data["disks"] = [DiskItem(name=d["name"], size_gb=d.get("size_gb")) for d in data.get("disks") or []]
-    data["volumes"] = [VolumeItem(**v) for v in data.get("volumes") or []]
-    data["ip_internal"] = [IpAddr(**a) for a in data.get("ip_internal") or []]
+    data["disks"] = [DiskItem(name=d["name"], size_gb=d.get("size_gb")) for d in json_list(data, "disks")]
+    data["volumes"] = [VolumeItem(**v) for v in json_list(data, "volumes")]
+    data["ip_internal"] = [IpAddr(**a) for a in json_list(data, "ip_internal")]
     if data.get("ip_external") is not None:
         data["ip_external"] = [IpAddr(**a) for a in data["ip_external"]]
     raw_services = data.get("services")
@@ -67,7 +83,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
                 unit=s["unit"],
                 sub=s["sub"],
                 category=s.get("category") or "unknown",
-                ports=[MatchedPort(proto=p["proto"], port=p["port"]) for p in s.get("ports") or []],
+                ports=[MatchedPort(proto=p["proto"], port=p["port"]) for p in json_list(s, "ports")],
                 display_name=s.get("display_name") or s["unit"].removesuffix(".service"),
                 category_count=s.get("category_count", 1),
             )
@@ -86,7 +102,7 @@ def server_detail_from_json(raw: str) -> ServerDetailResponse:
             comm=p.get("comm"),
             is_significant=p.get("is_significant", p.get("port", 0) < DYNAMIC_PORT_MIN),
         )
-        for p in data.get("listen_ports") or []
+        for p in json_list(data, "listen_ports")
     ]
     for f in ("boot_time", "agent_started_at", "last_seen_at"):
         if isinstance(data.get(f), str):
@@ -113,17 +129,14 @@ def dashboard_from_json(raw: str) -> MetricDashboard:
         collected_at=datetime.fromisoformat(raw_ca) if isinstance(raw_ca, str) else None,
         cpu=CpuSnapshot(**data["cpu"]) if data.get("cpu") else None,
         memory=MemSnapshot(**data["memory"]) if data.get("memory") else None,
-        disk_io=[DiskIoSnapshot(**d) for d in data.get("disk_io") or []],
-        net_io=[NetIoSnapshot(**n) for n in data.get("net_io") or []],
-        mounts=[MountDashSnapshot(**m) for m in data.get("mounts") or []],
+        disk_io=[DiskIoSnapshot(**d) for d in json_list(data, "disk_io")],
+        net_io=[NetIoSnapshot(**n) for n in json_list(data, "net_io")],
+        mounts=[MountDashSnapshot(**m) for m in json_list(data, "mounts")],
         disk_usage_pct=data.get("disk_usage_pct"),
-        cpu_saturation=[SaturationSignal(**s) for s in data.get("cpu_saturation") or []],
-        mem_saturation=[SaturationSignal(**s) for s in data.get("mem_saturation") or []],
-        disk_saturation=[SaturationSignal(**s) for s in data.get("disk_saturation") or []],
-        net_saturation=[SaturationSignal(**s) for s in data.get("net_saturation") or []],
-        errors=[
-            ErrorSignal(**{**e, "last_at": datetime.fromisoformat(e["last_at"]) if e.get("last_at") else None})
-            for e in data.get("errors") or []
-        ],
-        cpu_cores=[CpuCoreSnapshot(**c) for c in data.get("cpu_cores") or []],
+        cpu_saturation=[SaturationSignal(**s) for s in json_list(data, "cpu_saturation")],
+        mem_saturation=[SaturationSignal(**s) for s in json_list(data, "mem_saturation")],
+        disk_saturation=[SaturationSignal(**s) for s in json_list(data, "disk_saturation")],
+        net_saturation=[SaturationSignal(**s) for s in json_list(data, "net_saturation")],
+        errors=[_error_signal_from_dict(e) for e in json_list(data, "errors")],
+        cpu_cores=[CpuCoreSnapshot(**c) for c in json_list(data, "cpu_cores")],
     )

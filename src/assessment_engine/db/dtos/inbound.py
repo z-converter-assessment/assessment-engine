@@ -208,12 +208,12 @@ class ServerMetricCreate:
     net_conntrack_limit: int | None = None
 
     # 시계열 nested 행
-    disk_io: list[DiskIoEntry] = field(default_factory=list)
-    net_io: list[NetIoEntry] = field(default_factory=list)
-    filesystems: list[FilesystemEntry] = field(default_factory=list)
-    cpu_per_core: list[CpuCoreEntry] = field(default_factory=list)
-    pressure: list[PressureEntry] = field(default_factory=list)
-    disk_errors: list[DiskErrorEntry] = field(default_factory=list)
+    disk_io: list[DiskIoEntry] = field(default_factory=list[DiskIoEntry])
+    net_io: list[NetIoEntry] = field(default_factory=list[NetIoEntry])
+    filesystems: list[FilesystemEntry] = field(default_factory=list[FilesystemEntry])
+    cpu_per_core: list[CpuCoreEntry] = field(default_factory=list[CpuCoreEntry])
+    pressure: list[PressureEntry] = field(default_factory=list[PressureEntry])
+    disk_errors: list[DiskErrorEntry] = field(default_factory=list[DiskErrorEntry])
 
 
 # --- 보고서 발행 job INSERT 입력 ---

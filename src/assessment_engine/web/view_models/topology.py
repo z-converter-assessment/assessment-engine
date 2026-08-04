@@ -27,7 +27,7 @@ class SubnetHost:
     ip: str  # 해당 서브넷에서 호스트가 주장한 IP (raw, "10.0.1.15")
     os_family: str  # linux/windows/unknown — 표시용
     public_id: str  # 상세 링크 (#E4)
-    roles: list[str] = field(default_factory=list)  # 시그니처 워크로드 카테고리 — 서브넷별 app tier
+    roles: list[str] = field(default_factory=list[str])  # 시그니처 워크로드 카테고리 — 서브넷별 app tier
     origin: str | None = None  # 주소 origin (dhcp/static) — 고정 IP 서버 식별
     mtu: int | None = None  # 이 서브넷에 IP 를 실은 인터페이스 MTU — 같은 서브넷 내 불일치 발견용
     speed_mbps: int | None = None  # 링크 속도(Mbps) — 대역폭 병목 후보 식별용
@@ -40,7 +40,7 @@ class SubnetGroup:
     net_key: str  # network address ("10.0.1.0/24")
     host_count: int = 0  # 본 서브넷 호스트 수 (보고서 서브넷 요약 표 — len(hosts) precompute, P3)
     gateway: str | None = None  # 서브넷 대표 게이트웨이 — 서브넷당 1개로 이미 disambiguation 됨(mapper), 헤더 표시
-    hosts: list[SubnetHost] = field(default_factory=list)  # 본 서브넷 소속 호스트 (IP 표시)
+    hosts: list[SubnetHost] = field(default_factory=list[SubnetHost])  # 본 서브넷 소속 호스트 (IP 표시)
 
 
 @dataclass
@@ -51,6 +51,6 @@ class NetworkTopology:
     multi_homed_count: int  # 2개+ 서브넷에 걸친 호스트 수 (라우팅/브리지 지점)
     isolated_count: int  # 공유 서브넷에 들지 못한 호스트 수 (단독·가상망만 보유)
     router_count: int = 0  # 공유 게이트웨이(2+ 서브넷) 라우터 노드 수 — 0 이면 라우터 범례 미노출
-    subnets: list[SubnetGroup] = field(default_factory=list)  # 서브넷별 소속 서버 목록 카드용
-    caveats: list[str] = field(default_factory=list)  # 카드 캡션 — 추론 한계 정직 노출 (#E9)
+    subnets: list[SubnetGroup] = field(default_factory=list[SubnetGroup])  # 서브넷별 소속 서버 목록 카드용
+    caveats: list[str] = field(default_factory=list[str])  # 카드 캡션 — 추론 한계 정직 노출 (#E9)
     has_data: bool = False  # 표시할 공유 서브넷 존재 여부 — False 면 템플릿 empty_state

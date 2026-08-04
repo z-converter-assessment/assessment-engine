@@ -7,7 +7,7 @@
 """
 
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse
@@ -191,7 +191,7 @@ async def history(
     history_back = self_back(request)
     items = [to_report_history_item(r, history_back) for r in records]
     back_url = safe_back(back, "/")
-    context = {
+    context: dict[str, Any] = {
         "active_nav": "history",
         "items": items,
         "items_count": len(items),  # P3 정공 — template 안 `length` 계산 회피, server precompute.

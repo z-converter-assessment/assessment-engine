@@ -135,7 +135,7 @@ class ServiceNameCount:
 
     name: str
     count: int
-    hosts: list[ServiceHost] = field(default_factory=list)
+    hosts: list[ServiceHost] = field(default_factory=list[ServiceHost])
 
 
 @dataclass
@@ -148,7 +148,7 @@ class ServiceCatalogGroup:
 
     category: str
     total_count: int = 0
-    services: list[ServiceNameCount] = field(default_factory=list)
+    services: list[ServiceNameCount] = field(default_factory=list[ServiceNameCount])
 
 
 @dataclass
@@ -207,9 +207,9 @@ class EnvironmentReportSummary:
     top_risks: list[ReportRowItem]  # base.rows 위험도 정렬 Top N (기본 5)
     summary_bullets_env: list[str]  # 환경 단위 view 별 정성 요약
     # 구성 계층 (P-A) — OS family(Windows/Linux) 구성 막대. customer·engineer 공통.
-    os_family_dist: list[DistributionBar] = field(default_factory=list)
+    os_family_dist: list[DistributionBar] = field(default_factory=list[DistributionBar])
     # 환경 현황 메트릭 카드 5축 (engineer) — {label, value, sub} plain dict (스냅샷 복원 불요, trend 동일).
-    env_metrics: list[JsonObject] = field(default_factory=list)
+    env_metrics: list[JsonObject] = field(default_factory=list[JsonObject])
     os_eol_count: int = 0  # OS 지원 종료 호스트 수 (attention.os_eol_warnings len)
     # OS 지원 종료 OS별 집계 라벨 — "debian 11 2대 · debian 12 3대" (customer 나열, mapper precompute, P3)
     os_eol_breakdown_label: str = ""
@@ -219,16 +219,16 @@ class EnvironmentReportSummary:
     topology: NetworkTopology | None = None
     # 환경 시계열 추이 (engineer) — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷.
     # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].
-    trend: list[JsonObject] = field(default_factory=list)
+    trend: list[JsonObject] = field(default_factory=list[JsonObject])
     # 개별 보고서 전용(single engineer) — 자원 포화 여부 3축(CPU 실행 큐/메모리 페이징/디스크 I/O) 시계열.
     # trend 와 동일 발행 윈도우·bucket, 원자료·임계는 recommendation.cpu_saturated/mem_pressure_active/
     # disk_io_saturated 와 동일(서버 상세 단일 진실 이식). plain dict 이진 0/1(포화/정상) — 그 외 스코프는 빈 list.
-    sat_trend: list[JsonObject] = field(default_factory=list)
+    sat_trend: list[JsonObject] = field(default_factory=list[JsonObject])
     # 통합 조치 대상 표 — 자원 부족/과다 할당/유휴 한 표 (자원 평가 페이지와 동일 build_action_targets·정렬).
     action: ActionTargets = field(default_factory=ActionTargets)
     # 서비스 구성 — 선택 N대 전체의 워크로드 카테고리별 제품명 집합 (뱃지 + 매칭 서비스명). base.rows 의
     # workload_groups 를 카테고리 기준 merge (mapper 집계, P2). 카테고리 뱃지에 정확히 매칭되는 서비스명 노출.
-    service_catalog: list[ServiceCatalogGroup] = field(default_factory=list)
+    service_catalog: list[ServiceCatalogGroup] = field(default_factory=list[ServiceCatalogGroup])
     # 개별 서버 보고서(single) 전용 — ServerDetail 충실 인벤토리 (전체 IP·하드웨어·식별자). 환경·선택은 None.
     server_inventory: ServerInventorySnapshot | None = None
     # 개별 보고서 심화 메트릭 (single engineer) — 메모리 구성·CPU 분류. 그 외 None.
@@ -238,13 +238,13 @@ class EnvironmentReportSummary:
     # 자원별 이용률·포화 2축 + 에러축(E) 전부. 그 외 스코프는 None.
     period_assessment: PeriodAssessment | None = None
     # 개별 보고서 전용(single engineer) — storage.html 과 동일 트리(build_storage_tree). 그 외 스코프는 빈 list.
-    storage_tree: list[StorageNode] = field(default_factory=list)
+    storage_tree: list[StorageNode] = field(default_factory=list[StorageNode])
     # 개별 보고서 전용(single engineer) — network.html 과 동일 정적 인터페이스 정보(build_network_interfaces).
-    network_interfaces: list[NetworkInterfaceInfo] = field(default_factory=list)
+    network_interfaces: list[NetworkInterfaceInfo] = field(default_factory=list[NetworkInterfaceInfo])
     # 엔지니어 보고서 전용 — 운영 신호 발화 호스트 통합 list (gap / os_eol / agent_unstable).
-    attention_hosts: list[AttentionHostItem] = field(default_factory=list)
+    attention_hosts: list[AttentionHostItem] = field(default_factory=list[AttentionHostItem])
     # 엔지니어 보고서 전용 — 디스크 capacity 임박 (30일 안 full 위험, linear projection).
-    capacity_imminent: list[CapacityImminentItem] = field(default_factory=list)
+    capacity_imminent: list[CapacityImminentItem] = field(default_factory=list[CapacityImminentItem])
     # 엔지니어 보고서 전용 — 평가 표본 부족 호스트 (에이전트 점검 대상).
     # 템플릿 P3 회피 precompute count — mapper 가 list len 단일 합성 (#E1 P3).
     top_risks_count: int = 0

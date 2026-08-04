@@ -13,7 +13,7 @@ from __future__ import annotations
 from assessment_engine import recommendation
 from assessment_engine.contract import API_CONTRACT_VERSION
 from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
-from assessment_engine.json_types import JsonObject
+from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.web.services.mappers.report import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     build_host_confidence_notes,
@@ -90,7 +90,7 @@ def _repro_interface(i: JsonObject, link_speeds: dict[str, int] | None = None) -
         "addresses": [
             {"address": a.get("address"), "prefix": a.get("prefix"),
              "family": a.get("family"), "origin": a.get("origin")}
-            for a in i.get("addresses") or []
+            for a in json_list(i, "addresses")
         ],
         "gateway": i.get("gateway"), "dns": i.get("dns"), "routes": i.get("routes"),
         "bond_mode": _norm_bond_mode(i.get("bond_mode")), "vlan_id": i.get("vlan_id"),

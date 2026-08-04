@@ -19,7 +19,7 @@ from assessment_engine.db.dtos.outbound import (
     ServerSummary,
     StorageWithUsage,
 )
-from assessment_engine.json_types import JsonObject
+from assessment_engine.json_types import JsonObject, json_list, json_str_list
 from assessment_engine.service_classifier import (
     SIGNATURE_CATEGORIES,
     SINGLE_INSTANCE_CATEGORIES,
@@ -115,7 +115,7 @@ def _to_ip_addrs(net_interfaces: list[JsonObject]) -> list[IpAddr]:
     for iface in net_interfaces or []:
         if iface.get("kind") == "loopback":
             continue  # 표시 무의미
-        for a in iface.get("addresses") or []:
+        for a in json_list(iface, "addresses"):
             addr = a.get("address", "")
             prefix = a.get("prefix")
             value = f"{addr}/{prefix}" if prefix is not None else addr
@@ -157,7 +157,7 @@ def build_network_interfaces(
                 is_ipv4=a.get("family") == "ipv4",
                 origin=a.get("origin") or "",
             )
-            for a in iface.get("addresses") or []
+            for a in json_list(iface, "addresses")
         ]
         items.append(
             NetworkInterfaceInfo(
@@ -167,7 +167,7 @@ def build_network_interfaces(
                 mtu=iface.get("mtu"),
                 speed_mbps=speed_mbps,
                 gateway=iface.get("gateway") or "",
-                dns=list(iface.get("dns") or []),
+                dns=json_str_list(iface, "dns"),
                 addresses=sorted(addresses, key=lambda a: not a.is_ipv4),
             )
         )
@@ -784,7 +784,9 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
     known: list[ServiceItem] = []
 
     # 카테고리 단위 포트 집계 단일 진실 — listen 소켓을 카테고리로 직접 분류한 결과.
-    listen_dicts = [{"proto": lp.proto, "port": lp.port, "comm": lp.comm} for lp in detail.listen_ports]
+    listen_dicts: list[JsonObject] = [
+        {"proto": lp.proto, "port": lp.port, "comm": lp.comm} for lp in detail.listen_ports
+    ]
     listen_by_cat = detect_listen_categories(listen_dicts)
     # 카드는 "실행 중인 서비스 카테고리" 요약 — 카테고리당 뱃지 1개(롤업). 같은 카테고리 유닛들의 matched_ports
     # (단일 규칙: pid 소유 포트 정확 귀속 + pid 없는 포트만 카테고리 fallback) union + 카테고리 listen 보강.
