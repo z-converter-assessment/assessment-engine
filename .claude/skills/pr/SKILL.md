@@ -32,6 +32,7 @@ lint·단위 테스트·타입 계약·alembic drift 는 PR 발행 후 CI 가 �
 2. `uv run pytest tests/integration -q` 의무 (사용자 confirm 없이 — main 안전 우선).
 3. `git log origin/main..HEAD --oneline` 전 커밋이 Conventional Commits 형식 의무.
 4. doc-auditor 에이전트를 승격 범위로 1회 (`Agent(subagent_type='doc-auditor')`) — 릴리즈 단위 중복·목적 혼선·ADR 인덱스 정합. 지적이 나오면 여기서 고치지 않는다. develop 으로 돌려 `/docs` 로 처리한 뒤 다시 승격한다.
+   - 단 그 재승격에서는 다시 돌리지 않는다. 같은 승격 범위에서 감사를 이미 한 번 받았고 그 지적을 반영한 상태면 게이트는 소진된 것으로 본다. 되돌아온 이유가 문서 감사가 아닐 때(테스트·커밋 형식)도 마찬가지다 — 문서가 그 사이 바뀌었으면 그 변경은 develop PR 게이트가 이미 봤다.
 5. PR body 에 "main PR 사유"(release·hotfix) 절 강제.
 
 ## Pre-check (발행 직전 의무 — CI 실패·알림 noise 회피)
