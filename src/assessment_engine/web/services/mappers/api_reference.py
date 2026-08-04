@@ -6,6 +6,7 @@
 스펙이 코드 단일 진실이라 drift 0 (F12) — 손으로 유지 안 함.
 """
 
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.view_models.api_reference import ApiEndpoint, ApiGroup, ApiParam
 
 _HTTP_METHODS = ("get", "post", "put", "patch", "delete")
@@ -30,7 +31,7 @@ _TAG_LABELS = [
 _ALLOWED_TAGS = frozenset(t for t, _ in _TAG_LABELS)
 
 
-def _property_type(prop: dict) -> str:
+def _property_type(prop: JsonObject) -> str:
     """스키마 property 표시 타입 — 단순 `type` 우선, optional(`anyOf: [T, null]`) 은 null 아닌 쪽 타입."""
     if "type" in prop:
         return prop["type"]
@@ -40,7 +41,7 @@ def _property_type(prop: dict) -> str:
     return "-"
 
 
-def _resolve_body_fields(op: dict, spec: dict) -> list[ApiParam]:
+def _resolve_body_fields(op: JsonObject, spec: JsonObject) -> list[ApiParam]:
     """POST 등 요청 본문 스키마($ref)를 풀어 필드 목록 반환 — required(스키마 `required` 배열)까지 표시해야
     한다: required 미표시로 "전부 선택"처럼 보이면 실제로는 필수인 필드(예: InstallRequest.target_public_ids)
     없이 호출 가능하다고 오인하기 쉽다(query/path 파라미터의 `*` 표시와 동일 원칙, 화면 간 표현 통일)."""
@@ -58,7 +59,7 @@ def _resolve_body_fields(op: dict, spec: dict) -> list[ApiParam]:
     ]
 
 
-def _display_summary(op: dict) -> str:
+def _display_summary(op: JsonObject) -> str:
     """목록 표시 요약 — docstring 첫 줄(한국어) 우선. OpenAPI summary 는 FastAPI 가 함수명에서 자동 생성한
     영어("Get Right Sizing")라 Korean UI 에 부적합 -> description(=docstring) 첫 줄을 요약으로 쓴다.
     """
@@ -68,7 +69,7 @@ def _display_summary(op: dict) -> str:
     return op.get("summary", "")
 
 
-def _returns_json(op: dict) -> bool:
+def _returns_json(op: JsonObject) -> bool:
     """성공(2xx) 응답 중 하나라도 application/json 을 포함하는지 — HTML fragment 엔드포인트(모달 등, 내부
     UI 전용) 제외 판별. 200 하나만 보면 201 Created 등만 쓰는 엔드포인트를 오탈락시킨다."""
     responses = op.get("responses") or {}
@@ -79,7 +80,7 @@ def _returns_json(op: dict) -> bool:
     )
 
 
-def build_api_reference(spec: dict) -> list[ApiGroup]:
+def build_api_reference(spec: JsonObject) -> list[ApiGroup]:
     """OpenAPI dict -> ApiGroup list (태그별). `/api/*` 중 화이트리스트 태그(_ALLOWED_TAGS)의 JSON 엔드포인트만,
     태그 정의 순서로 정렬."""
     by_tag: dict[str, list[ApiEndpoint]] = {}

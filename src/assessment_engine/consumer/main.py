@@ -202,7 +202,7 @@ async def main() -> None:
                 )
                 await dlq.bind(exchanges[b.dlx_name], routing_key=b.queue_name)
 
-                args: dict = {
+                args: dict[str, Any] = {
                     "x-dead-letter-exchange": b.dlx_name,
                     "x-dead-letter-routing-key": b.queue_name,
                 }

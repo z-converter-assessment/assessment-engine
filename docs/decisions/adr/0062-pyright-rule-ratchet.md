@@ -82,3 +82,21 @@ src 가 같은 규칙을 통과하면 이 블록의 규칙들을 최상위 목�
 이 과정에서 src 결함 하나가 드러났다. `MetricSeries.value` 가 `float | None` 으로 선언돼 있는데 SQL `avg`·`sum` 은 numeric 을 `Decimal` 로 준다 — 매퍼 주석이 이미 그 사실을 적고 있었고 환경 보고서 경로는 `float(v)` 로 변환하는데 `to_metric_series_item` 은 변환 없이 그대로 ViewModel 에 실었다. JSON API 응답 타입(codegen 원천)이 `float` 라 선언과 실물이 갈렸다. 선언을 `float | Decimal | None` 으로 정정하고(raw 그대로 싣는 P1) 변환은 매퍼로 옮겼다(P2).
 
 `scripts` 처럼 strict 로 고정하지는 않았다. tests 에는 strict 규칙 위반이 아직 1906건 남아 있고, 지배적 원인은 픽스처의 미어노테이션 파라미터다.
+
+## 정정 (2026-08-04, src 선언 채움)
+
+src 의 strict 위반 2903건 중 2903건을 소진해 선언 관련 규칙 넷(`reportMissingParameterType`·`reportMissingTypeArgument`·`reportUnknownParameterType`·`reportUnknownLambdaType`)을 `root = "src"` 아래에서 error 로 고정했다. strict 를 켜면 남는 것은 값 추론에서 오는 Unknown 과 거부 목록뿐이다.
+
+위반의 뿌리는 선언 두 종류였다. 실측으로 확인했다 — DTO 한 파일의 선언 21곳을 채우니 src 전체에서 163건이 사라졌다. 선언 하나가 그것을 쓰는 모든 자리로 번지기 때문이다.
+
+첫째는 타입 인자 없는 `dict`·`list` 209곳이다. 대부분 wire·JSONB 원본을 담는 자리라 별칭 `JsonObject`(`assessment_engine/json_types`)를 세워 그 의미를 이름으로 남겼다. 모델로 좁히지 않는 이유는 계약 밖 필드가 도착해도 통과시키라는 규약과 어긋나기 때문이다 — 원본은 열린 채로 두고 읽는 쪽이 필요한 축만 좁힌다. JSON 이 아닌 자리(MQ 큐 선언 인자·SQLAlchemy 컬럼-값 맵·in-memory 인덱스)는 별칭을 쓰지 않고 `dict[str, Any]` 로 두어 이름이 거짓말하지 않게 했다.
+
+둘째는 어노테이션 없는 파라미터 130여 곳이다. 타입은 호출부에서 확정했다.
+
+승격이 내가 붙인 어노테이션의 오류를 그 자리에서 잡았다. `build_memory_breakdown`·`build_cpu_breakdown` 의 `raw` 는 `ReportRowRaw` 가 아니라 각각 `MemoryBreakdownRaw`·`CpuBreakdownRaw` 였고, topology 의 `host` 는 `HostAssessment` 가 아니라 `SubnetHost` 였다. 이름만 보고 붙인 타입을 검사기가 되돌려 세웠다.
+
+동시에 코드 쪽 사실도 둘 드러났다. 스토리지 트리의 `visited` 를 `set[str]` 로 뒀는데 블록 디바이스 `id` 는 계약상 nullable 이라 `set[str | None]` 이 맞다 — 같은 키를 쓰는 `array_home` 은 이미 그렇게 선언돼 있었다. 그리고 환경 개요의 `util is not None` 폴백은 `environment_utilization` 이 non-null 을 돌려주므로 닿지 않는 분기였다.
+
+`/reports/{job_id}/status` 는 반환 어노테이션이 없어 생성 타입이 `unknown` 이었다. 채우니 폴링 JS 가 보는 응답 타입이 실제 형태로 좁혀졌다.
+
+`reportPrivateUsage`·`reportUnusedFunction`·`reportUnusedClass` 는 거부 목록 그대로다. `reportUnknownMemberType`·`reportUnknownArgumentType`·`reportUnknownVariableType` 은 남은 작업이며, 소진하면 `typeCheckingMode = "strict"` 를 켠다.

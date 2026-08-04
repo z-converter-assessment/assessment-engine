@@ -157,7 +157,7 @@ class EnvironmentOverview:
     # 주요 워크로드 분포 — 카테고리별 환경 전체 인스턴스 개수(호스트 dedup 아님, 모든 카테고리 0 포함, #E7 E9).
     role_distribution: dict[str, int] = field(default_factory=dict)
     # 주요 워크로드 원형차트 세그먼트(RiskDonutSegment 재사용 — color·count·dash precompute) + 총 인스턴스.
-    workload_donut: list = field(default_factory=list)
+    workload_donut: list[RiskDonutSegment] = field(default_factory=list)
     workload_total: int = 0
     role_unknown_count: int = 0  # 특징 워크로드 0 호스트 수 (보고서 workload_unknown_count 용)
     utilization: list[UtilizationBar] = field(default_factory=list)

@@ -26,6 +26,7 @@ from assessment_engine.db.repositories.query.types import (
     _PHYS_DISK_SQL_FILTER,
     _PHYS_IFACE_SQL_FILTER,
 )
+from assessment_engine.json_types import JsonObject
 
 
 class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
@@ -549,7 +550,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 (SELECT COUNT(DISTINCT server_id) FROM server_metrics_5m
                  WHERE bucket >= :start AND bucket <= :end{sid}) AS sample_size
         """)
-        params: dict = {"start": start, "end": end}
+        params: JsonObject = {"start": start, "end": end}
         if server_ids:
             params["sids"] = server_ids
         result = await self.session.execute(sql, params)

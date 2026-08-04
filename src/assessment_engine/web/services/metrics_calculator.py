@@ -11,6 +11,7 @@
 
 import re
 from collections.abc import Callable
+from datetime import datetime
 
 from assessment_engine.boot_time import is_counter_reset
 from assessment_engine.db.dtos.outbound import (
@@ -23,6 +24,7 @@ from assessment_engine.db.dtos.outbound import (
     NetIoRaw,
     SaturationRaw,
 )
+from assessment_engine.json_types import JsonObject
 from assessment_engine.recommendation import (
     CPU_RUN_QUEUE_PER_CORE_SATURATION,
     DISK_QUEUE_PER_DISK_SATURATION,
@@ -112,13 +114,13 @@ def _clip_to_remaining(raw_pct: float | None, remaining_room: float) -> float | 
 # ─── 진입점 ───────────────────────────────────────────────────────────────
 
 
-def _composite_dev_id(node: dict) -> str | None:
+def _composite_dev_id(node: JsonObject) -> str | None:
     """block_device/net_interface 노드 -> 시계열 조인 키 {id_type}:{id} (disk_io.device_id·net_io.iface_id 형식)."""
     did, dtype = node.get("id"), node.get("id_type")
     return f"{dtype}:{did}" if did and dtype else None
 
 
-def _physical_dev_names(nodes: list[dict] | None, keep: Callable[[dict], bool]) -> dict[str, str] | None:
+def _physical_dev_names(nodes: list[JsonObject] | None, keep: Callable[[JsonObject], bool]) -> dict[str, str] | None:
     """물리 계층 {조인키: 친숙 이름(name)} 맵 — keep(node) 통과분. 인벤토리 부재(None)면 필터 안 함.
 
     시계열 device_name/iface_name 은 null 이라 조인키로 폴백 -> 인벤토리 name(vda·enp3s0)으로 표시명 해결.
@@ -341,7 +343,7 @@ def build_saturation_signals(
 
 def _error_counter(
     key: str, label: str, count: int, measured: bool, detail: str,
-    *, last_at=None, context: str | None = None, window_label: str,
+    *, last_at: datetime | None=None, context: str | None = None, window_label: str,
 ) -> ErrorSignal:
     """카운트형 에러 신호 — 미측정 no_data / 발생(>0) occurred / 정상(0) clean."""
     if not measured:

@@ -1,3 +1,5 @@
+from assessment_engine.json_types import JsonObject
+
 """스토리지·네트워크 device 분류 — block_device `type` · fstype · net_interface `kind` 단일 진실.
 
 인벤토리 모델 (lsblk/df/vgs 정석 매핑):
@@ -75,7 +77,7 @@ def is_data_volume(fstype: str | None, mountpoint: str | None = None) -> bool:
     return True
 
 
-def disk_total_bytes(block_devices: list[dict]) -> int:
+def disk_total_bytes(block_devices: list[JsonObject]) -> int:
     """물리 프로비저닝 디스크 총량(bytes) = sum block_device(type==disk) size_bytes.
 
     물리 디스크 합이 정석(마운트 안 된 공간 누락·이중계산 회피). Windows 도 PhysicalDrive 를 type=disk 로
@@ -84,6 +86,6 @@ def disk_total_bytes(block_devices: list[dict]) -> int:
     return sum((d.get("size_bytes") or 0) for d in (block_devices or []) if is_physical_disk(d.get("type")))
 
 
-def swap_total_bytes(block_devices: list[dict]) -> int:
+def swap_total_bytes(block_devices: list[JsonObject]) -> int:
     """스왑 총량(bytes) = sum block_device(type==swap) size_bytes. v2 는 swap 을 block_device 노드로 표현."""
     return sum((d.get("size_bytes") or 0) for d in (block_devices or []) if is_swap(d.get("type")))

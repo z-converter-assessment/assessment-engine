@@ -93,7 +93,7 @@ class CollectRepository(BaseCollectRepository):
     )
 
     @staticmethod
-    def _inventory_row(data: ServerInventoryCreate) -> dict:
+    def _inventory_row(data: ServerInventoryCreate) -> dict[str, Any]:
         """INSERT/UPDATE 공용 컬럼 dict — 컬럼 추가 시 한 곳만 수정. agent_id 는 UNIQUE 키."""
         return {
             "agent_id": data.agent_id,
@@ -391,7 +391,7 @@ class CollectRepository(BaseCollectRepository):
         server_id: int,
         data: ServerMetricCreate,
         entries: Sequence[CpuCoreEntry | DiskIoEntry | NetIoEntry | FilesystemEntry | PressureEntry | DiskErrorEntry],
-        row_hook: Callable[[dict], dict] | None = None,
+        row_hook: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> int:
         """자식 시계열 공통 bulk INSERT — dataclass 필드가 곧 컬럼. envelope 메타 미주입(본 행이 참조).
 

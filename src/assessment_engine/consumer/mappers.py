@@ -4,7 +4,15 @@
 null=미측정 보존(0 날조 금지, #B). CPU host 집계는 cpu.time attr.cpu 합산 + per-core 병행 저장.
 """
 
-from assessment_engine.consumer.schemas import Datapoint, InventoryInput, MetricsInput, Namespace
+from assessment_engine.consumer.schemas import (
+    BlockDeviceInfo,
+    Datapoint,
+    InventoryInput,
+    LvmVgInfo,
+    MetricsInput,
+    Namespace,
+    NetInterfaceInfo,
+)
 from assessment_engine.db.dtos.inbound import (
     CpuCoreEntry,
     DiskErrorEntry,
@@ -15,6 +23,7 @@ from assessment_engine.db.dtos.inbound import (
     ServerInventoryCreate,
     ServerMetricCreate,
 )
+from assessment_engine.json_types import JsonObject
 from assessment_engine.service_classifier import compute_service_categories
 
 # ─── datapoint 조회 헬퍼 ───
@@ -261,25 +270,25 @@ def _build_pressure(pr_ns: Namespace | None) -> list[PressureEntry]:
 # ─── inventory ───
 
 
-def _svc_dicts(data: InventoryInput) -> list[dict] | None:
+def _svc_dicts(data: InventoryInput) -> list[JsonObject] | None:
     if data.services is None:
         return None
     return [{"unit": s.unit, "sub": s.sub, "pid": s.pid, "exe": s.exe} for s in data.services]
 
 
-def _lp_dicts(data: InventoryInput) -> list[dict]:
+def _lp_dicts(data: InventoryInput) -> list[JsonObject]:
     return [
         {"proto": p.proto, "addr": p.addr, "port": p.port, "uid": p.uid, "pid": p.pid, "comm": p.comm}
         for p in data.listen_ports
     ]
 
 
-def _sparse(d: dict) -> dict:
+def _sparse(d: JsonObject) -> JsonObject:
     """None 값 키 제거 — 레이아웃 상세는 자연 노드에만 채워지므로 sparse 저장(JSONB 경량, agent 미emit 시 빈 dict)."""
     return {k: v for k, v in d.items() if v is not None}
 
 
-def _bd_layout(b) -> dict:
+def _bd_layout(b: BlockDeviceInfo) -> JsonObject:
     """block_device 레이아웃 상세 (reproduction) — non-None 키만. assessment_api 가 read 시 d.get 으로 소비."""
     return _sparse(
         {
@@ -297,7 +306,7 @@ def _bd_layout(b) -> dict:
     )
 
 
-def _ni_layout(n) -> dict:
+def _ni_layout(n: NetInterfaceInfo) -> JsonObject:
     """net_interface 레이아웃 상세 (reproduction) — non-None 키만. routes 는 dict 로 평탄화."""
     return _sparse(
         {
@@ -308,7 +317,7 @@ def _ni_layout(n) -> dict:
     )
 
 
-def _vg_layout(v) -> dict:
+def _vg_layout(v: LvmVgInfo) -> JsonObject:
     """lvm_vg 레이아웃 상세 (reproduction) — non-None 키만."""
     return _sparse({"vg_uuid": v.vg_uuid, "extent_size_bytes": v.extent_size_bytes, "pv_ids": v.pv_ids})
 

@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Protocol
 from redis.asyncio import Redis
 
 from assessment_engine.cache.redis import safe_mget
+from assessment_engine.db.dtos.outbound import ReportRowRaw, ServerDetail
 from assessment_engine.db.repositories.query.base_query_repository import BaseQueryRepository
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import AttentionSignals, EnvironmentOverview
@@ -38,7 +39,7 @@ class _BaseQueryServiceMixin:
         self.repo = repo
         self.redis = redis
 
-    async def _online_map(self, server_ids: list[int], details: list, now: datetime) -> dict[int, bool]:
+    async def _online_map(self, server_ids: list[int], details: list[ServerDetail], now: datetime) -> dict[int, bool]:
         """server_id -> online bool. Redis online flags(safe_mget) 우선, 장애(None) 시 last_seen_at fallback.
 
         get_servers 는 순서 비보존이라 server_ids 기준 dict 매칭으로 순서 의존 제거.
@@ -50,7 +51,9 @@ class _BaseQueryServiceMixin:
             return {d.id: bool(d.last_seen_at and d.last_seen_at > threshold) for d in details}
         return {sid: (flags[i] is not None) for i, sid in enumerate(server_ids)}
 
-    async def _inject_net_baseline(self, raws, server_ids: list[int], period_days: float, end: datetime) -> None:
+    async def _inject_net_baseline(
+        self, raws: list[ReportRowRaw], server_ids: list[int], period_days: float, end: datetime
+    ) -> None:
         """raws(report_aggregate)에 net I/O baseline 주입 — get_report 와 동일한 분류 입력 정합.
 
         `_assemble_overview`·under_hosts 분류가 `build_resource_stats`(net 반영)를 타려면 raw 에 net

@@ -17,6 +17,7 @@ from collections.abc import Callable
 from contextlib import AbstractAsyncContextManager
 
 from loguru import logger
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from assessment_engine.db.repositories.base_collect_repository import BaseCollectRepository
 from assessment_engine.worker.worker_lifecycle import sleep_or_stop
@@ -24,7 +25,7 @@ from assessment_engine.worker.worker_lifecycle import sleep_or_stop
 
 async def run_task_reaper(
     *,
-    session_factory: Callable[[], AbstractAsyncContextManager],
+    session_factory: Callable[[], AbstractAsyncContextManager[AsyncSession]],
     collect_repo_factory: Callable[..., BaseCollectRepository],
     interval_sec: float,
     stop_event: asyncio.Event,

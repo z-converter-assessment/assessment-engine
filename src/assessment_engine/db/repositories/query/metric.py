@@ -48,6 +48,7 @@ from assessment_engine.db.repositories.query.types import (
     MetricType,
     TimeRange,
 )
+from assessment_engine.json_types import JsonObject
 
 # table 매핑 — types.py 가 ORM import 안 하므로 여기서 __tablename__ 결합.
 _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
@@ -655,7 +656,7 @@ class MetricQueryRepository(_BaseQueryMixin, BaseMetricQueryRepository):
         bi, bucket_td = _BUCKET_INFO[bucket]
         ae = _AGG[agg]
         sid = "AND server_id = ANY(:server_ids)" if server_ids else ""
-        params: dict = {"start": start, "end": end}
+        params: JsonObject = {"start": start, "end": end}
 
         if metric_type in _CPU_NUMERATOR:
             num = _CPU_NUMERATOR[metric_type]

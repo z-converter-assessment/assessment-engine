@@ -1,12 +1,14 @@
 import time
+from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 
 import aio_pika
 import httpx
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from starlette.responses import Response
 
 from assessment_engine.cache.redis import close_pool
 from assessment_engine.log_config import setup_logging
@@ -79,7 +81,7 @@ app = FastAPI(title="ZConverter Assessment Portal", lifespan=lifespan)
 
 
 @app.middleware("http")
-async def disable_html_cache(request, call_next):
+async def disable_html_cache(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
     """SSR(text/html) + dev 한정 static asset 에 `Cache-Control: no-store` 적용.
 
     HTML: 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저 HTTP cache·BFCache 로

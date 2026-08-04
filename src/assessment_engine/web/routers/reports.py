@@ -10,7 +10,9 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import HTMLResponse
 
+from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     TimeRange,
@@ -74,7 +76,7 @@ async def environment_report(
     )
 
 
-def _render_job_progress(request: Request, rec, back_url: str):
+def _render_job_progress(request: Request, rec: DiagnosticJobRecord, back_url: str) -> HTMLResponse:
     """비동기 보고서 job 이 succeeded 아님 — 진행(pending/running) 폴링 또는 실패(failed) 안내 화면.
 
     pending/running 은 report-poll.js 가 status 폴링 -> 완료 시 reload. failed 는 재발행 안내(폴링 안 함).
@@ -210,7 +212,7 @@ async def history(
 async def report_status(
     job_id: str,
     diag_service: DiagnosticService = Depends(get_diagnostic_service),
-):
+) -> dict[str, str | None]:
     """비동기 보고서 생성 진행 상태 — report-poll.js 폴링용 JSON. 미존재 404.
 
     failed 의 error 는 도메인 사유만(워커가 raw 예외는 'internal error' 로 sanitize, F8).

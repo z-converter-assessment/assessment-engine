@@ -18,6 +18,8 @@ elements: Cytoscape.js elements 형식(`{"data": {...}}` 리스트)으로 mapper
 
 from dataclasses import dataclass, field
 
+from assessment_engine.json_types import JsonObject
+
 
 @dataclass
 class SubnetHost:
@@ -43,7 +45,7 @@ class SubnetGroup:
 
 @dataclass
 class NetworkTopology:
-    elements: list[dict]  # Cytoscape elements (노드 + 엣지) — mapper precompute
+    elements: list[JsonObject]  # Cytoscape elements (노드 + 엣지) — mapper precompute
     subnet_count: int  # 표시된 공유 서브넷(세그먼트) 수
     host_count: int  # 그래프에 포함된 호스트 수 (1개+ 공유 서브넷 소속)
     multi_homed_count: int  # 2개+ 서브넷에 걸친 호스트 수 (라우팅/브리지 지점)

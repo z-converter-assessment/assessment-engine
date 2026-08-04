@@ -1,6 +1,6 @@
 """ViewModel <-> JSON 직렬화 공용 유틸 (중립) — cache_serializer·report_serializer 공유.
 
-직렬화 계약 단일 진실: datetime -> ISO 문자열 / dataclass -> dict(asdict). 캐시 스냅샷과 보고서 정적
+직렬화 계약 단일 진실: datetime -> ISO 문자열 / dataclass -> JsonObject(asdict). 캐시 스냅샷과 보고서 정적
 스냅샷이 동일 규칙을 쓰도록 한 곳에서 정의 (각 serializer 가 byte-identical 헬퍼를 복제하지 않음).
 """
 
@@ -10,6 +10,8 @@ import dataclasses
 import json
 from datetime import datetime
 from typing import TYPE_CHECKING
+
+from assessment_engine.json_types import JsonObject
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
@@ -22,7 +24,7 @@ def json_default(obj: object) -> str:
     raise TypeError(f"Cannot serialize {type(obj)}")
 
 
-def to_jsonable(vm: DataclassInstance) -> dict:
+def to_jsonable(vm: DataclassInstance) -> JsonObject:
     """dataclass ViewModel -> JSONB 저장 가능 dict (datetime -> ISO str, nested 재귀)."""
     return json.loads(json.dumps(dataclasses.asdict(vm), default=json_default))
 

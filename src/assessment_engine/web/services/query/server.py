@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, cast
 
 from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
+from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.web.services.cache_serializer import (
     server_detail_from_json,
     server_detail_to_json,
@@ -89,7 +90,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         )
         # net baseline 주입 — build_resource_stats 의 유휴 판정이 net 사용 (도넛·보고서와 정합).
         await self._inject_net_baseline(raws_period, page_server_ids, recommendation.WINDOW_DAYS, now)
-        raws_by_id: dict[int, object] = {r.server_id: r for r in raws_period}
+        raws_by_id: dict[int, ReportRowRaw] = {r.server_id: r for r in raws_period}
 
         last_tasks = await cast("_TaskSibling", self).latest_tasks_by_servers(page_server_ids)
 

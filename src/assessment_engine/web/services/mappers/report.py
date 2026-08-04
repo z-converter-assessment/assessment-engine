@@ -73,7 +73,7 @@ _REBOOT_UNSTABLE_COUNT = 3  # reboot_count >= 3 — Agent 불안정 신호 (#F10
 # ─── KPI 집계 ───
 
 
-def compute_report_avg_p95(rows: list) -> tuple[float | None, float | None]:
+def compute_report_avg_p95(rows: list[ReportRowItem]) -> tuple[float | None, float | None]:
     """ReportRowItem list에서 CPU·메모리 p95 평균을 계산 (양식 A KPI).
 
     None 항목은 제외 후 산술 평균. 모두 None이면 None 반환 (divide-by-zero 회피).
@@ -85,7 +85,7 @@ def compute_report_avg_p95(rows: list) -> tuple[float | None, float | None]:
     return avg_cpu, avg_mem
 
 
-def compute_report_totals_from_raw(raws: list) -> ReportTotals:
+def compute_report_totals_from_raw(raws: list[ReportRowRaw]) -> ReportTotals:
     """ReportRowRaw list -> 묶음 자원 총량. cpu_cores·mem_total_bytes·디스크 총량 합산 (P2).
 
     양식 A 상단의 마이그레이션 capacity 산정 입력 — "총 N대 = 총 X vCPU·Y GB·Z TB".
@@ -101,7 +101,7 @@ def compute_report_totals_from_raw(raws: list) -> ReportTotals:
     )
 
 
-def build_role_distribution(raws: list) -> dict[str, int]:
+def build_role_distribution(raws: list[ReportRowRaw]) -> dict[str, int]:
     """ReportRowRaw list -> 역할별 서버 수 dict. 양식 A 상단 표시용 (호스트 대표 역할, listen 보강)."""
     counter: Counter[str] = Counter()
     for r in raws:
@@ -142,7 +142,10 @@ def _top_phrase(labels: list[str]) -> str:
 
 
 def build_report_summary_bullets(
-    rows: list, raws: list | None = None, view: ReportView = "customer", today: date | None = None
+    rows: list[ReportRowItem],
+    raws: list[ReportRowRaw] | None = None,
+    view: ReportView = "customer",
+    today: date | None = None,
 ) -> list[str]:
     """자동 분석 요약 문장 생성 — 정량 신호 기반 정성 요약 (P2).
 

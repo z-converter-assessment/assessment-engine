@@ -10,6 +10,7 @@ from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.models.diagnostic_job import DiagnosticJob
 from assessment_engine.db.repositories.base_diagnostic_repository import BaseDiagnosticRepository
+from assessment_engine.json_types import JsonObject
 
 
 class DiagnosticRepository(BaseDiagnosticRepository):
@@ -65,7 +66,7 @@ class DiagnosticRepository(BaseDiagnosticRepository):
         row = result.scalar_one_or_none()
         return _row_to_diagnostic_record(row) if row is not None else None
 
-    async def mark_succeeded(self, job_id: str, result: dict) -> None:
+    async def mark_succeeded(self, job_id: str, result: JsonObject) -> None:
         stmt = (
             update(DiagnosticJob)
             .where(DiagnosticJob.id == job_id)

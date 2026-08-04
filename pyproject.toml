@@ -93,8 +93,8 @@ reportUnnecessaryTypeIgnoreComment = "error"
 reportPropertyTypeMismatch = "error"
 reportUninitializedInstanceVariable = "error"
 
-# src 에 아직 위반이 남은 strict 규칙들을 scripts 에서만 error 로 올린다 — 이 디렉토리는 이미 통과하므로
-# 되돌아가지 못하게 고정한다. src 가 따라잡으면 위 최상위 목록으로 합치고 본 절을 지운다.
+# 경로마다 도달한 강도가 다르면 그 경로에만 규칙을 올린다 — 이미 통과한 지점이 되돌아가지 못하게 고정한다.
+# 전 경로가 같은 규칙을 통과하면 위 최상위 목록으로 합치고 해당 절을 지운다.
 # (pyright 는 executionEnvironments 안에서 typeCheckingMode 를 받지 않아 규칙을 직접 나열한다.)
 [[tool.pyright.executionEnvironments]]
 root = "scripts"
@@ -106,6 +106,14 @@ reportUnknownLambdaType = "error"
 reportMissingParameterType = "error"
 reportMissingTypeArgument = "error"
 reportPrivateUsage = "error"
+
+# src 는 선언(파라미터 타입·제네릭 인자)을 다 채웠다. 값 추론에서 오는 Unknown 은 아직 남아 있다.
+[[tool.pyright.executionEnvironments]]
+root = "src"
+reportMissingParameterType = "error"
+reportMissingTypeArgument = "error"
+reportUnknownParameterType = "error"
+reportUnknownLambdaType = "error"
 
 [tool.ruff]
 line-length = 120
