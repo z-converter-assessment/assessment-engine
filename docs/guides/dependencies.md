@@ -13,7 +13,7 @@
 
 `pyproject.toml` 만 있으면 사용자 마다 다른 transitive 버전 install (resolver 시점 의존). `uv.lock` 이 그 결과를 freeze — 같은 lockfile 로는 어디서나 정확히 같은 install.
 
-CI (`ci.yml`·`alembic-check.yml`) 가 `uv sync --frozen` 으로 설치한다 — lockfile 을 재해석하지 않고 그대로 써서 빌드 시점과 무관하게 같은 버전 집합이 깔린다. drift 자체를 실패로 잡는 것은 `uv lock --check` 이며 현재 CI 에는 없다.
+CI (`ci.yml`·`alembic-check.yml`) 가 `uv sync --frozen` 으로 설치한다 — lockfile 을 재해석하지 않고 그대로 써서 빌드 시점과 무관하게 같은 버전 집합이 깔린다. `--frozen` 은 lockfile 을 그대로 쓸 뿐 `pyproject.toml` 과 맞는지는 보지 않으므로, `ci.yml` 이 `uv lock --check` 를 따로 돌려 drift 를 실패로 잡는다.
 
 ## 2. `pyproject.toml` 구조
 

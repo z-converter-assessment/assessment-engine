@@ -35,7 +35,7 @@ CI 자동 실행: PR 을 올리면 `.github/workflows/ci.yml` 이 테스트를 �
 
 ## 3. 설정·Fixture
 
-pytest 설정은 `pyproject.toml` `[tool.pytest.ini_options]`.
+pytest 설정은 `pyproject.toml` `[tool.pytest.ini_options]`. 경고는 에러로 올린다(`filterwarnings = ["error"]`) — 의존성이 낸 deprecation 을 다음 major 에서 깨질 때가 아니라 지금 본다.
 
 Fixture 는 세 층이다 — 루트 `tests/conftest.py`(컨테이너·엔진·세션), `tests/unit/conftest.py`(비밀번호 env 주입과 Composition Root 캐시 초기화 autouse), `tests/integration/conftest.py`(repo 별 function fixture, TRUNCATE 격리). 데이터 빌더는 `tests/factories.py`.
 

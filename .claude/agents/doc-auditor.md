@@ -15,7 +15,7 @@ tools: Read, Grep, Glob, Bash
 
 read-only — 위반을 심각도 순으로 보고하되 수정하지 않는다.
 
-이 저장소에는 로컬 훅이 없다 (`docs/guides/conventions.md` 2절 — 우회 가능한 자리라 강제 수단이 못 된다). 기계적으로 잡히는 것도 이 에이전트가 직접 grep 해야 한다.
+이 저장소에는 로컬 훅이 없다 (`docs/guides/conventions.md` 5절 — 우회 가능한 자리라 강제 수단이 못 된다). 기계적으로 잡히는 것도 이 에이전트가 직접 grep 해야 한다.
 
 ## 감사 축 A — 라이브 문서 (docs/README.md 4원칙)
 
