@@ -105,7 +105,7 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 | `config.py` `_validate_*_secrets` model_validator | `_WEAK_VALUES`(`password`/`admin`/`root`/`changeme`) 거부 (POSTGRES·RABBITMQ password·user). `assessment`(dev 카탈로그 값)는 허용 | Settings 인스턴스화 |
 | `config.py` `_reject_env_shadowing_secret` | secret 파일과 같은 이름의 환경변수가 함께 있으면 거부 | 위와 같음 |
 
-두 번째 검사는 채널 충돌을 잡는다. 우선순위가 `OS env > .env > secrets_dir` 이라 secret 파일을 두고도 같은 이름의 환경변수가 있으면 파일이 조용히 무시되고, 노출을 피하려던 값이 컨테이너 env 에 그대로 뜬다. 실패도 경고도 없어 운영자가 알 방법이 없으므로 기동을 막는다. 컨테이너는 compose `env_file` 이 값을 환경변수로 주입하므로 이 검사에 걸린다.
+세 번째 검사는 채널 충돌을 잡는다. 우선순위가 `OS env > .env > secrets_dir` 이라 secret 파일을 두고도 같은 이름의 환경변수가 있으면 파일이 조용히 무시되고, 노출을 피하려던 값이 컨테이너 env 에 그대로 뜬다. 실패도 경고도 없어 운영자가 알 방법이 없으므로 기동을 막는다. 컨테이너는 compose `env_file` 이 값을 환경변수로 주입하므로 이 검사에 걸린다.
 
 발동 위치 (컴포넌트별):
 - web: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password 검증
@@ -314,8 +314,8 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 - 코드에 `if env == "prod"` 분기 도입 — 4절 한 지점 외 금지. 보안 강도를 환경으로 가르지 않는다
 - `.env.production` / `.env.development` 같은 환경별 .env 동시 보유 — 활성 파일 모호
 - prod 에서 코드 bind mount 유지 — 컨테이너 안 `.env` 노출 + 코드 변조 위험
-- base 를 dev 쪽으로 기울이기 — base 는 prod-safe 로 두고 dev 편의는 override 만 담는다. prod overlay(`docker-compose.prod.yml`)는 file-secret 배선만 얹는다
-- secret 을 git·이미지 컨텍스트에 커밋 — `.gitignore` 의 `.env` 무시 규칙과 `.dockerignore` 의 allowlist 를 무너뜨리지 않는다 (1절 6항)
+- base 에 환경 색 담기 — base 는 dev·prod 공통 정의만 갖는다. env 채널은 dev override 가, file-secret 채널은 `docker-compose.prod.yml` 이 각자 채운다
+- secret 을 git·이미지 컨텍스트에 커밋 — `.gitignore` 의 `.env` 무시 규칙과 `.dockerignore` 의 allowlist 를 무너뜨리지 않는다 (14절)
 - 컨테이너 안에서 `/app/.env` 를 직접 read 하는 코드 추가 — pydantic-settings 의 `env_file` 폴백 외 직접 read 금지
 - `secrets_dir` 강제 활성화 — 디렉토리 부재 시 noisy 경고. `os.path.isdir` 분기로 None fallback 유지
 

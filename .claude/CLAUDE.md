@@ -377,7 +377,7 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 
 적용 시점: 게이트 배치는 `docs/guides/wrap-up.md` 0절 단일 진실.
 
-기능 개발 중간 단계에서는 기능 코드만 작성한다 — 동작 검증은 실행 화면으로 확인(사용자 직접 또는 `/run`)하고, 메인 세션이 기능 추가와 함께 테스트·문서를 선제 작성하지 않는다. (테스트 자동 실행·보고 금지는 #F5 와 일관.)
+기능 개발 중간 단계에서는 기능 코드만 작성한다 — 동작 검증은 사용자가 실행 화면으로 하고, 메인 세션이 기능 추가와 함께 테스트·문서를 선제 작성하지 않는다. (테스트 자동 실행·보고 금지는 #F5 와 일관.)
 
 변경 유형별 동시 갱신 위치 표(시계열/inventory 컬럼·routing key·페이로드 schema·분류 임계·환경변수·ViewModel 파생 필드·JSON API·보고서 스냅샷·조건부 UI·외부 의존·차트 MetricType·비동기 보고서·install task lifecycle) = `.claude/skills/change-impact/SKILL.md` 단일 진실. 해당 유형 변경 시 본 스킬 로드 의무.
 

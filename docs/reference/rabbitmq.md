@@ -8,7 +8,7 @@
 
 vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도메인 시스템과 나눠 쓸 때만 추가 vhost 도입. AMQP URL은 `amqp://user:pass@host:port/assessment` 형식 — 이름에 `/`가 없어 인코딩 무영향(config.py 가 슬래시 포함 vhost 를 `%2F`로 자동 인코딩하는 방어 로직은 유지).
 
-권한 모델: RabbitMQ 는 `(user, vhost)` 쌍에 configure/write/read 3비트를 정규식 패턴으로 부여한다. 지금은 단일 user `assessment` 가 셋을 모두 갖는다 — 역할별 분리는 적용하지 않았다(`docs/explanation/tradeoffs.md` T22).
+권한 모델: RabbitMQ 는 `(user, vhost)` 쌍에 configure/write/read 3비트를 정규식 패턴으로 부여한다. 이 저장소가 실제로 두는 user 는 3절.
 
 도구 일반론(vhost·권한 비트 의미)은 RabbitMQ 공식 문서.
 

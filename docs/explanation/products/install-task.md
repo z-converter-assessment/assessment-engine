@@ -109,7 +109,7 @@ ZDM 패키지 contract:
 
 ## 한계
 
-1. task_type이 zconverter_install 1종 — 다른 작업(uninstall·rollback·재시작 등) 미지원. 향후 task_type enum 확장 시 별도 결정. 표시 라벨 매핑은 `mappers/task.py`의 `_TASK_TYPE_LABEL`(미지 값은 raw 그대로 폴백).
+1. task_type이 zconverter_install 1종 — 다른 작업(uninstall·rollback·재시작 등) 미지원. 표시 라벨 매핑은 `mappers/task.py`의 `_TASK_TYPE_LABEL`(미지 값은 raw 그대로 폴백).
 2. 중복 발행 차단은 부분 UNIQUE `uq_tasks_pending_per_server_type` (status=pending 한 서버당 1건). 마감(`deadline_at`)이 지나지 않은 진행 중 task 를 가진 서버가 하나라도 섞이면 all-or-nothing 으로 batch 전체가 취소된다(409). 마감 경과분은 발행 직전 정리·reaper 전역 정리 양쪽이 해소.
 3. ZDM 패키지 매 publish 마다 HEAD 1 회 (cache hit) 또는 GET full 44MB (cache miss). 같은 LAN 가정에 1~2s. 다른 네트워크면 ZDM_META_TOTAL_TIMEOUT_SEC 안에 끝나야 503 회피.
 4. ZDM 좌표는 모달 일괄 입력 — N대 호스트가 서로 다른 ZDM 서버를 가리키는 시나리오 미지원. 발행 단위로 동일 ZDM IP/User 적용.
