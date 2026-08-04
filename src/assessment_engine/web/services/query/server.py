@@ -169,7 +169,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         if info is not None:
             _phase = {
                 "ended": "패치 없음",
-                "paid_only": "무상 패치 종료(유상 연장만)",
+                "paid_only": "무상 패치 종료(연장 지원 단계)",
                 "security_only": "보안 패치만",
                 "full": "지원 중",
             }.get(info.status, "지원 중")

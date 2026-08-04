@@ -150,7 +150,7 @@
         <td style="text-align:right;">{{ r.agent_restart_count }}회</td>
         <td>{% if r.has_operational_event %}<span class="text-danger" style="font-weight:600;" title="보고서 창 내 에러 이벤트 발생(OOM kill·MCE·메모리 손상·네트워크/디스크 에러)">문제 있음</span>{% else %}<span class="text-meta text-sm">이상 없음</span>{% endif %}</td>
         <td>{% if r.net_congested %}<span class="text-danger" style="font-weight:600;">{{ r.net_status_label }}</span>{% else %}{{ r.net_status_label or "—" }}{% endif %}</td>
-        <td>{% if r.os_eol_status == 'ended' %}<span class="text-danger" style="font-weight:600;" title="어떤 경로로도 보안 패치 없음 · EOL {{ r.os_eol }}">지원 종료</span>{% elif r.os_eol_status == 'paid_only' %}<span class="text-danger" style="font-weight:600;" title="무상 보안 패치 종료 {{ r.os_eol }} · 유상 연장 계약이 있어야 패치를 받는다">무상 종료</span>{% elif r.os_eol_status == 'security_only' %}<span class="text-warn text-sm" style="font-weight:600;" title="기능 업데이트 종료 · 보안 패치는 유지{% if r.os_eol %} · 무상 종료 {{ r.os_eol }}{% endif %}">보안 패치만</span>{% elif r.os_eol_status == 'full' %}<span class="text-meta text-sm" title="기능 업데이트 + 보안 패치{% if r.os_eol %} · 무상 종료 {{ r.os_eol }}{% endif %}">지원 중</span>{% else %}<span class="text-unknown text-sm" style="font-weight:600;" title="EOL 카탈로그 미수록·미매칭 — 지원 여부 미판정(확인 필요)">미상</span>{% endif %}</td>
+        <td><span class="{{ r.os_eol_css }} text-sm" style="font-weight:600;" title="{{ r.os_eol_title }}">{{ r.os_eol_label }}</span></td>
       </tr>
     </tbody>
   </table>
@@ -466,7 +466,7 @@
         <td>{% if r.confidence_notes %}{% for n in r.confidence_notes %}<span class="text-meta text-sm">{{ n }}</span>{% if not loop.last %}<br>{% endif %}{% endfor %}{% else %}<span class="text-meta">—</span>{% endif %}</td>
         <td>{% if r.has_operational_event %}<span class="text-danger" style="font-weight:600;" title="보고서 창 내 에러 이벤트 발생(OOM kill·MCE·메모리 손상·네트워크/디스크 에러)">문제 있음</span>{% else %}<span class="text-meta text-sm">이상 없음</span>{% endif %}</td>
         <td>{% if r.net_congested %}<span class="text-danger" style="font-weight:600;">{{ r.net_status_label }}</span>{% else %}{{ r.net_status_label or "—" }}{% endif %}</td>
-        <td>{% if r.os_eol_status == 'ended' %}<span class="text-danger" style="font-weight:600;" title="어떤 경로로도 보안 패치 없음 · EOL {{ r.os_eol }}">지원 종료</span>{% elif r.os_eol_status == 'paid_only' %}<span class="text-danger" style="font-weight:600;" title="무상 보안 패치 종료 {{ r.os_eol }} · 유상 연장 계약이 있어야 패치를 받는다">무상 종료</span>{% elif r.os_eol_status == 'security_only' %}<span class="text-warn text-sm" style="font-weight:600;" title="기능 업데이트 종료 · 보안 패치는 유지{% if r.os_eol %} · 무상 종료 {{ r.os_eol }}{% endif %}">보안 패치만</span>{% elif r.os_eol_status == 'full' %}<span class="text-meta text-sm" title="기능 업데이트 + 보안 패치{% if r.os_eol %} · 무상 종료 {{ r.os_eol }}{% endif %}">지원 중</span>{% else %}<span class="text-unknown text-sm" style="font-weight:600;" title="EOL 카탈로그 미수록·미매칭 — 지원 여부 미판정(확인 필요)">미상</span>{% endif %}</td>
+        <td><span class="{{ r.os_eol_css }} text-sm" style="font-weight:600;" title="{{ r.os_eol_title }}">{{ r.os_eol_label }}</span></td>
       </tr>
     </tbody>
   </table>

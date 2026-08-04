@@ -154,6 +154,11 @@ class ReportRowItem:
     # os_eol_status: "ended"/"paid_only"/"security_only"/"full"/"unknown"(카탈로그 미수록·미매칭 — 판정 불가).
     os_eol: str = ""
     os_eol_status: str = ""
+    # 표시 파생 — mappers.shared.os_eol_display 단일 진실 (P2). 템플릿은 분기 없이 꺼내 쓴다.
+    os_eol_label: str = ""
+    os_eol_css: str = ""
+    os_eol_title: str = ""
+    os_eol_sort: int = 0
     # 운영 이벤트 — 보고서 창(window) 내 에러 발생 유무(OOM kill·MCE·메모리 손상·net/disk 에러 5축 중 1+).
     # ServerListItem.has_operational_event(전기간)과 달리 이 보고서의 window_days 창에 한정(latest_errors,
     # since=window_start) — 세부 서버 목록(N대 선택 보고서 전용)만 채움, 환경 전체 보고서는 N+1 회피로 미채움.

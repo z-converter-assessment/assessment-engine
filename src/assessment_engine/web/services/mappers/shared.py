@@ -378,6 +378,44 @@ class OsEolInfo(NamedTuple):
 _EOL_SEVERITY = ("full", "security_only", "paid_only", "ended")
 
 
+class OsEolDisplay(NamedTuple):
+    """지원 단계 표시 원자 — 라벨·색·툴팁·정렬 순서. 서버 목록·보고서·상세가 같은 말을 쓰게 한다 (P2).
+
+    화면마다 분기를 복제하면 상태가 늘 때마다 네 곳이 갈린다. 여기서 한 번 정하고 템플릿은 꺼내 쓴다.
+    sort 는 심각한 것이 커서 목록 정렬이 위험 순으로 선다 (P3 — 템플릿 계산 금지).
+    """
+
+    label: str
+    css: str
+    title: str
+    sort: int
+
+
+# status -> (라벨, 색 클래스, 툴팁 틀, 정렬 가중치). 툴팁 {eol} 은 매칭 날짜로 채운다.
+_OS_EOL_DISPLAY: dict[str, tuple[str, str, str, int]] = {
+    "ended": ("지원 종료", "text-danger", "어떤 경로로도 보안 패치 없음 · EOL {eol}", 4),
+    "paid_only": (
+        "무상 종료",
+        "text-danger",
+        "무상 보안 패치 종료 {eol} · 연장 지원 단계 — 배포판에 따라 유상 계약이 필요하다",
+        3,
+    ),
+    "security_only": ("보안 패치만", "text-warn", "기능 업데이트 종료 · 보안 패치는 유지 · 무상 종료 {eol}", 2),
+    "full": ("지원 중", "text-meta", "기능 업데이트 + 보안 패치 · 무상 종료 {eol}", 0),
+}
+_OS_EOL_UNKNOWN = OsEolDisplay("미상", "text-unknown", "EOL 카탈로그 미수록·미매칭 — 지원 여부 미판정(확인 필요)", 1)
+
+
+def os_eol_display(status: str, eol_iso: str) -> OsEolDisplay:
+    """지원 단계 -> 표시 원자. 미판정과 미등록 상태는 같은 칸으로 흡수한다."""
+    entry = _OS_EOL_DISPLAY.get(status)
+    if entry is None:
+        return _OS_EOL_UNKNOWN
+    label, css, tmpl, sort = entry
+    title = tmpl.format(eol=eol_iso) if eol_iso else tmpl.split(" · 무상 종료 {eol}")[0].format(eol="")
+    return OsEolDisplay(label, css, title, sort)
+
+
 def _classify_eol(support_iso: str | None, eol_iso: str, extended_iso: str | None, today: date) -> str:
     """경계 3개 -> 4상태. 없는 경계는 그 구간이 존재하지 않는다는 뜻이다."""
     if extended_iso and date.fromisoformat(extended_iso) <= today:
@@ -451,10 +489,10 @@ def resolve_os_eol(
 def lookup_os_eol(
     os_id: str | None, os_version: str | None, kernel_version: str | None, today: date
 ) -> OsEolInfo | None:
-    """인벤토리 표시용 EOL 조회 — 미래 EOL·연장지원도 반환. OsEolInfo 또는 미등록 시 None.
+    """인벤토리 표시용 조회 — 미래 날짜도 반환. OsEolInfo 또는 미등록 시 None.
 
-    resolve_os_eol(발화용, 완전 종료만)와 달리 시스템 정보 카드·서버 목록 상태 칼럼용 — 아직 지원 중이어도
-    종료 예정일과 3상태(supported/extended/eol)를 노출.
+    resolve_os_eol(발화용, 무상 패치 종료만)과 달리 시스템 정보 카드·서버 목록 상태 칼럼용 —
+    아직 지원 중이어도 경계 날짜와 판정 단계를 그대로 노출한다.
     """
     return _eol_info(os_id, os_version, kernel_version, today)
 

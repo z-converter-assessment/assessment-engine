@@ -33,6 +33,7 @@ from assessment_engine.web.services.mappers.report import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_FROM_REC,
+    _classify_eol,
     lookup_os_eol,
     resolve_os_eol,
 )
@@ -885,10 +886,39 @@ def test_windows_2019_security_only_does_not_fire():
 
 
 def test_windows_2012_r2_fires():
-    """빌드 9600(2012 R2) — 무상 패치가 끝났다. 유상 연장(ESU) 유무와 무관하게 발화한다."""
+    """빌드 9600(2012 R2) — 무상 패치가 끝났고 ESU 날짜가 남아 있다."""
     info = lookup_os_eol("windows", None, "9600.1", _NOW.date())
-    assert info is not None and info.status in ("paid_only", "ended")
+    assert info is not None and info.status == "paid_only"
+    assert info.extended_support_iso is not None
     assert resolve_os_eol("windows", None, "9600.1", _NOW.date()) is not None
+
+
+@pytest.mark.parametrize(
+    ("support", "eol", "extended", "expected"),
+    [
+        # 경계 셋이 다 있는 경우 — 시간 순서대로 네 단계를 지난다 (기준일 2026-05-12)
+        ("2030-01-01", "2035-01-01", "2040-01-01", "full"),
+        ("2000-01-01", "2030-01-01", "2035-01-01", "security_only"),
+        ("2000-01-01", "2000-06-01", "2035-01-01", "paid_only"),
+        ("2000-01-01", "2000-06-01", "2001-01-01", "ended"),
+        # 경계 결측 — 없는 경계는 그 구간이 존재하지 않는다
+        (None, "2030-01-01", "2035-01-01", "full"),  # support 없음 (debian)
+        (None, "2000-01-01", "2035-01-01", "paid_only"),
+        ("2000-01-01", "2030-01-01", None, "security_only"),  # 유상 경로 없음 (rocky)
+        (None, "2000-01-01", None, "ended"),  # 둘 다 없음 (fedora)
+        (None, "2030-01-01", None, "full"),
+        # 경계 동일값 — <= 라 그날 당일에 다음 단계로 넘어간다
+        ("2026-05-12", "2030-01-01", None, "security_only"),
+        ("2000-01-01", "2026-05-12", "2035-01-01", "paid_only"),
+        ("2000-01-01", "2000-06-01", "2026-05-12", "ended"),
+        # support == eol — security_only 구간이 0 이다 (ubuntu 24.04)
+        ("2030-01-01", "2030-01-01", "2036-01-01", "full"),
+        ("2000-01-01", "2000-01-01", "2036-01-01", "paid_only"),
+    ],
+)
+def test_classify_eol_boundaries(support, eol, extended, expected):
+    """경계 3개 -> 4상태 판정. 카탈로그 의존 없이 규칙만 고정한다."""
+    assert _classify_eol(support, eol, extended, _NOW.date()) == expected
 
 
 def test_windows_2022_full_support():

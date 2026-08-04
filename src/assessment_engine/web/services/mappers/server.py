@@ -37,6 +37,7 @@ from assessment_engine.web.services.mappers.shared import (
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
     lookup_os_eol,
+    os_eol_display,
     os_id_to_distro,
     spec_display_line,
     windows_legacy_version_from_build,
@@ -307,7 +308,7 @@ def to_server_list_item(
 
     분류 라벨은 recommendation.LABEL_KO, provisioning_class(raw enum)는 shared._DONUT_SEGMENT_FROM_REC 경유 (P2 단일 진실).
     raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
-    today 주어지면 OS EOL 3상태 판정(lookup_os_eol) — 카탈로그 매칭 여부로 "지원 중"과 "미상(판정 불가)" 분리.
+    today 주어지면 OS 지원 단계 판정(lookup_os_eol) — 카탈로그 매칭 여부로 판정 결과와 "미상(판정 불가)" 분리.
     카탈로그 미수록(oracle 외 tencent 등)·미매칭을 "지원 중"으로 단정하지 않는다.
     """
     # OsEolInfo 또는 미매칭 시 None. os_eol 은 매칭 iso(경과·미래 무관), status 는 판정 4단계 또는 unknown.
@@ -316,6 +317,7 @@ def to_server_list_item(
         os_eol, os_eol_status = "", ("unknown" if today else "")
     else:
         os_eol, os_eol_status = info.eol_iso, info.status
+    os_eol_disp = os_eol_display(os_eol_status, os_eol)
     # 물리 디스크 총량 — disk_total_bytes 단일 산식(type=disk 합, 목록·상세·보고서 일관).
     _disk_bytes = disk_total_bytes(dto.block_devices)
     _disk_gb = bytes_to_gb(_disk_bytes) if _disk_bytes else None
@@ -369,6 +371,10 @@ def to_server_list_item(
         spec_display=spec_display,
         os_eol=os_eol,
         os_eol_status=os_eol_status,
+        os_eol_label=os_eol_disp.label,
+        os_eol_css=os_eol_disp.css,
+        os_eol_title=os_eol_disp.title,
+        os_eol_sort=os_eol_disp.sort,
         recommendation_label=rec_label,
         provisioning_class=seg_key,
         has_operational_event=error_hosts is not None and dto.id in error_hosts,

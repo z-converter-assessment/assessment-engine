@@ -99,6 +99,11 @@ class ServerListItem:
     # "full"(기능+보안) / "unknown"(카탈로그 미수록·미매칭 = 판정 불가). 미매칭을 "지원 중"으로
     # 단정하지 않기 위한 분리 (lookup_os_eol 매칭 여부 + status 기반).
     os_eol_status: str = ""
+    # 표시 파생 — mappers.shared.os_eol_display 단일 진실 (P2). 템플릿은 분기 없이 꺼내 쓴다.
+    os_eol_label: str = ""
+    os_eol_css: str = ""
+    os_eol_title: str = ""
+    os_eol_sort: int = 0
     # 권장 조치 — USE Method 분류 한국어 라벨(recommendation.LABEL_KO 단일 진실). mapper 단일 결정 (P2).
     # 목록 색은 provisioning_class 기반 under-only 강조(#E, _server_rows.html) — 분류 다색은 상세/보고서 전용.
     # raws_period 부재 시 빈 문자열 (도넛/분류 데이터 없음 — 페이지 2+ 또는 신규 등록 직후).
