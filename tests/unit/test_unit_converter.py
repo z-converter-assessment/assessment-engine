@@ -13,7 +13,7 @@ from assessment_engine.web.services.unit_converter import (
     usage_pct,
 )
 
-# ─── bytes_to_gb ──────────────────────────────────────────────────────────
+# --- bytes_to_gb ----------------------------------------------------------
 
 
 @pytest.mark.parametrize(
@@ -30,7 +30,7 @@ def test_bytes_to_gb(b: int | None, expected: float | None):
     assert bytes_to_gb(b) == expected
 
 
-# ─── bytes_to_gib (메모리/스왑 binary GiB, By 단위) ──────────────────────
+# --- bytes_to_gib (메모리/스왑 binary GiB, By 단위) ----------------------
 
 
 @pytest.mark.parametrize(
@@ -46,7 +46,7 @@ def test_bytes_to_gib(b: int | None, expected: float | None):
     assert bytes_to_gib(b) == expected
 
 
-# ─── usage_pct ────────────────────────────────────────────────────────────
+# --- usage_pct ------------------------------------------------------------
 
 
 @pytest.mark.parametrize(

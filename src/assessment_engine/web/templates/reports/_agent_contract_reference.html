@@ -115,15 +115,15 @@
     <thead><tr><th>항목</th><th>함수(파일:라인)</th><th>카운터/API</th></tr></thead>
     <tbody>
       <tr><td>CPU per-cpu user/system/idle</td><td><code>metrics_collect_cpu</code>(windows-agent/collect_metrics.c:55)</td><td><code>NtQuerySystemInformation(SystemProcessorPerformanceInformation)</code></td></tr>
-      <tr><td>CPU run_queue</td><td>同上(:96)</td><td>perflib <code>\System\Processor Queue Length</code></td></tr>
+      <tr><td>CPU run_queue</td><td>위와 같음(:96)</td><td>perflib <code>\System\Processor Queue Length</code></td></tr>
       <tr><td>메모리 available/free/limit</td><td><code>metrics_collect_memory</code>(collect_metrics.c:128)</td><td><code>GlobalMemoryStatusEx</code> + perflib <code>\Memory\Free &amp; Zero Page List Bytes</code></td></tr>
-      <tr><td>commit usage/limit</td><td>同上</td><td>perflib <code>\Memory\Committed Bytes</code>·<code>\Memory\Commit Limit</code></td></tr>
-      <tr><td>paging in/out</td><td>同上(:157)</td><td>perflib <code>\Memory\Pages Input/sec</code>·<code>\Memory\Pages Output/sec</code></td></tr>
+      <tr><td>commit usage/limit</td><td>위와 같음</td><td>perflib <code>\Memory\Committed Bytes</code>·<code>\Memory\Commit Limit</code></td></tr>
+      <tr><td>paging in/out</td><td>위와 같음(:157)</td><td>perflib <code>\Memory\Pages Input/sec</code>·<code>\Memory\Pages Output/sec</code></td></tr>
       <tr><td>디스크 I/O/큐/시간 (per-disk)</td><td><code>metrics_collect_disk</code>(collect_metrics.c:186)</td><td>perflib <code>\PhysicalDisk(N)\% Idle Time</code>·<code>Avg. Disk sec/Read|Write</code>·<code>Current Disk Queue Length</code>·<code>Disk Reads|Writes/sec</code></td></tr>
       <tr><td>네트워크 I/O/packets/errors/speed</td><td><code>metrics_collect_network</code>(collect_metrics.c:281)</td><td><code>GetIfTable2</code>(NT6+) 우선, <code>GetIfTable</code>(NT5.2) 폴백</td></tr>
-      <tr><td>TCP 재전송</td><td>同上(:348)</td><td><code>GetTcpStatistics().dwRetransSegs</code></td></tr>
+      <tr><td>TCP 재전송</td><td>위와 같음(:348)</td><td><code>GetTcpStatistics().dwRetransSegs</code></td></tr>
       <tr><td>파일시스템 usage</td><td><code>metrics_collect_filesystem</code>(collect_metrics.c:359)</td><td><code>GetLogicalDriveStringsW</code> + <code>GetDiskFreeSpaceExW</code> + <code>GetVolumeInformationW</code></td></tr>
-      <tr><td>boot_time</td><td><code>get_boot_time_iso8601</code>(util.c:235)</td><td><code>NtQuerySystemInformation(SystemTimeOfDayInformation)</code>.BootTime, 실패 시 현재시각−uptime 역산</td></tr>
+      <tr><td>boot_time</td><td><code>get_boot_time_iso8601</code>(util.c:235)</td><td><code>NtQuerySystemInformation(SystemTimeOfDayInformation)</code>.BootTime, 실패 시 현재시각-uptime 역산</td></tr>
       <tr><td>block_devices(물리디스크/파티션/볼륨)</td><td><code>inv_collect_block_devices</code>(collect_inventory.c:779)</td><td><code>IOCTL_DISK_GET_LENGTH_INFO</code>·<code>IOCTL_DISK_GET_DRIVE_LAYOUT_EX</code>(GPT/MBR)·<code>FindFirstVolumeW</code>·<code>IOCTL_VOLUME_GET_VOLUME_DISK_EXTENTS</code></td></tr>
       <tr><td>디스크 안정키</td><td><code>win_disk_id</code>(collect_util.c:425)</td><td>GPT DiskId → MBR Signature → <code>IOCTL_STORAGE_QUERY_PROPERTY</code>(serial)</td></tr>
       <tr><td>pagefile(swap 노드)</td><td><code>inv_collect_block_devices</code> 하단(collect_inventory.c:852)</td><td><code>NtQuerySystemInformation(SystemPageFileInformation)</code></td></tr>

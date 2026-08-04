@@ -2,9 +2,9 @@ name: ci
 
 # 코드 품질 게이트. 배포(rollout)는 VM 에서 deploy.sh 가 담당한다.
 #
-#   lint ──┬─> test-unit ─> test-integration
-#          ├─> typecheck
-#          └─> build
+#   lint +-> test-unit -> test-integration
+#        +-> typecheck
+#        +-> build
 #
 # base 별 발화 범위는 job 의 if 조건이 정한다. 게이트 배치 근거는 docs/guides/pre-pr-checklist.md 0절.
 

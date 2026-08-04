@@ -73,7 +73,7 @@ Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파
 
 Self-audit 메타 인용 제외:
 - 본 명세는 금지 토큰·모호 표현·temp 인용 카탈로그 정의를 위해 해당 토큰을 본문에 인용한다 (예: `TODO` · `향후` · `docs/temp/`).
-- Stage 4 의 grep 검사는 본 명세와 CLAUDE.md 전문(前文) 단일 진실 정의를 제외 — `rg ... --glob '!docs/guides/pre-pr-checklist.md' --glob '!.claude/CLAUDE.md'` 또는 출력 후 메타 인용 필터링. CLAUDE.md 본문 결정 항목은 검사 대상 유지.
+- Stage 4 의 grep 검사는 본 명세와 CLAUDE.md 머리말 단일 진실 정의를 제외 — `rg ... --glob '!docs/guides/pre-pr-checklist.md' --glob '!.claude/CLAUDE.md'` 또는 출력 후 메타 인용 필터링. CLAUDE.md 본문 결정 항목은 검사 대상 유지.
 
 ---
 
@@ -213,7 +213,7 @@ Self-audit 메타 인용 제외:
 
 입력:
 - `git diff <base>...HEAD` + 미커밋 변경.
-- 변경 코드 -> 영구 문서 매핑: CLAUDE.md #F9 "변경 영향도 체크리스트" + 전문(前文) "문서 인덱스" 단일 진실 (본 명세 중복 X).
+- 변경 코드 -> 영구 문서 매핑: CLAUDE.md #F9 "변경 영향도 체크리스트" + 머리말 "문서 인덱스" 단일 진실 (본 명세 중복 X).
 
 목적:
 - 본 feature 가 만진 영역의 영구 문서(`docs/reference/`·`docs/guides/`·`docs/explanation/products/`·`docs/explanation/tradeoffs.md`)가 현행 코드를 정확히 반영.

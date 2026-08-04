@@ -36,7 +36,7 @@ const IO_DIM_META = {
 /** @param {number|null|undefined} v */
 function iops(v) { return v == null ? '—' : v.toFixed(1) + ' IOPS'; }
 
-/* ── 스냅샷 (전체 사용률·포화·디바이스별 I/O) ── */
+/* -- 스냅샷 (전체 사용률·포화·디바이스별 I/O) -- */
 async function loadSnapshot() {
   try {
     const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
@@ -74,8 +74,8 @@ async function loadSnapshot() {
   }
 }
 
-/* ── I/O 추이 차트 — Read/Write 합산 2선(collapse=true, 물리 디바이스 개수 무관 항상 2선). 개별 디바이스
-   활동은 위 실시간 카드 "디바이스별 I/O" 표가 담당(CPU 코어별 그리드와 동일 원칙: 추이=집계, 실시간=개별). ── */
+/* -- I/O 추이 차트 — Read/Write 합산 2선(collapse=true, 물리 디바이스 개수 무관 항상 2선). 개별 디바이스
+   활동은 위 실시간 카드 "디바이스별 I/O" 표가 담당(CPU 코어별 그리드와 동일 원칙: 추이=집계, 실시간=개별). -- */
 let kbpsChart = /** @type {any} */ (null);
 let kbpsSeq   = 0;
 
@@ -164,7 +164,7 @@ async function loadKbpsChart() {
   } catch(e) { console.error(e); }
 }
 
-/* ── 스토리지 용량 추이 ── */
+/* -- 스토리지 용량 추이 -- */
 let fsChart = /** @type {any} */ (null);
 let fsSeq   = 0;
 
@@ -270,7 +270,7 @@ function buildFsLegend() {
   buildAvgMaxLegend('fs-legend', fsChart, { withToggle: true });
 }
 
-/* ── 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) ── */
+/* -- 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) -- */
 function updateBucketLabels() {
   const r = timeCtl.getRange();
   const pr = ' — ' + RANGE_LABEL[r];
@@ -281,7 +281,7 @@ function updateBucketLabels() {
   set('io-kbps-range-print', pr); set('fs-range-print', pr);
 }
 
-/* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
+/* -- 전체 차트 reload (페이지 range/anchor 변경 시) -- */
 function reloadAllCharts() {
   updateBucketLabels();
   loadKbpsChart();
@@ -291,9 +291,9 @@ function reloadAllCharts() {
 // 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 2 차트 전체 구동(#F10).
 const timeCtl = pageTimeControl('page-range-btns', 'page-anchor', '15m', reloadAllCharts);
 
-/* ── 초기 로드 ── */
+/* -- 초기 로드 -- */
 loadSnapshot();
 reloadAllCharts();
 
-/* ── 30초 polling 자동 갱신 (스냅샷만) ── */
+/* -- 30초 polling 자동 갱신 (스냅샷만) -- */
 initAutoRefresh(loadSnapshot);

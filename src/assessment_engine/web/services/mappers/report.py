@@ -53,7 +53,7 @@ from assessment_engine.web.view_models.report import (
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import ReportRowRaw
 
-# ─── 위험도 매핑 — 양식 A KPI 3단계 압축 ────────────────────────────────
+# --- 위험도 매핑 — 양식 A KPI 3단계 압축 --------------------------------
 # USE Method 분류 -> (risk_level, 한글 라벨, badge CSS 클래스).
 # under_provisioned → 고위험 (자원 부족, 즉시 조치)
 # idle · over_provisioned → 주의 (미사용·과다 — 운영자 점검)
@@ -74,7 +74,7 @@ _VARIANCE_BURST_RATIO = 1.5  # peak/p95 >= 1.5 — variance burst 표시 (보고
 _REBOOT_UNSTABLE_COUNT = 3  # reboot_count >= 3 — Agent 불안정 신호 (#F10 attention 임계)
 
 
-# ─── KPI 집계 ───
+# --- KPI 집계 ---
 
 
 def compute_report_avg_p95(rows: list[ReportRowItem]) -> tuple[float | None, float | None]:
@@ -137,7 +137,7 @@ def sort_rows_for_report(items: list[ReportRowItem]) -> list[ReportRowItem]:
     )
 
 
-# ─── 정성 요약 (양식 A/B 분기) ───
+# --- 정성 요약 (양식 A/B 분기) ---
 
 
 def _top_phrase(labels: list[str]) -> str:
@@ -244,7 +244,7 @@ def build_report_summary_bullets(
     return bullets
 
 
-# ─── 자동 진단·권고 helper (양식 B 컬럼) ───
+# --- 자동 진단·권고 helper (양식 B 컬럼) ---
 
 
 def _build_recommendation_action(host: recommendation.HostAssessment, stats: recommendation.ResourceStats) -> str:
@@ -351,7 +351,7 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
     return f"메트릭 수집 누락: {' · '.join(missing)}" if missing else "윈도우 내 표본 부족"
 
 
-# ─── 서버 세부 '최근 N일' 평가 카드 (이용률+포화 2축, 14일 p95) — right-sizing 분류 기준 ───
+# --- 서버 세부 '최근 N일' 평가 카드 (이용률+포화 2축, 14일 p95) — right-sizing 분류 기준 ---
 
 
 def _pct_str(v: float | None) -> str:
@@ -600,7 +600,7 @@ def build_period_assessment(
     displays(CPU/메모리/디스크 3축, 단일 진실) + 네트워크는 stats retrans/drop/conntrack. 판정(over)은 os-aware
     helper 경유(임계 재계산 0). 에러축(E)은 전 자원 통합(USE 완결). 실시간 카드(순간)와 별 창 — 분류·판정 근거.
 
-    disk_worst_mount — 스토리지 "사용률" 행이 worst-mount 산식(마운트 中 최댓값)임을 값에 병기하는 마운트 이름.
+    disk_worst_mount — 스토리지 "사용률" 행이 worst-mount 산식(마운트 중 최댓값)임을 값에 병기하는 마운트 이름.
     ResourceStats 에는 안 둠(도메인 모델에 표시 전용 str 필드 추가 회피) — 호출부(get_period_assessment)가
     ReportRowRaw.disk_capacity_worst_mount 를 직접 전달. 실시간 카드 도넛(disk_usage_pct, 전체 마운트 가중평균)
     과 다른 산식이라는 걸 화면에서 바로 알 수 있게 함(#E9 "의도된 차이" 명시 요청 반영).
@@ -622,7 +622,7 @@ def build_period_assessment(
     # 판정(이용률 AND 포화)은 분류 배지(classify_host)가 전담 — 축은 신호 자체 비정상 여부만.
     # d.threshold 는 saturation_axis_displays 원문(">= 1"·"> 20ms"·"발생 시") — 다른 화면(단일 보고서 포화 축
     # 표·참고자료 임계값)과 공유하는 표시 단일 진실이라 그 원본은 불변. 이 카드만 이용률 컬럼과 같은 "임계 X" 어투
-    # 통일 — 부등호(>=·>)는 "임계"라는 말 자체가 이상(以上) 의미를 담아 중복이라 제거하고 숫자만 접두.
+    # 통일 — 부등호(>=·>)는 "임계"라는 말 자체가 그 값을 포함하는 의미라 중복이라 제거하고 숫자만 접두.
     def _s(label: str, d: SaturationAxisDisplay) -> PeriodSignalRow:
         raw = d.threshold
         thr = raw if raw.startswith("발생") else "임계 " + raw.removeprefix(">= ").removeprefix("> ")
@@ -751,7 +751,7 @@ def build_period_assessment(
     )
 
 
-# ─── ReportRowRaw -> ReportRowItem (P2 단일 변환) ───
+# --- ReportRowRaw -> ReportRowItem (P2 단일 변환) ---
 
 
 def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
@@ -788,7 +788,7 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         # Windows CPU saturation — Processor Queue Length p95 / Memory 는 Pages Input/sec rate p95 (os-aware 소비).
         cpu_run_queue_p95=raw.cpu_run_queue_p95,
         mem_pages_input_rate_p95=raw.mem_pages_input_rate_p95,
-        # ─── rollup_host 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ───
+        # --- rollup_host 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ---
         # 가장 바쁜 코어 p95 — 단일스레드 병목 판정(RS_CPU_PERCORE_HOLD). Windows·구 agent 는 None(graceful skip).
         cpu_percore_p95_max=raw.cpu_percore_p95_max,
         procs_blocked_p95=raw.procs_blocked_p95,

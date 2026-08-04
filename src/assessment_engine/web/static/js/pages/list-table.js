@@ -13,7 +13,7 @@ document.addEventListener('keydown', e => {
 });
 
 
-// ─── ZConverter Install ────────────────────────────────────────────────────
+// --- ZConverter Install ----------------------------------------------------
 // 체크박스로 호스트 선택 -> POST /api/tasks/install.
 // engine 은 DB INSERT + agent.tasks.<agent_id> 큐 동적 declare + task.install publish.
 // download.url 은 운영자 입력 ZDM host + ZDM_PACKAGE_PATH 조립, sha256/size_bytes 는 ZDM_PACKAGE_* env.
@@ -401,7 +401,7 @@ if (filterForm) {
     applyFilters();
   });
 
-  // ─── 칼럼 클릭 정렬 — 공용 TableUtils(정렬 로직·zebra 단일화). 정렬 후 필터·clip 재적용(applyFilters 끝에서 restripe). ───
+  // --- 칼럼 클릭 정렬 — 공용 TableUtils(정렬 로직·zebra 단일화). 정렬 후 필터·clip 재적용(applyFilters 끝에서 restripe). ---
   const listTable = /** @type {HTMLElement | null} */ (document.querySelector('table.server-list-table'));
   listTable?.querySelector('thead')?.addEventListener('click', function (e) {
     const th = /** @type {HTMLElement} */ (e.target).closest('th.sort-col');
@@ -445,7 +445,7 @@ if (filterForm) {
   applyFilters();
 }
 
-// ─── 진행 중 작업 자동 추적 ──────────────────────────────────────────────
+// --- 진행 중 작업 자동 추적 ----------------------------------------------
 // 서버목록의 진행 중(rec-pending) task cell 을 pollUntilFinal 로 추적 — 완료까지 cell 갱신.
 // 페이지 로드 시 + install 발행 직후 호출. task-cell 모달은 delegation(task-modal.js).
 function trackPendingTasks() {
@@ -460,7 +460,7 @@ function trackPendingTasks() {
 
 trackPendingTasks();
 
-// ─── 뒤로가기 복원 정합 (선택 초기화) ─────────────────────────────────────
+// --- 뒤로가기 복원 정합 (선택 초기화) -------------------------------------
 // 액션 버튼(보고서·실시간·성능추이·Export·Install)은 클릭 시 다른 페이지로 navigate 한다.
 // 브라우저는 뒤로가기 시 체크박스 checked 를 자동 복원(session history form-state / bfcache)하는데,
 // 그 복원은 change 이벤트를 발생시키지 않아 refreshInstallButton 이 안 돌고 버튼 enabled·"N대"

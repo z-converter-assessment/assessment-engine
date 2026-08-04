@@ -57,7 +57,7 @@ async def _insert_task(
     )
 
 
-# ─── complete_task ────────────────────────────────────────────────────────
+# --- complete_task --------------------------------------------------------
 
 
 async def test_complete_task_success(collect_repo: CollectRepository) -> None:
@@ -159,7 +159,7 @@ async def test_complete_task_unknown_public_id_returns_false(collect_repo: Colle
     assert updated is False
 
 
-# ─── expire_all_overdue_tasks (reaper) ────────────────────────────────────
+# --- expire_all_overdue_tasks (reaper) ------------------------------------
 
 
 async def test_expire_all_overdue_tasks_transitions_overdue_only(collect_repo: CollectRepository) -> None:
@@ -193,7 +193,7 @@ async def test_expire_all_overdue_tasks_transitions_overdue_only(collect_repo: C
     assert (await _row(fresh)).status == "pending"
 
 
-# ─── get_task_by_public_id ────────────────────────────────────────────────
+# --- get_task_by_public_id ------------------------------------------------
 
 
 async def test_get_task_by_public_id_joins_server(
@@ -226,7 +226,7 @@ async def test_get_task_by_public_id_not_found(query_repo: QueryRepository) -> N
     assert row is None
 
 
-# ─── list_recent_tasks ────────────────────────────────────────────────────
+# --- list_recent_tasks ----------------------------------------------------
 
 
 async def test_list_recent_tasks_orders_by_created_desc(
@@ -270,7 +270,7 @@ async def test_list_recent_tasks_cursor_pagination(
     assert all(r.created_at < cursor for r in second)
 
 
-# ─── latest_tasks_by_servers ──────────────────────────────────────────────
+# --- latest_tasks_by_servers ----------------------------------------------
 
 
 async def test_latest_tasks_by_servers_distinct_on(
@@ -294,7 +294,7 @@ async def test_latest_tasks_by_servers_empty_input(query_repo: QueryRepository) 
     assert await query_repo.latest_tasks_by_servers([]) == {}
 
 
-# ─── expire_overdue_tasks (scoped) ────────────────────────────────────────
+# --- expire_overdue_tasks (scoped) ----------------------------------------
 
 _AGENT_C = "00000000-0000-4000-8000-0000000000c3"
 
@@ -364,7 +364,7 @@ async def test_expire_overdue_tasks_ignores_fresh_deadline(collect_repo: Collect
     assert status == "pending"
 
 
-# ─── find_pending_deadline_servers ────────────────────────────────────────
+# --- find_pending_deadline_servers ----------------------------------------
 
 
 async def test_find_pending_deadline_servers_only_pending_with_deadline(

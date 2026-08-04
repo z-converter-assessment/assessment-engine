@@ -141,22 +141,25 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 본 repo 의 환경변수를 읽는 주체:
 
 ```
-                        ┌─────────────────────────────────────┐
-   .env 또는 EnvironmentFile│  POSTGRES_HOST=...                  │
-                        └────────┬──────────┬──────────┬──────┘
-                                 │          │          │
-                ┌────────────────┘          │          └──────────────────┐
-                │ (1)                       │ (2)                         │ (3)
-                v                           v                             v
-   docker-compose env_file        config.py BaseSettings        외부 인프라가 agent env 구성
-   → 컨테이너 환경변수 주입       → Python 인스턴스 필드        → /etc/assessment-agent.env
-   → environment: 블록이          → env > .env > secrets_dir    → agent 프로세스로 전달
-     일부 키 강제 override          > default (cwd /app/.env)     → RABBITMQ_HOST 등 broker 좌표 주입
-                │
-                └─ (4) 컨테이너 안 Python 시작 시 (1)+(2) 결합:
-                       환경변수가 이미 주입돼 있으므로 (2) 의 .env read 는 redundant
-                       (호스트 직접 실행 시에만 (2) 의 .env 가 의미 있음 — fallback)
+             .env / EnvironmentFile  (POSTGRES_HOST=... etc)
+                          |
+        +-----------------+-----------------+
+        | (1)             | (2)             | (3)
+        v                 v                 v
+  compose env_file   config.py         external infra writes
+                     BaseSettings      the agent env file
 ```
+
+(1) compose `env_file` 이 컨테이너 환경변수로 주입한다. `environment:` 블록이 일부 키를 강제로 덮어쓴다.
+
+(2) `config.py` 의 `BaseSettings` 가 Python 인스턴스 필드를 채운다. 우선순위는 env > `.env` > `secrets_dir` >
+기본값이고, `.env` 의 기준 경로는 cwd(`/app/.env`) 다.
+
+(3) 외부 인프라가 `/etc/assessment-agent.env` 를 구성해 agent 프로세스에 전달한다 — `RABBITMQ_HOST` 등 broker
+좌표가 여기 들어간다.
+
+컨테이너 안에서는 (1)과 (2)가 겹친다. 환경변수가 이미 주입돼 있으므로 (2)의 `.env` 읽기는 결과에 영향을 주지
+않는다 — 호스트에서 직접 기동할 때만 그 fallback 이 의미를 갖는다.
 
 ---
 

@@ -120,5 +120,5 @@ class BaseReportQueryRepository(ABC):
         end: datetime,
         server_ids: list[int] | None = None,
     ) -> EnvironmentUtilizationRaw:
-        """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (Σused / Σtotal)."""
+        """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (sum(used) / sum(total))."""
         ...

@@ -319,8 +319,8 @@
   <table>
     <thead><tr><th>신호</th><th>정의</th><th>임계</th><th>실패 방식 — 왜 따로 보나</th></tr></thead>
     <tbody>
-      <tr><td>재전송율 (TCP retransmit)</td><td>Σ재전송 세그먼트 / Σ송신 패킷 x 100</td><td>&gt; 1%</td><td>TCP 레벨 손실·혼잡 — 세그먼트 재전송. 경로 품질·수신측 처리 저하</td></tr>
-      <tr><td>드롭율 (packet drop)</td><td>Σ인터페이스 드롭 / Σ패킷 x 100</td><td>&gt; 0.5%</td><td>인터페이스 레벨 드롭 — NIC·링 버퍼 오버플로. 재전송이 0이어도 드롭만 높을 수 있어 별도 신호</td></tr>
+      <tr><td>재전송율 (TCP retransmit)</td><td>sum(재전송 세그먼트) / sum(송신 패킷) x 100</td><td>&gt; 1%</td><td>TCP 레벨 손실·혼잡 — 세그먼트 재전송. 경로 품질·수신측 처리 저하</td></tr>
+      <tr><td>드롭율 (packet drop)</td><td>sum(인터페이스 드롭) / sum(패킷) x 100</td><td>&gt; 0.5%</td><td>인터페이스 레벨 드롭 — NIC·링 버퍼 오버플로. 재전송이 0이어도 드롭만 높을 수 있어 별도 신호</td></tr>
       <tr><td>conntrack 비율</td><td>nf_conntrack 사용 / 한도</td><td>&gt;= 80%</td><td>연결 테이블 고갈 임박 — NAT·프록시·방화벽 신규 연결 드롭. 처리량 아닌 연결 수 문제라 별도</td></tr>
     </tbody>
   </table>

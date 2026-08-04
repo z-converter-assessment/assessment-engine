@@ -10,7 +10,7 @@
 <div class="card">
   <h2 class="card-title" style="margin:0 0 14px;">스토리지 정보</h2>
   {# 페이지 내 폰트 통일 — 다른 카드(실시간 메트릭·자원 이용률·포화·신뢰도)와 동일 .sat-line 패턴(kv/kv-soft 대신).
-     정밀 미할당·확장 여력(VG·미파티션 갭)은 아래 레이아웃 트리가 디스크·VG별로 노출 — 요약의 추정 미할당(배정−
+     정밀 미할당·확장 여력(VG·미파티션 갭)은 아래 레이아웃 트리가 디스크·VG별로 노출 — 요약의 추정 미할당(배정-
      파일시스템)과 라벨 충돌 회피로 트리 단일화. #}
   <div class="sat-line"><span class="sat-name">배정 디스크</span><span class="sat-val">{% if storage.disk_total_gb is not none %}{{ storage.disk_total_gb | storagesize }} <span class="text-meta text-xs">물리 디스크 합</span>{% else %}-{% endif %}</span></div>
   {# fs_total_gb = df 기반 마운트 실용량 합(used+free) — 이 탭 per-mount df 행과 정합. 서버상세 시스템정보의

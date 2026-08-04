@@ -60,7 +60,7 @@ class CollectRepository(BaseCollectRepository):
     def __init__(self, session: AsyncSession):
         self.session = session
 
-    # ─── server_inventory ──────────────────────────────────────────────────
+    # --- server_inventory --------------------------------------------------
 
     @override
     async def find_server_id(self, agent_id: str) -> int | None:
@@ -285,7 +285,7 @@ class CollectRepository(BaseCollectRepository):
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
 
-    # ─── tasks ─────────────────────────────────────────────────────────────
+    # --- tasks -------------------------------------------------------------
 
     @override
     async def create_task(self, data: TaskCreate) -> str:
@@ -375,7 +375,7 @@ class CollectRepository(BaseCollectRepository):
         result = cast("CursorResult[Any]", await self.session.execute(stmt))
         return (result.rowcount or 0) > 0
 
-    # ─── 시계열 (record_metrics) ───────────────────────────────────────────
+    # --- 시계열 (record_metrics) -------------------------------------------
 
     @override
     async def record_metrics(

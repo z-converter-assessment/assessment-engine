@@ -188,7 +188,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 WHERE server_id = ANY(:sids) AND bucket >= :start AND bucket <= :end AND {_PHYS_DISK_SQL_FILTER}
             ),
             disk_await AS (
-                -- await(ms) = sum(delta op_time) / sum(delta ops). device 가 실제 바쁜(io_time 사용률 >= :diskio_util_min)
+                -- await(ms) = sum(delta(op_time)) / sum(delta(ops)). device 가 실제 바쁜(io_time 사용률 >= :diskio_util_min)
                 -- 버킷만 — 유휴 device 의 tick 기반 await 는 writeback 큐 잔류로 폭증하나 병목 아님(util AND await).
                 SELECT server_id, bucket, MAX(await_ms) AS worst_await FROM (
                     SELECT server_id, bucket,
@@ -202,7 +202,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
                 FROM disk_await GROUP BY server_id
             ),
             disk_io_base AS (
-                -- 서버 iops baseline = sum(delta ops) / sum(dt). 유휴 판정 활동 축(idle 게이트, _host_status) 입력.
+                -- 서버 iops baseline = sum(delta(ops)) / sum(dt). 유휴 판정 활동 축(idle 게이트, _host_status) 입력.
                 SELECT server_id, CASE WHEN SUM(dt) > 0 THEN SUM(ops) / SUM(dt) END AS iops_baseline FROM (
                     SELECT server_id, bucket, SUM(d_ops) AS ops, MAX(td_ops) AS dt
                     FROM disk_dev GROUP BY server_id, bucket
@@ -515,7 +515,7 @@ class ReportQueryRepository(_BaseQueryMixin, BaseReportQueryRepository):
     async def environment_utilization(
         self, period_days: float, end: datetime, server_ids: list[int] | None = None
     ) -> EnvironmentUtilizationRaw:
-        """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (Σused / Σtotal).
+        """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (sum(used) / sum(total)).
 
         cpu 는 seconds 에 코어수 내재(server_metrics_5m counter_agg). mem/disk 는 By gauge capacity-weighted.
         disk 는 Windows 물리디스크 인식 불완전이라 p95 제외(cpu·메모리만). C5 pruning, period_days <= 30 cap.

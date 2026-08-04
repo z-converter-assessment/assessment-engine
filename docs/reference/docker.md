@@ -139,15 +139,17 @@ web 은 명령이 `python -c ...` 다. `curl` 이 `python:3.14-slim` 에 없어�
 ### 기동 순서
 
 ```
-postgres ─ healthy ─▶ migrate (alembic upgrade head, 1회 실행 후 exit)
-                          │
-                          ▼ service_completed_successfully
-            ┌──────┬──────┴──────┐
-            ▼      ▼             ▼
-           web   consumer      worker
-            ▲      ▲             ▲
-   redis ───┼──────┼─────────────┤
-rabbitmq ───┴──────┴─────────────┘
+postgres (healthy)
+    |
+    v
+migrate            run-once: alembic upgrade head, then exit
+    |
+    | service_completed_successfully
+    v
+web / consumer / worker
+    ^
+    +--- redis (healthy)
+    +--- rabbitmq (healthy)
 ```
 
 앱 3종이 postgres·redis·rabbitmq healthy 와 migrate 완료를 모두 기다린다 (`x-app-base` 공통 `depends_on`). 모든 환경에서 Alembic 이 스키마 단일 진실이고, `migrate` 컨테이너가 준비 완료를 보장한 뒤에야 앱이 뜬다.

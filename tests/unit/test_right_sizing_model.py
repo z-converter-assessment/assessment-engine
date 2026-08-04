@@ -28,7 +28,7 @@ def _stats(**kw: Any) -> r.ResourceStats:
     return dataclasses.replace(base, **kw)
 
 
-# ─── CPU ───
+# --- CPU ---
 
 
 def test_cpu_under_by_util():
@@ -82,7 +82,7 @@ def test_cpu_windows_saturation():
     assert a.sizing_target == 8  # sat ceil(10/(2.0*0.7))=ceil(7.14)=8 > util ceil(75*4/70)=5
 
 
-# ─── 메모리 ───
+# --- 메모리 ---
 
 
 def test_mem_under_by_util():
@@ -132,7 +132,7 @@ def test_mem_under_no_total_no_sizing():
     assert a.sizing_target is None
 
 
-# ─── 디스크 용량 ───
+# --- 디스크 용량 ---
 
 
 def test_disk_filling_by_runway():
@@ -169,7 +169,7 @@ def test_disk_inode_runway_wins():
     assert a.status == "filling"
 
 
-# ─── 디스크 I/O ───
+# --- 디스크 I/O ---
 
 
 def test_diskio_bound():
@@ -190,7 +190,7 @@ def test_diskio_unmeasured():
     assert a.confidence.coverage_gap is True
 
 
-# ─── 네트워크 ───
+# --- 네트워크 ---
 
 
 def test_net_congested_retrans():
@@ -215,7 +215,7 @@ def test_net_unmeasured():
     assert a.status == "unmeasured"
 
 
-# ─── 신뢰도 4종 ───
+# --- 신뢰도 4종 ---
 
 
 def test_confidence_low_precision_short_history():
@@ -243,7 +243,7 @@ def test_confidence_high_property():
     assert r.ConfidenceNote(nonstationary=True).high is True
 
 
-# ─── 근본원인 종합 ───
+# --- 근본원인 종합 ---
 
 
 def test_root_cause_memory_swap_coupling():
@@ -304,7 +304,7 @@ def test_root_cause_mem_cpu_no_swap_independent():
     assert h.symptom_of_root == []
 
 
-# ─── 다운사이즈 처방 게이트 ───
+# --- 다운사이즈 처방 게이트 ---
 
 
 def _over_cpu_stats(**kw: Any) -> r.ResourceStats:
@@ -349,7 +349,7 @@ def test_downsize_not_over_status():
     assert r.downsize_prescribable(a, s) is False
 
 
-# ─── util_trend_rising_from_slopes — 상승 추세 이진화(도메인 임계 단일) ───
+# --- util_trend_rising_from_slopes — 상승 추세 이진화(도메인 임계 단일) ---
 
 
 def test_util_trend_rising_both_none_returns_none():
@@ -368,7 +368,7 @@ def test_util_trend_rising_false_when_all_below_threshold():
     assert r.util_trend_rising_from_slopes(0.0, -2.0) is False
 
 
-# ─── steal 충실도 편향 ───
+# --- steal 충실도 편향 ---
 
 
 def test_cpu_steal_biases_confidence():
@@ -381,7 +381,7 @@ def test_cpu_low_steal_no_bias():
     assert a.confidence.biased is False
 
 
-# ─── 호스트 요약 상태 (rollup) ───
+# --- 호스트 요약 상태 (rollup) ---
 
 
 def test_host_status_under():
@@ -474,7 +474,7 @@ def test_host_network_congested_flag():
     assert h.network_congested is True
 
 
-# ─── 라벨 완전성 (신 상태·트리거 전부 라벨 있음) ───
+# --- 라벨 완전성 (신 상태·트리거 전부 라벨 있음) ---
 
 
 def test_labels_cover_all_statuses():
@@ -501,7 +501,7 @@ def test_labels_cover_all_triggers():
     assert keys <= set(r.RS_TRIGGER_LABEL_KO)
 
 
-# ─── under_prescription — root 기반 처방 (근본원인 정합) ────────────────────
+# --- under_prescription — root 기반 처방 (근본원인 정합) --------------------
 
 
 def test_under_prescription_coupled_root_still_lists_symptom_resources():
@@ -542,7 +542,7 @@ def test_under_prescription_empty_when_no_under():
     assert r.under_prescription(r.rollup_host(_stats(cpu_p95_pct=50.0, cpu_cores=8, procs_running_p95=0.5))) == ""
 
 
-# ─── 디스크 용량 1년 수명 목표 ────────────────────────────────────────────
+# --- 디스크 용량 1년 수명 목표 --------------------------------------------
 
 
 def test_disk_capacity_target_1yr():

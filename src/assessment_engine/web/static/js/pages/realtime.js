@@ -15,7 +15,7 @@
   const ids = document.body.dataset.selectionIds || '';
   const url = '/environment/realtime?fragment=realtime' + (ids ? '&ids=' + encodeURIComponent(ids) : '');
 
-  // ─── 서버별 실시간 부하 20개 clip + 더보기/접기 ──────────────────────────
+  // --- 서버별 실시간 부하 20개 clip + 더보기/접기 --------------------------
   const LOAD_SHOWN = 20;
   let loadExpanded = false;
 

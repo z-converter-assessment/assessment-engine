@@ -15,7 +15,7 @@ from assessment_engine.boot_time import BOOT_TIME_JITTER_TOLERANCE
 # child 시계열(disk_io/net_io)은 boot_time 미보유 -> rate 차트 reset 은 GREATEST(delta,0) 로 흡수(아래).
 BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
 
-# ─── chart metric 카탈로그 (router Literal whitelist) ───
+# --- chart metric 카탈로그 (router Literal whitelist) ---
 type MetricType = Literal[
     "cpu.usage_percent",
     "cpu.user_percent",
@@ -118,7 +118,7 @@ _AGG: dict[str, str] = {
     "p95": "percentile_cont(0.95) WITHIN GROUP (ORDER BY v)",
 }
 
-# ─── chart dispatch 매핑 (router Literal로 whitelist된 metric_type만 도달) ───
+# --- chart dispatch 매핑 (router Literal로 whitelist된 metric_type만 도달) ---
 
 # CPU 누적 시간(seconds). delta로 % 계산 (LAG 기반). 성분 COALESCE — Windows 는 nice/iowait/irq/softirq/steal
 # 이 null(OS 개념 부재)이라 raw 합이 X+NULL=NULL 로 전파되면 delta null -> 전량 제외돼 Windows CPU 추이 차트가

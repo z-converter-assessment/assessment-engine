@@ -152,7 +152,7 @@ async def _seed_one_server_with_metrics(
     return sid, base_ts
 
 
-# ─── inventory ────────────────────────────────────────────────────────────
+# --- inventory ------------------------------------------------------------
 
 
 async def test_resolve_server_id_existing(
@@ -216,7 +216,7 @@ async def test_get_server_missing(query_repo: QueryRepository):
     assert await query_repo.get_server(999_999) is None
 
 
-# ─── _latest_per_dimension (n=1) — get_storage ────────────────────────────
+# --- _latest_per_dimension (n=1) — get_storage ----------------------------
 
 
 async def test_get_storage_returns_only_latest_per_mount(
@@ -232,7 +232,7 @@ async def test_get_storage_returns_only_latest_per_mount(
     assert storage.filesystems[0].mountpoint == "/"
 
 
-# ─── _latest_per_dimension (n=2) — get_network ────────────────────────────
+# --- _latest_per_dimension (n=2) — get_network ----------------------------
 
 
 async def test_get_network_returns_at_most_2_per_interface(
@@ -248,7 +248,7 @@ async def test_get_network_returns_at_most_2_per_interface(
     assert len(eth0_rows) == 2
 
 
-# ─── collection_status ────────────────────────────────────────────────────
+# --- collection_status ----------------------------------------------------
 
 
 async def test_collection_status_reports_both_timestamps(
@@ -266,7 +266,7 @@ async def test_collection_status_missing_server(query_repo: QueryRepository):
     assert await query_repo.get_collection_status(999_999) is None
 
 
-# ─── latest_dashboard — 3번의 _latest_per_dimension 통합 ──────────────────
+# --- latest_dashboard — 3번의 _latest_per_dimension 통합 ------------------
 
 
 async def test_latest_dashboard_returns_all_four_blocks(
@@ -344,7 +344,7 @@ async def test_latest_dashboard_skips_future_timestamp_rows(
     assert all(mu.collected_at is not None and mu.collected_at < future_ts for mu in dash.filesystems)
 
 
-# ─── metric_chart dispatcher — 17개 metric_type 모두 무사 dispatch ────────
+# --- metric_chart dispatcher — 17개 metric_type 모두 무사 dispatch --------
 
 
 @pytest.mark.parametrize("metric_type", _ALL_METRIC_TYPES)
@@ -388,7 +388,7 @@ async def test_metric_trend_env_dispatcher_all_types(
     assert isinstance(rows, list)
 
 
-# ─── metric_chart helper 결과 정확성 ──────────────────────────────────────
+# --- metric_chart helper 결과 정확성 --------------------------------------
 
 
 async def test_metric_chart_cpu_usage_percent_returns_data(
@@ -418,9 +418,9 @@ async def test_metric_chart_disk_io_saturation_returns_await(
     collect_repo: CollectRepository,
     query_repo: QueryRepository,
 ):
-    """disk.io_saturation — await(ms) 로 양 OS 통일. Σ(Δop_time)/Σ(Δops)*1000.
+    """disk.io_saturation — await(ms) 로 양 OS 통일. sum(delta(op_time))/sum(delta(ops))*1000.
 
-    시드 op_time/ops 델타 + io_time_s(device util >= RS_DISKIO_UTIL_MIN 게이트 통과 — 60s 간격에 Δ40s=0.67).
+    시드 op_time/ops 델타 + io_time_s(device util >= RS_DISKIO_UTIL_MIN 게이트 통과 — 60s 간격에 40s delta = 0.67).
 
     device_id 는 물리 디스크 필터(`_PHYS_DISK_SQL_FILTER`)가 조인하는 "name:{block_devices.name}" 규약 —
     inventory 에 동일 name 의 disk 노드가 있어야 chart 가 값을 낸다(tests/factories.py 상단 규약 주석).
@@ -445,7 +445,7 @@ async def test_metric_chart_disk_io_saturation_returns_await(
                         ops_write=0,
                         op_read_time_s=1.0 + i * 1.0,
                         op_write_time_s=0.0,
-                        io_time_s=i * 40.0,  # Δ40s / 60s wall = 0.67 util >= 0.5 게이트 통과
+                        io_time_s=i * 40.0,  # 40s delta / 60s wall = 0.67 util >= 0.5 게이트 통과
                         io_read_bytes=0,
                         io_write_bytes=0,
                     )
@@ -525,10 +525,10 @@ async def test_metric_chart_disk_io_saturation_util_gate_excludes_low_activity(
                         device_id="sda",
                         device_name="sda",
                         ops_read=100 + i * 2,
-                        ops_write=0,  # Δ2 극소 ops
+                        ops_write=0,  # 2 delta, 극소 ops
                         op_read_time_s=i * 10.0,
-                        op_write_time_s=0.0,  # Δ10s -> await 5000ms(폭증)
-                        io_time_s=i * 3.0,  # Δ3s / 60s wall = 0.05 util < 0.5 -> 게이트 탈락
+                        op_write_time_s=0.0,  # 10s delta -> await 5000ms(폭증)
+                        io_time_s=i * 3.0,  # 3s delta / 60s wall = 0.05 util < 0.5 -> 게이트 탈락
                         io_read_bytes=0,
                         io_write_bytes=0,
                     )
@@ -873,7 +873,7 @@ async def test_metric_chart_dimension_filter(
     assert any(r.dimension == "sdb" for r in rows_all)
 
 
-# ─── metric_snapshots ─────────────────────────────────────────────────────
+# --- metric_snapshots -----------------------------------------------------
 
 
 async def test_metric_snapshots_returns_timestamps(
@@ -900,7 +900,7 @@ async def test_metric_snapshots_cursor_pagination(
     assert all(r.collected_at < cursor for r in rows)
 
 
-# ─── batch resolve / get_servers (C5 N+1 회피) ────────────────────────────
+# --- batch resolve / get_servers (C5 N+1 회피) ----------------------------
 
 
 async def test_resolve_server_ids_batch_returns_dict(
@@ -981,7 +981,7 @@ async def test_get_servers_empty_input(query_repo: QueryRepository):
     assert await query_repo.get_servers([]) == []
 
 
-# ─── partition pruning (C5 _latest_per_dimension 30d 윈도우) ──────────────
+# --- partition pruning (C5 _latest_per_dimension 30d 윈도우) --------------
 
 
 async def test_latest_per_dimension_excludes_data_older_than_30d(
@@ -1009,7 +1009,7 @@ async def test_latest_per_dimension_excludes_data_older_than_30d(
     assert "/old" not in mount_names, "30d 이상 오래된 mount가 결과에 포함됨 — partition pruning 미적용"
 
 
-# ─── attention 신호: metric_gap_warnings (통신 끊김 운영신호) ──────────────
+# --- attention 신호: metric_gap_warnings (통신 끊김 운영신호) --------------
 # disk_usage_warnings 는 운영신호에서 USE Method 로 이동(코드 제거) — 관련 테스트 삭제됨.
 
 
@@ -1060,11 +1060,11 @@ async def test_metric_gap_warnings_no_metric_excluded(
     assert all(r.hostname != "never-host" for r in rows)
 
 
-# ─── mount 사용률 신호는 report_aggregate 가 단일 산출 ────────────────
+# --- mount 사용률 신호는 report_aggregate 가 단일 산출 ----------------
 # worst mount used% + 용량 임박 구동 마운트(runway) 모두 report_aggregate (test_query_repository_report.py).
 
 
-# ─── environment_utilization ──────────────────────────────────────────────
+# --- environment_utilization ----------------------------------------------
 
 
 async def test_environment_utilization_returns_averages(
@@ -1106,14 +1106,14 @@ async def test_environment_utilization_returns_averages(
             net_io=[],
         ),
     )
-    # CPU: LAG pair 1개. (1 - Σd_idle/Σd_total)*100 = (1 - 50/100)*100 = 50%
+    # CPU: LAG pair 1개. (1 - sum(d_idle)/sum(d_total))*100 = (1 - 50/100)*100 = 50%
     util = await query_repo.environment_utilization(period_days=1, end=datetime.now(UTC))
     assert util.cpu_avg_pct is not None
     assert 49.0 <= util.cpu_avg_pct <= 51.0
-    # MEM capacity-weighted = Σused/Σtotal = (50+70)/(100+100) = 60%
+    # MEM capacity-weighted = sum(used)/sum(total) = (50+70)/(100+100) = 60%
     assert util.mem_avg_pct is not None
     assert 59.0 <= util.mem_avg_pct <= 61.0
-    # DISK capacity-weighted = Σused/Σtotal = (60+80)/(100+100) = 70%
+    # DISK capacity-weighted = sum(used)/sum(total) = (60+80)/(100+100) = 70%
     assert util.disk_avg_pct is not None
     assert 69.0 <= util.disk_avg_pct <= 71.0
     assert util.sample_size >= 1
@@ -1186,10 +1186,10 @@ async def test_environment_utilization_capacity_weighted(
             ),
         )
     util = await query_repo.environment_utilization(period_days=1, end=end, server_ids=[small, big])
-    # CPU capacity-weighted = (1 - Σd_idle/Σd_total)*100 = (1 - 910/1100)*100 ≈ 17.3% (동등가중이면 50%)
+    # CPU capacity-weighted = (1 - sum(d_idle)/sum(d_total))*100 = (1 - 910/1100)*100 ~ 17.3% (동등가중이면 50%)
     assert util.cpu_avg_pct is not None
     assert 15.0 <= util.cpu_avg_pct <= 20.0
-    # MEM capacity-weighted = Σused/Σtotal = (180+200)/(200+2000)*100 ≈ 17.3% (동등가중이면 50%)
+    # MEM capacity-weighted = sum(used)/sum(total) = (180+200)/(200+2000)*100 ~ 17.3% (동등가중이면 50%)
     assert util.mem_avg_pct is not None
     assert 15.0 <= util.mem_avg_pct <= 20.0
 
@@ -1262,12 +1262,12 @@ async def test_metric_trend_capacity_weighted(
             )
     bucket = "1h"  # 전 데이터 한 버킷으로 강제
     cpu = await query_repo.metric_trend("cpu.usage_percent", start, end, bucket, [small, big])
-    # 버킷 Σd_num/Σd_total = (90+100)/(100+1000)*100 ~ 17.3% (서버 동등가중이면 50%)
+    # 버킷 sum(d_num)/sum(d_total) = (90+100)/(100+1000)*100 ~ 17.3% (서버 동등가중이면 50%)
     assert cpu
     assert cpu[-1].value is not None
     assert 15.0 <= cpu[-1].value <= 20.0
     mem = await query_repo.metric_trend("mem.usage_percent", start, end, bucket, [small, big])
-    # Σused/Σtotal = (180+200)/(200+2000)*100 ≈ 17.3% (서버 동등가중이면 50%)
+    # sum(used)/sum(total) = (180+200)/(200+2000)*100 ~ 17.3% (서버 동등가중이면 50%)
     assert mem
     assert mem[-1].value is not None
     assert 15.0 <= mem[-1].value <= 20.0
@@ -1331,7 +1331,7 @@ async def test_metric_trend_cached_null_component_is_gap_not_zero(
     assert 20.0 <= mixed[-1].value <= 30.0
 
 
-# ─── 이번 세션 신규 SQL 정확성 — mem.paging_pressure / net.congested / fs.usage_percent LOCF ──────────
+# --- 이번 세션 신규 SQL 정확성 — mem.paging_pressure / net.congested / fs.usage_percent LOCF ----------
 
 
 async def test_mem_paging_pressure_crosses_on_linux_refault(
@@ -1536,7 +1536,7 @@ async def test_net_congested_crosses_on_retrans_spike(
             ],
         ),
     )
-    # +1분: 재전송 50건 / 송신 패킷 1000건 증가 -> 5% (임계 1% 초과). 트래픽 800,000B/60s ≈ 13kB/s(임계 10 이상 충족).
+    # +1분: 재전송 50건 / 송신 패킷 1000건 증가 -> 5% (임계 1% 초과). 트래픽 800,000B/60s ~ 13kB/s(임계 10 이상 충족).
     await collect_repo.record_metrics(
         sid,
         make_metrics(
@@ -1667,7 +1667,7 @@ async def test_fs_usage_percent_collapse_locf_no_first_bucket_distortion(
         assert 55.0 <= r.value <= 65.0, f"버킷 값이 60~61% 범위를 벗어남(LOCF 왜곡 의심): {r.value}"
 
 
-# ─── cpu.saturation / disk.saturation — 신규 서버 상세 이진(0/1) 포화 3축(엔지니어 보고서 포화 추이) ──────
+# --- cpu.saturation / disk.saturation — 신규 서버 상세 이진(0/1) 포화 3축(엔지니어 보고서 포화 추이) ------
 
 
 async def test_cpu_saturation_crosses_when_run_queue_over_per_core_threshold(

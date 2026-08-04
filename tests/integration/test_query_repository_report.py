@@ -88,7 +88,7 @@ async def _seed_server_with_period_metrics(
     return sid, base_ts, base_ts + timedelta(minutes=interval_min * (n_points - 1))
 
 
-# ─── report_aggregate iowait + inventory 합계 ─────────────────────────────
+# --- report_aggregate iowait + inventory 합계 -----------------------------
 
 
 async def test_report_aggregate_returns_iowait_and_inventory(
@@ -160,7 +160,7 @@ async def test_report_aggregate_returns_reproduction_columns(
     assert r.nonblock_mounts[0]["fstype"] == "tmpfs"
 
 
-# ─── report_uptime_stats — boot_time DISTINCT count - 1 ──────────────────
+# --- report_uptime_stats — boot_time DISTINCT count - 1 ------------------
 
 
 async def test_report_uptime_stats_no_reboot(collect_repo: CollectRepository, query_repo: QueryRepository):
@@ -214,7 +214,7 @@ async def test_report_uptime_stats_counts_reboot_transitions(
     assert counts.get(sid, 0) == 2  # boot_time DISTINCT 3 - 1 = 2회 재부팅
 
 
-# ─── report_disk_io_baseline — IOPS + throughput ─────────────────────────
+# --- report_disk_io_baseline — IOPS + throughput -------------------------
 
 
 async def test_report_disk_io_baseline_iops_and_throughput(
@@ -241,7 +241,7 @@ async def test_report_disk_io_baseline_iops_and_throughput(
     assert iops >= 1
     assert throughput_kbps is not None
     assert throughput_kbps > 0
-    # p95/peak는 시점 rate 기반 — baseline 이상 (모든 시점 동일 rate라 p95 ≈ peak ≈ baseline)
+    # p95/peak는 시점 rate 기반 — baseline 이상 (모든 시점 동일 rate라 p95 ~ peak ~ baseline)
     assert iops_p95 is not None
     assert iops_p95 > 0
     assert iops_peak is not None
@@ -266,7 +266,7 @@ async def test_report_disk_io_baseline_missing_data_returns_empty(
     assert sid not in io_map
 
 
-# ─── report_net_io_baseline — rx/tx kbps ─────────────────────────────────
+# --- report_net_io_baseline — rx/tx kbps ---------------------------------
 
 
 async def test_report_net_io_baseline_rx_tx(collect_repo: CollectRepository, query_repo: QueryRepository):
@@ -299,7 +299,7 @@ async def test_report_net_io_baseline_rx_tx(collect_repo: CollectRepository, que
     assert tx_peak >= tx_p95
 
 
-# ─── 합산: 5 SQL이 같은 server_ids·period 입력 일관 동작 ──────────────────
+# --- 합산: 5 SQL이 같은 server_ids·period 입력 일관 동작 ------------------
 
 
 async def test_all_report_queries_share_server_ids_and_period(
@@ -328,7 +328,7 @@ async def test_all_report_queries_share_server_ids_and_period(
     assert uptime.get(sid, 0) == 0
 
 
-# ─── 개별 보고서 심화 — 메모리 구성 / CPU 분류 ──────────────────
+# --- 개별 보고서 심화 — 메모리 구성 / CPU 분류 ------------------
 
 
 async def test_report_memory_breakdown_pct_split(collect_repo: CollectRepository, query_repo: QueryRepository):
@@ -369,7 +369,7 @@ async def test_report_breakdowns_single_equals_batch(collect_repo: CollectReposi
     assert cpu_single == cpu_batch
 
 
-# ─── cagg counter reset 처리 (ADR 0043 — counter_agg 정석) ────────────────────
+# --- cagg counter reset 처리 (ADR 0043 — counter_agg 정석) --------------------
 
 
 async def test_report_aggregate_counter_reset_segments_summed(
@@ -454,7 +454,7 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(
     assert iops_baseline > 0
 
 
-# ─── ADR 0052 신 신호 report_aggregate 집계 ──────────────────────────────
+# --- ADR 0052 신 신호 report_aggregate 집계 ------------------------------
 
 
 async def test_report_aggregate_adr0052_signals(collect_repo: CollectRepository, query_repo: QueryRepository):
@@ -595,7 +595,7 @@ async def test_report_aggregate_adr0052_signals_absent_are_none(
     assert r.mem_swap_paging is False  # paging_major 미발행
 
 
-# ─── ADR 0052 per-core 단일스레드 신호 ────────────────────────────────────
+# --- ADR 0052 per-core 단일스레드 신호 ------------------------------------
 
 
 async def test_report_aggregate_percore_p95_max_reflects_busy_core(
@@ -659,7 +659,7 @@ async def test_report_aggregate_percore_none_when_absent(collect_repo: CollectRe
     assert rows[0].cpu_percore_p95_max is None
 
 
-# ─── ADR 0052 run-queue(cpu_run_queue) + OOM ──────────────────────────────
+# --- ADR 0052 run-queue(cpu_run_queue) + OOM ------------------------------
 
 
 async def test_report_aggregate_runqueue_and_oom(collect_repo: CollectRepository, query_repo: QueryRepository):
@@ -688,11 +688,11 @@ async def test_report_aggregate_runqueue_oom_absent(collect_repo: CollectReposit
     assert r.oom_occurred is False
 
 
-# ─── ADR 0052 신 신호 값 검증 — disk await(counter_agg) · conntrack ratio · inode used% ───
+# --- ADR 0052 신 신호 값 검증 — disk await(counter_agg) · conntrack ratio · inode used% ---
 async def test_report_aggregate_await_conntrack_inode(collect_repo: CollectRepository, query_repo: QueryRepository):
     """신 신호 3종 실값 검증 — await 는 물리 device op_time delta 로 양 OS 통일):
 
-    - disk await: Σ(Δ op_read_time_s + Δ op_write_time_s) / Σ(Δ ops_read + Δ ops_write) * 1000 = ms.
+    - disk await: sum(op_time delta) / sum(ops delta) * 1000 = ms (read·write 합산).
       매 분당 op_time += 2.5s · ops += 100 -> await = 25ms(> 20 임계). io_time 분당 +50s -> %util 0.83(게이트 0.5).
     - conntrack: server_metrics_5m conntrack_ratio_max = usage/limit = 55000/65536 = 0.839 (0-1 ratio).
     - inode used%: worst mount inode_pct = used/(used+free)*100 = 950000/1000000*100 = 95%(>= 85 정적 가드).

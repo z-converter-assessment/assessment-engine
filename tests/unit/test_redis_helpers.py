@@ -26,7 +26,7 @@ from assessment_engine.cache.redis import (
 pytestmark = pytest.mark.asyncio
 
 
-# ─── safe_get ─────────────────────────────────────────────────────────────
+# --- safe_get -------------------------------------------------------------
 
 
 async def test_safe_get_returns_value_on_hit():
@@ -49,7 +49,7 @@ async def test_safe_get_returns_none_on_redis_error():
     assert await safe_get(redis, "k") is None
 
 
-# ─── safe_set ─────────────────────────────────────────────────────────────
+# --- safe_set -------------------------------------------------------------
 
 
 async def test_safe_set_returns_true_on_success():
@@ -64,7 +64,7 @@ async def test_safe_set_returns_false_on_redis_error():
     assert await safe_set(redis, "k", "v") is False
 
 
-# ─── safe_set_nx — 멱등성 1단, fail-open은 호출자 결정 ─────────────────────
+# --- safe_set_nx — 멱등성 1단, fail-open은 호출자 결정 ---------------------
 
 
 async def test_safe_set_nx_returns_true_on_first_write():
@@ -87,7 +87,7 @@ async def test_safe_set_nx_returns_none_on_redis_error_for_failopen_decision():
     assert await safe_set_nx(redis, "k", "1", 86400) is None
 
 
-# ─── safe_delete ──────────────────────────────────────────────────────────
+# --- safe_delete ----------------------------------------------------------
 
 
 async def test_safe_delete_success():
@@ -101,7 +101,7 @@ async def test_safe_delete_failopen():
     assert await safe_delete(redis, "k") is False
 
 
-# ─── safe_mget ────────────────────────────────────────────────────────────
+# --- safe_mget ------------------------------------------------------------
 
 
 async def test_safe_mget_empty_keys_short_circuit():
@@ -125,7 +125,7 @@ async def test_safe_mget_returns_none_on_redis_error_for_fallback():
     assert await safe_mget(redis, ["a", "b"]) is None
 
 
-# ─── safe_incr_with_ttl — 슬라이딩 윈도우 카운터 (INCR + EXPIRE 원자) ────────
+# --- safe_incr_with_ttl — 슬라이딩 윈도우 카운터 (INCR + EXPIRE 원자) --------
 
 
 def _redis_with_pipe(

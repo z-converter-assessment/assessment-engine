@@ -328,7 +328,7 @@ def test_null_gateway_host_joins_single_gateway_subnet():
     assert t.isolated_count == 0
 
 
-# ─── 3계층 재설계 — 게이트웨이 라우터 노드 · 멀티홈 · SubnetHost 상세 필드 ──────
+# --- 3계층 재설계 — 게이트웨이 라우터 노드 · 멀티홈 · SubnetHost 상세 필드 ------
 
 
 def _rich_iface(

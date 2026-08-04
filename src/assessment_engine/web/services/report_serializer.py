@@ -62,9 +62,9 @@ from assessment_engine.web.view_models.server import IpAddr, NetIfaceAddress, Ne
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
 
 
-# ──────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 # ReportSummary (server scope 보고서 base — EnvironmentReportSummary.base 직렬화·복원에 사용)
-# ──────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 def report_summary_to_dict(vm: ReportSummary) -> JsonObject:
     return to_jsonable(vm)
 
@@ -116,9 +116,9 @@ def report_summary_from_dict(d: JsonObject) -> ReportSummary:
     return _build(ReportSummary, data)
 
 
-# ──────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 # EnvironmentReportSummary (환경 + 단일서버 보고서 — reports/environment.html, servers/single_report.html)
-# ──────────────────────────────────────────────────────────────────────────
+# --------------------------------------------------------------------------
 def env_report_to_dict(vm: EnvironmentReportSummary) -> JsonObject:
     return to_jsonable(vm)
 

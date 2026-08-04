@@ -32,7 +32,7 @@
     .sidebar-group { margin-bottom: 2px; }
     /* 그룹 헤더 — 항목과 동일 폰트·크기·색. 계층 구분은 정렬(그룹=좌 / 항목=우)로만. 고정 높이 + 수직 중앙정렬로 그룹 간 높이 통일. */
     .sidebar-group-label { display: flex; align-items: center; justify-content: space-between; width: 100%; height: 40px; padding: 0 18px; background: none; border: none; cursor: pointer; font: inherit; font-size: 13px; font-weight: 400; color: var(--sidebar-fg); text-align: left; }
-    /* 폴드 캐럿 — 속 찬 삼각형. 펼침=아래(▼) / 접힘=오른쪽(▶), 회전 애니메이션. */
+    /* 폴드 캐럿 — 속 찬 삼각형. 펼침이면 아래, 접힘이면 오른쪽을 가리키고 회전으로 전환한다. */
     .sidebar-group-label::after { content: ""; width: 0; height: 0; border-left: 5px solid transparent; border-right: 5px solid transparent; border-top: 6px solid currentColor; transition: transform .2s ease; opacity: .6; }
     .sidebar-group.is-collapsed .sidebar-group-label::after { transform: rotate(-90deg); }
     /* 아코디언 항목 — 열고닫기 max-height 트랜지션(부드러운 슬라이드). */
@@ -524,7 +524,7 @@
 
     .print-only { display: none; }
 
-    /* ── 화면 반응형 — 좁은 창에서 고정 다열 그리드를 1열로 (찌그러짐 방지, 카드 무파손).
+    /* -- 화면 반응형 — 좁은 창에서 고정 다열 그리드를 1열로 (찌그러짐 방지, 카드 무파손).
        env-dual·env-pair·stat-grid·부하상위는 auto-fit minmax 라 자동 분기 — 여기선 고정 grid 만 보강. */
     @media (max-width: 640px) {
       .metric-grid-2, .metric-grid-3, .metric-grid-4, .metric-grid-5,
@@ -537,7 +537,7 @@
       table { display: block; overflow-x: auto; -webkit-overflow-scrolling: touch; }
     }
 
-    /* ── Print ── */
+    /* -- Print -- */
     @media print {
       /* 용지 여백 축소 — 1페이지 가용 세로 영역 확대 (성능 추이 1페이지 압박 완화). */
       @page { margin: 10mm; }
@@ -607,7 +607,7 @@
       /* 환경 부하 추이 차트(보고서 인쇄) — 동일 보정. */
       #env-trend-chart { width: 100% !important; height: 100% !important; }
     }
-    /* ── 전역 모션·인터랙션 (통일) — base.html 단일 정의로 전 페이지 공통. prefers-reduced-motion 존중. ── */
+    /* -- 전역 모션·인터랙션 (통일) — base.html 단일 정의로 전 페이지 공통. prefers-reduced-motion 존중. -- */
     /* 카드 등장 — 은은한 fade+up (로드 시 콘텐츠 안착). */
     @keyframes card-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
     .card { animation: card-in .55s cubic-bezier(.22,1,.36,1) both; }

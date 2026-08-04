@@ -1,6 +1,6 @@
 """boot_time 동일 부팅 판정 헬퍼 단위테스트 (CLAUDE.md #B counter reset 정밀 식별).
 
-측정 지터(now - uptime 산출로 매 수집 ±1초)를 재부팅으로 오판하지 않도록
+측정 지터(now - uptime 산출로 매 수집 +/-1초)를 재부팅으로 오판하지 않도록
 BOOT_TIME_JITTER_TOLERANCE(=5초) 경계에서 동작을 encode.
 
 - is_counter_reset: 보수적 — NULL 한쪽이면 False, 허용치 초과만 True.

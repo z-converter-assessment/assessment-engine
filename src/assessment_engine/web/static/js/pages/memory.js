@@ -29,7 +29,7 @@ function fmtGb(bytes) {
   return (bytes / 1024 / 1024 / 1024).toFixed(1) + ' GB';
 }
 
-/* ── 스냅샷 ── */
+/* -- 스냅샷 -- */
 async function loadSnapshot() {
   try {
     const res = await fetch(`/api/servers/${SERVER_ID}/metrics/latest`);
@@ -57,7 +57,7 @@ async function loadSnapshot() {
   }
 }
 
-/* ── avg+max ghost 차트 (메모리 사용률 추이) ──
+/* -- avg+max ghost 차트 (메모리 사용률 추이) --
  * Y축 정책: mem은 분해력 우선 0~100%.
  */
 const PCT_CHARTS = [
@@ -164,7 +164,7 @@ function makePctLoader(def) {
 
 const pctLoaders = PCT_CHARTS.map(makePctLoader);
 
-/* ── 메모리 구성 추이 (used / available / cached / buffers %) — multi-dim ── */
+/* -- 메모리 구성 추이 (used / available / cached / buffers %) — multi-dim -- */
 /** @type {any} */
 let compChart = null;
 let compSeq   = 0;
@@ -266,7 +266,7 @@ async function loadCompChart() {
   } catch(e) { console.error(e); }
 }
 
-/* ── 메모리 압박 여부 추이 (이진 0/1 스텝 — recommendation.mem_pressure_active 와 동일 판정) ──
+/* -- 메모리 압박 여부 추이 (이진 0/1 스텝 — recommendation.mem_pressure_active 와 동일 판정) --
  * Linux(refault 임계 >0)·Windows(Pages Input/sec 임계 20/s) 를 버킷별 bool_or 로 0/1 통일 — OS 무관 같은
  * 잣대(판정 결과)로 비교 가능. backend mem.paging_pressure(서버 상세 단일 시계열, 환경 mem.paging_pressure_hosts
  * 와 동일 원자료·임계).
@@ -321,7 +321,7 @@ async function loadPagingChart() {
   } catch(e) { console.error(e); }
 }
 
-/* ── 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) ── */
+/* -- 페이지 단일 시간축 버킷 라벨·print range (모든 차트 공통 range) -- */
 function updateBucketLabels() {
   const r = timeCtl.getRange();
   const pr = ' — ' + RANGE_LABEL[r];
@@ -332,7 +332,7 @@ function updateBucketLabels() {
   set('mem-range-print', pr); set('comp-range-print', pr); set('mem-paging-range-print', pr);
 }
 
-/* ── 전체 차트 reload (페이지 range/anchor 변경 시) ── */
+/* -- 전체 차트 reload (페이지 range/anchor 변경 시) -- */
 function reloadAllCharts() {
   updateBucketLabels();
   pctLoaders.forEach(loader => loader.load());
@@ -343,9 +343,9 @@ function reloadAllCharts() {
 // 페이지 단일 시간축 컨트롤러 — range 토글 + anchor 가 3 차트 전체 구동(#F10).
 const timeCtl = pageTimeControl('page-range-btns', 'page-anchor', '15m', reloadAllCharts);
 
-/* ── 30초 polling 자동 갱신 (스냅샷만) ── */
+/* -- 30초 polling 자동 갱신 (스냅샷만) -- */
 initAutoRefresh(loadSnapshot);
 
-/* ── 초기 로드 ── */
+/* -- 초기 로드 -- */
 loadSnapshot();
 reloadAllCharts();
