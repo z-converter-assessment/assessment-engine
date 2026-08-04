@@ -1,6 +1,6 @@
 # ADR 0031 — OS EOL 운영신호: endoflife.date 스냅샷 카탈로그
 
-상태: Accepted
+상태: Refined by ADR 0061 (2026-08-04, 경계 3개 기준 4상태 판정) — 스냅샷 방식·매칭 규약은 유효
 
 ## Context
 

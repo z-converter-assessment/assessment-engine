@@ -35,7 +35,7 @@ read-only — 위반을 심각도 순으로 보고하되 수정하지 않는다.
 | 파일 번호 집합 == 인덱스 행 집합 | 양쪽을 뽑아 차집합 |
 | 중복 번호 0 | 파일명 접두 4자리 정렬 후 중복 확인 |
 | 단조 증가 (번호 재사용 0) | 빠진 번호가 있으면 회수인지 확인 |
-| `Superseded by NNNN` 대상 실재 | 인덱스 Status 열에서 번호를 뽑아 파일 존재 확인 |
+| 관계 표기 대상 실재 | Status 열의 `Superseded by`·`Refined by`·`Amended by` 번호를 뽑아 파일 존재 확인 |
 | 역참조 정합 | A 가 B 를 supersede 하면 B 의 Status 도 갱신됐나 |
 
 표 다섯을 한 번에 돌린다. 번호 집합만 보는 검사는 Status 불일치를 통과시키므로 역참조까지 확인해야 한다.
@@ -67,9 +67,10 @@ for f in sorted(os.listdir(d)):
     if kind(fs) != kind(i):
         mismatch.append((f[:4], kind(fs), kind(i), fs[:45]))
 
-# Superseded by NNNN 대상 실재
+# 관계 표기가 가리키는 대상이 실재하는가 (Superseded / Refined / Amended by)
+rel = r"(?:Superseded|Refined|Amended) by (?:ADR )?(\d{4})"
 dangling = [(n, t) for n, st in status.items()
-            for t in re.findall(r"Superseded by (?:ADR )?(\d{4})", st) if t not in files]
+            for t in re.findall(rel, st) if t not in files]
 
 for label, v in [("파일에만", only_f), ("인덱스에만", only_i), ("중복 번호", dup),
                  ("번호 건너뜀", gaps), ("역참조 불일치", mismatch), ("대상 부재", dangling)]:
