@@ -10,8 +10,14 @@ fields`)를 고정한다.
 import dataclasses
 from datetime import UTC, datetime
 
+import pytest
+
 from assessment_engine.web.services.mappers.environment_report import to_environment_report
-from assessment_engine.web.services.report_serializer import env_report_from_dict, env_report_to_dict
+from assessment_engine.web.services.report_serializer import (
+    _report_row_from_dict,
+    env_report_from_dict,
+    env_report_to_dict,
+)
 from assessment_engine.web.view_models.attention import ActionTargets, AttentionSignals, EnvironmentOverview
 from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,
@@ -297,3 +303,39 @@ def test_nested_overview_and_storage_drop_removed_fields_via_build():
     assert not hasattr(sd, "_legacy_removed_axis") and sd.label == "CPU 포화"
     node = restored.storage_tree[0]
     assert not hasattr(node, "_legacy_major_minor") and node.name == "vda"
+
+
+def _row_kwargs(**overrides) -> dict:
+    """ReportRowItem 복원 입력 — 필수 필드를 타입별 최소값으로 채운다."""
+    base: dict = {}
+    for f in dataclasses.fields(ReportRowItem):
+        if f.default is not dataclasses.MISSING or f.default_factory is not dataclasses.MISSING:
+            continue
+        t = str(f.type)
+        base[f.name] = 0 if ("int" in t or "float" in t) else (False if "bool" in t else "")
+    return {**base, **overrides}
+
+
+@pytest.mark.parametrize(
+    ("stored", "expected"),
+    [
+        # 옛 어휘로 저장된 스냅샷 — 지원 단계 이름이 바뀌기 전 발행분
+        ("eol", "ended"),
+        ("extended", "security_only"),
+        ("supported", "full"),
+        # 현행 어휘와 판정 불가는 그대로 통과
+        ("ended", "ended"),
+        ("paid_only", "paid_only"),
+        ("security_only", "security_only"),
+        ("full", "full"),
+        ("unknown", "unknown"),
+        ("", ""),
+    ],
+)
+def test_legacy_os_eol_status_restored(stored, expected):
+    """보고서는 발행 시점 정적 스냅샷이라 옛 상태 문자열이 그대로 되살아난다.
+
+    표시 계층이 현행 어휘만 분기하므로 역직렬화에서 옮긴다. 매핑이 빠지면 예외 없이
+    "미상" 으로 렌더돼 조용히 실패한다.
+    """
+    assert _report_row_from_dict(_row_kwargs(os_eol_status=stored)).os_eol_status == expected

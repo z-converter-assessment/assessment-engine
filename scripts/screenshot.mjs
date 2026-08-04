@@ -1,19 +1,5 @@
-// 렌더된 웹페이지를 headless chromium 으로 캡처 (dev/검증 전용 — 빌드/런타임 아님).
-//
-// 표현계층(P2 mapper 파생 -> P3 template -> P4 chart JS) 이 실제 브라우저에서 어떻게 그려지는지
-// PNG 로 확인하기 위한 도구. Chart.js·fetch 동적 차트가 그려질 시간을 준 뒤 full-page 캡처하고,
-// 페이지 콘솔 에러도 함께 수집해 표시 계층 회귀를 눈으로 검증한다.
-//
-// 사용:
-//   node scripts/screenshot.mjs <outDir> [옵션] [url ...]
-// 옵션:
-//   --base <url>      기준 오리진 (기본 http://localhost:8000)
-//   --server <id>     public_id — 주면 표준 페이지 세트(개요·목록·환경·상세 탭) 일괄 캡처
-//   --vw <n>          뷰포트 너비 (기본 1440)
-//   --vh <n>          뷰포트 높이 (기본 1000, full-page 라 스크롤 전체 캡처)
-//   --settle <ms>     load 후 차트 렌더 대기 (기본 2500)
-//   --scale <n>       deviceScaleFactor (기본 2 — 텍스트 선명)
-// url 을 직접 나열하면 그 경로만 캡처 (--server 표준 세트 대신).
+// 페이지를 headless chromium 으로 열어 full-page PNG 로 찍고 콘솔 에러를 걷는다.
+// 사용법·옵션·설치 전제는 docs/guides/local-dev.md "화면 캡처" 절.
 
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';

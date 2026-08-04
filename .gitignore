@@ -52,3 +52,6 @@ htmlcov/
 # 표현계층 타입 도구 (dev/CI 전용). 생성 타입(static/js/generated/)은 커밋 — drift 게이트 대상.
 node_modules/
 openapi.json
+# pyright 설정 실험용 — pyproject.toml [tool.pyright] 가 정본이라 루트 config 는 커밋하지 않는다
+pyrightconfig.json
+pyrightconfig.*.json

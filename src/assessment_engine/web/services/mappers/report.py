@@ -29,6 +29,7 @@ from assessment_engine.web.services.mappers.shared import (
     SaturationAxisDisplay,
     build_host_confidence_notes,
     lookup_os_eol,
+    os_eol_display,
     resolve_os_eol,
     saturation_axis_displays,
 )
@@ -795,6 +796,7 @@ def to_report_row_item(
     """
     info = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
     os_eol, os_eol_status = ("", "unknown") if info is None else (info.eol_iso, info.status)
+    os_eol_disp = os_eol_display(os_eol_status, os_eol)
     stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
     # rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생한다 (화면 간 분류 정합).
     host = recommendation.rollup_host(stats)
@@ -836,6 +838,10 @@ def to_report_row_item(
         kernel_version=raw.kernel_version,
         os_eol=os_eol,
         os_eol_status=os_eol_status,
+        os_eol_label=os_eol_disp.label,
+        os_eol_css=os_eol_disp.css,
+        os_eol_title=os_eol_disp.title,
+        os_eol_sort=os_eol_disp.sort,
         has_operational_event=has_operational_event,
         internal_ip=next(
             (

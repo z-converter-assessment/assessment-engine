@@ -1,4 +1,4 @@
-# wrap-up — 기능 개발 마무리 표준 워크플로
+# 기능 개발 마무리 워크플로
 
 > 기능 개발(feature branch) 동작 완성 후 거치는 5단계 마무리의 단일 진실. `/commit`·`/pr` skill 이 각자 담당 Stage 를 실행한다 — skill 은 절차만 가지고 체크리스트는 본 문서를 인용한다.
 >
@@ -13,28 +13,30 @@
 진입 조건:
 - 기능 동작 완성 — `/run` 또는 수동 검증 통과. 이 동작 검증이 Stage 1 리팩토링의 회귀 안전망이다 (통과하는 검증 하에서만 구조를 바꾼다 — Fowler).
 - feature branch 위 (`main`·`master` 직접 X). 미커밋 변경만 또는 clean 상태.
-- commit·PR 전. commit·PR 자체는 본 워크플로 종료 후 사용자 명시 시 `/commit`·`/pr` 별도 발동.
+- PR 발행 전. `/pr` 이 develop PR 게이트로 Stage 1~5 를 돌린 뒤 PR 을 연다 (0절 표). `/commit` 은 본 워크플로와 무관하게 언제든 별도 발동.
 
 검증 강도 — 되돌리기 비용에 비례해 배치한다. 커밋은 `amend`·`rebase` 로 지울 수 있고, develop 통합은 revert 로 물릴 수 있고, main 승격은 배포로 이어진다.
 
 | 이벤트 | 게이트 | Stage | 발동 |
 |--------|--------|-------|------|
 | 로컬 commit | lint | — | `/commit` |
-| develop PR | 코드 리뷰 · 단위 테스트 · 파이프라인 | 1·2·3 | `/pr` |
-| main PR | 문서 정합 · ADR · 영향도 · 통합 테스트 | 4·5 | `/pr --base main` |
-
-Stage 4·5(문서)는 릴리즈 주기와 별개로도 실행한다. drift 는 기능 단위가 아니라 시간이 지나며 쌓이므로, 코드 현황과 문서를 대조하는 작업 자체는 `/docs` 로 언제든 발동한다. main PR 게이트는 그 skill 을 승격 대상 영역에 대해 호출하는 것이다.
+| develop PR | 코드 리뷰 · 문서 정합 · ADR · 영향도 · 단위 테스트 · 파이프라인 | 1~5 | `/pr` |
+| main PR | 릴리즈 단위 문서 검증 · 통합 테스트 | 검증만 | `/pr --base main` |
 
 커밋마다 무거운 검증을 강제하지 않는다 — 동작 검증(`/run`)과 변경 직후 자가 점검(#F5)이면 충분하다.
 
-문서(Stage 4·5)를 main PR 로 미루는 이유는 응집도다. 문서는 무엇이 릴리즈되는가에 대한 서술이라, feature 마다 쓰면 develop 에 여러 갈래가 모였을 때 서로 어긋난다. 릴리즈 단위로 한 번에 쓰면 중복도 재작업도 없다.
+문서를 feature 단위로 쓰는 이유는 맥락이다. 문서와 ADR 은 왜 그렇게 했는지를 담는데, 그 근거는 결정한 직후에만 정확하다. 릴리즈까지 미루면 여러 커밋 분량을 기억으로 복원해야 하고 그 사이 drift 가 쌓인다.
+
+이 배치는 이 저장소가 순차 흐름이라 성립한다. feature 브랜치가 동시에 열리지 않으므로 다음 feature 는 앞 feature 의 문서 상태 위에서 시작하고, 같은 문단을 두 갈래가 각자 고치는 충돌이 없다. 병렬 개발로 바뀌면 이 전제가 깨지므로 배치를 다시 본다.
+
+main PR 은 쓰지 않고 검증만 한다. 개별로는 맞는 서술이 릴리즈 단위로 모이면 어긋날 수 있고 그건 묶어 봐야 보인다 — doc-auditor 를 승격 범위에 한 번 더 돌린다.
 
 범위 밖:
 - 기능 동작 개발 자체 — 개발 시간의 대부분. 본 워크플로는 동작하는 코드를 전제로 그 위에서 정석화·정합만 수행 (make it work 후의 make it right).
 - commit 메시지·PR 본문 작성·push.
 - 동작 검증 (`/run`).
 
-Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파이프라인 검증 -> 문서 -> CLAUDE.md. 코드가 먼저 정석에 도달한 뒤 문서를 맞춘다 (역순이면 코드 변경 때마다 문서 재작업).
+Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파이프라인 검증 -> 문서 -> CLAUDE.md. 코드가 먼저 정석에 도달한 뒤 문서를 맞춘다 (역순이면 코드 변경 때마다 문서 재작업). 다섯 Stage 가 한 PR 안에서 순서대로 돈다.
 
 ---
 
@@ -45,7 +47,7 @@ Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파
 결정 필요 사항 = 다음 셋 중 하나:
 - 스코프 확장 — 본 워크플로 범위 밖 변경 발견 (예: 본 feature 가 아닌 기존 영구 문서의 위반).
 - 알려진 갭 — 의도적으로 미루고 PR 본문에 명시할지 판정 필요.
-- Stage 5 큐 — 명세 자체 갱신·새 ADR·CLAUDE.md "본 절 결정" 추가 등 의식적 결정.
+- 의식적 결정 — 명세 자체 갱신·새 ADR·CLAUDE.md "본 절 결정" 추가.
 
 위 셋 외 발견은 자율 처리 (정석 정정이 명백하면 즉시 적용 + 변경 카탈로그 기록).
 
@@ -213,7 +215,7 @@ Self-audit 메타 인용 제외:
 
 목적:
 - 본 feature 가 만진 영역의 영구 문서(`docs/reference/`·`docs/guides/`·`docs/explanation/products/`·`docs/explanation/tradeoffs.md`)가 현행 코드를 정확히 반영.
-- CLAUDE.md·ADR 후보는 변경하지 않고 Stage 5 큐로만 적재.
+- CLAUDE.md·ADR 변경은 Stage 5 에서 처리한다 — 같은 PR 안이라 후보만 적어 두고 넘긴다.
 
 체크리스트:
 
@@ -221,7 +223,7 @@ Self-audit 메타 인용 제외:
 - [4.1] 변경 코드 경로별 매핑 영구 문서를 모두 Read. (a) 문서 인용 symbol(함수·클래스·필드·env 키·routing key·상수)이 코드에 실제 존재. (b) 시그니처·타입·기본값 일치. (c) 한 문서 안 동일 symbol 표기 일관.
 - [4.2] CLAUDE.md "본 절 결정" 중 본 feature 가 무효화·변경·확장한 결정이 있으면 Stage 5 큐에 (절번호 · 변경 유형 · 근거) 적재.
 - [4.3] 영구 문서 안 인용 경로(`src/` · `docs/` · `tests/`)가 실제 존재. 검사: `rg -oN '\b(src/|docs/|tests/|migrations/)[A-Za-z0-9_./-]+' docs/` 추출 후 `test -e`.
-- [4.4] ADR 이 본 feature 로 Superseded·Withdrawn 돼야 하는가, 새 ADR 후보가 있는가 — 둘 다 Stage 5 큐로.
+- [4.4] ADR 이 본 feature 로 Superseded·Withdrawn 돼야 하는가, 새 ADR 후보가 있는가 — 판정만 하고 Stage 5 로 넘긴다. 판정 표는 `/docs` 4절이 갖는다.
 - [4.5] `docs/explanation/tradeoffs.md` T 항목 중 본 feature 가 해결·악화시킨 것, 새 트레이드오프 — 큐 적재.
 
 중복 없음 (4):
@@ -258,7 +260,7 @@ Self-audit 메타 인용 제외:
 ## 6. Stage 5 — CLAUDE.md · 관련 영구 문서 최종 수정
 
 입력:
-- Stage 1·2·4 누적 큐: CLAUDE.md "본 절 결정" 변경 · ADR 신규/Superseded · tradeoffs T 신규 · 본 feature 가 확립한 새 규약·금지·정석 패턴 후보.
+- Stage 1·2·4 에서 넘어온 후보: CLAUDE.md "본 절 결정" 변경 · ADR 신규/Superseded · tradeoffs T 신규 · 본 feature 가 확립한 새 규약·금지·정석 패턴.
 
 목적:
 - 영구 단일 진실(CLAUDE.md + `docs/decisions/adr/` + `docs/reference/*` + `docs/explanation/tradeoffs.md` + `docs/README.md`) 최종 정합.
@@ -270,11 +272,11 @@ Self-audit 메타 인용 제외:
 - [5.1] CLAUDE.md A→F 섹션 번호 규약 유지. 추가는 해당 절에만 (계층 위반 0건). 충돌 시 #E1 P1~P4 우선순위.
 - [5.2] CLAUDE.md 본문 변경 시 영향 deep dive(`docs/reference/*` · `docs/guides/*`) 동시 갱신. 시그니처·임계·카탈로그 일치.
 - [5.3] CLAUDE.md "본 절 결정" 신규 = (원칙 → 결정 → 금지) 구조 + 외부 포인터는 "상세는 `docs/X` 절" 형식만. 본 절 안 deep dive 본문 dump 0건.
-- [5.4] ADR 신규 시 `docs/decisions/adr/README.md` 인덱스 갱신. 번호는 마지막 + 1 단조 증가 (재사용 0건).
+- [5.4] ADR 정리는 `/docs` 4절이 갖는다 (판정 표·채번·인덱스 행). 여기서는 그 결과가 반영됐는지만 확인한다.
 - [5.5] `docs/README.md` 카테고리 표 + 디렉토리 트리 동시 갱신. 추가/제거 영구 문서 한 줄로 (위치 · 역할 · 수명).
 
 정석 (4):
-- [5.6] ADR 은 정정만 (덮어쓰기 금지). 결정 변경은 새 ADR + 이전 ADR `Status: Superseded by 00NN` (Withdrawn 이면 사유 1줄). retroactive 수정 0건.
+- [5.6] ADR 파일·인덱스 변경분이 `/docs` 4절 판정 표를 벗어나지 않았는지 diff 로 확인 (규약 본문은 그 절 소유 — 여기 복제 금지).
 - [5.7] CLAUDE.md F9 "변경 영향도 체크리스트" 에 본 feature 가 추가한 변경 유형이 빠졌으면 행 추가 (변경 유형 + 동시 갱신 위치).
 - [5.8] 새 외부 의존(HTTP · 외부 큐) 도입 시 F6 "외부 의존 실패 모드 매트릭스"(`docs/reference/observability.md`)에 행 추가 (fail-open/close · timeout · 재시도).
 - [5.9] CLAUDE.md "본 절 결정" 신규는 (a) 검사 가능(`rg`·`ruff`·테스트로 위반 발견) (b) F9 영향도 표시 (c) 위반 시 행동 명시 셋 다 충족. 새 F-policy 는 번호 단조 증가. 단순 조언(`...하는 게 좋다`)이면 채택 X — 결정·금지·매트릭스 형태만.
@@ -291,7 +293,7 @@ Self-audit 메타 인용 제외:
 - `CLAUDE.md` · `docs/decisions/adr/*` · `docs/reference/*` · `docs/explanation/tradeoffs.md` · `docs/README.md` · `docs/reference/observability.md`.
 
 통과 기준:
-- 12 항목 OK. Stage 1·2·4 큐 모두 처리.
+- 12 항목 OK. Stage 1·2·4 에서 넘어온 후보 모두 처리.
 
 ---
 

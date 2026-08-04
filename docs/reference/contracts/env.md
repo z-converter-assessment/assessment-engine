@@ -72,7 +72,7 @@ secret 파일명은 pydantic 필드명과 정확히 일치 의무. 외부 인프
 
 docker-compose `environment:` 블록은 `env_file:` 보다 우선이라 컨테이너 안 값을 덮어쓴다.
 
-base compose 에는 비밀번호 설정이 없다 — dev override 가 env 채널을, prod overlay 가 file 채널을 각자 채운다. dev 는 `cp .env.dev.example .env` 로 만든 `.env` 를 `env_file` 이 컨테이너에 주입하고, rabbitmq 만 키 이름이 달라(`RABBITMQ_DEFAULT_PASS`) override 가 매핑한다.
+base compose 에는 비밀번호 설정이 없다 — dev override 가 env 채널을, prod overlay 가 file 채널을 각자 채운다. dev 는 `make dev` 가 `.env.dev.example` 에서 만든 `.env` 를 `env_file` 이 컨테이너에 주입하고, rabbitmq 만 키 이름이 달라(`RABBITMQ_DEFAULT_PASS`) override 가 매핑한다.
 
 ---
 

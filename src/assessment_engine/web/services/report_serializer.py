@@ -94,11 +94,19 @@ def _build(cls, data: dict):
     return cls(**_drop_unknown_fields(cls, data))
 
 
+# 보고서는 발행 시점 정적 스냅샷이라 과거 값이 그대로 되살아난다. 지원 단계 어휘가 바뀌기 전에
+# 발행된 스냅샷은 옛 문자열을 갖고 있고, 표시 계층이 새 값만 분기하므로 여기서 옮겨 준다.
+_LEGACY_OS_EOL_STATUS = {"eol": "ended", "extended": "security_only", "supported": "full"}
+
+
 def _report_row_from_dict(r: dict) -> ReportRowItem:
     """ReportRowItem 복원 — nested 구동 서비스 2 필드(list[dataclass]) 재구성 포함."""
     data = dict(r)
     data["workload_groups"] = [_build(ReportWorkloadGroup, g) for g in data.get("workload_groups") or []]
     data["listen_ports_detail"] = [_build(ReportListenItem, p) for p in data.get("listen_ports_detail") or []]
+    status = data.get("os_eol_status")
+    if status in _LEGACY_OS_EOL_STATUS:
+        data["os_eol_status"] = _LEGACY_OS_EOL_STATUS[status]
     return _build(ReportRowItem, data)
 
 

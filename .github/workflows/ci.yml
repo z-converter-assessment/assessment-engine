@@ -73,9 +73,7 @@ jobs:
       - name: Install project (frozen)
         run: uv sync --frozen --group dev
 
-      # property 테스트 생성 횟수는 base 브랜치로 가른다 — main 승격은 선언값 전량, develop 통합은
-      # 1/10. 커버리지는 CI 에서 재지 않는다: 임계값 게이트가 없어 결과를 판정에 쓰지 않으면서
-      # 측정 비용만 매 PR 나갔다. 필요하면 로컬에서 `uv run pytest --cov=assessment_engine`.
+      # property 테스트 생성 횟수는 base 브랜치로 가른다 — main 승격은 선언값 전량, develop 통합은 1/10.
       - name: pytest unit
         env:
           HYPOTHESIS_SCALE: ${{ github.base_ref == 'main' && '1' || '0.1' }}
@@ -152,7 +150,7 @@ jobs:
     name: pytest (integration)
     runs-on: ubuntu-latest
     needs: [test-unit]
-    # main PR 에서만 — 컨테이너 기동이 필요해 무겁다. develop 게이트는 단위 테스트까지.
+    # main PR 에서만 — 컨테이너 기동이 필요해 무겁다. develop PR 의 CI 는 단위 테스트까지.
     if: github.base_ref == 'main'
     timeout-minutes: 15
     steps:

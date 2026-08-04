@@ -15,22 +15,24 @@ description: TRIGGER when the user requests a PR ("PR 만들어줘", "/pr", "ope
 
 ### base = `develop` 게이트 (통합 branch)
 
-코드 품질을 기능 단위로 판정하는 지점. 문서는 여기서 손대지 않는다 — develop 에 여러 feature 가 모인 뒤 main 승격 시점에 한 번에 맞춘다.
+코드와 문서를 feature 단위로 함께 맞추는 지점. 문서·ADR 은 결정한 직후에만 근거가 정확하므로 여기서 쓴다 (배치 근거는 `docs/guides/wrap-up.md` 0절).
 
 1. code-reviewer 에이전트 1회 (`Agent(subagent_type='code-reviewer')`) — 정석 idiom + 명문 규약(P1-P4·F1-F11·#B·#C5). Error 즉시 수정 / Warning 위임 / Info 보고.
+2. 변경 유형이 결합 목록에 걸리면 `change-impact` skill 로 동시 갱신 위치 확인.
+3. `docs` skill 을 본 feature 가 건드린 영역으로 실행 — 코드 현황 대조·문서 갱신·ADR 정리·doc-auditor 검증까지 그 skill 이 담당한다.
+4. ADR 정합 확인 (차단 게이트). 검사 항목과 명령은 `.claude/agents/doc-auditor.md` 축 B 가 갖는다 — 그 명령을 그대로 돌려 번호 집합과 역참조 Status 를 본다. 결정이 바뀐 건이 있는데 ADR 이 없지는 않은지도 함께 본다. 어긋나면 3 으로 돌려보내고 PR 을 열지 않는다 — 강제 채널이 워크플로에도 훅에도 없어 여기가 유일한 그물이다.
 
 lint·단위 테스트·타입 계약·alembic drift 는 PR 발행 후 CI 가 돌린다 — 로컬 재현 없이 CI 결과를 확인한다.
 
 ### `--base main` 추가 강화 (배포 branch)
 
-릴리즈 단위가 확정되는 지점. 문서·ADR 정합을 여기서 일괄 처리한다.
+릴리즈 단위가 확정되는 지점. 문서는 여기서 쓰지 않고 검증만 한다 — 쓰기는 develop PR 에서 끝났다. 개별로는 맞는 서술이 여러 feature 가 모이면 어긋날 수 있고, 그건 묶어 봐야 보인다.
 
 1. 정상 경로 = `develop -> main` 승격 또는 `hotfix/*`. 다른 prefix 직접 main PR 이면 의도 재확인.
 2. `uv run pytest tests/integration -q` 의무 (사용자 confirm 없이 — main 안전 우선).
 3. `git log origin/main..HEAD --oneline` 전 커밋이 Conventional Commits 형식 의무.
-4. 문서 정합 — `docs` skill 을 승격 대상 영역으로 실행. 코드 현황 대조·문서 갱신·doc-auditor 검증까지 그 skill 이 담당한다. 변경 유형이 결합 목록에 걸리면 `change-impact` skill 로 동시 갱신 위치를 먼저 확인한다.
-5. 결정이 바뀌었으면(기존 ADR 을 뒤집거나 breaking) `docs/decisions/adr/NNNN-*.md` 신설 + 이전 ADR `Superseded by` + 인덱스 행 추가 의무 — 누락 시 차단.
-6. PR body 에 "main PR 사유"(release·hotfix) 절 강제.
+4. doc-auditor 에이전트를 승격 범위로 1회 (`Agent(subagent_type='doc-auditor')`) — 릴리즈 단위 중복·목적 혼선·ADR 인덱스 정합. 지적이 나오면 여기서 고치지 않는다. develop 으로 돌려 `/docs` 로 처리한 뒤 다시 승격한다.
+5. PR body 에 "main PR 사유"(release·hotfix) 절 강제.
 
 ## Pre-check (발행 직전 의무 — CI 실패·알림 noise 회피)
 
