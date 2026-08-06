@@ -36,6 +36,7 @@ _TASK_RESULT_MAX_LEN = 100_000
 # SIGKILL 이 drain 을 자르지 않는다 (docker-compose.yml 의 consumer 서비스가 그 값을 선언한다).
 _SHUTDOWN_DRAIN_SEC = 5.0
 
+
 @dataclass
 class _QueueBinding:
     exchange_name: str

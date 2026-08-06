@@ -121,7 +121,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
             for m in m_result.scalars().all()
         ]
 
-        d_rows = await self._latest_per_dimension(ServerDiskIo.__tablename__, "device_id", server_id, n=2)
+        d_rows = await self._latest_per_dimension(ServerDiskIo, ServerDiskIo.device_id, server_id, n=2)
         disk_io = [
             DiskIoRaw(
                 device_id=row.device_id,
@@ -139,7 +139,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
             for row in d_rows
         ]
 
-        c_rows = await self._latest_per_dimension(ServerCpuCore.__tablename__, "core_id", server_id, n=2)
+        c_rows = await self._latest_per_dimension(ServerCpuCore, ServerCpuCore.core_id, server_id, n=2)
         cpu_cores = [
             CpuCoreRaw(
                 core_id=row.core_id,
@@ -156,7 +156,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
             for row in c_rows
         ]
 
-        n_rows = await self._latest_per_dimension(ServerNetIo.__tablename__, "iface_id", server_id, n=2)
+        n_rows = await self._latest_per_dimension(ServerNetIo, ServerNetIo.iface_id, server_id, n=2)
         net_io = [
             NetIoRaw(
                 iface_id=row.iface_id,
@@ -175,7 +175,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
             for row in n_rows
         ]
 
-        fs_rows = await self._latest_per_dimension(ServerFilesystem.__tablename__, "mountpoint", server_id, n=1)
+        fs_rows = await self._latest_per_dimension(ServerFilesystem, ServerFilesystem.mountpoint, server_id, n=1)
         filesystems = [
             MountUsageRaw(
                 mountpoint=row.mountpoint,
@@ -580,24 +580,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
 
         null(Windows NT5.2/virtio) 폴백용 — 엔진이 metrics network.link.speed 로 대체(agent 확정 규약).
         """
-        if not server_ids:
-            return {}
-        rows = (
-            await self.session.execute(
-                text("""
-                    SELECT DISTINCT ON (server_id, iface_id) server_id, iface_id, link_speed_bps
-                    FROM server_net_io
-                    WHERE server_id = ANY(:sids) AND collected_at >= :since
-                      AND collected_at <= now() + interval '2 minutes' AND link_speed_bps IS NOT NULL
-                    ORDER BY server_id, iface_id, collected_at DESC
-                """),
-                {"sids": server_ids, "since": since},
-            )
-        ).all()
-        out: dict[int, dict[str, int]] = {}
-        for r in rows:
-            out.setdefault(r.server_id, {})[r.iface_id] = int(r.link_speed_bps)
-        return out
+        return await self._latest_link_speed(server_ids, since)
 
     async def metric_snapshots(
         self,
