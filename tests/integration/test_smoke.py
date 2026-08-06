@@ -6,12 +6,8 @@ repo round-trip 검증은 `test_collect_repository.py` 가 더 깊게 다룸 (�
 
 from typing import TYPE_CHECKING
 
-import pytest
-
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
-
-pytestmark = pytest.mark.asyncio
 
 
 async def test_engine_alive(db_session: AsyncSession):

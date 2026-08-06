@@ -38,6 +38,9 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# 오타 마커·오타 설정 키가 조용히 통과하지 않게 한다. -ra 는 skip·xfail 사유를 요약에 남긴다.
+addopts = ["--strict-markers", "--strict-config", "-ra"]
+# 마커를 붙이지 않는다 — auto 모드가 async 함수를 그대로 수집한다 (docs/guides/testing.md).
 asyncio_mode = "auto"
 # session-scope async fixture(엔진·컨테이너)가 function-scope 테스트와 같은 event loop를 공유하도록
 # fixture·test 양쪽 default loop scope를 session으로 통일. (pytest-asyncio v1+ 정책)

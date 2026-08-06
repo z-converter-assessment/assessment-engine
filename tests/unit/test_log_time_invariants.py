@@ -11,15 +11,11 @@ from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
 from assessment_engine.consumer.handlers._common import _log_time_invariants
 from tests.factories import make_metrics
 
 if TYPE_CHECKING:
     from assessment_engine.consumer.schemas import AgentMessageBase
-
-pytestmark = pytest.mark.asyncio
 
 
 def _normal_msg():

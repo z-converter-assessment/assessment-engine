@@ -14,7 +14,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
-import pytest
 from sqlalchemy import Row, text
 
 from assessment_engine.db.dtos.inbound import TaskCreate
@@ -23,8 +22,6 @@ from tests.factories import make_inventory, make_task_result_update
 if TYPE_CHECKING:
     from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
     from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
-
-pytestmark = pytest.mark.asyncio
 
 
 # 발행 대상 식별자 = agent_id (UUID). tasks.target_agent_id 는 UUID 컬럼이라 유효 UUID 형식 필수.

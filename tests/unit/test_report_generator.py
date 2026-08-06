@@ -44,7 +44,6 @@ def _stub_serializer(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(report_generator, "env_report_to_dict", _stub)
 
 
-@pytest.mark.asyncio
 async def test_environment_scope_generates_result():
     qs = AsyncMock()
     summary = MagicMock()
@@ -59,7 +58,6 @@ async def test_environment_scope_generates_result():
     qs.get_environment_report.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_environment_no_servers_raises():
     qs = AsyncMock()
     summary = MagicMock()
@@ -71,7 +69,6 @@ async def test_environment_no_servers_raises():
         await build_report_result_for_job(qs, AsyncMock(), rec)
 
 
-@pytest.mark.asyncio
 async def test_server_no_valid_ids_raises():
     qs = AsyncMock()
     qs.resolve_server_ids = AsyncMock(return_value={})  # 매칭 0
@@ -83,7 +80,6 @@ async def test_server_no_valid_ids_raises():
         await build_report_result_for_job(qs, AsyncMock(), rec)
 
 
-@pytest.mark.asyncio
 async def test_server_single_generates_without_children():
     qs = AsyncMock()
     qs.resolve_server_ids = AsyncMock(return_value={"a": 1})
@@ -104,7 +100,6 @@ async def test_server_single_generates_without_children():
     ds.emit_report.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_server_multi_fans_out_children():
     qs = AsyncMock()
     qs.resolve_server_ids = AsyncMock(return_value={"a": 1, "b": 2})
@@ -129,7 +124,6 @@ async def test_server_multi_fans_out_children():
     assert ds.emit_report.await_count == 2
 
 
-@pytest.mark.asyncio
 async def test_server_child_error_propagates():
     """child 생성 중 예외는 함수 밖으로 전파 -> 워커가 parent 를 failed 로 전이(부분 succeeded parent 차단)."""
     qs = AsyncMock()
@@ -146,7 +140,6 @@ async def test_server_child_error_propagates():
         await build_report_result_for_job(qs, AsyncMock(), rec)
 
 
-@pytest.mark.asyncio
 async def test_build_child_prefetched_reports_matches_per_server():
     """A5: 배치 조회 결과를 server 별로 정확히 매칭해 prefetch 구성 (서버 간 데이터 섞임 방지 가드)."""
     qs = QueryService.__new__(QueryService)  # 생성자 우회 — repo·메서드만 stub
@@ -185,7 +178,6 @@ async def test_build_child_prefetched_reports_matches_per_server():
     assert captured["pb"].detail.id == 2
 
 
-@pytest.mark.asyncio
 async def test_build_child_prefetched_reports_missing_server_yields_none():
     """sid_map 에 없는 public_id 는 (pid, None) — 미존재 서버 skip."""
     qs = QueryService.__new__(QueryService)
@@ -201,7 +193,6 @@ async def test_build_child_prefetched_reports_missing_server_yields_none():
     assert dict(out)["pa"] is not None
 
 
-@pytest.mark.asyncio
 async def test_report_trend_uses_valid_metric_types():
     """_build_report_trend 3 콜사이트가 유효 MetricType 만 사용 — 이름 drift 회귀 가드.
 

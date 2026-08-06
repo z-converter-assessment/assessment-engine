@@ -7,7 +7,6 @@
 
 from typing import TYPE_CHECKING
 
-import pytest
 from sqlalchemy import text
 
 from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
@@ -17,8 +16,6 @@ if TYPE_CHECKING:
 
     from assessment_engine.db.repositories.diagnostic_sql import SqlDiagnosticRepository
     from assessment_engine.json_types import JsonObject
-
-pytestmark = pytest.mark.asyncio
 
 
 def _make_create(
