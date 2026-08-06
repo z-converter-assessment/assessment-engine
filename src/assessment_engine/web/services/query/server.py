@@ -14,7 +14,7 @@ from assessment_engine.web.services.mappers.metrics_calculator import build_erro
 from assessment_engine.web.services.mappers.os_eol import (
     lookup_os_eol,
 )
-from assessment_engine.web.services.mappers.report import build_period_assessment
+from assessment_engine.web.services.mappers.period_assessment import build_period_assessment
 from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.server import (
     to_network_detail,

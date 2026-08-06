@@ -348,9 +348,12 @@ async def test_finish_failed_delegates(
 # --- 표시 임계 상수 import sanity --------------------------------------
 
 
-def test_report_threshold_constants_imported():
-    """보고서 표시 임계 상수 mappers sub-package 안 정의 회귀 (색 카탈로그는 폐기 — 표시 미사용)."""
-    from assessment_engine.web.services.mappers import report as m_report
+def test_report_threshold_constants_live_in_shared():
+    """보고서 표시 임계는 `mappers/shared.py` 단일 정의 — 행 변환과 요약 불릿 둘이 같은 값을 본다.
 
-    assert m_report._VARIANCE_BURST_RATIO == 1.5
-    assert m_report._REBOOT_UNSTABLE_COUNT == 3
+    두 모듈이 각자 상수를 들면 표의 "burst" 표시와 요약 문장의 "버스티" 판정이 갈린다.
+    """
+    from assessment_engine.web.services.mappers import shared
+
+    assert shared._VARIANCE_BURST_RATIO == 1.5
+    assert shared._REBOOT_UNSTABLE_COUNT == 3

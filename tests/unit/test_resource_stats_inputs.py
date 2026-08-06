@@ -22,7 +22,8 @@ _SRC = Path(__file__).resolve().parents[2] / "src/assessment_engine"
 # 경로별 기대 인자. 값은 소스에 쓰인 표현식 그대로다 — "raw 가 실은 것을 쓴다" 와 "None 으로 고정한다" 를
 # 구분하는 것이 이 표의 목적이라 정규화하지 않는다.
 EXPECTED: dict[str, set[str]] = {
-    "web/services/mappers/report.py": {"r.disk_iops_baseline", "raw.disk_iops_baseline"},
+    "web/services/mappers/report.py": {"raw.disk_iops_baseline"},
+    "web/services/mappers/report_summary.py": {"r.disk_iops_baseline"},
     "web/services/query/report.py": {"raw0.disk_iops_baseline"},
     "web/services/query/environment.py": {"raw.disk_iops_baseline"},
     "web/services/query/server.py": {"None"},

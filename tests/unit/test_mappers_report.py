@@ -29,16 +29,16 @@ from assessment_engine.web.services.mappers.os_eol import (
     lookup_os_eol,
     resolve_os_eol,
 )
+from assessment_engine.web.services.mappers.period_assessment import build_period_assessment
 from assessment_engine.web.services.mappers.report import (
     _RISK_FROM_RECOMMENDATION,
     _build_recommendation_action,
-    build_period_assessment,
-    build_report_summary_bullets,
     build_role_distribution,
     compute_report_avg_p95,
     compute_report_totals_from_raw,
     to_report_row_item,
 )
+from assessment_engine.web.services.mappers.report_summary import build_report_summary_bullets
 from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
