@@ -37,7 +37,6 @@ jobs:
 
     env:
       APP_ENV: dev
-      ALEMBIC_CONFIG: src/assessment_engine/_alembic.ini
       POSTGRES_HOST: localhost
       POSTGRES_PORT: '5432'
       POSTGRES_DB: assessment_ci
@@ -62,7 +61,7 @@ jobs:
         run: uv sync --locked --group dev
 
       - name: alembic upgrade head
-        run: uv run alembic upgrade head
+        run: uv run python -m assessment_engine.migrate upgrade head
 
       - name: alembic check (ORM vs migrations drift)
-        run: uv run alembic check
+        run: uv run python -m assessment_engine.migrate check

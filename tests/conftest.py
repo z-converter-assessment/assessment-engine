@@ -11,7 +11,6 @@ import os
 import pkgutil
 import subprocess
 import sys
-from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -24,8 +23,6 @@ import assessment_engine
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, AsyncIterator, Callable, Iterator
-
-_REPO_ROOT = Path(__file__).parent.parent
 
 _UNIT_TEST_SECRETS = {
     "POSTGRES_PASSWORD": "unit-test-postgres-secret",
@@ -108,6 +105,7 @@ async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncE
     async_url = f"postgresql+asyncpg://test:test@{host}:{port}/assessment_test"
 
     # subprocess 로 부른다 — async fixture 안에서 alembic 을 직접 부르면 이벤트 루프가 중첩된다.
+    # 설정 경로는 진입점이 패키지에서 찾으므로 `-c` 를 넘기지 않는다.
     # POSTGRES_* 는 alembic 이 자기 Settings 로 접속 문자열을 조립할 때 읽는다.
     env = os.environ.copy()
     env["POSTGRES_HOST"] = host
@@ -121,9 +119,7 @@ async def engine(_postgres_container: PostgresContainer) -> AsyncIterator[AsyncE
         [
             sys.executable,
             "-m",
-            "alembic",
-            "-c",
-            str(_REPO_ROOT / "src" / "assessment_engine" / "_alembic.ini"),
+            "assessment_engine.migrate",
             "upgrade",
             "head",
         ],

@@ -60,10 +60,10 @@ codegen: ## OpenAPI -> 클라이언트 TS 타입 재생성
 	pnpm run codegen
 
 migrate: ## 마이그레이션 적용 (upgrade head)
-	docker compose run --rm migrate alembic upgrade head
+	docker compose run --rm migrate python -m assessment_engine.migrate upgrade head
 
 migration: ## 마이그레이션 초안 생성 — make migration M="설명"
-	docker compose run --rm migrate alembic revision --autogenerate -m "$(M)"
+	docker compose run --rm migrate python -m assessment_engine.migrate revision --autogenerate -m "$(M)"
 
 screenshot: ## 화면 캡처 — make screenshot OUT=shots SERVER=<public_id>
 	node scripts/screenshot.mjs $(OUT) $(if $(SERVER),--server $(SERVER))

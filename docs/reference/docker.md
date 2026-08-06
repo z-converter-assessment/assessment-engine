@@ -54,7 +54,7 @@ digest 가 없으면 같은 커밋을 빌드해도 다른 이미지가 나온다
 compose 가 쓰는 인프라 이미지(timescaledb·rabbitmq·redis)는 태그 그대로 둔다. 재현 대상은 본 repo 가
 빌드해 GHCR 로 올리는 엔진 이미지 하나이고, 인프라 이미지는 배포 VM 이 pull 하는 시점에 정해진다.
 
-베이스 이미지의 python minor 를 올릴 때는 `pyproject.toml` `requires-python`, Dockerfile `FROM` 과 `ALEMBIC_CONFIG`, site-packages 경로가 박힌 override 3줄(마운트·watch 경로)을 함께 고친다.
+베이스 이미지의 python minor 를 올릴 때 고칠 곳은 `pyproject.toml` `requires-python` 과 Dockerfile `FROM` 둘뿐이다. 이미지 안 site-packages 경로를 아는 자리가 없다 — alembic 설정은 진입점(`assessment_engine.migrate`)이 패키지에서 찾고, dev override 는 설치본을 덮어쓰는 대신 `./src` 를 얹고 `PYTHONPATH` 로 앞에 세운다.
 
 ### CI 빌드 검증
 
@@ -180,10 +180,11 @@ web / consumer / worker
 bind mount 와 hot reload 는 override 에만 있다. base 는 불변 이미지다.
 
 ```yaml
-volumes: [./src/assessment_engine:/opt/venv/lib/python3.14/site-packages/assessment_engine]
+volumes: [./src:/app/src]
+environment: {PYTHONPATH: /app/src}
 ```
 
-앱 패키지를 컨테이너 가상환경에 덮어씌운다. `migrations/` 가 패키지 안에 있어 이 마운트 하나로 마이그레이션 파일까지 함께 덮인다.
+호스트 소스를 얹고 `PYTHONPATH` 로 site-packages 앞에 세운다. 설치본을 덮어쓰지 않으므로 이미지 안 경로(파이썬 minor 포함)를 아는 자리가 없다. `migrations/`·`_alembic.ini` 가 패키지 안에 있어 이 마운트 하나로 마이그레이션 파일까지 함께 앞선다.
 
 - `web` — uvicorn `reload=True`(`WEB_RELOAD=true`, override 주입)가 파일 변경을 감지해 재기동한다.
 - `consumer`·`worker` — override 가 base command 를 watchfiles 래퍼 명령으로 덮어 `.py` 변경 시 프로세스를 재시작한다 (uvicorn 이 아니라서).

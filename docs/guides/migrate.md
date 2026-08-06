@@ -17,11 +17,13 @@ ORM(`Base.metadata`)과 DB schema의 diff를 `src/assessment_engine/migrations/v
 
 `_alembic.ini` 와 `migrations/` 는 패키지 안에 있어 별도 포장 설정 없이 이미지에 동봉된다. `_alembic.ini` 의 `script_location` 이 자기 위치 기준 상대경로라 두 파일이 같은 디렉토리에 있어야 한다.
 
-호스트에서 직접 실행할 때는 설정 경로를 환경변수로 준다. 컨테이너는 이미지가 `ALEMBIC_CONFIG` 를 들고 있어 그냥 `alembic <명령>` 으로 쓴다 — compose 없이 `docker run` 해도 성립한다.
+설정 경로는 진입점 `assessment_engine.migrate` 가 자기 패키지에서 찾는다. 호스트든 컨테이너든 같은 명령이고, compose 없이 `docker run` 해도 성립한다.
 
 ```bash
-export ALEMBIC_CONFIG=src/assessment_engine/_alembic.ini
+python -m assessment_engine.migrate <명령>
 ```
+
+경로를 이미지 `ENV` 로 박지 않는 이유는 그 값에 파이썬 minor 가 들어가 베이스 이미지를 올릴 때마다 손으로 따라가야 하기 때문이다. 심링크로 우회하는 것도 안 된다 — `script_location = %(here)s/migrations` 의 `here` 는 alembic 이 받은 경로의 디렉토리이고 alembic 은 심링크를 풀지 않는다.
 
 ## 자동 적용 — migrate 컨테이너
 
@@ -34,7 +36,7 @@ docker-compose에 `migrate` 서비스가 정의되어 있다. 동작:
 
 즉 `docker compose up` 한 번이면 schema가 항상 최신. 환경 무관 — 같은 컨테이너·같은 절차.
 
-`docker compose run --rm migrate <alembic 명령>` 형태로 일회성 작업도 가능 (current·history·downgrade 등).
+`docker compose run --rm migrate python -m assessment_engine.migrate <명령>` 형태로 일회성 작업도 가능 (current·history·downgrade 등).
 
 ## DB URL 주입
 
@@ -50,14 +52,14 @@ POSTGRES_HOST=localhost .venv/bin/alembic upgrade head
 
 | 작업 | 명령 |
 |------|------|
-| 현재 적용 revision 확인 | `docker compose run --rm migrate alembic current` |
-| 모든 revision 이력 | `docker compose run --rm migrate alembic history --verbose` |
-| 미적용 revision 미리보기 (offline SQL) | `docker compose run --rm migrate alembic upgrade head --sql` |
+| 현재 적용 revision 확인 | `docker compose run --rm migrate python -m assessment_engine.migrate current` |
+| 모든 revision 이력 | `docker compose run --rm migrate python -m assessment_engine.migrate history --verbose` |
+| 미적용 revision 미리보기 (offline SQL) | `docker compose run --rm migrate python -m assessment_engine.migrate upgrade head --sql` |
 | head로 업그레이드 | `make migrate` |
-| 한 단계 다운그레이드 | `docker compose run --rm migrate alembic downgrade -1` |
+| 한 단계 다운그레이드 | `docker compose run --rm migrate python -m assessment_engine.migrate downgrade -1` |
 | 모델 diff로 신규 revision 생성 | `make migration M="<설명>"` |
-| 빈 revision 생성 (수동 작성) | `docker compose run --rm migrate alembic revision -m "<설명>"` |
-| 모델 vs schema drift 검출 | `docker compose run --rm migrate alembic check` |
+| 빈 revision 생성 (수동 작성) | `docker compose run --rm migrate python -m assessment_engine.migrate revision -m "<설명>"` |
+| 모델 vs schema drift 검출 | `docker compose run --rm migrate python -m assessment_engine.migrate check` |
 
 ## 신규 마이그레이션 작성 워크플로우
 
@@ -97,9 +99,9 @@ op.execute("SELECT create_hypertable('table_name', 'collected_at', if_not_exists
 ### 4. 라운드트립 검증
 
 ```bash
-docker compose run --rm migrate alembic upgrade head        # 정상 적용
-docker compose run --rm migrate alembic downgrade -1        # 롤백 가능
-docker compose run --rm migrate alembic upgrade head        # 재적용
+docker compose run --rm migrate python -m assessment_engine.migrate upgrade head        # 정상 적용
+docker compose run --rm migrate python -m assessment_engine.migrate downgrade -1        # 롤백 가능
+docker compose run --rm migrate python -m assessment_engine.migrate upgrade head        # 재적용
 ```
 
 upgrade → downgrade → upgrade가 깔끔하게 통과해야 PR-ready. downgrade에서 에러 나면 `downgrade()` 본문이 잘못된 것 — 보강.
@@ -107,7 +109,7 @@ upgrade → downgrade → upgrade가 깔끔하게 통과해야 PR-ready. downgra
 ### 5. drift 자동 검출
 
 ```bash
-docker compose run --rm migrate alembic check
+docker compose run --rm migrate python -m assessment_engine.migrate check
 ```
 
 ORM 모델과 현재 DB schema에 차이가 있으면 exit 1. 차이가 있다는 건 "마이그레이션을 아직 안 만들었다"는 신호. CI(`.github/workflows/alembic-check.yml`)에서도 같은 명령 자동 실행 — 모델만 바꾸고 마이그레이션 누락하면 PR이 막힌다.
@@ -134,13 +136,13 @@ git commit -m "..."
 prod에 큰 변경(데이터 손실 가능 DROP·대량 행 ALTER) 적용 전 — 배포 환경 이미지 컨테이너에서:
 
 ```bash
-# 이미지가 ALEMBIC_CONFIG 를 갖고 있어 경로 지정 없이 실행된다.
+# 진입점이 설정 경로를 스스로 찾아 경로 지정이 없다.
 
 # history 확인 — 어디까지 가는지
-docker compose run --rm migrate alembic history
+docker compose run --rm migrate python -m assessment_engine.migrate history
 
 # offline SQL 추출 — 실행될 DDL 미리 검토
-docker compose run --rm migrate alembic upgrade head --sql > /tmp/migration.sql
+docker compose run --rm migrate python -m assessment_engine.migrate upgrade head --sql > /tmp/migration.sql
 cat /tmp/migration.sql
 
 # 검토 OK면 적용

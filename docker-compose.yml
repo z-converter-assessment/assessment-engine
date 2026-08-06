@@ -88,8 +88,8 @@ services:
 
   migrate:
     image: ${ENGINE_IMAGE:-}
-    # 설정 경로는 이미지의 ALEMBIC_CONFIG 가 들고 있어 -c 를 붙이지 않는다.
-    command: ["python", "-m", "alembic", "upgrade", "head"]
+    # 설정 경로는 진입점이 패키지에서 스스로 찾는다 (src/assessment_engine/migrate.py).
+    command: ["python", "-m", "assessment_engine.migrate", "upgrade", "head"]
     logging: *default-logging
     env_file: ${ENV_FILE:-.env}
     environment:
