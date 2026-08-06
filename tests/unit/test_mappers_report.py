@@ -45,6 +45,8 @@ if TYPE_CHECKING:
 
 # --- 헬퍼 ----------------------------------------------------------------
 
+from tests.builders import report_row_raw
+
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
 
@@ -100,7 +102,15 @@ def _raw(
     procs_running_p95: float | None = None,
     oom_occurred: bool = False,
 ) -> ReportRowRaw:
-    return ReportRowRaw(
+    optional: dict[str, Any] = {}
+    if net_interfaces is not None:
+        optional["net_interfaces"] = net_interfaces
+    if block_devices is not None:
+        optional["block_devices"] = block_devices
+    if boot_time is not None:
+        optional["boot_time"] = boot_time
+    return report_row_raw(
+        **optional,
         server_id=server_id,
         public_id=public_id,
         hostname=hostname,
@@ -109,21 +119,7 @@ def _raw(
         os_version=os_version,
         os_codename=os_codename,
         kernel_version=kernel_version,
-        net_interfaces=net_interfaces
-        if net_interfaces is not None
-        else [
-            {
-                "id": "52:54:00:12:34:56",
-                "id_type": "mac",
-                "name": "eth0",
-                "kind": "physical",
-                "speed_mbps": 1000,
-                "gateway": None,
-                "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}],
-            }
-        ],
         services=list(services) if services else None,
-        last_seen_at=_NOW,
         cpu_avg_pct=cpu_avg,
         cpu_p95_pct=cpu_p95,
         cpu_peak_pct=cpu_peak,
@@ -136,10 +132,6 @@ def _raw(
         mem_pages_input_rate_p95=mem_pages_input_rate_p95,
         cpu_cores=cpu_cores,
         mem_total_bytes=(mem_total_kb * 1024 if mem_total_kb is not None else None),
-        block_devices=block_devices
-        if block_devices is not None
-        else [{"name": "sda", "size_bytes": 50 * 10**9, "type": "disk"}],
-        boot_time=boot_time if boot_time is not None else _NOW - timedelta(days=30),
         disk_capacity_driving_mount=worst_mount,
         worst_mount_used_pct=worst_used,
         reboot_count=reboot_count,
