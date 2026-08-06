@@ -26,47 +26,65 @@ from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
 from assessment_engine.web.settings import get_web_settings
 
 if TYPE_CHECKING:
+    from redis.asyncio import Redis
+
+    from assessment_engine.db.repositories.query.repository import QueryRepository
     from assessment_engine.web.view_models.metric import MetricDashboard, MetricSeriesItem
+
+
+async def latest_metric(
+    repo: QueryRepository,
+    redis: Redis,
+    server_id: int,
+    saturation: SaturationRaw | None = None,
+) -> MetricDashboard | None:
+    """서버 1대 최신 스냅샷 — Redis 캐시 우선, 없으면 조회 후 채운다.
+
+    mixin 메서드가 아니라 자유 함수다. 환경 도메인이 서버마다 이걸 부르는데, mixin 메서드로 두면
+    형제 호출이 되고 `self` 를 Protocol 로 좁혀야 한다 — 그 Protocol 은 런타임에 아무것도 강제하지
+    않으면서 결합만 숨긴다.
+    """
+    cache_key = get_web_settings().redis_key_cache_metrics.format(server_id)
+    cached = await safe_get(redis, cache_key)
+    if cached:
+        return dashboard_from_json(cached)
+
+    raw = await repo.latest_dashboard(server_id)
+    if not raw or not raw.metrics:
+        return None
+    result = build_dashboard(raw)
+    # 포화 신호 — 호출자가 벌크 조회분(saturation)을 넘기면 재조회 생략 (B4: _assemble_realtime 이 sat_map 을
+    # 이미 벌크 조회 -> per-server 재조회 N+1 제거). 미전달 시 단일 조회.
+    sat = saturation
+    if sat is None:
+        since = datetime.now(UTC) - timedelta(minutes=10)
+        sat = (await repo.latest_saturation([server_id], since)).get(server_id) or SaturationRaw()
+    # os-aware 구조화 포화 신호 (P2 서버 판정) — 개요·자원 탭 스냅샷 카드 공통 소비.
+    cur = raw.metrics[0] if raw.metrics else None
+    signals = build_saturation_signals(
+        os_family=raw.os_family,
+        kernel_version=raw.kernel_version,
+        run_queue_total=cur.cpu_run_queue if cur else None,
+        cores=cur.cpu_logical_count if cur else None,
+        steal_pct=result.cpu.steal_pct if result.cpu else None,
+        blocked=cur.cpu_blocked if cur else None,
+        sat=sat,
+    )
+    result.cpu_saturation = signals["cpu"]
+    result.mem_saturation = signals["mem"]
+    result.disk_saturation = signals["disk"]
+    result.net_saturation = signals["net"]
+    # 에러 축(E)은 서버 세부 '자원 이용률·포화·에러' 카드(14일 창, SSR get_period_assessment)로 통합 — 실시간
+    # 스냅샷은 이용률(도넛)·포화·활동만. per-server latest_errors N+1 회피 겸.
+    await safe_set(redis, cache_key, dashboard_to_json(result), ex=get_web_settings().redis_ttl_cache_metrics)
+    return result
 
 
 class MetricQueryMixin(_BaseQueryServiceMixin):
     async def get_latest_metric(
         self, server_id: int, saturation: SaturationRaw | None = None
     ) -> MetricDashboard | None:
-        cache_key = get_web_settings().redis_key_cache_metrics.format(server_id)
-        cached = await safe_get(self.redis, cache_key)
-        if cached:
-            return dashboard_from_json(cached)
-
-        raw = await self.repo.latest_dashboard(server_id)
-        if not raw or not raw.metrics:
-            return None
-        result = build_dashboard(raw)
-        # 포화 신호 — 호출자가 벌크 조회분(saturation)을 넘기면 재조회 생략 (B4: _assemble_realtime 이 sat_map 을
-        # 이미 벌크 조회 -> per-server 재조회 N+1 제거). 미전달 시 단일 조회.
-        sat = saturation
-        if sat is None:
-            since = datetime.now(UTC) - timedelta(minutes=10)
-            sat = (await self.repo.latest_saturation([server_id], since)).get(server_id) or SaturationRaw()
-        # os-aware 구조화 포화 신호 (P2 서버 판정) — 개요·자원 탭 스냅샷 카드 공통 소비.
-        cur = raw.metrics[0] if raw.metrics else None
-        signals = build_saturation_signals(
-            os_family=raw.os_family,
-            kernel_version=raw.kernel_version,
-            run_queue_total=cur.cpu_run_queue if cur else None,
-            cores=cur.cpu_logical_count if cur else None,
-            steal_pct=result.cpu.steal_pct if result.cpu else None,
-            blocked=cur.cpu_blocked if cur else None,
-            sat=sat,
-        )
-        result.cpu_saturation = signals["cpu"]
-        result.mem_saturation = signals["mem"]
-        result.disk_saturation = signals["disk"]
-        result.net_saturation = signals["net"]
-        # 에러 축(E)은 서버 세부 '자원 이용률·포화·에러' 카드(14일 창, SSR get_period_assessment)로 통합 — 실시간
-        # 스냅샷은 이용률(도넛)·포화·활동만. per-server latest_errors N+1 회피 겸.
-        await safe_set(self.redis, cache_key, dashboard_to_json(result), ex=get_web_settings().redis_ttl_cache_metrics)
-        return result
+        return await latest_metric(self.repo, self.redis, server_id, saturation)
 
     async def get_metric_snapshots(
         self,

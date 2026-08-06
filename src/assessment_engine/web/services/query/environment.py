@@ -2,7 +2,7 @@
 
 from collections import Counter
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import (
@@ -27,6 +27,7 @@ from assessment_engine.web.services.mappers.right_sizing_api import build_right_
 from assessment_engine.web.services.mappers.shared import _DONUT_SEGMENT_FROM_REC
 from assessment_engine.web.services.mappers.topology import build_network_topology
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview
+from assessment_engine.web.services.query.metric import latest_metric
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import (
     CapacityWarningItem,
@@ -39,8 +40,64 @@ from assessment_engine.web.view_models.metric import FleetStatus, HostSearchItem
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
-    from assessment_engine.web.services.query._base import _MetricSibling
     from assessment_engine.web.view_models.topology import NetworkTopology
+
+
+def assemble_overview(
+    details: list[ServerDetail],
+    util: EnvironmentUtilizationRaw,
+    raws_period: list[ReportRowRaw],
+    online_by_id: dict[int, bool],
+    full_under: bool = False,
+    error_summary: FleetErrorRaw | None = None,
+) -> EnvironmentOverview:
+    """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count.
+
+    분류는 `build_resource_stats`(net 반영) 단일 진실 — 호출자가 `_inject_net_baseline` 로 raw 에 net
+    baseline 을 주입한 뒤 호출한다 (get_report 세부행과 동일 입력 -> 유휴 정합).
+    full_under=True 면 자원 부족 호스트 전체(상위 N 절단 해제) — 자원 평가 전용 페이지용.
+
+    본문에 `self` 가 한 번도 없다 — mixin 메서드로 두면 보고서 도메인이 형제 호출을 하게 되고
+    그 결합을 Protocol 로 덮어야 한다.
+    """
+    risk_counts: dict[str, int] = {}
+    under_hosts: list[CapacityWarningItem] = []
+    # 포화 4축 호스트 카운트 — 자원 적정성 창(raws_period) 기준. stats 1회 산출로 분류·포화 공용(임계 재계산 0).
+    # net 혼잡은 사이징 아닌 별도 품질 플래그(assess_network congested, 단일소스) — 포화 도넛에 orthogonal 노출.
+    cpu_sat = mem_sat = disk_sat = net_cong = 0
+    for raw in raws_period:
+        stats = build_resource_stats(raw)
+        rec = recommendation.classify_host(stats)
+        seg = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
+        risk_counts[seg] = risk_counts.get(seg, 0) + 1
+        if rec == "under_provisioned":
+            under_hosts.append(to_capacity_warning_item(raw))
+        if recommendation.cpu_saturated(stats):
+            cpu_sat += 1
+        if recommendation.mem_saturated(stats):
+            mem_sat += 1
+        if recommendation.disk_io_saturated(stats):
+            disk_sat += 1
+        if recommendation.assess_network(stats).status == "congested":
+            net_cong += 1
+    online_count = sum(1 for d in details if online_by_id.get(d.id))
+    # 포화 도넛 표본 = 윈도우 내 metric 발행 호스트 수(util.sample_size). util 부재 시 분류된 호스트 수로 폴백.
+    sat_total = util.sample_size
+    # 분자(cpu_sat 등)는 raws_period(cagg 버킷) 순회, 분모는 raw 테이블 기준이라 원천이 달라, prod raw 보존
+    # < WINDOW_DAYS 구성에서 분자>분모(도넛 비율 >100%) 가능 — 최소 방어로 분모를 최대 분자 이상으로 클램프.
+    sat_total = max(sat_total, cpu_sat, mem_sat, disk_sat, net_cong)
+    sat_counts = {"cpu": cpu_sat, "mem": mem_sat, "disk_io": disk_sat, "net": net_cong, "total": sat_total}
+    # full_under 면 under_limit=None(상위 N 절단 해제), 아니면 build_environment_overview 기본값 적용.
+    return build_environment_overview(
+        details,
+        online_count,
+        util,
+        risk_counts,
+        under_hosts,
+        saturation_counts=sat_counts,
+        error_summary=error_summary,
+        **({"under_limit": None} if full_under else {}),
+    )
 
 
 class EnvironmentQueryMixin(_BaseQueryServiceMixin):
@@ -67,50 +124,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         full_under: bool = False,
         error_summary: FleetErrorRaw | None = None,
     ) -> EnvironmentOverview:
-        """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count.
-
-        분류는 `build_resource_stats`(net 반영) 단일 진실 — 호출자가 `_inject_net_baseline` 로 raw 에 net
-        baseline 을 주입한 뒤 호출한다 (get_report 세부행과 동일 입력 -> 유휴 정합).
-        full_under=True 면 자원 부족 호스트 전체(상위 N 절단 해제) — 자원 평가 전용 페이지용.
-        """
-        risk_counts: dict[str, int] = {}
-        under_hosts: list[CapacityWarningItem] = []
-        # 포화 4축 호스트 카운트 — 자원 적정성 창(raws_period) 기준. stats 1회 산출로 분류·포화 공용(임계 재계산 0).
-        # net 혼잡은 사이징 아닌 별도 품질 플래그(assess_network congested, 단일소스) — 포화 도넛에 orthogonal 노출.
-        cpu_sat = mem_sat = disk_sat = net_cong = 0
-        for raw in raws_period:
-            stats = build_resource_stats(raw)
-            rec = recommendation.classify_host(stats)
-            seg = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
-            risk_counts[seg] = risk_counts.get(seg, 0) + 1
-            if rec == "under_provisioned":
-                under_hosts.append(to_capacity_warning_item(raw))
-            if recommendation.cpu_saturated(stats):
-                cpu_sat += 1
-            if recommendation.mem_saturated(stats):
-                mem_sat += 1
-            if recommendation.disk_io_saturated(stats):
-                disk_sat += 1
-            if recommendation.assess_network(stats).status == "congested":
-                net_cong += 1
-        online_count = sum(1 for d in details if online_by_id.get(d.id))
-        # 포화 도넛 표본 = 윈도우 내 metric 발행 호스트 수(util.sample_size). util 부재 시 분류된 호스트 수로 폴백.
-        sat_total = util.sample_size
-        # 분자(cpu_sat 등)는 raws_period(cagg 버킷) 순회, 분모는 raw 테이블 기준이라 원천이 달라, prod raw 보존
-        # < WINDOW_DAYS 구성에서 분자>분모(도넛 비율 >100%) 가능 — 최소 방어로 분모를 최대 분자 이상으로 클램프.
-        sat_total = max(sat_total, cpu_sat, mem_sat, disk_sat, net_cong)
-        sat_counts = {"cpu": cpu_sat, "mem": mem_sat, "disk_io": disk_sat, "net": net_cong, "total": sat_total}
-        # full_under 면 under_limit=None(상위 N 절단 해제), 아니면 build_environment_overview 기본값 적용.
-        return build_environment_overview(
-            details,
-            online_count,
-            util,
-            risk_counts,
-            under_hosts,
-            saturation_counts=sat_counts,
-            error_summary=error_summary,
-            **({"under_limit": None} if full_under else {}),
-        )
+        return assemble_overview(details, util, raws_period, online_by_id, full_under, error_summary)
 
     async def get_environment_assessment(
         self, time_range: TimeRange, anchor_at: datetime | None = None
@@ -308,7 +322,6 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         fresh_threshold = now - timedelta(seconds=get_web_settings().redis_ttl_online)
         # 실시간 포화 원자료(CPU 실행큐·디스크 queue/await·메모리 paging) — 신선 표본 1쿼리 벌크(전용 경량 쿼리).
         sat_map = await self.repo.latest_saturation(server_ids, fresh_threshold)
-        metric_sibling = cast("_MetricSibling", self)
         online = 0
         snapshots: list[JsonObject] = []
         last_collected = None
@@ -318,7 +331,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                 continue
             # 포화 원자료 = 벌크 sat_map 재사용(B4) — get_latest_metric 에 주입해 per-server 재조회 생략.
             sat = sat_map.get(sid) or SaturationRaw()
-            m = await metric_sibling.get_latest_metric(sid, saturation=sat)
+            m = await latest_metric(self.repo, self.redis, sid, sat)
             if not m or not m.collected_at or m.collected_at < fresh_threshold:
                 continue  # 데이터 없음/stale = 오프라인 (통일: 데이터 신선도가 곧 온라인)
             online += 1
