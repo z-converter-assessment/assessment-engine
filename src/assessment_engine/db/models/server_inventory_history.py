@@ -1,11 +1,11 @@
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from assessment_engine.db.models.base import Base
+from assessment_engine.json_types import JsonObject
 
 
 class ServerInventoryHistory(Base):
@@ -47,12 +47,12 @@ class ServerInventoryHistory(Base):
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    block_devices: Mapped[list[Any] | None] = mapped_column(JSONB)
-    net_interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
-    lvm_vgs: Mapped[list[Any] | None] = mapped_column(JSONB)
-    boot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    nonblock_mounts: Mapped[list[Any] | None] = mapped_column(JSONB)
+    block_devices: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
+    net_interfaces: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
+    lvm_vgs: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
+    boot: Mapped[JsonObject | None] = mapped_column(JSONB)
+    nonblock_mounts: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
-    services: Mapped[list[Any] | None] = mapped_column(JSONB)
-    listen_ports: Mapped[list[Any] | None] = mapped_column(JSONB)
+    services: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
+    listen_ports: Mapped[list[JsonObject] | None] = mapped_column(JSONB)

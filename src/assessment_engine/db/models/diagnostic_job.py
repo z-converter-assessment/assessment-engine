@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import DateTime, Index, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -7,6 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from assessment_engine.db.models.base import Base
+from assessment_engine.json_types import JsonObject
 
 
 class DiagnosticJob(Base):
@@ -42,13 +42,13 @@ class DiagnosticJob(Base):
         server_default="customer_report",
     )
     scope: Mapped[str] = mapped_column(String(32), nullable=False)
-    input_params: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False)
+    input_params: Mapped[JsonObject] = mapped_column(JSONB, nullable=False)
     input_hash: Mapped[str] = mapped_column(String(64), nullable=False)
 
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="pending")
     progress_stage: Mapped[str | None] = mapped_column(String(32))
 
-    result: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    result: Mapped[JsonObject | None] = mapped_column(JSONB)
     error_message: Mapped[str | None] = mapped_column(Text)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

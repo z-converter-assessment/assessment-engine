@@ -4,7 +4,7 @@
 필요해지면 설정 없이는 import 조차 못 한다.
 """
 
-from functools import lru_cache
+from functools import cache
 from typing import TYPE_CHECKING
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
 
 
-@lru_cache(maxsize=1)
+@cache
 def get_engine() -> AsyncEngine:
     settings = WebSettings()  # pyright: ignore[reportCallIssue]
     return create_async_engine(
@@ -28,7 +28,7 @@ def get_engine() -> AsyncEngine:
     )
 
 
-@lru_cache(maxsize=1)
+@cache
 def get_session_factory() -> async_sessionmaker[AsyncSession]:
     return async_sessionmaker(get_engine(), expire_on_commit=False)
 
