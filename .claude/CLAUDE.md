@@ -405,6 +405,8 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 - 전용 워커 프로세스(`assessment_engine.worker`) — 보고서 생성 + install reaper 를 web(HTTP 전담)에서 분리한 별도 컨테이너. `worker/main.py` 가 두 루프를 공유 stop_event 로 병행 구동, consumer 와 동일 asyncio-native SIGTERM(`loop.add_signal_handler`) graceful. `signal.signal`·`os._exit` 금지(아래 일관).
 - 보고서 생성 루프 — SIGTERM 시 stop_event 로 새 claim 중단 + 진행 중 1건은 `report_worker_shutdown_timeout_sec` 안 drain, 미완은 running 잔류 -> 다음 기동 `recover_stale_running` 가 pending 으로 회수(in-flight 손실 0). job 상태는 DB(`diagnostic_jobs`)라 메모리 손실 없음.
 - install task reaper 루프 — SIGTERM 시 stop_event 로 tick 중단(진행 중 UPDATE 1건 짧아 즉시 drain). deadline 경과 pending 을 emit 무관하게 `expire_all_overdue_tasks` 로 failure(timeout) 전역 전이 — task 상태는 DB(`tasks`)라 메모리 손실 0.
+- 세 프로세스 종료 경로의 마지막은 `db/session.dispose_engine()` + `cache/redis.close_pool()` 순서 단일. 외부 자원 해제를 다른 정리 실패가 건너뛰지 못하게 별도 `finally` 에 둔다 — 남긴 asyncpg 커넥션이 루프 종료 후 GC 되면 "Event loop is closed" 가 stdout 으로 새고 `LOG_FORMAT=json` 계약이 깨진다.
+- 워커 자식 루프가 예외로 죽으면 정리를 마친 뒤 그 예외를 그대로 올린다 — 0 으로 나가면 `restart: unless-stopped` 가 재기동하지 않아 컨테이너만 살아 있는 상태가 된다.
 
 금지:
 - `signal.signal(SIGTERM, ...)` 직접 핸들러 — uvicorn/asyncio 자체 처리, 중복은 종료 race.

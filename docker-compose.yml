@@ -114,6 +114,8 @@ services:
   consumer:
     <<: *app-base
     command: ["python", "-m", "assessment_engine.consumer"]
+    # in-flight drain 예산(_SHUTDOWN_DRAIN_SEC, 5s)보다 길어야 SIGKILL 이 정리를 자르지 않는다.
+    stop_grace_period: 15s
 
   worker:
     <<: *app-base

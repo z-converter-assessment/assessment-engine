@@ -19,7 +19,7 @@ from assessment_engine.consumer.handlers import (
 )
 from assessment_engine.consumer.settings import get_consumer_settings
 from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
-from assessment_engine.db.session import get_session_factory
+from assessment_engine.db.session import dispose_engine, get_session_factory
 from assessment_engine.log_config import setup_logging
 
 # 큐 정책 변경 시 broker의 기존 큐 재선언이 PRECONDITION_FAILED — 큐 수동 삭제 필요.
@@ -30,8 +30,8 @@ _ERROR_TTL_MS = 300_000  # 5분
 _TASK_RESULT_TTL_MS = 24 * 60 * 60 * 1000  # 24h
 _TASK_RESULT_MAX_LEN = 100_000
 
-# 종료 신호 후 진행 중 핸들러를 기다리는 총 예산. docker 기본 stop_grace_period(10s) 안에서 끝나야
-# SIGKILL 이 drain 을 자르지 않는다.
+# 종료 신호 후 진행 중 핸들러를 기다리는 총 예산. compose 의 `stop_grace_period` 안에서 끝나야
+# SIGKILL 이 drain 을 자르지 않는다 (docker-compose.yml 의 consumer 서비스가 그 값을 선언한다).
 _SHUTDOWN_DRAIN_SEC = 5.0
 
 type _Handler = Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]
@@ -231,4 +231,5 @@ async def main() -> None:
             logger.info("consumer stopping (signal received) — draining in-flight={}", len(inflight))
             await _drain(consumers, inflight)
     finally:
+        await dispose_engine()
         await close_pool()

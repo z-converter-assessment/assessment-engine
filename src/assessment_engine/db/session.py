@@ -36,3 +36,15 @@ def get_session_factory() -> async_sessionmaker[AsyncSession]:
 async def get_db() -> AsyncGenerator[AsyncSession]:
     async with get_session_factory()() as session:
         yield session
+
+
+async def dispose_engine() -> None:
+    """풀의 커넥션을 닫는다. 각 프로세스의 종료 경로가 마지막에 부른다 (F11).
+
+    빠뜨리면 asyncpg 커넥션이 루프 종료 후 GC 되면서 "Event loop is closed" 가 stdout 으로 샌다 —
+    `LOG_FORMAT=json` 을 켜도 그 줄만 형식이 달라 aggregator 파싱이 깨진다.
+    엔진을 만든 적이 없으면(설정만 읽고 끝난 프로세스) 만들지 않는다.
+    """
+    if get_engine.cache_info().currsize == 0:
+        return
+    await get_engine().dispose()

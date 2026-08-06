@@ -11,6 +11,7 @@ from loguru import logger
 from starlette.datastructures import MutableHeaders
 
 from assessment_engine.cache.redis import close_pool
+from assessment_engine.db.session import dispose_engine
 from assessment_engine.log_config import setup_logging
 from assessment_engine.web.routers.api import api_router, fleet_router
 from assessment_engine.web.routers.assessment import assessment_router
@@ -77,6 +78,7 @@ async def lifespan(app: FastAPI):
 
     await http_client.aclose()
     await broker_conn.close()
+    await dispose_engine()
     await close_pool()
 
 

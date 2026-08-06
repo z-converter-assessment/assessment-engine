@@ -18,7 +18,7 @@ from assessment_engine.cache.redis import close_pool, get_redis
 from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
 from assessment_engine.db.repositories.diagnostic_sql import SqlDiagnosticRepository
 from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
-from assessment_engine.db.session import get_session_factory
+from assessment_engine.db.session import dispose_engine, get_session_factory
 from assessment_engine.log_config import setup_logging
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.query_service import QueryService
@@ -72,22 +72,60 @@ async def main() -> None:
             stop_event=stop_event,
         )
     )
+    # 신호와 자식 둘 중 먼저 끝나는 것을 기다린다. stop_event 만 기다리면 자식이 예외로 죽어도 프로세스가
+    # 계속 살아 있고, 그 예외는 아무도 회수하지 않은 채 종료 시점까지 잠긴다.
+    stop_task = asyncio.create_task(stop_event.wait())
+    failures: list[BaseException] = []
     try:
-        await stop_event.wait()  # SIGTERM/SIGINT 까지 두 루프 병행 구동 (루프는 내부 격리라 자체 종료 없음)
-        logger.info("worker stopping (signal received)")
+        await asyncio.wait({report_task, reaper_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
+        logger.info("worker stopping")
     finally:
+        # 남은 stop_task 를 정리하지 않으면 "Task was destroyed but it is pending" 이 stdout 으로 나간다.
+        stop_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await stop_task
         # 공유 stop_event 로 두 루프 종료 신호 -> 각자 shutdown timeout 안 진행 중 1건 drain.
         # report 미완 job 은 running 잔류 -> 다음 기동 recover_stale 회수(in-flight 손실 0).
-        await graceful_drain(
-            report_task,
-            stop_event,
-            get_worker_settings().report_worker_shutdown_timeout_sec,
-            "report worker shutdown timeout — in-flight job left running (stale recovery will requeue)",
-        )
-        await graceful_drain(
-            reaper_task,
-            stop_event,
-            get_worker_settings().install_reaper_shutdown_timeout_sec,
-            "install task reaper shutdown timeout — cancelled",
-        )
-        await close_pool()
+        # 한 drain 이 자식 예외를 올려도 나머지 정리는 계속돼야 한다 — 각각 격리하고 예외는 모아 둔다.
+        try:
+            failures = [
+                failure
+                for failure in (
+                    await _drain_logged(
+                        report_task,
+                        stop_event,
+                        get_worker_settings().report_worker_shutdown_timeout_sec,
+                        "report worker shutdown timeout — in-flight job left running (stale recovery will requeue)",
+                    ),
+                    await _drain_logged(
+                        reaper_task,
+                        stop_event,
+                        get_worker_settings().install_reaper_shutdown_timeout_sec,
+                        "install task reaper shutdown timeout — cancelled",
+                    ),
+                )
+                if failure is not None
+            ]
+        finally:
+            await dispose_engine()
+            await close_pool()
+
+    if failures:
+        # 루프가 죽은 프로세스를 유지할 이유가 없다. 0 으로 나가면 restart 정책이 재기동하지 않아
+        # 컨테이너는 살아 있는데 보고서도 reaper 도 돌지 않는 상태로 남는다.
+        raise failures[0]
+
+
+async def _drain_logged(
+    task: asyncio.Task[None],
+    stop_event: asyncio.Event,
+    shutdown_timeout_sec: float,
+    timeout_warning: str,
+) -> BaseException | None:
+    """`graceful_drain` + 자식 예외 회수. 삼키는 것이 아니라 뒤 정리를 살리려고 잡았다가 호출자에게 돌려준다."""
+    try:
+        await graceful_drain(task, stop_event, shutdown_timeout_sec, timeout_warning)
+    except Exception as e:  # noqa: BLE001  루프가 무엇으로 죽었든 나머지 정리는 돌아야 한다
+        logger.exception("worker loop failed during shutdown")
+        return e
+    return None

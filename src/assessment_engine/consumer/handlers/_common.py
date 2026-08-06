@@ -105,43 +105,75 @@ def _is_retryable_db_exc(e: DBAPIError) -> bool:
     return sqlstate.startswith(_RETRYABLE_SQLSTATE_PREFIX) or sqlstate in _RETRYABLE_SQLSTATES
 
 
-async def _db_retry[T](
+def _describe_db_failure(e: DBAPIError | TimeoutError) -> tuple[str, str]:
+    """(무엇이 실패했나, 진단 메타) — 재시도 로그 두 자리가 같은 문구를 쓰게 한다."""
+    if isinstance(e, DBAPIError):
+        return "db error", f" {_format_db_err(e)}"
+    return "db timeout", ""
+
+
+def _is_permanent_db_failure(e: DBAPIError | TimeoutError) -> bool:
+    """영구 장애면 진단 메타를 남기고 True — 호출자가 그대로 raise 해 nack -> DLQ (F6).
+
+    asyncpg 의 connect/command timeout 은 dialect 예외 번역표에 없어 DBAPIError 로 감싸이지 않는다.
+    타입으로 안 갈리므로 `TimeoutError` 는 항상 일시 장애로 받는다.
+    """
+    if not isinstance(e, DBAPIError):
+        return False
+    _hide_bound_params(e)
+    if isinstance(e, IntegrityError):
+        logger.error("db integrity error (non-retryable) {}", _format_db_err(e))
+        return True
+    if not _is_retryable_db_exc(e):
+        # ProgrammingError·DataError 등 — 재시도해도 같은 결과다.
+        logger.error("db error (non-retryable) {}", _format_db_err(e))
+        return True
+    return False
+
+
+async def _db_attempt[T](
     session_factory: async_sessionmaker[AsyncSession],
     repo_factory: Callable[[AsyncSession], CollectRepository],
     fn: Callable[[CollectRepository], Coroutine[Any, Any, T]],
 ) -> T:
-    for attempt in range(_RETRY_MAX_ATTEMPTS):
+    """세션 1회 — 열고, 실행하고, 커밋한다. 트랜잭션 경계가 곧 이 함수의 범위다."""
+    async with session_factory() as session:
+        result = await fn(repo_factory(session))
+        await session.commit()
+        return result
+
+
+async def _db_retry[T](
+    session_factory: async_sessionmaker[AsyncSession],
+    repo_factory: Callable[[AsyncSession], CollectRepository],
+    fn: Callable[[CollectRepository], Coroutine[Any, Any, T]],
+    sleep: Callable[[float], Coroutine[Any, Any, None]] = asyncio.sleep,
+) -> T:
+    """일시 DB 장애만 백오프 재시도. 영구 장애는 즉시 raise -> nack -> DLQ (F6).
+
+    `sleep` 은 백오프 대기를 주입받는 자리다. 기본값이 실제 경로이고, 테스트가 여기를 지르지 않으면
+    한 케이스에 최대 6초가 붙는다.
+    """
+    for attempt in range(1, _RETRY_MAX_ATTEMPTS):
         try:
-            async with session_factory() as session:
-                result = await fn(repo_factory(session))
-                await session.commit()
-        except IntegrityError as e:
-            # 영구 장애 — 즉시 raise -> 핸들러 nack -> DLQ. F8: 진단 메타만 로깅.
-            _hide_bound_params(e)
-            logger.error("db integrity error (non-retryable) {}", _format_db_err(e))
-            raise
-        except DBAPIError as e:
-            _hide_bound_params(e)
-            if not _is_retryable_db_exc(e):
-                # 영구 장애 (ProgrammingError·DataError 등) — 즉시 raise -> nack -> DLQ (F6).
-                logger.error("db error (non-retryable) {}", _format_db_err(e))
+            return await _db_attempt(session_factory, repo_factory, fn)
+        except (DBAPIError, TimeoutError) as e:
+            if _is_permanent_db_failure(e):
                 raise
-            if attempt == _RETRY_MAX_ATTEMPTS - 1:
-                logger.error("db error after {} attempts {}", _RETRY_MAX_ATTEMPTS, _format_db_err(e))
-                raise
-            logger.warning("db error attempt={} {}", attempt + 1, _format_db_err(e))
-        except TimeoutError:
-            # asyncpg 의 connect/command timeout 은 asyncio.TimeoutError 로 나오고 dialect 예외 번역표에
-            # 없어 DBAPIError 로 감싸이지 않는다 — 위 분기가 못 잡으므로 여기서 일시 장애로 받는다.
-            if attempt == _RETRY_MAX_ATTEMPTS - 1:
-                logger.error("db timeout after {} attempts", _RETRY_MAX_ATTEMPTS)
-                raise
-            logger.warning("db timeout attempt={}", attempt + 1)
-        else:
-            return result
-        # full jitter: [0, base^(attempt+1)] 균등 — 동시 재연결 쏠림 방지.
-        await asyncio.sleep(random.uniform(0, _RETRY_BACKOFF_BASE_SEC ** (attempt + 1)))  # noqa: S311
-    raise AssertionError("unreachable")
+            label, meta = _describe_db_failure(e)
+            logger.warning("{} attempt={}{}", label, attempt, meta)
+        # full jitter: [0, base^attempt] 균등 — 동시 재연결 쏠림 방지.
+        await sleep(random.uniform(0, _RETRY_BACKOFF_BASE_SEC**attempt))  # noqa: S311
+
+    # 마지막 시도는 루프 밖이다 — 성공하면 반환, 실패하면 그대로 나간다. 루프가 소진될 수 없다는 것을
+    # 타입 검사기에 증명할 필요가 없어져 도달 불가 분기가 사라진다.
+    try:
+        return await _db_attempt(session_factory, repo_factory, fn)
+    except (DBAPIError, TimeoutError) as e:
+        if not _is_permanent_db_failure(e):
+            label, meta = _describe_db_failure(e)
+            logger.error("{} after {} attempts{}", label, _RETRY_MAX_ATTEMPTS, meta)
+        raise
 
 
 async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:
