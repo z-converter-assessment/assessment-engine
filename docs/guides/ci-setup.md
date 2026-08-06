@@ -2,6 +2,8 @@
 
 CI workflow·릴리즈·브랜치 정책을 작동시키려면 GitHub 측에서 한 번 활성해야 하는 설정 카탈로그. 저장소 코드 영역 밖이라 운영자가 Settings 에서 수동 적용한다. 배포는 GitHub 설정이 불요 — 배포 대상 VM 에서 `deploy.sh` 를 실행한다(`docs/guides/deploy.md`).
 
+여기서 켠 것들이 실제로 언제 발화하는지는 `docs/reference/automation.md` 가 워크플로와 함께 한 표로 갖는다.
+
 ## 1. Actions 권한
 
 위치: Settings -> Actions -> General -> Workflow permissions
@@ -55,7 +57,7 @@ Branch protection rules 가 아니라 ruleset 을 쓴다 — 여러 패턴을 �
 | Dismiss stale pull request approvals | 활성 | main 과 동일 |
 | Allowed merge methods | Squash 만 | feature 의 작업 커밋을 압축한다. PR title 이 그대로 커밋 메시지가 되므로 형식 검사가 의미를 갖는다 |
 | Require status checks to pass | 활성 (아래 3.4 develop 목록) | |
-| Require branches to be up to date | 비활성 | develop 은 통합 지점이라 PR 마다 재실행을 강제하면 대기가 길어진다. main 승격은 활성 |
+| Require branches to be up to date | 비활성 | develop 은 통합 지점이라 PR 마다 재실행을 강제하면 대기가 길어진다. 대신 머지 직후 같은 검증이 한 번 더 돌아 합쳐진 결과를 본다(`docs/reference/automation.md`). main 승격은 활성 |
 | Bypass list | 비움 | |
 
 ### 3.3. release tags
@@ -138,22 +140,47 @@ gh api repos/<owner>/<repo>/rulesets/<id> --jq '[.rules[].type]'
 
 위치: Settings -> Code security -> Dependabot
 
-Dependabot 은 워크플로가 아니라 플랫폼 기능이다. 러너에서 돌지 않고 GitHub 이 저장소의 의존성 선언과 lockfile 을 자기 인프라에서 스캔한다. 분류로는 SCA — 우리가 가져다 쓰는 패키지의 알려진 취약점을 본다. 우리 코드 자체를 보는 CodeQL(SAST, `codeql.yml` 워크플로)과 다른 도구이고 결과만 같은 Security 탭에 모인다.
+Dependabot 은 워크플로가 아니라 플랫폼 기능이다. 러너에서 돌지 않고 GitHub 이 저장소의 의존성 선언과 lockfile 을 자기 인프라에서 스캔한다. 분류로는 SCA — 우리가 가져다 쓰는 패키지의 알려진 취약점을 본다.
+
+Security 탭에는 서로 다른 네 도구의 결과가 모인다. 우리 코드는 CodeQL(SAST, `codeql.yml`), 의존성은 Dependabot alerts, 베이스 이미지 안 OS 패키지는 trivy(`image-scan.yml`), 커밋된 토큰은 secret scanning(4.3) — 넷이 보는 대상이 겹치지 않는다. CodeQL 과 trivy 는 러너에서 도는 워크플로라 파일로 관리하고, Dependabot 과 secret scanning 은 GitHub 이 자기 인프라에서 굴리는 플랫폼 기능이라 설정 토글이다. 채널 분담 근거는 `docs/guides/dependencies.md` 5절.
 
 | 항목 | 값 | 동작 |
 |------|----|------|
 | Dependabot alerts | 활성 | 전 생태계. 취약점 발견 시 Security 탭에 경고 |
 | Dependabot security updates | 비활성 | 켜면 취약점 건에 자동 수정 PR |
-| Dependabot version updates | 활성 | `.github/dependabot.yml` 등재 생태계(docker·github-actions)만 정기 PR |
+| Dependabot version updates | 비활성 | 켜면 취약점과 무관한 정기 버전 올림 PR |
 
-version updates 는 설정 파일이 정한다 — 파일에 없는 생태계(uv/pip)는 토글이 켜져 있어도 PR 이 열리지 않는다.
-생태계를 가르는 사유와 파이썬 의존성 수동 갱신 절차는 `docs/guides/dependencies.md` 5절이 갖는다.
+자동 PR 을 여는 두 항목을 끈다 — 버전 고정 정책(`docs/guides/dependencies.md` 5절). alerts 만 남겨 "문제가
+생겼다"는 신호를 받고, 올릴지는 사람이 판단한다. `.github/dependabot.yml` 은 두지 않으므로 version updates 는
+토글과 무관하게 발화하지 않는다.
 
 상태 조회는 API 로 한다.
 
 ```bash
 gh api -i repos/<owner>/<repo>/vulnerability-alerts   # 204 = alerts 활성, 404 = 비활성
 gh api repos/<owner>/<repo>/automated-security-fixes  # enabled = security updates
+```
+
+### 4.3. Secret scanning
+
+위치: Settings -> Code security -> Secret scanning
+
+Dependabot alerts 와 같은 플랫폼 기능이다 — 러너에서 돌지 않고 파일로 설정하지 않는다. public repo 는 무료다.
+
+| 항목 | 값 | 동작 |
+|------|----|------|
+| Secret scanning | 활성 | 커밋된 provider 토큰 발견 시 Security 탭에 경고 |
+| Push protection | 활성 | 토큰이 포함된 push 를 거부 |
+| Non-provider patterns | 비활성 | 켜면 형태 기반 일반 패턴까지. 오탐이 신호를 덮는다 |
+| Validity checks | 비활성 | 유출 토큰이 아직 살아 있는지 provider 에 조회. 이 저장소에서는 켜지지 않는다 |
+
+push protection 만 게이트다. 다른 신호 채널을 전부 경고로 둔 것과 어긋나 보이지만, 비밀은 유출을 되돌릴 수 없어서 사후 경고의 가치가 낮다. public repo 에 한 번 올라간 토큰은 삭제해도 이미 읽힌 것으로 본다 — 막을 수 있는 자리에서 막고, 걸리면 커밋에서 걷어낸 뒤 다시 push 한다.
+
+검출 대상은 GitHub 이 아는 provider 토큰 형태다. DB·broker 비밀번호처럼 형태가 정해지지 않은 값은 잡지 않으므로 PR diff 검토 의무(`.claude/CLAUDE.md` #F8)는 그대로 남는다.
+
+```bash
+gh api repos/<owner>/<repo> --jq '.security_and_analysis'
+gh api -i repos/<owner>/<repo>/secret-scanning/alerts   # 200 = 활성, 404 = 비활성
 ```
 
 ## 5. Secrets
@@ -164,7 +191,8 @@ gh api repos/<owner>/<repo>/automated-security-fixes  # enabled = security updat
 
 - [ ] Actions -> Workflow permissions -> Read repository contents and packages (기본값)
 - [ ] Code scanning -> Default setup 켜지 않음 (Advanced 유지)
-- [ ] Dependabot alerts 활성 (security updates 비활성 / version updates 는 설정 파일 등재분만)
+- [ ] Dependabot alerts 활성 (security updates·version updates 비활성)
+- [ ] Secret scanning + push protection 활성 (non-provider patterns 비활성)
 - [ ] Ruleset: main (3.1)
 - [ ] Ruleset: develop (3.2)
 - [ ] Ruleset: release tags (3.3) + 첫 릴리즈에서 tag 생성 확인

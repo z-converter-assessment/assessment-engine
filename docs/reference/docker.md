@@ -25,6 +25,8 @@ docker-compose 는 엔진 그 자체다 — web·consumer·worker·migrate·post
 
 builder 가 가상환경을 만들고 runtime 은 그것만 복사한다. uv 바이너리와 소스 트리가 최종 이미지에 남지 않는다.
 
+runtime 은 베이스가 딸려 보낸 pip 도 걷는다. 애플리케이션은 `/opt/venv` 만 쓰고 그 venv 는 `include-system-site-packages=false` 라 `/usr/local/lib/python3.*/site-packages` 를 보지 않으므로, pip 은 실행되지 않으면서 vendor 트리(`pip/_vendor`)의 취약점만 이미지에 싣는다.
+
 ### 빌드 캐시 — 2단 uv sync
 
 ```dockerfile
@@ -48,8 +50,8 @@ RUN uv sync --frozen --no-dev --no-editable        # project 만 추가
 ### 베이스 이미지 핀
 
 `FROM` 3줄은 태그 뒤에 digest 를 붙인다. 같은 `python:3.14-slim` 태그가 시점마다 다른 레이어를 가리키므로,
-digest 가 없으면 같은 커밋을 빌드해도 다른 이미지가 나온다. 갱신은 Dependabot docker 생태계가 PR 로 연다
-(`docs/guides/dependencies.md` 5절).
+digest 가 없으면 같은 커밋을 빌드해도 다른 이미지가 나온다. 갱신은 사유가 있을 때 사람이 한다 — 자동 갱신을
+두지 않는 이유는 `docs/guides/dependencies.md` 5절.
 
 compose 가 쓰는 인프라 이미지(timescaledb·rabbitmq·redis)는 태그 그대로 둔다. 재현 대상은 본 repo 가
 빌드해 GHCR 로 올리는 엔진 이미지 하나이고, 인프라 이미지는 배포 VM 이 pull 하는 시점에 정해진다.

@@ -34,6 +34,7 @@ reference/ (지금 어떻게 도나):
 - `contracts/env.md` — 환경변수 계약 (키 카탈로그·secret 채널·기동 검증).
 - `contracts/assessment-api.md` — 프로비저닝 어세스먼트 API 계약 (engine -> 재해복구/마이그레이션 소비자). GET /api/assessment + POST /api/exports/inventory 응답 구조·필드 의미·단위·불변식·버전 규약 + 복잡 스토리지 VM 워크드 예시(9절). 얼어붙은 외부 인터페이스.
 - `docker.md` — 이미지·compose 구성 사양 (단일 이미지 command 분기·빌드 캐시·3파일 배치·base 서비스/포트/볼륨/기동 순서·dev override).
+- `automation.md` — 워크플로·플랫폼 기능이 각각 언제 발화하나 (트리거 한눈에 + 막는 것/알리는 것 구분). 무엇을 검증하나는 루트 `README.md`, required 등록은 `guides/ci-setup.md` 3.4.
 - `consumer.md` · `rabbitmq.md` · `redis.md` · `right-sizing.md` · `observability.md` — subsystem 동작 + 각자 "한계" 절.
 - `right-sizing-thresholds.md` — 자원 적정성 임계치·근거 인간가독 정본 (5자원 x USE 3축, 신호·임계·basis·robustness). `right-sizing.md` 는 판정 명세, 본 문서는 임계 수치·근거.
 - `db/` — models · dtos · repositories · timescaledb.

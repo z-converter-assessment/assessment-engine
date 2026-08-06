@@ -1,0 +1,50 @@
+name: image-scan
+
+# 발행된 이미지 안 OS 패키지의 알려진 취약점. GitHub 의존성 그래프는 Dockerfile 의 FROM 을 보지 않아
+# 이 계층만 신호 채널이 없다. 결과는 Security 탭 code scanning alert 이며 required status check 가 아니다.
+
+on:
+  # 이미지가 바뀌어서가 아니라 취약점 DB 가 자라서 생기는 신호라, 발행이 아니라 시간에 맞춘다.
+  # 일 18:00 UTC = 월 03:00 KST — 주 시작에 결과가 와 있게.
+  schedule:
+    - cron: "0 18 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write   # Security 탭 alert 작성
+  packages: read           # 아래 ghcr 로그인이 실제 스코프를 갖게 한다
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: scan published image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      # trivy 가 취약점 DB 를 ghcr 에서 받는다 — 익명 pull 은 러너 공유 IP 라 rate limit 에 걸린다.
+      - uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          # Dockerfile 이 아니라 발행된 이미지를 본다 — 빌드가 실제로 무엇을 담았는지는 결과물에만 있다.
+          image-ref: ghcr.io/${{ github.repository_owner }}/assessment-engine:latest
+          format: sarif
+          output: trivy.sarif
+          # 고칠 수 있는 것만 — debian 이 no-DSA 로 두는 항목이 다수라, 켜지 않으면 조치 불가능한 경고가 쌓인다.
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          limit-severities-for-sarif: true
+
+      - uses: github/codeql-action/upload-sarif@d1ba80a13dd99fba24a470575428917156a28b43 # v4.37.5
+        with:
+          sarif_file: trivy.sarif
+          # CodeQL 결과와 섞이지 않게 별도 category — 같은 값으로 올려야 다음 회차가 이전 alert 를 닫는다.
+          category: image-os-packages

@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1.7
 
-FROM ghcr.io/astral-sh/uv:0.11.16@sha256:440fd6477af86a2f1b38080c539f1672cd22acb1b1a47e321dba5158ab08864d AS uv
+FROM ghcr.io/astral-sh/uv:0.12.1@sha256:cf4eedcaa81655197f625739489effcbe71b61ceb1506f332c3facae5deceded AS uv
 
 FROM python:3.14-slim@sha256:a7fb1e634c4a578f9e0bd6327f11a3cde11b7a9395f48e24360c0988bcc5c2bc AS builder
 
@@ -33,6 +33,13 @@ WORKDIR /app
 
 RUN groupadd --system --gid 1000 app && \
     useradd  --system --uid 1000 --gid app --no-create-home --shell /usr/sbin/nologin app
+
+# 베이스가 딸려 보낸 pip 을 걷는다. 애플리케이션은 /opt/venv 만 쓰고 그 venv 는
+# include-system-site-packages=false 라 여기를 보지 않으므로, 남겨 두면 실행되지 않는 채로
+# vendor 트리(pip/_vendor)의 취약점만 이미지에 싣는다.
+RUN rm -rf /usr/local/lib/python3.*/site-packages/pip \
+           /usr/local/lib/python3.*/site-packages/pip-*.dist-info \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.*
 
 COPY --from=builder /opt/venv /opt/venv
 

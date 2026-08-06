@@ -453,6 +453,7 @@ consumer 측 상세: `docs/reference/consumer.md` "Disposability" 절.
 |------|------------|
 | 워크플로 · 잡 · 스텝 | GitHub Actions 의 파일 · 병렬 단위 · 명령 |
 | CI | 검증 워크플로 — `ci.yml` · `alembic-check.yml` · `codeql.yml` · `pr-title-check.yml` |
+| 이미지 스캔 | `image-scan.yml` (주기 실행, 발행 이미지 OS 패키지 CVE). PR 발화가 아니라 CI 아님 |
 | 릴리즈 워크플로 | `release.yml` (이미지 빌드·서명·태그). 분류는 Continuous Delivery |
 | 배포 (rollout) | 배포 대상 VM 에서 `deploy.sh` 실행 |
 | 이미지 빌드 / wheel 빌드 | 항상 어느 쪽인지 명시 |
@@ -463,6 +464,6 @@ consumer 측 상세: `docs/reference/consumer.md` "Disposability" 절.
 - 수식 없는 "빌드" — 이미지 빌드와 wheel 빌드가 다른 워크플로다.
 - wheel 을 배포 산출물·배포처와 같은 층위로 나열.
 
-워크플로 책임 카탈로그는 루트 `README.md` "워크플로" 절, 발화 조건·required check 는 `docs/guides/ci-setup.md` 3.4 소유.
+워크플로 책임 카탈로그는 루트 `README.md` "워크플로" 절, 발화 시점 지도(플랫폼 기능 포함)는 `docs/reference/automation.md`, required check 등록 목록은 `docs/guides/ci-setup.md` 3.4 소유.
 
 ---

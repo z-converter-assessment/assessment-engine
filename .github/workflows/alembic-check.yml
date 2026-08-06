@@ -6,6 +6,9 @@ on:
   # paths 조건 없이 항상 발화 — required status check 가 paths skip 으로 N/A 되어 머지가 막히는 함정 회피.
   pull_request:
     branches: [main, develop]
+  # 머지 후 develop 재검증 — 사유는 ci.yml 의 같은 자리.
+  push:
+    branches: [develop]
 
 permissions:
   contents: read
@@ -46,14 +49,14 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: '3.14'
 
       - name: Install uv
         uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          version: "0.11.16"
+          version: "0.12.1"
           enable-cache: true
           cache-dependency-glob: uv.lock
 

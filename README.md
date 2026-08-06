@@ -119,6 +119,9 @@
 | `alembic-check.yml` | ORM 모델과 migrations 의 drift (`alembic upgrade head` 후 `alembic check`) |
 | `codeql.yml` | CodeQL SAST (Security 탭 alert) |
 | `release.yml` | `main` push 시 멀티아치 엔진 이미지 빌드 → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
+| `image-scan.yml` | 주 1회 발행 이미지의 OS 패키지 CVE 점검 (Security 탭 alert) |
+
+무엇이 언제 발화하는지는 `docs/reference/automation.md` 가 한 표로 갖는다 — 워크플로와 GitHub 플랫폼 기능(Dependabot alerts·secret scanning·ruleset)을 함께 본다.
 
 검증 워크플로는 GitHub Actions 가 PR 마다 돌리고, 이미지 발행은 `main` push 시 릴리즈 워크플로(`release.yml`)가 한다. 배포(rollout)는 GitHub Actions가 아니라 배포 대상 VM에서 `deploy.sh vX.Y.Z` 를 실행한다 — 내부망 outbound-only VM이라 밖에서 push하지 않고 VM이 이미지를 pull한다(아래 배포 절).
 
