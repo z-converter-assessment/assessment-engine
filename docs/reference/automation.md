@@ -9,9 +9,9 @@
 | 무엇 | 종류 | 발화 시점 | 결과 |
 |------|------|----------|------|
 | `pr title + metadata` | 워크플로 | main·develop PR 의 열림·재열림·제목 수정·새 커밋 | PR check |
-| `ruff + hadolint` · `pytest (unit)` · `frontend typecheck` | 워크플로 | main·develop PR 의 새 커밋마다 | PR check |
+| `ruff + hadolint` · `pytest (unit)` · `frontend typecheck` | 워크플로 | main·develop PR 의 새 커밋마다 + develop 머지 직후 | PR check · 커밋 상태 |
 | `wheel build` · `pytest (integration)` | 워크플로 | main PR 만 (`base_ref == 'main'`) | PR check |
-| `alembic-check` | 워크플로 | main·develop PR 의 새 커밋마다 | PR check |
+| `alembic-check` | 워크플로 | main·develop PR 의 새 커밋마다 + develop 머지 직후 | PR check · 커밋 상태 |
 | `codeql` | 워크플로 | main PR 만 | Security 탭 |
 | `release` | 워크플로 | main push, 또는 수동 dispatch | GHCR 이미지 + `vX.Y.Z` tag |
 | `image-scan` | 워크플로 | 매주 월 03:00 KST, 또는 수동 dispatch | Security 탭 |
@@ -36,6 +36,10 @@
 develop PR 은 5개, main PR 은 그 5개에 `wheel build`·`pytest (integration)` 이 붙고 `codeql` 이 따로 돈다. 무거운 것을 승격 직전에만 돌린다 — 통합 테스트는 testcontainers 로 DB·broker 를 띄우고, CodeQL 은 `security-extended` 쿼리라 오래 걸린다.
 
 `paths` 조건은 어느 워크플로에도 없다. 이유는 `docs/guides/ci-setup.md` 3.4.
+
+develop 은 머지 직후 같은 검증이 한 번 더 돈다. develop PR 은 최신 base 를 요구하지 않으므로(`ci-setup.md` 3.2) 각자 옛 base 로 통과한 PR 둘이 연달아 머지되면 합쳐진 결과는 어느 PR 도 검증하지 않은 상태가 된다. 이 재실행이 없으면 그 결과가 다음 PR 에서 터지고 원인이 그 PR 로 보인다. 게이트가 아니라 커밋 상태로만 남는다 — 이미 머지된 것을 막을 수는 없고, 누가 언제 깼는지를 제자리에 표시하는 것이 목적이다.
+
+main 은 최신 base 를 요구하므로(`strict_required_status_checks_policy: true`) 같은 문제가 없고, 재실행도 두지 않는다.
 
 ## main push 가 곧 릴리즈는 아니다
 

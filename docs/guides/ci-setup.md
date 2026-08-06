@@ -57,7 +57,7 @@ Branch protection rules 가 아니라 ruleset 을 쓴다 — 여러 패턴을 �
 | Dismiss stale pull request approvals | 활성 | main 과 동일 |
 | Allowed merge methods | Squash 만 | feature 의 작업 커밋을 압축한다. PR title 이 그대로 커밋 메시지가 되므로 형식 검사가 의미를 갖는다 |
 | Require status checks to pass | 활성 (아래 3.4 develop 목록) | |
-| Require branches to be up to date | 비활성 | develop 은 통합 지점이라 PR 마다 재실행을 강제하면 대기가 길어진다. main 승격은 활성 |
+| Require branches to be up to date | 비활성 | develop 은 통합 지점이라 PR 마다 재실행을 강제하면 대기가 길어진다. 대신 머지 직후 같은 검증이 한 번 더 돌아 합쳐진 결과를 본다(`docs/reference/automation.md`). main 승격은 활성 |
 | Bypass list | 비움 | |
 
 ### 3.3. release tags

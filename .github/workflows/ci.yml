@@ -11,6 +11,10 @@ name: ci
 on:
   pull_request:
     branches: [main, develop]
+  # develop 은 PR 이 최신 base 를 요구하지 않는다. 각자 옛 base 로 통과한 PR 둘이 연달아 머지되면
+  # 합쳐진 결과는 아무도 검증하지 않으므로, 머지된 커밋에서 한 번 더 돌려 그 자리에서 드러나게 한다.
+  push:
+    branches: [develop]
 
 permissions:
   contents: read

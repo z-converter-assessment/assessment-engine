@@ -6,6 +6,9 @@ on:
   # paths 조건 없이 항상 발화 — required status check 가 paths skip 으로 N/A 되어 머지가 막히는 함정 회피.
   pull_request:
     branches: [main, develop]
+  # 머지 후 develop 재검증 — 사유는 ci.yml 의 같은 자리.
+  push:
+    branches: [develop]
 
 permissions:
   contents: read
