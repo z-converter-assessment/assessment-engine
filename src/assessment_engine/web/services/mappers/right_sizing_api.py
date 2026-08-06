@@ -40,7 +40,7 @@ _STATUS_LABEL_KO: dict[str, str] = {
 }
 
 
-def _evidence_labels(triggers: list[str]) -> list[str]:
+def _evidence_labels(triggers: list[recommendation.TriggerKind]) -> list[str]:
     """trigger key -> 통일 한국어 근거 라벨. _CAUSE_LABEL_BY_TRIGGER(자원부족 축) 우선, 미커버 키는
 
     도메인 RS_TRIGGER_LABEL_KO 폴백 — mem_oom·net_retrans/drop/conntrack 이 raw enum 으로 누출되지 않게.
@@ -48,7 +48,7 @@ def _evidence_labels(triggers: list[str]) -> list[str]:
     return [_CAUSE_LABEL_BY_TRIGGER.get(t) or recommendation.RS_TRIGGER_LABEL_KO.get(t, t) for t in triggers]
 
 
-def _sizeable_recommendation(kind: str, ra: recommendation.ResourceAssessment) -> str | None:
+def _sizeable_recommendation(kind: recommendation.ResourceKind, ra: recommendation.ResourceAssessment) -> str | None:
     """자원 1개 사이징 권고 문구 — under/over(사이징 관련 상태)에만. 도메인 resource_prescription 단일 진실."""
     if ra.status in ("under", "over", "io_bound", "filling") or ra.sizing_target is not None:
         text = recommendation.resource_prescription(kind, ra)
@@ -143,7 +143,7 @@ def _disk_resource(
 _TARGET_KEY: dict[str, str] = {"cpu": "target_cores", "memory": "target_mb", "disk_capacity": "target_gb"}
 
 
-def _action(kind: str, ra: recommendation.ResourceAssessment, op: str) -> JsonObject:
+def _action(kind: recommendation.ResourceKind, ra: recommendation.ResourceAssessment, op: str) -> JsonObject:
     """조치 1건 — 자원·연산·타입 목표(있으면)·표시. 목표 수치는 타입별 키(target_cores/_mb/_gb)로 직접 파싱 가능."""
     a: JsonObject = {
         "resource": kind,

@@ -272,7 +272,7 @@ def mem_saturated(stats: ResourceStats) -> bool | None:
 
 # --- UI 라벨 (한국어, 양식 A 사용자 친화 표시용) --------------------------
 
-LABEL_KO: dict[str, str] = {
+LABEL_KO: dict[Recommendation, str] = {
     "idle": "유휴",
     "over_provisioned": "과다 할당",
     "under_provisioned": "자원 부족",
@@ -282,17 +282,9 @@ LABEL_KO: dict[str, str] = {
 
 # 양식 A의 RISK 색상 매핑 — report.html `.rec-{recommendation}` CSS와 짝.
 # 서로 다른 분류에 다른 클래스 — under=빨강(위험), over=파랑, optimal=녹색, idle=회색.
-BADGE_CLASS: dict[str, str] = {
-    "idle": "rec-idle",
-    "over_provisioned": "rec-over_provisioned",
-    "under_provisioned": "rec-under_provisioned",
-    "optimal": "rec-optimal",
-    "insufficient_data": "rec-insufficient_data",
-}
-
 # host_status(rollup 5상태) -> Recommendation(표시 5상태). 카드 편입·도넛·배지가 같은 rollup 결과를 쓴다
 # — 편입 == under_kinds 존재 == root_cause 존재라 카드에만 뜨고 근거가 비는 상태가 생기지 않는다.
-_HOST_STATUS_TO_REC: dict[str, Recommendation] = {
+_HOST_STATUS_TO_REC: dict[HostStatus, Recommendation] = {
     "under": "under_provisioned",
     "idle": "idle",
     "over": "over_provisioned",
@@ -306,18 +298,18 @@ def classify_host(stats: ResourceStats) -> Recommendation:
     return _HOST_STATUS_TO_REC[rollup_host(stats).host_status]
 
 
-def host_status_to_recommendation(status: str) -> Recommendation:
+def host_status_to_recommendation(status: HostStatus) -> Recommendation:
     """HostAssessment.host_status -> 표시 Recommendation (host 재계산 없이 변환 — 통합 조치 표용)."""
     return _HOST_STATUS_TO_REC[status]
 
 
 # 포화 축(USE saturation) 자원 — is_partial/confidence '포화 수치 미관측' 판정 대상. 용량(누적)·네트워크(품질)는 제외.
 # 실제 판정 helper host_saturation_unmeasured 는 HostAssessment 정의 이후(rollup_host 근처) — forward-ref 회피.
-_SATURATION_KINDS = ("cpu", "memory", "disk_io")
+_SATURATION_KINDS: tuple[ResourceKind, ...] = ("cpu", "memory", "disk_io")
 
 
 # 서버별 자원 적정성 표 최초 정렬 순서 — 전 서버(모든 분류). 자원 부족(시급) > 과다 > 유휴 > 정상 > 표본 부족.
-CLASSIFICATION_ORDER: dict[str, int] = {
+CLASSIFICATION_ORDER: dict[Recommendation, int] = {
     "under_provisioned": 0,
     "over_provisioned": 1,
     "idle": 2,
@@ -329,7 +321,7 @@ CLASSIFICATION_ORDER: dict[str, int] = {
 # --- 조치 권고 — 상태에서 파생하는 단일 진실 (상태 vs 조치 분리) --------------
 # 상태(LABEL_KO)는 "무엇인가", 본 층은 "그래서 뭘 하나". 표시 계층(report·environment_report)이 소비.
 # class-level 기본 문구 — 분포 막대·분류 요약(per-host stats 없는 맥락). 유휴 per-host 세분은 recommend_action.
-RECOMMENDATION_ACTION_KO: dict[str, str] = {
+RECOMMENDATION_ACTION_KO: dict[Recommendation, str] = {
     "under_provisioned": "증설 검토",
     "over_provisioned": "축소 검토",
     "idle": "종료·통합 검토",
@@ -423,6 +415,19 @@ def util_trend_rising_from_slopes(cpu_slope: float | None, mem_slope: float | No
 
 
 type ResourceKind = Literal["cpu", "memory", "disk_capacity", "disk_io", "network"]
+type TriggerKind = Literal[
+    "cpu_util",
+    "cpu_saturation",
+    "mem_util",
+    "mem_saturation",
+    "mem_oom",
+    "disk_capacity",
+    "disk_io",
+    "net_retrans",
+    "net_drop",
+    "net_conntrack",
+]
+"""판정 근거 라벨 키 — `RS_TRIGGER_LABEL_KO` 와 1:1. 표시 계층이 이 값으로 라벨을 찾는다."""
 type ResourceStatus = Literal[
     "under",
     "optimal",
@@ -459,7 +464,7 @@ class ResourceAssessment:
 
     kind: ResourceKind
     status: ResourceStatus
-    triggers: list[str] = field(default_factory=list[str])
+    triggers: list[TriggerKind] = field(default_factory=list[TriggerKind])
     sizing_target: int | None = None  # 목표 크기 (cpu=코어, memory=MB). None=사이징 불가/불요
     sizing_floor: int | None = None  # 정확 목표 불가(포화 주도) 시 안전 상향 하한 — API recommended never-null
     confidence: ConfidenceNote = field(default_factory=ConfidenceNote)
@@ -473,10 +478,10 @@ type HostStatus = Literal["under", "idle", "over", "optimal", "insufficient"]
 class HostAssessment:
     """호스트 종합 — 자원별 판정 dict + 근본원인 root(진단 근거) + 호스트 요약 상태."""
 
-    resources: dict[str, ResourceAssessment]
-    root_cause: str | None = None  # 원인 자원 kind
+    resources: dict[ResourceKind, ResourceAssessment]
+    root_cause: ResourceKind | None = None
     # root 의 증상으로 추정되는 kind — 근본원인 표시(root_cause_display)용 라벨일 뿐, 처방 억제에는 안 쓴다(ADR 0055).
-    symptom_of_root: list[str] = field(default_factory=list[str])
+    symptom_of_root: list[ResourceKind] = field(default_factory=list[ResourceKind])
     host_status: HostStatus = "optimal"  # 정렬·배지용 호스트 요약 (조치는 root_cause·자원별에서)
     network_congested: bool = False  # 네트워크 품질 경고 (사이징 아님, 별도 플래그)
     # 창 대비 관측 비율 — 신뢰도 '창 대비 관측 부족' 노트 입력(30h 절대바닥과 별개 축)
@@ -543,7 +548,7 @@ def assess_cpu(stats: ResourceStats) -> ResourceAssessment:
     if cores is None or cores <= 0:
         return ResourceAssessment("cpu", "unmeasured", confidence=conf, detail="코어 수 미상")
     target = _cpu_target_cores(util or 0.0, cores, _run_queue_value(stats), stats.os_family, saturated=bool(sat))
-    triggers: list[str] = []
+    triggers: list[TriggerKind] = []
     if util is not None and util >= RS_CPU_UNDER_PCT:
         triggers.append("cpu_util")
     if sat:
@@ -634,7 +639,7 @@ def assess_memory(stats: ResourceStats) -> ResourceAssessment:
             )
         conf.coverage_gap = True
         return ResourceAssessment("memory", "unmeasured", confidence=conf, detail="이용률 미측정")
-    triggers: list[str] = []
+    triggers: list[TriggerKind] = []
     if util >= RS_MEM_UNDER_PCT:
         triggers.append("mem_util")
     if _mem_paging_active(stats):
@@ -811,7 +816,7 @@ def assess_network(stats: ResourceStats) -> ResourceAssessment:
     # 저트래픽 게이트 — 트래픽이 무시할 수준이면 retrans/drop 비율이 부팅기 소수 이벤트에 지배돼 신뢰 불가.
     # conntrack(연결테이블 고갈)은 트래픽량과 무관한 절대 신호라 게이트 제외.
     low_traffic = stats.net_avg_kbytes_per_s is not None and stats.net_avg_kbytes_per_s < RS_NET_MIN_TRAFFIC_KBPS
-    triggers: list[str] = []
+    triggers: list[TriggerKind] = []
     if not low_traffic and retrans is not None and retrans > RS_NET_RETRANS_PCT:
         triggers.append("net_retrans")
     if not low_traffic and drop is not None and drop > RS_NET_DROP_PCT:
@@ -840,10 +845,14 @@ def assess_network(stats: ResourceStats) -> ResourceAssessment:
 # io_bound(disk_io)는 크기로 안 풀리는 advisory(tier hint) — network congested 와 동일한 직교 플래그라 여기서 제외
 # (사이징 처방 0인 축이 top-line 분류를 뒤집는 자기모순 방지). disk_io 는 아래 인과 로직에서 근본원인 라벨(진단
 # 근거)에만 참조 — ADR 0055 이후 처방(actions/advisory) 자체를 억제하는 데는 쓰이지 않는다.
-_ROOTABLE_UNDER = ("under", "filling")
+_ROOTABLE_UNDER: tuple[ResourceStatus, ...] = ("under", "filling")
 
 
-def _host_status(stats: ResourceStats, res: dict[str, ResourceAssessment], under_kinds: set[str]) -> HostStatus:
+def _host_status(
+    stats: ResourceStats,
+    res: dict[ResourceKind, ResourceAssessment],
+    under_kinds: set[ResourceKind],
+) -> HostStatus:
     """호스트 요약 상태 — under(압박) > idle(미사용) > over > optimal > insufficient.
 
     조치는 root_cause·자원별 판정에서 나오고 이건 정렬·배지용 파생.
@@ -883,7 +892,7 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
     고쳤을 때 하류가 실제로 해소된다는 보장이 없어도 관측된 부족을 누락하지 않는 것이 안전 우선 — assessment
     API 사이징 정책과 통일). 결합 신호 없이 각자 부족이면 각자(root=최상류 부족 자원, 나열 순서만 결정).
     """
-    res = {
+    res: dict[ResourceKind, ResourceAssessment] = {
         "cpu": assess_cpu(stats),
         "memory": assess_memory(stats),
         "disk_capacity": assess_disk_capacity(stats),
@@ -891,7 +900,7 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
         "network": assess_network(stats),
     }
     host = HostAssessment(resources=res)
-    under_kinds = {k for k, a in res.items() if a.status in _ROOTABLE_UNDER}
+    under_kinds: set[ResourceKind] = {k for k, a in res.items() if a.status in _ROOTABLE_UNDER}
     mem_pressure = res["memory"].status == "under"
     disk_io_pressure = res["disk_io"].status == "io_bound"
     cpu_pressure = res["cpu"].status == "under"
@@ -901,16 +910,16 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
     if mem_pressure and _mem_paging_active(stats) and (disk_io_pressure or cpu_pressure):
         # 메모리발 -> 동반 디스크 I/O·CPU 는 swap 트래픽·대기의 증상(symptom_of_root 라벨용, 처방 억제는 안 함).
         host.root_cause = "memory"
-        host.symptom_of_root = [
-            k for k in ("disk_io", "cpu") if k in under_kinds or (k == "disk_io" and disk_io_pressure)
-        ]
+        symptoms: tuple[ResourceKind, ...] = ("disk_io", "cpu")
+        host.symptom_of_root = [k for k in symptoms if k in under_kinds or (k == "disk_io" and disk_io_pressure)]
     elif disk_io_pressure and cpu_pressure and procs_blocked_high:
         # 디스크발 -> CPU 로드는 D-state 블록의 증상
         host.root_cause = "disk_io"
         host.symptom_of_root = ["cpu"] if "cpu" in under_kinds else []
     elif under_kinds:
         # 단일 원인 또는 결합 신호 없음 -> 각자 처방 (root = 최상류 부족 자원, 증상 억제 없음)
-        for k in ("memory", "disk_io", "cpu", "disk_capacity"):
+        root_order: tuple[ResourceKind, ...] = ("memory", "disk_io", "cpu", "disk_capacity")
+        for k in root_order:
             if k in under_kinds:
                 host.root_cause = k
                 break
@@ -930,18 +939,24 @@ def host_saturation_unmeasured(host: HostAssessment) -> bool:
 
 
 # 자원 부족 처방 기본 문구 (root 자원별). 사이징 축(cpu/memory)은 목표 있으면 "-> 총량 목표"로 대체.
-_UNDER_ACTION_BASE: dict[str, str] = {
+_UNDER_ACTION_BASE: dict[ResourceKind, str] = {
     "cpu": "CPU 증설",
     "memory": "메모리 증설",
     "disk_capacity": "스토리지 확장",
     "disk_io": "디스크 티어 상향",
     "network": "네트워크 점검",
 }
-_SIZEABLE_LABEL: dict[str, str] = {"cpu": "CPU", "memory": "메모리"}
-_UNDER_ORDER = ("memory", "cpu", "disk_io", "disk_capacity", "network")  # 나열 순(인과 상류 우선)
+_SIZEABLE_LABEL: dict[ResourceKind, str] = {"cpu": "CPU", "memory": "메모리"}
+_UNDER_ORDER: tuple[ResourceKind, ...] = (
+    "memory",
+    "cpu",
+    "disk_io",
+    "disk_capacity",
+    "network",
+)  # 나열 순(인과 상류 우선)
 
 
-def _fmt_sizing_target(kind: str, target: int) -> str:
+def _fmt_sizing_target(kind: ResourceKind, target: int) -> str:
     """사이징 목표 총량 표시 — cpu 코어, memory 는 1024MB 이상이면 GB(소수1, .0 제거)."""
     if kind == "cpu":
         return f"{target}코어"
@@ -950,20 +965,20 @@ def _fmt_sizing_target(kind: str, target: int) -> str:
     return f"{target}MB"
 
 
-def _resource_prescription(kind: str, ra: ResourceAssessment) -> str:
+def _resource_prescription(kind: ResourceKind, ra: ResourceAssessment) -> str:
     """자원 1개 처방 — 사이징 목표 있으면 "메모리: 22GB"·"스토리지: 500GB"(총량 목표), 없으면 기본 문구."""
     if kind == "disk_capacity" and ra.sizing_target is not None:
         return f"스토리지: {ra.sizing_target:.0f}GB"  # 1년 수명 목표 총 용량
     if kind in _SIZEABLE_LABEL and ra.sizing_target is not None:
         return f"{_SIZEABLE_LABEL[kind]}: {_fmt_sizing_target(kind, ra.sizing_target)}"
-    return _UNDER_ACTION_BASE.get(kind, "")
+    return _UNDER_ACTION_BASE[kind]
 
 
-def _under_kinds(host: HostAssessment) -> list[str]:
+def _under_kinds(host: HostAssessment) -> list[ResourceKind]:
     return [k for k in _UNDER_ORDER if k in host.resources and host.resources[k].status in _ROOTABLE_UNDER]
 
 
-def prescribed_under_kinds(host: HostAssessment) -> list[str]:
+def prescribed_under_kinds(host: HostAssessment) -> list[ResourceKind]:
     """처방 대상 under 자원 kind (공개, 단일 진실) — 관측된 under 자원 전부, 인과에 의한 억제 없음(ADR 0055).
 
     근본원인(root_cause/symptom_of_root)은 진단 근거일 뿐 처방 필터가 아니다 — 원인 자원만 고쳐도 하류가
@@ -974,7 +989,7 @@ def prescribed_under_kinds(host: HostAssessment) -> list[str]:
     return _under_kinds(host)
 
 
-def resource_prescription(kind: str, ra: ResourceAssessment) -> str:
+def resource_prescription(kind: ResourceKind, ra: ResourceAssessment) -> str:
     """자원 1개 처방 문구 (공개) — under_prescription·API actions 공유. 사이징 목표 있으면 "메모리: 22GB"."""
     return _resource_prescription(kind, ra)
 
@@ -1023,7 +1038,7 @@ def downsize_prescribable(assessment: ResourceAssessment, stats: ResourceStats) 
 
 
 # --- 표시 라벨 (한국어, mapper/템플릿 소비) ---
-RS_STATUS_LABEL_KO: dict[str, str] = {
+RS_STATUS_LABEL_KO: dict[ResourceStatus, str] = {
     "under": "부족",
     "optimal": "정상",
     "over": "과다",
@@ -1037,7 +1052,7 @@ RS_STATUS_LABEL_KO: dict[str, str] = {
     "insufficient": "표본 부족",
 }
 
-RS_HOST_STATUS_LABEL_KO: dict[str, str] = {
+RS_HOST_STATUS_LABEL_KO: dict[HostStatus, str] = {
     "under": "자원 부족",
     "idle": "유휴",
     "over": "과다 할당",
@@ -1046,7 +1061,7 @@ RS_HOST_STATUS_LABEL_KO: dict[str, str] = {
 }
 
 # 자원 kind -> 한국어 (rollup_host.root_cause 표시 — "어느 자원발인가"). 근본원인 컬럼 단일 진실.
-RS_RESOURCE_KIND_LABEL_KO: dict[str, str] = {
+RS_RESOURCE_KIND_LABEL_KO: dict[ResourceKind, str] = {
     "cpu": "CPU",
     "memory": "메모리",
     "disk_capacity": "디스크 용량",
@@ -1054,7 +1069,7 @@ RS_RESOURCE_KIND_LABEL_KO: dict[str, str] = {
     "network": "네트워크",
 }
 
-RS_TRIGGER_LABEL_KO: dict[str, str] = {
+RS_TRIGGER_LABEL_KO: dict[TriggerKind, str] = {
     "cpu_util": "CPU 이용률 초과",
     "cpu_saturation": "CPU 실행 큐 포화",
     "mem_util": "메모리 이용률 초과",

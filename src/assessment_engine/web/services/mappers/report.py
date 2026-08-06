@@ -29,7 +29,7 @@ from assessment_engine.web.services.mappers.server import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
-    _DONUT_SEGMENT_FROM_REC,
+    BADGE_CLASS,
     OS_FAMILY_LABEL_KO,
     RISK_LEVEL_ORDER,
     ReportView,
@@ -687,11 +687,11 @@ def build_period_assessment(
     # 종합·자원별 판정 — rollup_host 1회(목록 자원 적정성과 동일 단일 진실). 배지=host_status 종합, 소제목 옆
     # verdict=자원별 status(어느 자원발인지). 문제 자원만 색, 정상·유휴·미측정은 muted.
     host = rec.rollup_host(stats)
-    seg_key = _DONUT_SEGMENT_FROM_REC.get(rec.host_status_to_recommendation(host.host_status), "insufficient_data")
-    cls_label = rec.LABEL_KO.get(seg_key, seg_key)
-    cls_color = next((c for k, _, c, _ in _DONUT_SEGMENT_DEFS if k == seg_key), "#64748b")
+    seg_key = rec.host_status_to_recommendation(host.host_status)
+    cls_label = rec.LABEL_KO[seg_key]
+    cls_color = next(c for k, c, _ in _DONUT_SEGMENT_DEFS if k == seg_key)
 
-    def _rstat(kind: str) -> str:
+    def _rstat(kind: recommendation.ResourceKind) -> recommendation.ResourceStatus:
         return host.resources[kind].status if kind in host.resources else "unmeasured"
 
     # 스토리지 = 용량(disk_capacity) + 성능/IO(disk_io) 독립 2축 — 배지 1개로 합치면(우선순위 승자만 노출)
@@ -894,7 +894,7 @@ def to_report_row_item(
         net_congested=host.network_congested,
         recommendation=rec,
         recommendation_label=recommendation.LABEL_KO[rec],
-        badge_class=recommendation.BADGE_CLASS[rec],
+        badge_class=BADGE_CLASS[rec],
         risk_level=risk_level,
         risk_label=risk_label,
         risk_badge_class=risk_badge_class,

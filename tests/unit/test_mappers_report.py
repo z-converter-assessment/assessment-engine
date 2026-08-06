@@ -2,7 +2,7 @@
 
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_args
 
 import pytest
 
@@ -12,6 +12,7 @@ from assessment_engine.db.dtos.outbound import (
     ReportRowRaw,
     ServerDetail,
 )
+from assessment_engine.recommendation import Recommendation
 from assessment_engine.web.services.mappers.attention import (
     _UTIL_COLOR_GAUGE,
     _UTIL_COLOR_NONE,
@@ -39,7 +40,7 @@ from assessment_engine.web.services.mappers.report import (
 )
 from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
-    _DONUT_SEGMENT_FROM_REC,
+    _DONUT_SEGMENT_DEFS,
 )
 
 if TYPE_CHECKING:
@@ -526,19 +527,16 @@ def test_risk_donut_segments_empty_total():
     assert all(s.dash_length == 0 for s in segs)
 
 
-@pytest.mark.parametrize(
-    ("rec", "expected_key"),
-    [
-        # 자원 적정성 5 상태 1:1 매핑 (정석). T13.
-        ("under_provisioned", "under_provisioned"),
-        ("over_provisioned", "over_provisioned"),
-        ("idle", "idle"),
-        ("optimal", "optimal"),
-        ("insufficient_data", "insufficient_data"),
-    ],
-)
-def test_donut_segment_from_rec_mapping(rec: str, expected_key: str):
-    assert _DONUT_SEGMENT_FROM_REC[rec] == expected_key
+def test_donut_segments_cover_every_recommendation():
+    """도넛 세그먼트 정의가 `Recommendation` 5값을 빠짐없이 덮는다.
+
+    이전에는 enum -> 세그먼트 키를 항등 dict 로 한 번 더 적어 두고 그 dict 를 검사했다. 항등이라
+    소비처가 `.get(rec, "insufficient_data")` 로 읽는 순간 좁힌 타입이 다시 str 로 넓어졌고,
+    검사 대상도 "적은 대로 적혀 있나" 뿐이었다. 지금은 세그먼트 키가 곧 enum 값이라 덮는지만 본다.
+    """
+    segment_keys = {key for key, _, _ in _DONUT_SEGMENT_DEFS}
+
+    assert segment_keys == set(get_args(Recommendation.__value__))
 
 
 # --- CapacityWarningItem.active_causes (발화 원인 os-neutral 집계) -------------

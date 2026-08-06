@@ -240,7 +240,11 @@ def _sizing(
 ) -> JsonObject:
     """사이징 축 배열 — cpu/memory(호스트 1축) + disk(마운트별 N축). 소비자 전 원소 순회 + max(current,recommended)."""
     axes: list[JsonObject] = []
-    for kind, unit, current in (("cpu", "vcpus", stats.cpu_cores), ("memory", "mib", stats.mem_total_mb)):
+    sizing_axes: tuple[tuple[recommendation.ResourceKind, str, int | None], ...] = (
+        ("cpu", "vcpus", stats.cpu_cores),
+        ("memory", "mib", stats.mem_total_mb),
+    )
+    for kind, unit, current in sizing_axes:
         if current is None:
             continue  # base 수량(코어/총 RAM) 미상 -> 축 생략(recommended never-null 보장, disk 축과 대칭)
         ra = host.resources[kind]

@@ -24,6 +24,7 @@ from assessment_engine.web.services.mappers.server import workload_category_coun
 from assessment_engine.web.services.mappers.shared import (
     _CAUSE_LABEL_BY_TRIGGER,
     _DONUT_SEGMENT_DEFS,
+    BADGE_CLASS,
     UTIL_GAUGE_COLOR,
     build_host_confidence_notes,
     spec_display_line,
@@ -155,7 +156,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list[RiskDon
     total = sum(risk_counts.values())
     segments: list[RiskDonutSegment] = []
     cum_offset = 0.0
-    for key, label, _color, description in _DONUT_SEGMENT_DEFS:
+    for key, _color, description in _DONUT_SEGMENT_DEFS:
         count = risk_counts.get(key, 0)
         dash_length = _donut_dash(count, total)
         pct = _donut_pct(count, total)
@@ -164,7 +165,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list[RiskDon
                 key=key,
                 # 표시 라벨 = right-sizing 한국어 분류명(LABEL_KO 단일 진실).
                 # 보고서·대시보드 통일, 영어 enum 노출 금지.
-                label=recommendation.LABEL_KO.get(key, label),
+                label=recommendation.LABEL_KO[key],
                 # 색 = 게이지 테마 단색 통일 (분류 막대 — 라벨이 의미 전달, 색 무관). _DONUT_SEGMENT_DEFS 다색 미사용.
                 color=UTIL_GAUGE_COLOR,
                 count=count,
@@ -570,9 +571,9 @@ def to_capacity_warning_item(raw: ReportRowRaw):
         public_id=raw.public_id,
         hostname=raw.hostname,
         classification=classification,
-        classification_label=recommendation.LABEL_KO.get(classification, classification),
-        badge_class=recommendation.BADGE_CLASS.get(classification, ""),
-        classification_rank=recommendation.CLASSIFICATION_ORDER.get(classification, 99),
+        classification_label=recommendation.LABEL_KO[classification],
+        badge_class=BADGE_CLASS[classification],
+        classification_rank=recommendation.CLASSIFICATION_ORDER[classification],
         active_causes=active_causes,
         # 워크로드 카테고리 카운트 — role_distribution 과 동일 단일 진실 (services 이름 + listen 소켓).
         services=dict(workload_category_counter(raw.services, raw.listen_ports)),

@@ -24,7 +24,6 @@ from assessment_engine.web.services.mappers.attention import (
 )
 from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.right_sizing_api import build_right_sizing_entry
-from assessment_engine.web.services.mappers.shared import _DONUT_SEGMENT_FROM_REC
 from assessment_engine.web.services.mappers.topology import build_network_topology
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview
 from assessment_engine.web.services.query.metric import latest_metric
@@ -70,8 +69,7 @@ def assemble_overview(
         # 비어 있다. 여기서 None 으로 고정하면 보고서 화면 분류가 바뀌므로 raw 가 실은 것을 그대로 쓴다.
         stats = build_resource_stats(raw, disk_baseline=raw.disk_iops_baseline)
         rec = recommendation.classify_host(stats)
-        seg = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
-        risk_counts[seg] = risk_counts.get(seg, 0) + 1
+        risk_counts[rec] = risk_counts.get(rec, 0) + 1
         if rec == "under_provisioned":
             under_hosts.append(to_capacity_warning_item(raw))
         if recommendation.cpu_saturated(stats):

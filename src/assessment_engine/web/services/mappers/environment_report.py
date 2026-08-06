@@ -67,14 +67,14 @@ def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCoun
         ClassificationCount(
             key=key,
             # 표시 라벨 = right-sizing 한국어 분류명 단일 진실(LABEL_KO). 영어 enum 노출 금지·평행 어휘 금지.
-            label=recommendation.LABEL_KO.get(key, label),
+            label=recommendation.LABEL_KO[key],
             count=counts.get(key, 0),
             # 색 = 게이지 테마 단색 통일 (분류 막대 — 라벨이 의미 전달). _PROVISIONING_SEGMENT_DEFS 다색 미사용.
             color=UTIL_GAUGE_COLOR,
             # desc = 조치 방향만 (label 분류명과 어휘 중복 회피). 조치 단일 진실 = recommendation 도메인.
-            description=recommendation.RECOMMENDATION_ACTION_KO.get(key, description),
+            description=recommendation.RECOMMENDATION_ACTION_KO[key],
         )
-        for key, label, _color, description in _PROVISIONING_SEGMENT_DEFS
+        for key, _color, _description in _PROVISIONING_SEGMENT_DEFS
     ]
 
 

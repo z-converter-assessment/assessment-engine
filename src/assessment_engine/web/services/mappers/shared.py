@@ -290,31 +290,34 @@ def build_service_badge_reference() -> list[ServiceBadgeRef]:
 #   under(빨강), over(파랑=주색), idle(회색), optimal(녹색), insufficient_data(옅은회색).
 # over 색 = 테마색1(var(--color-title)) 동일 주색 — 활용률 게이지와 같은 파랑, under 빨강과 대비.
 # idle = 미사용 상태(수요 거의 0). 종료·통합 조치는 파생 권고 층(상태 아님).
-_DONUT_SEGMENT_DEFS: list[tuple[str, str, str, str]] = [
-    ("under_provisioned", "under_provisioned", "#ef4444", "자원 부족 — 사양 상향 검토"),
-    ("over_provisioned", "over_provisioned", "var(--color-title)", "자원 여유 — 사양 축소 검토"),
-    ("idle", "idle", "#64748b", "미사용 — 종료·통합 검토"),
-    ("optimal", "optimal", "#22c55e", "적정"),
-    ("insufficient_data", "insufficient_data", "#cbd5e1", "평가 표본 부족"),
+# (분류, 색, 조치 설명). 한국어 분류명은 `recommendation.LABEL_KO` 단일 진실이라 여기 두지 않는다.
+# 원소 순서가 곧 도넛 세그먼트 순서이자 서버 목록 드롭다운 option 순서다.
+_DONUT_SEGMENT_DEFS: list[tuple[recommendation.Recommendation, str, str]] = [
+    ("under_provisioned", "#ef4444", "자원 부족 — 사양 상향 검토"),
+    ("over_provisioned", "var(--color-title)", "자원 여유 — 사양 축소 검토"),
+    ("idle", "#64748b", "미사용 — 종료·통합 검토"),
+    ("optimal", "#22c55e", "적정"),
+    ("insufficient_data", "#cbd5e1", "평가 표본 부족"),
 ]
+
+# 분류 -> 배지 CSS 클래스. 값이 템플릿 클래스명이라 표시 계층 소관이다 (#E1 P2) — 도메인 모듈이
+# CSS 를 알 이유가 없다. 한국어 라벨(`recommendation.LABEL_KO`)은 도메인 어휘라 그대로 둔다.
+BADGE_CLASS: dict[recommendation.Recommendation, str] = {
+    "idle": "rec-idle",
+    "over_provisioned": "rec-over_provisioned",
+    "under_provisioned": "rec-under_provisioned",
+    "optimal": "rec-optimal",
+    "insufficient_data": "rec-insufficient_data",
+}
 
 # 게이지 테마 단색 = 테마색1 CSS 변수 (base.html :root --color-title). 활용률 게이지 + Right-sizing 분류 막대 단일 통일.
 # CSS background 는 var 직접, SVG stroke 는 inline style 로 적용(presentation attribute 는 var 미지원). 테마 변경 시 자동 추종.
 UTIL_GAUGE_COLOR = "var(--color-title)"
 
-# USE Method recommendation enum -> donut segment key (식별 매핑, 라벨·색은 _DONUT_SEGMENT_DEFS 단일 진실).
-_DONUT_SEGMENT_FROM_REC: dict[str, str] = {
-    "under_provisioned": "under_provisioned",
-    "over_provisioned": "over_provisioned",
-    "idle": "idle",
-    "optimal": "optimal",
-    "insufficient_data": "insufficient_data",
-}
-
 # list 페이지 dropdown (value, 한글 라벨) 쌍 — value=영어 enum(필터 매칭 data-classification),
 # 표시=recommendation.LABEL_KO 한글.
 PROVISIONING_CLASS_OPTIONS: tuple[tuple[str, str], ...] = tuple(
-    (key, recommendation.LABEL_KO.get(key, key)) for key, _, _, _ in _DONUT_SEGMENT_DEFS
+    (key, recommendation.LABEL_KO[key]) for key, _, _ in _DONUT_SEGMENT_DEFS
 )
 
 # OS family 표시 라벨 — 보고서(report.py)·환경 보고서(environment_report.py) 공유.

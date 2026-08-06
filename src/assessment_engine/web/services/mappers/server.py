@@ -37,7 +37,6 @@ from assessment_engine.web.services.mappers.os_eol import (
 )
 from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
-    _DONUT_SEGMENT_FROM_REC,
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
     spec_display_line,
@@ -328,7 +327,7 @@ def to_server_list_item(
 ) -> ServerListItem:
     """ServerSummary -> ServerListItem. raw_period(ReportRowRaw)가 있으면 권장 조치 분류 채움.
 
-    분류 라벨은 recommendation.LABEL_KO, provisioning_class(raw enum)는 shared._DONUT_SEGMENT_FROM_REC 경유 (P2 단일 진실).
+    분류 라벨은 recommendation.LABEL_KO, provisioning_class 는 Recommendation enum 값 그대로 (P2 단일 진실).
     raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
     today 주어지면 OS 지원 단계 판정(lookup_os_eol) — 카탈로그 매칭 여부로 판정 결과와 "미상(판정 불가)" 분리.
     카탈로그 미수록(oracle 외 tencent 등)·미매칭을 "지원 중"으로 단정하지 않는다.
@@ -367,10 +366,10 @@ def to_server_list_item(
         # (재전송·드롭 임계)라 화면만으로 근거를 확인할 수 없었다. 필요 시 서버 상세에서 확인.
         host = recommendation.rollup_host(build_resource_stats(raw_period, disk_baseline=None))
         rec = recommendation.host_status_to_recommendation(host.host_status)
-        seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
+        seg_key = rec
         # 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시. 색은 목록이
         # provisioning_class 기반 under-only 강조(#E, _server_rows.html)라 분류색 미사용(다색 배지는 상세/보고서).
-        rec_label = recommendation.LABEL_KO.get(seg_key, seg_key)
+        rec_label = recommendation.LABEL_KO[seg_key]
 
     return ServerListItem(
         id=dto.id,

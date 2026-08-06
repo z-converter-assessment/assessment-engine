@@ -199,14 +199,19 @@ def test_mem_pressure_active_os_aware():
 # --- 포화 축 미관측 판정 — cpu/memory/disk_io 한정 (network·disk_capacity 제외) ---
 
 
+_ALL_KINDS: tuple[ResourceKind, ...] = ("cpu", "memory", "disk_capacity", "disk_io", "network")
+_SATURATION_AXES: tuple[ResourceKind, ...] = ("cpu", "memory", "disk_io")
+type _Resources = dict[ResourceKind, ResourceAssessment]
+
+
 def _ra(kind: ResourceKind, status: ResourceStatus, *, coverage_gap: bool = False) -> ResourceAssessment:
     return ResourceAssessment(kind, status, confidence=ConfidenceNote(coverage_gap=coverage_gap))
 
 
 def test_host_saturation_unmeasured_limited_to_saturation_axes():
     # 포화 축(cpu/memory/disk_io) 어느 하나라도 coverage_gap 이면 True.
-    for gap_kind in ("cpu", "memory", "disk_io"):
-        res = {
+    for gap_kind in _SATURATION_AXES:
+        res: _Resources = {
             "cpu": _ra("cpu", "optimal"),
             "memory": _ra("memory", "optimal"),
             "disk_capacity": _ra("disk_capacity", "capacity_ok"),
@@ -217,7 +222,7 @@ def test_host_saturation_unmeasured_limited_to_saturation_axes():
         assert host_saturation_unmeasured(HostAssessment(resources=res)) is True
 
     # 포화 축은 전부 측정됐고 network·disk_capacity 만 미측정 -> False(포화 축 아님, 제외).
-    res_non_sat = {
+    res_non_sat: _Resources = {
         "cpu": _ra("cpu", "optimal"),
         "memory": _ra("memory", "optimal"),
         "disk_capacity": _ra("disk_capacity", "unmeasured", coverage_gap=True),
@@ -227,7 +232,7 @@ def test_host_saturation_unmeasured_limited_to_saturation_axes():
     assert host_saturation_unmeasured(HostAssessment(resources=res_non_sat)) is False
 
     # 전 자원 온전 -> False.
-    res_clean = {k: _ra(k, "optimal") for k in ("cpu", "memory", "disk_capacity", "disk_io", "network")}
+    res_clean: _Resources = {k: _ra(k, "optimal") for k in _ALL_KINDS}
     assert host_saturation_unmeasured(HostAssessment(resources=res_clean)) is False
 
 
@@ -235,13 +240,13 @@ def test_host_saturation_unmeasured_limited_to_saturation_axes():
 
 
 def test_root_cause_display_no_under_is_empty():
-    res = {k: _ra(k, "optimal") for k in ("cpu", "memory", "disk_capacity", "disk_io", "network")}
+    res: _Resources = {k: _ra(k, "optimal") for k in _ALL_KINDS}
     assert root_cause_display(HostAssessment(resources=res)) == ""
 
 
 def test_root_cause_display_single_under_is_resource_name():
     # 단일 부족 -> 자원명만(원인 자명). cpu under 하나.
-    res = {
+    res: _Resources = {
         "cpu": _ra("cpu", "under"),
         "memory": _ra("memory", "optimal"),
         "disk_capacity": _ra("disk_capacity", "capacity_ok"),
@@ -253,7 +258,7 @@ def test_root_cause_display_single_under_is_resource_name():
 
 def test_root_cause_display_causal_combined():
     # 인과 결합 -> "root (증상 유발)". 메모리발 + disk_io·cpu 증상.
-    res = {
+    res: _Resources = {
         "cpu": _ra("cpu", "under"),
         "memory": _ra("memory", "under"),
         "disk_capacity": _ra("disk_capacity", "capacity_ok"),
@@ -266,7 +271,7 @@ def test_root_cause_display_causal_combined():
 
 def test_root_cause_display_multiple_independent():
     # 복수 독립(단일 root·증상 없음) -> "·" 나열, _UNDER_ORDER 순(cpu 먼저 아님 — memory,cpu,...).
-    res = {
+    res: _Resources = {
         "cpu": _ra("cpu", "under"),
         "memory": _ra("memory", "optimal"),
         "disk_capacity": _ra("disk_capacity", "filling"),
