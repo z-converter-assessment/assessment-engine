@@ -58,7 +58,7 @@ async def _run_logged(handler: _Handler, message: AbstractIncomingMessage) -> No
     """
     try:
         await handler(message)
-    except Exception:
+    except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
         logger.exception(
             "handler failed routing_key={} message_id={} delivery_tag={}",
             message.routing_key,

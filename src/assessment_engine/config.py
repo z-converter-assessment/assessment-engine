@@ -148,7 +148,7 @@ class WebSettings(BaseSettings):
         if self.postgres_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
                 "POSTGRES_PASSWORD uses an obvious value. "
-                "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret 등)."
+                "Provide via env var or secret channel (systemd EnvironmentFile·Vault·k8s Secret etc)."
             )
         if self.postgres_user in _WEAK_VALUES:
             raise ValueError("POSTGRES_USER must not be an obvious value (password/admin/root/changeme).")

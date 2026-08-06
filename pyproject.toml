@@ -92,6 +92,7 @@ select = [
     "A",     # 내장 이름 가리기
     "ASYNC", # async 함수 안 blocking 호출
     "B",     # bugbear — mutable default·raise from 누락 같은 실제 결함
+    "BLE",   # blind except — 좁히지 않는 자리는 사유를 코드로 남긴다
     "C4",    # comprehension
     "D",     # docstring 형식 (PEP 257)
     "DTZ",   # naive datetime — #F2 시간대 정책의 기계 강제
@@ -99,8 +100,10 @@ select = [
     "ERA",   # 주석 처리된 코드 — #F12
     "F",     # pyflakes
     "FURB",  # 낡은 관용구 현대화
+    "G",     # logging 포맷 관용구
     "I",     # import 정렬
     "INP",   # 암묵 namespace package
+    "LOG",   # logging 오용
     "N",     # 명명 규약
     "PERF",  # 성능 안티패턴
     "PIE",   # 불필요한 구문
@@ -109,10 +112,13 @@ select = [
     "PTH",   # os.path -> pathlib
     "PYI",   # 타입 표기 관용구
     "RET",   # return 흐름
+    "RSE",   # raise 괄호
     "RUF",   # ruff 고유 (mutable dataclass default 등)
     "S",     # bandit — 보안 안티패턴
     "SIM",   # 단순화
     "SLF",   # 외부에서의 private 접근
+    "T20",   # print·pprint — #F7 이 loguru 단일을 요구한다
+    "TID",   # 금지 import (아래 banned-api)
     "TC",    # 런타임에 필요 없는 import 는 TYPE_CHECKING 으로
     "TRY",   # 예외 처리
     "UP",    # pyupgrade
@@ -149,6 +155,11 @@ ignore = [
 ]
 
 
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+# #F7 은 loguru 단일 채택이다. stdlib logging 을 섞으면 LOG_FORMAT=json 이 켜져도 그 로그만 형식이 다르다.
+"logging".msg = "loguru 를 쓴다 (#F7). stdlib logging 은 sink 를 타지 않는다."
+"logging.config".msg = "loguru 를 쓴다 (#F7)."
+
 [tool.ruff.lint.flake8-type-checking]
 # 이 base class 를 상속하는 모델은 런타임에 어노테이션을 resolve 한다 — import 를 TYPE_CHECKING 으로
 # 옮기면 model build 가 NameError 로 깨진다 (#F1).
@@ -168,7 +179,8 @@ runtime-evaluated-decorators = ["dataclasses.dataclass", "hypothesis.strategies.
 "tests/**" = ["S101", "S104", "S105", "S106", "S603", "SLF001", "INP001"]
 "scripts/**" = ["INP001"]
 # alembic 이 파일 경로로 로드하는 스크립트라 패키지가 아니다.
-"src/assessment_engine/migrations/**" = ["INP001"]
+# alembic 이 파일 경로로 로드하는 스크립트라 패키지가 아니다. fileConfig 는 alembic 자체 계약이라 예외.
+"src/assessment_engine/migrations/**" = ["INP001", "TID251"]
 # FastAPI 는 endpoint 와 의존성 callable 의 어노테이션을 런타임에 resolve 한다 — 이 두 자리의 import 를
 # TYPE_CHECKING 으로 옮기면 기동이 깨진다.
 "src/assessment_engine/web/routers/**" = ["TC001", "TC002", "TC003"]

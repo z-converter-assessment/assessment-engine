@@ -49,7 +49,7 @@ async def run_task_reaper(
                 await session.commit()
             if expired:
                 logger.info("install task reaper expired overdue pending n={}", expired)
-        except Exception:
+        except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
             # reaper 격리 — 일시 DB 장애 등이 루프를 죽이면 안 됨(F6 except Exception 예외: reraise 시 reaper 사망).
             logger.exception("install task reaper tick failed")
         await sleep_or_stop(stop_event, interval_sec)

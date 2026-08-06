@@ -35,6 +35,7 @@ lint 규칙은 취향이 아니라 이 저장소의 명문 규약을 기계가 �
 | #F1 상위 메서드 재정의 표기 | pyright `reportImplicitOverride` |
 | #F2 UTC 저장·표시 경계 변환 | `DTZ` — tzinfo 없는 datetime 생성 차단 |
 | #F6 예외 타입 명시·영구 오류 재시도 금지 | `TRY`·`B` |
+| #F7 loguru 단일 (print·stdlib logging 금지) | `T20`·`LOG`·`G` + `TID251` banned-api |
 | #F8 시크릿 노출 금지 | `S` — 하드코딩 비밀번호·바인드 주소 |
 | #F12 docstring PEP 257 | `D` (형식만, 존재 강제는 안 함) |
 | 전역 표기 규칙 (키보드 직타 문자만) | `RUF001`~`RUF003` |
@@ -47,8 +48,11 @@ lint 규칙은 취향이 아니라 이 저장소의 명문 규약을 기계가 �
 규칙을 새로 켤 때 기준은 하나다 — 위반을 남긴 채 켜지 않는다. 그 PR 안에서 0 으로 만들거나, 못 만들 이유를 설정
 주석에 적고 제외한다.
 
-도구가 못 잡는 규약은 사람과 리뷰가 지킨다. #F7(`print`·stdlib `logging` 혼용), #C3(`safe_*` 미경유 redis 직접
-호출), markdown 문서의 표기 규칙이 여기 해당한다.
+`except Exception` 을 좁히지 않는 자리는 `BLE001` 을 코드로 억제하고 사유를 그 줄에 남긴다. consumer·worker
+루프는 예외가 루프를 죽이지 않는 것이 목적이라 좁히면 종료 동작이 바뀐다.
+
+도구가 못 잡는 규약은 사람과 리뷰가 지킨다. #C3(`safe_*` 미경유 redis 직접 호출)과 markdown 문서의 표기
+규칙이 여기 해당한다.
 
 ## 3. 코드 관용구
 
