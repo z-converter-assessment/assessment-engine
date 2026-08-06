@@ -131,6 +131,7 @@ scanning alert 로 올린다. 게이트가 아니라 신호라서 판단은 그�
 | 우리 코드 | `codeql.yml` | 취약 패턴 (SAST) |
 | 의존성 | Dependabot alerts | lockfile 에 적힌 패키지 (SCA) |
 | 베이스 이미지 | `image-scan.yml` | 이미지 안 OS 패키지 |
+| 커밋 내용 | secret scanning | 커밋된 provider 토큰 |
 
 스캔은 소스가 아니라 발행된 이미지를 본다. 배포되는 실물과 일치해야 신호가 의미를 갖는다. schedule 워크플로는
 기본 브랜치에서만 발화하므로 `main` 에 올라간 뒤부터 돈다.
