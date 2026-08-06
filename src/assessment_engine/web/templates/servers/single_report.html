@@ -480,6 +480,6 @@
 {% if view == "engineer" %}
 {# chart-utils.js 는 base.html head 동기 로드. #}
 <script src="/static/js/vendor/chart.umd.min.js?v={{ asset_v }}" defer></script>
-<script src="/static/js/pages/environment-trend.js?v={{ asset_v }}" defer></script>
+<script type="module" src="/static/js/pages/environment-trend.js?v={{ asset_v }}"></script>
 {% endif %}
 {% endblock %}

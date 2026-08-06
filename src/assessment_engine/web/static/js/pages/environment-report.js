@@ -6,6 +6,11 @@
  * 앵커 초기값은 URL anchor_at(이미 KST 문자열) 우선, 없으면 현재(ChartUtils.initAnchor) — KST 변환 연산 0(F2).
  * 외부 의존: chart-utils.js(ChartUtils.initAnchor), toast(ToastUtils).
  */
+
+import * as ChartUtils from "@/chart-utils";
+import * as ToastUtils from "@/toast-utils";
+import * as EmitUtils from "@/emit-utils";
+
 (function () {
   const viewSel = /** @type {HTMLSelectElement} */ (document.getElementById('report-view'));
   const range = /** @type {HTMLSelectElement} */ (document.getElementById('report-range'));
@@ -18,7 +23,7 @@
   if (urlAnchor) anchor.value = urlAnchor.slice(0, 16);
   // globals.d.ts 의 initAnchor 시그니처(onChange 콜백)와 실제 런타임(inputId 문자열)이 달라 로컬 any 캐스트.
   // (any 캐스트로 런타임 feature-check 도 유지 — 선언 타입상 항상 정의됨 판정 회피.)
-  else if (window.ChartUtils && (/** @type {any} */ (window.ChartUtils)).initAnchor) (/** @type {any} */ (window.ChartUtils)).initAnchor('report-anchor');
+  else if (ChartUtils.initAnchor) ChartUtils.initAnchor('report-anchor');
 
   function buildParams() {
     const p = new URLSearchParams();
@@ -33,7 +38,7 @@
   if (emit) {
     emit.addEventListener('click', function () {
       // globals.d.ts 의 submitNavigate(url, opts) 시그니처와 실제 런타임(btn, urlFn, opts)이 달라 로컬 any 캐스트.
-      (/** @type {any} */ (window.EmitUtils)).submitNavigate(emit, () => '/reports/environment/emit?' + buildParams(), {
+      (/** @type {any} */ (EmitUtils)).submitNavigate(emit, () => '/reports/environment/emit?' + buildParams(), {
         pendingMsg: '보고서 발행 중...',
       });
     });

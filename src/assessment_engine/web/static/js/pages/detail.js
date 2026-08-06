@@ -1,3 +1,8 @@
+import * as ChartUtils from "@/chart-utils";
+import * as ToastUtils from "@/toast-utils";
+import * as EmitUtils from "@/emit-utils";
+import * as SignalUtils from "@/signal-utils";
+
 /* detail 페이지 — server 상세 latest metrics 표시 + 30초 polling 자동 갱신.
  *
  * body data-server-id 단일 진실 (#E6 inline <script> 금지).
@@ -149,7 +154,7 @@
   // PRG — POST emit(record) → view_url GET navigate. 공용 EmitUtils(비활성·토스트·bfcache 복구 내장).
   // 다시 보기 / 북마크 / 직접 URL 은 GET 만 → record 안 됨 → 중복 방지.
   function publish() {
-    /** @type {any} */ (window.EmitUtils).submitNavigate(submitBtn, () => {
+    EmitUtils.submitNavigate(submitBtn, () => {
       const params = new URLSearchParams();
       params.set('ids', publicId);
       params.set('view', currentView);
@@ -164,8 +169,8 @@
   }
 
   // 페이지 로드 시 anchor input 기본값 채움 (대시보드 모달과 일관 UX).
-  if (anchorInput && window.ChartUtils && /** @type {any} */ (window.ChartUtils).initAnchor) {
-    /** @type {any} */ (window.ChartUtils).initAnchor('server-report-anchor');
+  if (anchorInput && ChartUtils.initAnchor) {
+    ChartUtils.initAnchor('server-report-anchor');
   }
 
   customerOpenBtn.addEventListener('click', () => open('customer'));
@@ -201,12 +206,12 @@
     const zdmIp = zdmIpEl.value.trim();
     const zdmUser = zdmUserEl.value.trim();
     if (!zdmIp || !zdmUser) {
-      if (window.ToastUtils) ToastUtils.show('ZDM IP | 관리자 계정 필수', 'err');
+      if (ToastUtils) ToastUtils.show('ZDM IP | 관리자 계정 필수', 'err');
       else alert('ZDM IP | 관리자 계정 필수');
       return;
     }
     submitBtn.disabled = true;
-    const pending = window.ToastUtils ? ToastUtils.show(`Install 발행 중 (${hostname})...`, 'pending') : null;
+    const pending = ToastUtils ? ToastUtils.show(`Install 발행 중 (${hostname})...`, 'pending') : null;
     try {
       const res = await fetch('/api/tasks/install', {
         method: 'POST',
@@ -220,7 +225,7 @@
       if (pending) pending.remove();
       if (!res.ok) {
         const detail = await res.text();
-        if (window.ToastUtils) ToastUtils.show(`Install 발행 실패 (HTTP ${res.status}): ${detail}`, 'err');
+        if (ToastUtils) ToastUtils.show(`Install 발행 실패 (HTTP ${res.status}): ${detail}`, 'err');
         else alert(`Install 발행 실패 (HTTP ${res.status}): ${detail}`);
         return;
       }
@@ -228,7 +233,7 @@
       const data = await res.json();
       const t0 = Array.isArray(data) && data[0] ? data[0] : null;
       const tid = t0 ? t0.task_id : '';
-      if (window.ToastUtils) {
+      if (ToastUtils) {
         // 오프라인이면 advisory(warn) — 발행은 됐고 큐에 적재됨(재접속 시 배달, 창 넘기면 만료).
         if (t0 && t0.target_online === false) {
           ToastUtils.show(`Install 큐 적재 — ${hostname} 오프라인. 재접속 시 배달(미접속 시 만료) · task ${tid.slice(0, 8)}`, 'warn');
@@ -241,7 +246,7 @@
       setTimeout(() => location.reload(), 600);
     } catch (e) {
       if (pending) pending.remove();
-      if (window.ToastUtils) ToastUtils.show(`Install 발행 오류: ${/** @type {Error} */ (e).message}`, 'err');
+      if (ToastUtils) ToastUtils.show(`Install 발행 오류: ${/** @type {Error} */ (e).message}`, 'err');
     } finally {
       submitBtn.disabled = false;
     }

@@ -7,19 +7,19 @@
 `/static/*` 응답에 `Cache-Control` 을 붙이지 않는다. 외부화해도 페이지마다 조건부 요청(304 왕복)이 생기고 "재전송 0" 이 되지는 않는다 — `max-age`·`immutable` 부착은 별건이다.
 
 `static/js/` 배치 규칙 (파일 목록은 `ls` 단일 진실):
-- 루트 = base.html 이 전역 로드하는 공용 유틸. 전역 객체 노출(`ChartUtils`·`ToastUtils`·`EmitUtils`·`TableUtils`·`SignalUtils`·`TaskModal`) 또는 전 페이지 공통 위젯 바인딩(사이드바·상단바·네비 진행바).
+- 루트 = 공용 유틸 ESM 모듈(`chart-utils`·`toast-utils`·`emit-utils`·`table-utils`·`signal-utils`·`task-modal`) 또는 전 페이지 공통 위젯(사이드바·상단바·네비 진행바). 전자는 base.html `importmap` 에 등재되고 페이지가 `import` 로 부른다.
 - `pages/` = 페이지 템플릿이 `defer` 로 개별 로드하는 페이지 전용 스크립트.
 - `vendor/` = UMD 라이브러리 (아래 "의존성" 절).
 - `generated/api.ts` · `globals.d.ts` = 타입 계약 (`type-contract.md` 단일 진실).
 
-공용 유틸(base.html 전역 로드) — 페이지 간 공통 로직을 단일화해 재발 버그를 차단:
+공용 유틸(ESM 모듈) — 페이지 간 공통 로직을 단일화해 재발 버그를 차단:
 - `EmitUtils.submitNavigate(btn, urlFn, opts)` — 발행/제출 버튼 -> POST -> 응답 `view_url` navigate. 버튼 비활성·pending 토스트·에러 재활성 + bfcache 복원(뒤로가기) 시 버튼 재활성을 내장. 리포트 emit(환경/서버상세/선택 N대) 3곳 공유.
 - `SignalUtils.{renderSaturation,renderErrors,renderActivity}` — 서버가 os-aware 판정(값·임계·saturated·4상태)을 끝낸 구조화 신호(`SaturationSignal`·`ErrorSignal`·디스크/네트워크 I/O 스냅샷)를 컨테이너에 렌더만(P4). 임계 재계산·os 분기·양 OS 설명 인라인 금지 — 이 호스트 OS 값만 오고 근거는 hover. 서버 상세 개요·자원 탭 스냅샷 카드 공유(포화=값/임계+상태 배지, 에러=카운트형 정상0 발화, 활동=디스크 어태치별 R/W·인터페이스별 RX/TX 라인).
 - `TableUtils.{restripe,sortByColumn,makeSortable}` — `sortable-table` 칼럼 클릭 정렬. 정렬·필터·clip 로 행이 재배열·숨김되면 CSS `:nth-child` zebra 가 숨은 행까지 세어 줄무늬가 어긋나므로(흰색 뒤섞임), sortable-table 은 :nth-child 를 무력화하고 JS 가 '보이는 행'만 `.zebra` 로 재줄무늬. `sortable-table` 클래스를 단 모든 표 공유(서버목록·자원적정성·발행이력·실시간 부하).
 
 ## ChartUtils API (chart-utils.js)
 
-`base.html` `<head>`에서 단일 로드 → 전역 `ChartUtils`. 페이지 .js가 destructure.
+페이지 .js 가 `import { ... } from "@/chart-utils"` 로 부른다. bare specifier 는 base.html `importmap` 이 `?v=` 붙은 실 URL 로 해석한다 — 상대 경로 import 는 Jinja 가 손댈 수 없어 재배포 후 옛 파일이 캐시에서 나온다.
 
 | 함수 | 용도 |
 |------|------|
@@ -129,9 +129,9 @@
 |------|------|
 | Chart.js (`vendor/chart.umd.min.js`) | 차트 페이지·보고서 템플릿이 defer 로드 |
 | cytoscape (`vendor/cytoscape.min.js`) | 네트워크 토폴로지 페이지·선택 N대 보고서(engineer)가 defer 로드 |
-| ChartUtils 등 전역 유틸 | base.html `<head>`에서 단일 로드 |
+| 공용 유틸 모듈 | base.html `importmap` 등재 → 페이지가 `import` |
 
-번들 도구 미도입 — IIFE 노출 패턴 (`docs/explanation/tradeoffs.md` T9).
+번들 도구 미도입 — 브라우저 네이티브 ESM (`docs/explanation/tradeoffs.md` T9).
 
 ## 표준 컴포넌트 카탈로그 (base.html)
 
@@ -350,9 +350,8 @@ self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
 
 발행 실패·API 오류는 페이지 본문 (statusEl 영구 표시) 가 아닌 toast (sub-window) 로 표시:
 ```js
-if (window.ToastUtils) {
-  ToastUtils.show(`보고서 발행 실패: ${e.message}`, 'err');
-}
+import * as ToastUtils from "@/toast-utils";
+ToastUtils.show(`보고서 발행 실패: ${e.message}`, 'err');
 ```
 statusEl 은 이전 상태 복원 — 에러 흔적 본문에 잔존 금지.
 

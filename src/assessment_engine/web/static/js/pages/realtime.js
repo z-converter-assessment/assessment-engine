@@ -8,6 +8,10 @@
  * 칼럼 정렬 + 20개 초과 더보기/접기 — assessment.js(자원 부족 표)와 동일 관례. mount 는 30초마다 innerHTML
  * 통째로 교체되므로 클릭 위임을 안 바뀌는 mount 자체에 건다(swap 후에도 리스너 유지).
  */
+
+import * as ChartUtils from "@/chart-utils";
+import * as TableUtils from "@/table-utils";
+
 (function () {
   const mount = /** @type {HTMLElement} */ (document.getElementById('rt-mount'));
   if (!mount) return;
@@ -35,7 +39,7 @@
       rows.forEach((el, i) => { el.style.display = i < limit ? '' : 'none'; });
       if (btn) btn.textContent = loadExpanded ? '접기' : `전체보기 (${LOAD_SHOWN}/${serverCount})`;
     }
-    if (window.TableUtils && table) window.TableUtils.restripe(table);
+    if (table) TableUtils.restripe(table);
   }
 
   // 위임 — 30초 swap 으로 요소가 새로 생겨도 mount 자체는 안 바뀌어 리스너 유지.
@@ -51,7 +55,7 @@
       const table = th.closest('table.sortable-table');
       if (!table || !th.parentNode) return;
       const idx = Array.from(th.parentNode.children).indexOf(th);
-      window.TableUtils.sortByColumn(/** @type {HTMLElement} */ (table), idx);
+      TableUtils.sortByColumn(/** @type {HTMLElement} */ (table), idx);
       loadExpanded = false;
       applyLoadClip();
     }

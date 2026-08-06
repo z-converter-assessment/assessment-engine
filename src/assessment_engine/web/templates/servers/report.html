@@ -35,8 +35,8 @@
 
 {% if view == "engineer" %}
 <script src="/static/js/vendor/cytoscape.min.js?v={{ asset_v }}" defer></script>
-<script src="/static/js/pages/network-topology.js?v={{ asset_v }}" defer></script>
+<script type="module" src="/static/js/pages/network-topology.js?v={{ asset_v }}"></script>
 <script src="/static/js/vendor/chart.umd.min.js?v={{ asset_v }}" defer></script>
-<script src="/static/js/pages/environment-trend.js?v={{ asset_v }}" defer></script>
+<script type="module" src="/static/js/pages/environment-trend.js?v={{ asset_v }}"></script>
 {% endif %}
 {% endblock %}

@@ -17,6 +17,8 @@ from typing import Any, override
 
 _STATE_CLASS = re.compile(r"^(rec-|badge-|risk-|usage-|empty-state|donut-|seg-|status-)")
 _WS = re.compile(r"\s+")
+# importmap JSON 의 값(URL)만 — 키(bare specifier)는 자원 경로가 아니다.
+_IMPORTMAP_URL = re.compile(r'"\s*:\s*"(/static/[^"]+)"')
 
 
 class _Digester(HTMLParser):
@@ -29,6 +31,7 @@ class _Digester(HTMLParser):
         self.state_classes: Counter[str] = Counter()
         self.text_anchors: list[str] = []
         self.assets: list[str] = []
+        self._in_importmap = False
         self._table_stack: list[list[str]] = []
         self.tables: list[dict[str, Any]] = []
         self._in_row_first_cell = False
@@ -45,6 +48,8 @@ class _Digester(HTMLParser):
                 self.state_classes[c] += 1
         if tag == "script" and attr.get("src"):
             self.assets.append(f"script:{attr['src']}")
+        if tag == "script" and attr.get("type") == "importmap":
+            self._in_importmap = True
         if tag == "link" and attr.get("href"):
             self.assets.append(f"link:{attr['href']}")
         if tag in {"script", "style"}:
@@ -72,6 +77,11 @@ class _Digester(HTMLParser):
 
     @override
     def handle_data(self, data: str) -> None:
+        if self._in_importmap:
+            # importmap 도 정적 자원 참조다 — script src 만 걷으면 모듈 그래프가 통째로 가드 밖에 놓인다.
+            self._in_importmap = False
+            self.assets.extend(f"importmap:{url}" for url in sorted(_IMPORTMAP_URL.findall(data)))
+            return
         if self._skip_text:
             return
         if self._in_row_first_cell:

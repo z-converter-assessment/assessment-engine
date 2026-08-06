@@ -1,3 +1,5 @@
+import * as ChartUtils from "@/chart-utils";
+
 /*
  * SignalUtils — 포화 스냅샷 신호 렌더러 (자원 상세 탭 실시간 카드 공통).
  *
@@ -87,7 +89,7 @@ const SignalUtils = (() => {
       container.innerHTML = '<span class="sat-val-muted">—</span>';
       return;
     }
-    const fmt = (window.ChartUtils && window.ChartUtils.fmtThroughput) || ((/** @type {number|null} */ v) => (v == null ? '—' : String(v)));
+    const fmt = ChartUtils.fmtThroughput;
     const iops = (/** @type {number|null} */ v) => (v == null ? '' : ` (${Math.round(v)} IOPS)`);
     container.innerHTML = list
       .map((it) => {
@@ -153,4 +155,5 @@ const SignalUtils = (() => {
 
   return { renderSaturation, renderErrors, renderActivity };
 })();
-window.SignalUtils = SignalUtils;
+
+export const { renderSaturation, renderErrors, renderActivity } = SignalUtils;

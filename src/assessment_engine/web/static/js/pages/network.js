@@ -10,10 +10,9 @@
  * 공유해 같은 창·시점으로 그려진다(신호 간 시점 상관).
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
-const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS,
-        fmtKbChart, pageTimeControl,
-        makeBucketGrid, joinToGrid, initAutoRefresh, safeArray,
-        buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
+import { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, COLORS, fmtKbChart, pageTimeControl, makeBucketGrid, joinToGrid, initAutoRefresh, safeArray, buildAvgMaxDatasets, buildAvgMaxLegend } from "@/chart-utils";
+import * as ChartUtils from "@/chart-utils";
+import * as SignalUtils from "@/signal-utils";
 
 const SERVER_ID = document.body.dataset.serverId;
 

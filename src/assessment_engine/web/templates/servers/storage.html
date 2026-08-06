@@ -163,7 +163,7 @@
 {% include "_reference_link.html" %}
 
 <script src="/static/js/vendor/chart.umd.min.js?v={{ asset_v }}" defer></script>
-<script src="/static/js/pages/storage.js?v={{ asset_v }}" defer></script>
+<script type="module" src="/static/js/pages/storage.js?v={{ asset_v }}"></script>
 {% endblock %}
 
 {% block body_attrs %} data-server-id="{{ storage.public_id }}"{% endblock %}

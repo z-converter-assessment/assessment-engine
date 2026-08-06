@@ -28,7 +28,7 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 | `tsconfig.json` | strict + `noImplicitAny`(전-strict) + `checkJs:true`(include 범위 전 `.js` 대상) + `moduleDetection:force`(page script 를 tsc 상 격리 모듈로 — 파일 간 전역 식별자 충돌 제거). vendor 제외. |
 | `scripts/dump_openapi.py` | 서버 불요 `app.openapi()` 덤프(codegen 입력). `Settings` 인스턴스화가 요청·기동 시점이라 env 값 없이 import·덤프가 성립한다. |
 | `static/js/generated/api.ts` | openapi-typescript 생성 타입(커밋 — drift 게이트 대상). 직접 편집 금지. |
-| `static/js/globals.d.ts` | 전역 lib(Chart·cytoscape) + 프로젝트 모듈 전역(각 util 이 `window.X` 로 노출하는 것들) ambient 선언. |
+| `static/js/globals.d.ts` | vendor UMD 전역(Chart·cytoscape) ambient 선언만. 프로젝트 모듈은 ESM 이라 tsc 가 구현에서 타입을 추론한다 — 손으로 미러링한 선언을 두면 구현과 어긋나도 통과한다. |
 | `pnpm run codegen` | `dump_openapi.py` -> `openapi-typescript` -> `generated/api.ts`. |
 | `pnpm run typecheck` | `tsc --noEmit`. |
 

@@ -1,125 +1,15 @@
-// 표현계층 전역 타입 선언 (ambient) — base.html <script> 로 로드되는 UMD lib + 모듈 전역.
+// vendor UMD 전역 타입 선언 — `<script>` 로 window 에 실리는 라이브러리 둘.
 //
-// 정석 gradual 채택: 컴파일러 강제의 핵심 가치는 fetch 경계(생성 api.ts 타입) 계약이다. 프로젝트
-// 자체 전역(ChartUtils 등)은 여기서 실용적으로 선언하고, 각 모듈이 // @ts-check 로 자기 함수를
-// 타입하며 점진적으로 정밀화한다. Chart/cytoscape 는 devDep 패키지 타입에서.
+// 프로젝트 모듈은 여기 없다. ESM import 로 서로를 부르므로 tsc 가 구현에서 타입을 직접 추론한다.
+// 손으로 미러링한 선언을 두면 구현과 어긋나도 tsc 가 통과시켜, 실제로 두 건이 그렇게 어긋나 있었다
+// (`COLORS` 를 Record 로 적었지만 배열, `pollUntilFinal` 을 1인자로 적었지만 2인자).
 
 import type { Chart as ChartJs, ChartConfiguration } from "chart.js";
 import type cytoscapeFn from "cytoscape";
 
-/** chart-utils.js 가 window.ChartUtils 로 노출하는 공개 API (표시 파생 헬퍼 — 클라 재계산 아님).
- *  시그니처는 chart-utils.js 실제 구현 기준. 내부 표시 유틸이라 반환·복합 인자는 permissive(any). */
-interface ChartUtilsApi {
-  RANGE_LABEL: Record<string, string>;
-  AUTO_BUCKET: Record<string, string>;
-  BUCKET_LABEL: Record<string, string>;
-  RANGE_MS: Record<string, number>;
-  BUCKET_MS: Record<string, number>;
-  /** 시리즈 색 팔레트 — 인덱스 순환(`COLORS[i % COLORS.length]`). 구현이 배열이므로 배열로 선언한다. */
-  COLORS: readonly string[];
-  themeColor(): string;
-  fmtKst(isoStr: string): string;
-  fmtLabel(ts: string, range: string): string;
-  fmtKbChart(v: number | null): string;
-  getAnchorEnd(inputId: string): Date | null;
-  initAnchor(inputId: string): void;
-  makeBucketGrid(rangeKey: string, bucketKey: string, anchorEnd?: Date | null): number[];
-  joinToGrid(grid: number[], rows: any[], bMs: number): Array<number | null>;
-  buildDimDatasets(rows: any[], bMs: number, grid: number[], metaMap?: any, opts?: any): any[];
-  fmtThroughput(kb: number | null | undefined): string;
-  bindToggle(groupId: string, onChange: (val: string) => void): void;
-  pageTimeControl(
-    rangeBtnsId: string,
-    anchorId: string,
-    defaultRange: string,
-    onChange: () => void,
-  ): { getRange: () => string; getAnchor: () => Date | null };
-  initAutoRefresh(onRefresh: () => void, intervalMs?: number): void;
-  safeArray<T>(arr: T[] | null | undefined): T[];
-  naWindows(osFamily: string | null, key: string, formatted: string): string;
-  setNaText(el: HTMLElement | null, osFamily: string | null, key: string, formatted: string): void;
-  setValText(el: HTMLElement | null, text: string): void;
-  buildAvgMaxDatasets(avgRows: any[], maxRows: any[], bMs: number, grid: number[], opts?: any): any[];
-  buildAvgMaxLegend(containerId: string, chart: any, opts?: any): any;
-  renderChipLegend(container: any, chart: any): void;
-}
-
-interface TableUtilsApi {
-  restripe(table: HTMLElement): void;
-  sortByColumn(table: HTMLElement, colIndex: number): void;
-  makeSortable(table: HTMLElement): void;
-}
-
-interface ToastUtilsApi {
-  show(message: string, kind?: "pending" | "ok" | "err" | string): HTMLElement | null;
-  dismissAll(): void;
-}
-
-interface EmitUtilsApi {
-  submitNavigate(btn: HTMLElement | null, urlFn: () => string, opts?: any): Promise<void>;
-}
-
-interface TaskModalApi {
-  open(taskId: string): void;
-  close(): void;
-  /** final 상태 도달까지 polling. `onUpdate` 는 매 응답마다 불린다 — 목록 행 cell 갱신이 이걸 쓴다.
-   *  반환은 최종 detail, 예산(capSeconds) 초과면 null. */
-  pollUntilFinal(
-    taskId: string,
-    opts?: { intervalMs?: number; capSeconds?: number; onUpdate?: (detail: any) => void },
-  ): Promise<any | null>;
-}
-
-interface SignalUtilsApi {
-  /** 포화 스냅샷 신호(순간값)를 컨테이너에 4상태 렌더 — 평가 없음, 값/임계/가용성만(P4 렌더 전용). */
-  renderSaturation(
-    container: HTMLElement | null,
-    signals:
-      | ReadonlyArray<import("./generated/api").components["schemas"]["SaturationSignal"]>
-      | null
-      | undefined,
-  ): void;
-  /** 에러 축 표시자(카운트형, 정상=0 발화)를 컨테이너에 렌더 (P4 렌더 전용). */
-  renderErrors(
-    container: HTMLElement | null,
-    errors:
-      | ReadonlyArray<import("./generated/api").components["schemas"]["ErrorSignal"]>
-      | null
-      | undefined,
-  ): void;
-  /** 활동(I/O) 라인 렌더 — 디스크 어태치별 R/W(+IOPS)·네트워크 인터페이스별 RX/TX (P4 렌더 전용). */
-  renderActivity(
-    container: HTMLElement | null,
-    items:
-      | ReadonlyArray<import("./generated/api").components["schemas"]["DiskIoSnapshot"]>
-      | ReadonlyArray<import("./generated/api").components["schemas"]["NetIoSnapshot"]>
-      | null
-      | undefined,
-    kind: "disk" | "net",
-  ): void;
-}
-
 declare global {
-  // UMD 전역 (vendor min.js — <script> 로 window 에 노출).
   const Chart: typeof ChartJs & { new (ctx: unknown, cfg: ChartConfiguration): ChartJs };
   const cytoscape: typeof cytoscapeFn;
-
-  // 프로젝트 모듈 전역 (각 util 이 window.X 로 노출).
-  const ChartUtils: ChartUtilsApi;
-  const TableUtils: TableUtilsApi;
-  const ToastUtils: ToastUtilsApi;
-  const EmitUtils: EmitUtilsApi;
-  const TaskModal: TaskModalApi;
-  const SignalUtils: SignalUtilsApi;
-
-  interface Window {
-    ChartUtils: ChartUtilsApi;
-    TableUtils: TableUtilsApi;
-    ToastUtils: ToastUtilsApi;
-    EmitUtils: EmitUtilsApi;
-    TaskModal: TaskModalApi;
-    SignalUtils: SignalUtilsApi;
-  }
 }
 
 export {};
