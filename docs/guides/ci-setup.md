@@ -2,6 +2,8 @@
 
 CI workflow·릴리즈·브랜치 정책을 작동시키려면 GitHub 측에서 한 번 활성해야 하는 설정 카탈로그. 저장소 코드 영역 밖이라 운영자가 Settings 에서 수동 적용한다. 배포는 GitHub 설정이 불요 — 배포 대상 VM 에서 `deploy.sh` 를 실행한다(`docs/guides/deploy.md`).
 
+여기서 켠 것들이 실제로 언제 발화하는지는 `docs/reference/automation.md` 가 워크플로와 함께 한 표로 갖는다.
+
 ## 1. Actions 권한
 
 위치: Settings -> Actions -> General -> Workflow permissions
