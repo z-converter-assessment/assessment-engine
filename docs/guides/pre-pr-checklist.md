@@ -110,10 +110,10 @@ Self-audit 메타 인용 제외:
 
 | 조항 | 검사 |
 |------|------|
-| F1 타입 | `rg 'type: ignore\[return-value\]' src/` · Pydantic 필드 타입이 `TYPE_CHECKING` 블록에만 선언됐는지 · 검사기 만족용 `assert x is not None` |
+| F1 타입 | `rg 'pyright: ignore' src/` 억제에 사유 주석이 붙었는지 · Pydantic 필드 타입이 `TYPE_CHECKING` 블록에만 선언됐는지 · 검사기 만족용 `assert x is not None` |
 | F2 시간대 | `rg 'datetime\.now\(\)' src/` 에서 tz 인자 없는 것 · `rg '9 ?\* ?60 ?\* ?60' src/` 인라인 KST offset |
 | F3 검증 | `rg '_VALID_' src/` · 진입점 밖 `model_validate` 재실행 |
-| F4 DI | `rg 'Settings\(\)' src/` 가 #F4 6 위치에만 · Service/Handler 안 구체 구현체 import |
+| F4 DI | `rg 'Settings\(\)' src/` 가 #F4 6 위치에만 · Service/Handler 안 `Sql*` import |
 | F6 실패 | `rg 'except Exception' src/` · timeout 인자 없는 외부 호출 · 영구 오류 재시도 |
 | F7 로깅 | `rg '\bprint\(|sys\.stdout\.write|^import logging' src/` · except 밖 `logger.exception()` · payload 로깅 |
 | F8 시크릿 | 신규 비밀 필드의 `SecretStr` · 응답·캐시·로그·예외의 PII |

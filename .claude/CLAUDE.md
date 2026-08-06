@@ -203,7 +203,7 @@ Pagination 정책:
 
 ## E4. URL 식별자 — 정수 PK 노출 금지
 
-라우터 path 파라미터는 `public_id` (UUID). 구현 메커니즘(UUID 타입 선언·422/404 분기·`resolve_internal_id` Depends 브릿지): `docs/reference/web/layering.md`.
+라우터 path 파라미터는 `public_id` (UUID). 구현 메커니즘(UUID 타입 선언·422/404 분기·`ServerIdDep` 브릿지): `docs/reference/web/layering.md`.
 
 ## E5. Jinja2 인프라
 
@@ -216,7 +216,7 @@ Pagination 정책:
 
 본 절 결정:
 - 클라 JS 는 서버 ViewModel 과 타입 계약을 컴파일 강제한다 — FastAPI OpenAPI -> 생성 TS 타입(`static/js/generated/api.ts`) -> `// @ts-check` 클라 JS 를 `tsc --checkJs`. 파일별 점진 채택(`// @ts-check` opt-in), 핵심 강제 지점은 `fetch('/api/...')` 응답을 생성 타입으로 annotate 하는 fetch 경계. 메커니즘·확장·CI 게이트 단일 진실 = `docs/reference/web/type-contract.md`.
-- 서버 JSON 엔드포인트는 응답 타입을 선언한다(`response_model=` 또는 return 어노테이션) — 생성 타입의 원천. 엔드포인트/ViewModel 변경 시 `pnpm run codegen` 으로 `api.ts` 재생성·커밋(CI drift 게이트).
+- 서버 JSON 엔드포인트는 응답 타입을 return 어노테이션으로 선언한다 — 생성 타입의 원천. `response_model=` 은 쓰지 않는다(같은 일을 데코레이터 인자로 하면 시그니처가 거짓이 된다). 엔드포인트/ViewModel 변경 시 `pnpm run codegen` 으로 `api.ts` 재생성·커밋(CI drift 게이트).
 - 클라는 서버 파생을 재계산하지 않는다(P2 보존) — 통계·분류·단위 변환은 서버 props 로만. 인터랙션 파생(차트 range 토글 등)만 예외(P4).
 
 ## E7. 도메인 분류 책임 (P2)
@@ -279,7 +279,7 @@ Pagination 정책:
 
 ## F3. 검증의 단일 경로
 
-원칙: 검증은 요청 진입점에서 한 번만 — 라우터 Pydantic(query/path/body) · Consumer `model_validate_json()`(MQ payload) · `BaseSettings`(환경변수). path UUID는 `resolve_internal_id` Depends가 422(형식)·404(미존재) 자동.
+원칙: 검증은 요청 진입점에서 한 번만 — 라우터 Pydantic(query/path/body) · Consumer `model_validate_json()`(MQ payload) · `BaseSettings`(환경변수). path UUID 는 `ServerIdDep` 이 422(형식)·404(미존재)를 자동 처리한다.
 
 금지: Service·Mapper·Repository·사용처에서 재검증 (`_VALID_*` frozenset 비교 등).
 
