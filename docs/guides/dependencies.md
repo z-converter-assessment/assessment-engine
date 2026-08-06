@@ -115,6 +115,20 @@ uv lock && uv sync --all-groups      # 5. lockfile 재-resolve (해당 minor whe
 
 `.github/dependabot.yml` 은 docker·github-actions 둘만 등재한다. Dockerfile 의 베이스 이미지가 digest 로 핀돼 있어, 갱신 담당이 없으면 3.14.x 패치가 나와도 이미지가 안 따라가고 핀이 낡았다는 신호가 어디에도 안 뜬다.
 
+### uv 버전 PR 은 손을 더 봐야 한다
+
+uv 버전이 세 곳에 박혀 있는데 dependabot 은 Dockerfile 만 본다. 나머지 둘은 dependabot 이 못 보는 형태라 PR 을 받으면 사람이 맞춘다.
+
+| 자리 | 무엇 | dependabot |
+|------|------|-----------|
+| `Dockerfile` `FROM ghcr.io/astral-sh/uv:X` | 이미지 빌드가 쓰는 uv | 갱신함 |
+| 워크플로 `astral-sh/setup-uv` 의 `version:` (4곳) | runner 가 쓰는 uv | 못 봄 — 액션 입력값이라 생태계 밖 |
+| `pyproject.toml` `requires = ["uv_build>=X,<Y"]` | 빌드 백엔드 | 못 봄 — uv/pip 생태계를 껐다 |
+
+셋이 어긋나면 로컬·CI·이미지가 서로 다른 uv 로 빌드한다. `uv_build` 상한(`<Y`)이 새 minor 를 배제하면 이미지의 uv 만 올라가고 백엔드는 옛 버전이 깔린다 — 빌드는 통과하므로 조용하다.
+
+머지 순서: Dockerfile PR 을 받되 같은 브랜치에서 워크플로 `version:` 4곳과 `requires` 상한을 함께 올린다.
+
 대안 — 운영자 수동 주기 검토:
 
 ```bash
