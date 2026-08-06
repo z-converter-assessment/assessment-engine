@@ -145,7 +145,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             period_days=period_days,
             end=end,
         )
-        await self._inject_net_baseline(raws_period, server_ids, period_days, end)
+        raws_period = await self._inject_net_baseline(raws_period, server_ids, period_days, end)
         util = await self.repo.environment_utilization(period_days=period_days, end=end)
         online_by_id = await self._online_map(server_ids, details, end)
         overview = self._assemble_overview(details, util, raws_period, online_by_id)
@@ -186,7 +186,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                 period_days=window_days,
                 end=end,
             )
-            await self._inject_net_baseline(raws, matched_ids, window_days, end)
+            raws = await self._inject_net_baseline(raws, matched_ids, window_days, end)
             online_by_id = await self._online_map(matched_ids, matched_details, end)
         servers = [
             build_right_sizing_entry(
@@ -288,7 +288,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                 period_days=window_days,
                 end=end,
             )
-            await self._inject_net_baseline(raws, matched_ids, window_days, end)
+            raws = await self._inject_net_baseline(raws, matched_ids, window_days, end)
             online_by_id = await self._online_map(matched_ids, matched_details, end)
             mounts_by_id = await self.repo.report_mount_capacity_batch(matched_ids, end)
             # inventory speed_mbps null(virtio/Windows NT5.2) 폴백용 최신 link.speed (agent 확정 규약).
@@ -383,7 +383,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         details = await self.repo.get_servers(server_ids)
         # 분류 raws — 14일 표준 창(서버 목록·보고서 정합). net baseline 도 동일 창.
         raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
-        await self._inject_net_baseline(raws_period, server_ids, recommendation.WINDOW_DAYS, now)
+        raws_period = await self._inject_net_baseline(raws_period, server_ids, recommendation.WINDOW_DAYS, now)
         # 이용률·포화 도넛 6개 모두 자원 적정성 창(14일) 기준 — 분류·포화·이용률 한 창으로 통일(#E3 화면 간 정합).
         util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS, end=now)
         online_by_id = await self._online_map(server_ids, details, now)

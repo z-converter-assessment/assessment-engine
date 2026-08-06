@@ -1,6 +1,6 @@
 """보고서·인벤토리 export 조회 mixin — 환경/선택/단일 보고서 + child prefetch + KPI 집계."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
@@ -8,7 +8,9 @@ from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget
 from assessment_engine.db.dtos.outbound import (
     CpuBreakdownRaw,
+    DiskIoBaselineRaw,
     MemoryBreakdownRaw,
+    NetIoBaselineRaw,
     ReportRowRaw,
     ServerDetail,
 )
@@ -46,7 +48,12 @@ from assessment_engine.web.services.mappers.server import (
     build_server_inventory,
     build_storage_tree,
 )
-from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview, _filter_attention
+from assessment_engine.web.services.query._base import (
+    _BaseQueryServiceMixin,
+    _empty_overview,
+    _filter_attention,
+    _net_baseline_fields,
+)
 from assessment_engine.web.services.query.attention import attention_signals
 from assessment_engine.web.services.query.environment import assemble_overview
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
@@ -75,6 +82,40 @@ class _ChildPrefetch:
     detail: ServerDetail
     mem_raw: MemoryBreakdownRaw
     cpu_raw: CpuBreakdownRaw
+
+
+def _with_report_baselines(
+    raw: ReportRowRaw,
+    *,
+    reboot_count: int,
+    agent_restart_count: int,
+    disk: DiskIoBaselineRaw | None,
+    net: NetIoBaselineRaw | None,
+) -> ReportRowRaw:
+    """보고서 경로 raw 에 4 baseline 을 얹은 새 행. 채우는 필드 집합이 곧 이 경로의 분류 입력이다.
+
+    `_with_net_baseline`(net 만) 과 합치지 않는다 — 두 함수가 채우는 집합이 다르고 그 차이가 현재
+    화면 분류를 결정한다 (`disk_iops_baseline` 은 여기서만 채워진다, tradeoffs T24).
+    """
+    disk_fields = (
+        {}
+        if disk is None
+        else {
+            "disk_iops_baseline": disk.iops_baseline,
+            "disk_throughput_kbps": disk.throughput_kbps_baseline,
+            "disk_iops_p95": disk.iops_p95,
+            "disk_iops_peak": disk.iops_peak,
+            "disk_throughput_kbps_p95": disk.kbps_p95,
+            "disk_throughput_kbps_peak": disk.kbps_peak,
+        }
+    )
+    return replace(
+        raw,
+        reboot_count=reboot_count,
+        agent_restart_count=agent_restart_count,
+        **disk_fields,
+        **_net_baseline_fields(net),
+    )
 
 
 class ReportQueryMixin(_BaseQueryServiceMixin):
@@ -432,26 +473,16 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             period_days,
             end_dt,
         )
-        for raw in raws:
-            raw.reboot_count = uptime_stats.get(raw.server_id, 0)
-            raw.agent_restart_count = agent_restart_stats.get(raw.server_id, 0)
-            disk_bl = disk_io.get(raw.server_id)
-            if disk_bl is not None:
-                raw.disk_iops_baseline = disk_bl.iops_baseline
-                raw.disk_throughput_kbps = disk_bl.throughput_kbps_baseline
-                raw.disk_iops_p95 = disk_bl.iops_p95
-                raw.disk_iops_peak = disk_bl.iops_peak
-                raw.disk_throughput_kbps_p95 = disk_bl.kbps_p95
-                raw.disk_throughput_kbps_peak = disk_bl.kbps_peak
-            net_bl = net_io.get(raw.server_id)
-            if net_bl is not None:
-                raw.net_rx_kbps = net_bl.rx_kbps_baseline
-                raw.net_tx_kbps = net_bl.tx_kbps_baseline
-                raw.net_rx_kbps_p95 = net_bl.rx_p95
-                raw.net_rx_kbps_peak = net_bl.rx_peak
-                raw.net_tx_kbps_p95 = net_bl.tx_p95
-                raw.net_tx_kbps_peak = net_bl.tx_peak
-        return raws
+        return [
+            _with_report_baselines(
+                raw,
+                reboot_count=uptime_stats.get(raw.server_id, 0),
+                agent_restart_count=agent_restart_stats.get(raw.server_id, 0),
+                disk=disk_io.get(raw.server_id),
+                net=net_io.get(raw.server_id),
+            )
+            for raw in raws
+        ]
 
     async def get_report(
         self,

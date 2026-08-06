@@ -63,14 +63,17 @@ def test_call_site_passes_expected_baseline(path: str):
 
 
 def test_only_report_path_fills_the_raw_field():
-    """`disk_iops_baseline` 을 raw 에 채우는 코드는 보고서 prefetch 한 곳뿐이다.
+    """`ReportRowRaw.disk_iops_baseline` 에 값을 공급하는 코드는 보고서 prefetch 한 곳뿐이다.
 
     이 단정이 위 표의 근거다 — 다른 경로가 이 필드를 채우기 시작하면 "None 으로 고정" 이 사실과 어긋난다.
+
+    raw 가 frozen 이라 대입(`raw.x = v`)이 아니라 `replace` 키워드 dict 로 채워진다. 두 형태를 다 보되
+    필드 선언(`disk_iops_baseline: int | None = None`)과 읽기는 제외한다 — 선언까지 세면 DTO·ViewModel·
+    도메인 모듈이 전부 걸려 가드가 아무것도 구분하지 못한다.
     """
+    supplies = re.compile(r'"disk_iops_baseline"\s*:|\w+\.disk_iops_baseline\s*=[^=]')
     writers = {
-        str(path.relative_to(_SRC))
-        for path in _SRC.rglob("*.py")
-        if re.search(r"^\s*\w+\.disk_iops_baseline\s*=", path.read_text(encoding="utf-8"), re.MULTILINE)
+        str(path.relative_to(_SRC)) for path in _SRC.rglob("*.py") if supplies.search(path.read_text(encoding="utf-8"))
     }
 
     assert writers == {"web/services/query/report.py"}

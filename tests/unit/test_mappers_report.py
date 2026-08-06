@@ -1,6 +1,7 @@
 """report·overview·attention 관련 mapper — 본 세션(v3~v5) 추가 함수 단위 테스트."""
 
 import dataclasses
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, get_args
 
@@ -199,9 +200,7 @@ def test_report_row_uptime_days():
 
 
 def test_report_row_uptime_none_when_boot_time_missing():
-    raw = _raw(boot_time=None)
-    # boot_time을 None으로 override해도 _raw 기본값이 들어가므로 직접 dataclass 생성
-    raw.boot_time = None
+    raw = replace(_raw(), boot_time=None)  # 빌더 기본값을 덮어야 uptime 미산출 경로를 탄다
     item = to_report_row_item(raw, is_online=True, now=_NOW)
     assert item.uptime_days is None
 
@@ -1045,14 +1044,17 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
         net_rx=300.0,
         net_tx=180.0,
     )
-    raw.disk_iops_p95 = 280.0
-    raw.disk_iops_peak = 540.0
-    raw.disk_throughput_kbps_p95 = 2100.0
-    raw.disk_throughput_kbps_peak = 4800.0
-    raw.net_rx_kbps_p95 = 700.0
-    raw.net_rx_kbps_peak = 1200.0
-    raw.net_tx_kbps_p95 = 420.0
-    raw.net_tx_kbps_peak = 900.0
+    raw = replace(
+        raw,
+        disk_iops_p95=280.0,
+        disk_iops_peak=540.0,
+        disk_throughput_kbps_p95=2100.0,
+        disk_throughput_kbps_peak=4800.0,
+        net_rx_kbps_p95=700.0,
+        net_rx_kbps_peak=1200.0,
+        net_tx_kbps_p95=420.0,
+        net_tx_kbps_peak=900.0,
+    )
     item = to_report_row_item(raw, True, _NOW)
     assert item.disk_iops_p95 == 280.0
     assert item.disk_iops_peak == 540.0
