@@ -39,8 +39,23 @@ def safe_back(
     return _sanitize(back) or fallback
 
 
+def self_back_of(
+    path: str,
+    query: str = "",
+) -> str:
+    """경로와 쿼리로 back chain link 을 만든다 — `quote(safe="")` 규약을 여기 한 곳에 둔다.
+
+    쿼리가 비면 `?` 를 붙이지 않는다. 렌더된 href 에 그대로 들어가는 값이라 구분자 하나가 곧 출력 차이다.
+    """
+    return quote(f"{path}?{query}" if query else path, safe="")
+
+
 def self_back(
     request: Request,
 ) -> str:
-    """본 페이지 URL — 자식 link 의 back chain 전달용 (URL-encoded)."""
+    """본 페이지 URL — 자식 link 의 back chain 전달용 (URL-encoded).
+
+    쿼리 유무와 무관하게 `?` 를 붙인다. `self_back_of` 와 규칙이 다른 것은 이 출력이 이미 렌더된
+    href 에 박혀 있기 때문이다 — 떼면 `back=%2Fservers%3F` 가 `back=%2Fservers` 로 바뀐다.
+    """
     return quote(f"{request.url.path}?{request.url.query}", safe="")

@@ -94,3 +94,23 @@ async def test_error_paths(client: AsyncClient, snapshot: Any, name: str, url: s
     resp = await client.get(url)
     assert resp.status_code == expected, f"{url} -> {resp.status_code}"
     snapshot(f"error_{name}", {"status": resp.status_code, "body": resp.text[:2000]})
+
+
+@pytest.mark.parametrize(
+    ("name", "url"),
+    [
+        ("realtime", "/environment/realtime?fragment=nonsense"),
+        ("assessment", "/environment/assessment?fragment=nonsense"),
+        ("servers", "/servers?fragment=nonsense"),
+    ],
+)
+async def test_unknown_fragment_falls_back_to_full_page(client: AsyncClient, name: str, url: str) -> None:
+    """허용값 밖 `?fragment=` 는 422 가 아니라 full page 200 이다.
+
+    OpenAPI 스키마는 enum 으로 좁게 선언하지만 서버는 그보다 넓게 받는다 — 이미 배포된 URL 을
+    422 로 바꾸지 않기로 한 결정이고, 그 결정이 실제로 서 있는지는 여기서만 보인다.
+    """
+    resp = await client.get(url)
+
+    assert resp.status_code == 200, name
+    assert "<html" in resp.text.lower(), name
