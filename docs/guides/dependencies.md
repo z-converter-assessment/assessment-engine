@@ -101,33 +101,33 @@ uv lock && uv sync --all-groups      # 5. lockfile 재-resolve (해당 minor whe
 
 의존성 floor 는 실제로 resolve 된 버전으로 올린다 — 검증한 조합과 선언이 갈리면 lockfile 없이 설치한 환경이 테스트 안 된 조합을 받는다.
 
-## 5. dependabot 정책 — 생태계로 가른다
+## 5. 버전 고정 정책 — 자동 갱신을 두지 않는다
 
-거부 사유는 lockfile 하나다. Dependabot 이 `uv.lock` 을 갱신하지 못해 `pyproject.toml` 만 바뀐 PR 이 열리고, 그 PR 은 `ci.yml` 의 `uv lock --check` 에서 실패한다. 결국 운영자가 수동으로 `uv lock` 을 돌려야 하므로 자동화의 이점이 없다.
+의존성·베이스 이미지·액션 버전을 한 상태로 고정한다. Dependabot 의 자동 PR(version updates·security updates)은
+쓰지 않고 `.github/dependabot.yml` 도 두지 않는다.
 
-이 사유는 lockfile 이 있는 생태계에만 적용된다.
+이유는 갱신의 이득이 이 저장소에서 작기 때문이다. 배포 산출물이 단일 이미지이고 배포 주기가 릴리즈 단위라,
+"문제가 없는데 버전만 올리는" 변경은 검증 비용만 만든다. 고정해 두면 로컬·CI·이미지가 같은 것으로 빌드한다는
+사실을 매번 확인할 필요가 없다.
 
-| 생태계 | 자동 PR | 사유 |
-|--------|---------|------|
-| uv / pip | 끔 | `uv.lock` 미갱신 -> `uv lock --check` 실패 |
-| docker | 켬 | `FROM` digest 한 줄 갱신. lockfile 무관 |
-| github-actions | 켬 | `uses` SHA 한 줄 갱신. lockfile 무관 |
+갱신은 사유가 있을 때만 한다 — 취약점 공지, 필요한 기능, 파이썬 minor 승격. 그때는 결합된 자리를 함께 올린다
+(아래 uv 표).
 
-`.github/dependabot.yml` 은 docker·github-actions 둘만 등재한다. Dockerfile 의 베이스 이미지가 digest 로 핀돼 있어, 갱신 담당이 없으면 3.14.x 패치가 나와도 이미지가 안 따라가고 핀이 낡았다는 신호가 어디에도 안 뜬다.
+Dependabot alerts(Security 탭 경고)는 켜 둔다. 자동 PR 과 별개 토글이고, 이 정책이 성립하려면 "문제가 생겼다"는
+신호는 남아야 한다. 경고를 받으면 그때 사람이 판단해 올린다.
 
-### uv 버전 PR 은 손을 더 봐야 한다
+### uv 버전은 세 자리가 함께 움직인다
 
-uv 버전이 세 곳에 박혀 있는데 dependabot 은 Dockerfile 만 본다. 나머지 둘은 dependabot 이 못 보는 형태라 PR 을 받으면 사람이 맞춘다.
+| 자리 | 무엇 |
+|------|------|
+| `Dockerfile` `FROM ghcr.io/astral-sh/uv:X` | 이미지 빌드가 쓰는 uv |
+| 워크플로 `astral-sh/setup-uv` 의 `version:` (4곳) | runner 가 쓰는 uv |
+| `pyproject.toml` `requires = ["uv_build>=X,<Y"]` | 빌드 백엔드 |
 
-| 자리 | 무엇 | dependabot |
-|------|------|-----------|
-| `Dockerfile` `FROM ghcr.io/astral-sh/uv:X` | 이미지 빌드가 쓰는 uv | 갱신함 |
-| 워크플로 `astral-sh/setup-uv` 의 `version:` (4곳) | runner 가 쓰는 uv | 못 봄 — 액션 입력값이라 생태계 밖 |
-| `pyproject.toml` `requires = ["uv_build>=X,<Y"]` | 빌드 백엔드 | 못 봄 — uv/pip 생태계를 껐다 |
+셋이 어긋나면 로컬·CI·이미지가 서로 다른 uv 로 빌드한다. `uv_build` 상한(`<Y`)이 새 minor 를 배제하면 이미지의
+uv 만 올라가고 백엔드는 옛 버전이 깔린다 — 빌드는 통과하므로 조용하다.
 
-셋이 어긋나면 로컬·CI·이미지가 서로 다른 uv 로 빌드한다. `uv_build` 상한(`<Y`)이 새 minor 를 배제하면 이미지의 uv 만 올라가고 백엔드는 옛 버전이 깔린다 — 빌드는 통과하므로 조용하다.
-
-머지 순서: Dockerfile PR 을 받되 같은 브랜치에서 워크플로 `version:` 4곳과 `requires` 상한을 함께 올린다.
+베이스 이미지 digest 핀도 같은 정책의 일부다. 태그만 쓰면 같은 커밋이 시점마다 다른 이미지로 빌드된다.
 
 대안 — 운영자 수동 주기 검토:
 

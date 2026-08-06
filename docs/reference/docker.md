@@ -48,8 +48,8 @@ RUN uv sync --frozen --no-dev --no-editable        # project 만 추가
 ### 베이스 이미지 핀
 
 `FROM` 3줄은 태그 뒤에 digest 를 붙인다. 같은 `python:3.14-slim` 태그가 시점마다 다른 레이어를 가리키므로,
-digest 가 없으면 같은 커밋을 빌드해도 다른 이미지가 나온다. 갱신은 Dependabot docker 생태계가 PR 로 연다
-(`docs/guides/dependencies.md` 5절).
+digest 가 없으면 같은 커밋을 빌드해도 다른 이미지가 나온다. 갱신은 사유가 있을 때 사람이 한다 — 자동 갱신을
+두지 않는 이유는 `docs/guides/dependencies.md` 5절.
 
 compose 가 쓰는 인프라 이미지(timescaledb·rabbitmq·redis)는 태그 그대로 둔다. 재현 대상은 본 repo 가
 빌드해 GHCR 로 올리는 엔진 이미지 하나이고, 인프라 이미지는 배포 VM 이 pull 하는 시점에 정해진다.
