@@ -227,7 +227,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T10. ViewModel 비대화 vs 클라이언트 재계산 (P2 따름)
 
-> 관련 코드: `src/assessment_engine/web/view_models/`, `src/assessment_engine/web/services/mappers/`, `src/assessment_engine/web/services/metrics_calculator.py`
+> 관련 코드: `src/assessment_engine/web/view_models/`, `src/assessment_engine/web/services/mappers/`, `src/assessment_engine/web/services/mappers/metrics_calculator.py`
 > 관련 문서: CLAUDE.md #E1 P2 · #E3, `docs/reference/web/view-models.md`
 
 선택
@@ -563,3 +563,23 @@ Request/Correlation ID 를 심지 않는다. HTTP 진입점이 `X-Request-ID` �
 - OpenTelemetry 를 도입하면 -> trace_id 가 그 자리를 대신하므로 별도 request_id 를 만들지 않는다.
 
 둘 다 계약 표면(로그 format)이 바뀌므로 ADR 을 먼저 쓴다.
+
+## T24. 유휴 판정 디스크 활동 축 — 보고서 경로에만 주입한다
+
+무엇을
+- `build_resource_stats(raw, *, disk_baseline)` 의 `disk_baseline` 은 유휴 판정 활동 축(`recommendation` 의 `IDLE_DISK_IOPS` 비교)이다. 이 값을 실제로 채우는 경로는 보고서 prefetch(`query/report.py::_assemble_report_raws`) 하나뿐이고, 나머지 7 호출 경로(서버 목록·서버 세부·환경 개요·환경 자원 평가·운영 신호·계약 API 둘)는 `None` 을 명시적으로 넘긴다.
+- 결과적으로 같은 호스트가 보고서에서는 디스크 활동을 근거로 `idle` 로 갈릴 수 있고, 서버 목록·환경 개요에서는 그 축이 미관측이라 `over_provisioned` 에 머무를 수 있다.
+
+왜 이대로 두나
+- 통일 방향이 둘인데 어느 쪽도 공짜가 아니다. (A) 전 경로에 주입하면 `report_disk_io_baseline` 쿼리가 서버 목록·환경 개요·계약 API 요청마다 붙는다 — 목록은 페이지당 수십 대, 환경 개요는 전체 인벤토리다. (B) 보고서에서 빼면 보고서의 유휴 판정이 지금보다 보수적으로 바뀌어 발행된 스냅샷과 새 보고서가 갈린다.
+- 어느 쪽이든 화면 분류가 실제로 바뀌므로 계약 개정에 해당한다. 이 저장소의 이번 현대화는 결과물 보존이 조건이라 범위 밖이다.
+
+포기한 것 / 한계
+- 화면 간 유휴 판정 정합(#E3)이 이 축 하나에서만 깨져 있다. 활동이 거의 없는 호스트가 보고서에서만 유휴로 뜬다.
+
+왜 받아들였나
+- 비대칭 자체는 이제 코드에 드러나 있다. `disk_baseline` 이 필수 키워드라 새 호출 경로는 이 결정을 내리지 않고는 컴파일되지 않고, `tests/unit/test_resource_stats_inputs.py` 가 경로별 인자값을 고정한다. 조용히 새는 상태에서 명시적으로 유예한 상태로 옮긴 것이 이번 변경의 성과다.
+
+언제 다시 봐야 하는가
+- 유휴 판정을 근거로 실제 다운사이즈를 집행하기 시작하면 -> 화면 간 판정이 갈리는 것이 곧 운영 사고이므로 (A) 로 통일하고 baseline 쿼리를 목록·개요 경로에 배치(벌크 1회, N+1 금지).
+- `report_disk_io_baseline` 이 cagg 사전집계로 충분히 싸지면 -> (A) 의 비용 근거가 사라지므로 재검토.

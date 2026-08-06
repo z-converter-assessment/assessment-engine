@@ -144,7 +144,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 - 실시간 현황 페이지만 창 무관 — 최신 순간 스냅샷
 
 자원 적정성 평가 분류 막대 (환경 자원 평가 페이지):
-- 5분류(under/over/idle/optimal/insufficient_data) 카운트 막대 — `classify_host` 규칙 분류 -> `_DONUT_SEGMENT_FROM_REC`, `build_risk_donut_segments`
+- 5분류(under/over/idle/optimal/insufficient_data) 카운트 막대 — `classify_host` 규칙 분류 -> `build_risk_donut_segments`
 - 분류명은 한국어(LABEL_KO) 단일 진실 — 영어 enum 노출 금지, 보고서·화면 통일
 - 막대 색은 게이지 테마 단색 통일 (라벨이 의미 전달) — `UTIL_GAUGE_COLOR`
 - 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·자원 적정성·capacity trigger 일관, CLAUDE.md #E8)

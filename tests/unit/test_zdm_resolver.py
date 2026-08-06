@@ -14,8 +14,6 @@ from assessment_engine.web.services.task_service import (
     ZdmPackageMetaError,
 )
 
-pytestmark = pytest.mark.asyncio
-
 
 def _head_response(status: int, headers: dict[str, str]) -> httpx.Response:
     return httpx.Response(status_code=status, headers=headers, request=httpx.Request("HEAD", "http://x/y"))

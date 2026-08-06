@@ -7,7 +7,7 @@
 import dataclasses
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
@@ -22,9 +22,30 @@ def json_default(obj: object) -> str:
     raise TypeError(f"Cannot serialize {type(obj)}")
 
 
+def _jsonable(value: object) -> object:
+    """JSON 표현으로 낮춘다 — `json.dumps` 가 하는 변환을 그대로 따른다.
+
+    tuple -> list, 비문자열 dict 키 -> str 은 인코더의 동작이라 여기서도 그대로 재현해야 한다.
+    저장된 JSONB 와 캐시 값이 바이트 동일이어야 하므로 "더 나은 표현" 을 고르지 않는다.
+    """
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, dict):
+        items = cast("dict[object, object]", value).items()
+        return {(k if isinstance(k, str) else json.dumps(k)): _jsonable(v) for k, v in items}
+    if isinstance(value, (list, tuple)):
+        return [_jsonable(v) for v in cast("list[object]", value)]
+    return value
+
+
 def to_jsonable(vm: DataclassInstance) -> JsonObject:
-    """dataclass ViewModel -> JSONB 저장 가능 dict (datetime -> ISO str, nested 재귀)."""
-    return json.loads(json.dumps(dataclasses.asdict(vm), default=json_default))
+    """dataclass ViewModel -> JSONB 저장 가능 dict (datetime -> ISO str, nested 재귀).
+
+    `asdict` 가 이미 트리를 깊은 복사하므로 그 위를 한 번 더 걷는다. 예전에는 datetime 하나를 ISO 로
+    바꾸려고 트리 전체를 JSON 문자열로 인코딩했다 다시 파싱했다 — 환경 보고서는 서버 N대 트리 전체가
+    발행 때마다 그 왕복을 탔다.
+    """
+    return cast("JsonObject", _jsonable(dataclasses.asdict(vm)))
 
 
 def parse_dt(v: str | datetime | None) -> datetime | None:

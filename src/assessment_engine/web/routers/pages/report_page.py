@@ -19,23 +19,22 @@ from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     TimeRange,
 )
-from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, normalize_anchor
+from assessment_engine.diagnostic.report_result import normalize_anchor
 from assessment_engine.web.deps import DiagnosticServiceDep, QueryServiceDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
-from assessment_engine.web.routers.reports import _render_job_progress
+from assessment_engine.web.routers._report_snapshot import (
+    VIEW_TITLES,
+    LoadedSnapshot,
+    load_snapshot,
+    render_job_progress,
+)
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.report_generator import attention_by_host, attention_for_host
-from assessment_engine.web.services.report_serializer import env_report_from_dict
 from assessment_engine.web.templating import templates
 
 # 단일 보고서는 서버 단위(/servers/{id}/report), N대 선택 보고서는 보고서 그룹(/reports/servers) — URL 명사 분리.
 report_single_router = APIRouter(prefix="/servers")
 report_multi_router = APIRouter(prefix="/reports")
-
-_REPORT_VIEW_TITLES: dict[str, str] = {
-    "customer": "고객 제출용",
-    "engineer": "엔지니어 검토용",
-}
 
 
 @report_multi_router.get("/servers")
@@ -75,7 +74,7 @@ async def report(
         context={
             "summary": summary,
             "view": view,
-            "view_title": _REPORT_VIEW_TITLES[view],
+            "view_title": VIEW_TITLES[view],
             "report_job_id": None,
             "child_jobs": {},
             "back_url": back_url,
@@ -94,31 +93,22 @@ async def _render_summary_snapshot(
     diag_service: DiagnosticService,
 ):
     """발행된 N대 selection 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + 운영신호 (aux)."""
-    rec = await diag_service.get_report_snapshot(job_id)
-    if rec is None:
-        raise HTTPException(status_code=404, detail="report snapshot not found")
-    if rec.status != "succeeded":
-        return _render_job_progress(request, rec, back_url)
-    if rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
-        raise HTTPException(status_code=404, detail="report snapshot not found")
-    result = rec.result
-    summary = env_report_from_dict(result["snapshot"])
-    view = result.get("view", "engineer")
-    time_range = rec.input_params.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE)
-    attention_by_host = result.get("aux", {}).get("attention_by_host", {})
+    loaded = await load_snapshot(job_id, diag_service)
+    if not isinstance(loaded, LoadedSnapshot):
+        return render_job_progress(request, loaded, back_url)
     return templates.TemplateResponse(
         request=request,
         name="servers/report.html",
         context={
-            "summary": summary,
-            "view": view,
-            "view_title": _REPORT_VIEW_TITLES.get(view, view),
-            "report_job_id": rec.id,
-            "child_jobs": result.get("child_jobs", {}),
+            "summary": loaded.summary,
+            "view": loaded.view,
+            "view_title": loaded.view_title,
+            "report_job_id": loaded.record.id,
+            "child_jobs": loaded.result.get("child_jobs", {}),
             "back_url": back_url,
-            "attention_by_host": attention_by_host,
+            "attention_by_host": loaded.aux("attention_by_host"),
             "self_back": self_back_url,
-            "time_range": time_range,
+            "time_range": loaded.time_range,
         },
     )
 
@@ -186,7 +176,7 @@ async def single_server_report(
         context={
             "summary": summary,
             "view": view,
-            "view_title": _REPORT_VIEW_TITLES[view],
+            "view_title": VIEW_TITLES[view],
             "back_url": back_url,
             "hostname": hostname,
             "report_job_id": None,
@@ -205,29 +195,22 @@ async def _render_single_snapshot(
     diag_service: DiagnosticService,
 ):
     """발행된 단일 서버 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + 운영신호 (aux)."""
-    rec = await diag_service.get_report_snapshot(job_id)
-    if rec is None:
-        raise HTTPException(status_code=404, detail="report snapshot not found")
-    if rec.status != "succeeded":
-        return _render_job_progress(request, rec, back_url)
-    if rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
-        raise HTTPException(status_code=404, detail="report snapshot not found")
-    result = rec.result
-    summary = env_report_from_dict(result["snapshot"])
-    view = result.get("view", "engineer")
-    hostname = summary.base.rows[0].hostname if summary.base.rows else "server"
+    loaded = await load_snapshot(job_id, diag_service)
+    if not isinstance(loaded, LoadedSnapshot):
+        return render_job_progress(request, loaded, back_url)
+    rows = loaded.summary.base.rows
     return templates.TemplateResponse(
         request=request,
         name="servers/single_report.html",
         context={
-            "summary": summary,
-            "view": view,
-            "view_title": _REPORT_VIEW_TITLES.get(view, view),
+            "summary": loaded.summary,
+            "view": loaded.view,
+            "view_title": loaded.view_title,
             "back_url": back_url,
-            "hostname": hostname,
-            "report_job_id": rec.id,
-            "attention_for_host": result.get("aux", {}).get("attention_for_host", {}),
+            "hostname": rows[0].hostname if rows else "server",
+            "report_job_id": loaded.record.id,
+            "attention_for_host": loaded.aux("attention_for_host"),
             "self_back": self_back_url,
-            "time_range": rec.input_params.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE),
+            "time_range": loaded.time_range,
         },
     )

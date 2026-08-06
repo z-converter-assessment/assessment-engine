@@ -17,10 +17,11 @@ from assessment_engine.db.repositories.query.types import (
 )
 from assessment_engine.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import QueryServiceDep
-from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
+from assessment_engine.web.routers._back import BackUrl, safe_back, self_back, self_back_of
+from assessment_engine.web.routers._fragment import RealtimeFragment, ResultFragment, RowsFragment
+from assessment_engine.web.services.mappers.os_eol import DISTRO_FILTER_OPTIONS
 from assessment_engine.web.services.mappers.shared import (
     DIAGNOSTIC_RANGE_LABEL_KR,
-    DISTRO_FILTER_OPTIONS,
     PROVISIONING_CLASS_OPTIONS,
 )
 from assessment_engine.web.services.query_service import QueryService
@@ -46,7 +47,6 @@ async def environment_metrics(
     """환경 성능 추이 (live) — 전체 환경 차트 10종. ids 면 선택 N대 한정. 환경 단위 `/environment` 그룹."""
     valid_pids = await _resolve_selection_pids(service, ids)
     selection_ids = ",".join(valid_pids)
-    path = "/environment/metrics" + (f"?ids={selection_ids}" if selection_ids else "")
     # 판정 crossing 서버 수 차트(cpu.saturation_hosts·mem.paging_pressure_hosts) Y축 고정 상한 — 전체 서버 수
     # (선택 N대 진입이어도 fleet 전체 규모 기준, "이론상 최대치"를 보여주는 게 목적이라 selection 과 무관).
     # get_fleet_status 재사용(상단 바와 동일 total_count 산식, #F4 서비스 경유 — repo 직접 호출 금지).
@@ -59,7 +59,7 @@ async def environment_metrics(
             "window_days": recommendation.WINDOW_DAYS,
             "generated_at": datetime.now(UTC),
             "back_url": safe_back(back, "/"),
-            "self_back": quote(path, safe=""),
+            "self_back": self_back_of("/environment/metrics", f"ids={selection_ids}" if selection_ids else ""),
             "selection_ids": selection_ids,
             "selection_count": len(valid_pids),
             "total_hosts": total_hosts,
@@ -72,7 +72,7 @@ async def environment_realtime(
     request: Request,
     service: QueryServiceDep,
     back: BackUrl = None,
-    fragment: str | None = None,
+    fragment: RealtimeFragment = None,
     ids: Annotated[str | None, Query(description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경.")] = None,
 ):
     """실시간 메트릭 (live 현황 모니터링) — 현재 평균 활용률 + 현재 부하 상위. ids 면 선택 N대 한정.
@@ -86,9 +86,8 @@ async def environment_realtime(
         sid_map = await service.resolve_server_ids(valid_pids)
         server_ids = [sid_map[p] for p in valid_pids]
     selection_ids = ",".join(valid_pids)
-    path = "/environment/realtime" + (f"?ids={selection_ids}" if selection_ids else "")
     realtime = await service.get_environment_realtime(server_ids)
-    self_back = quote(path, safe="")
+    self_back = self_back_of("/environment/realtime", f"ids={selection_ids}" if selection_ids else "")
     if fragment == "realtime":
         # 현황 메트릭 fragment 만 — 운영 신호는 느린 신호라 full-page 에만 정적 렌더(fragment 재조회에 불포함).
         return templates.TemplateResponse(
@@ -141,7 +140,7 @@ async def topology(
             "topology": topo,
             "generated_at": datetime.now(UTC),
             "back_url": safe_back(back, "/"),
-            "self_back": quote("/environment/topology", safe=""),
+            "self_back": self_back_of("/environment/topology"),
             "active_nav": "topology",
         },
     )
@@ -153,7 +152,7 @@ async def assessment(
     service: QueryServiceDep,
     time_range: TimeRange = DIAGNOSTIC_DEFAULT_TIME_RANGE,
     anchor_at: datetime | None = None,
-    fragment: str | None = None,
+    fragment: ResultFragment = None,
     back: BackUrl = None,
 ):
     """환경 자원 평가 — 14일 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
@@ -162,13 +161,13 @@ async def assessment(
     환경 단위 `/environment` 그룹. fragment=result: 결과 partial 만 재렌더 (JS swap, 풀 reload 회피).
     """
     result = await service.get_environment_assessment(time_range, anchor_at)
-    qs = f"?time_range={time_range}" + (f"&anchor_at={quote(anchor_at.isoformat(), safe='')}" if anchor_at else "")
+    qs = f"time_range={time_range}" + (f"&anchor_at={quote(anchor_at.isoformat(), safe='')}" if anchor_at else "")
     ctx: dict[str, Any] = {
         "overview": result.overview,
         "action": result.action,
         "time_range": time_range,
         "window_label": DIAGNOSTIC_RANGE_LABEL_KR.get(time_range, time_range),
-        "self_back": quote(f"/environment/assessment{qs}", safe=""),
+        "self_back": self_back_of("/environment/assessment", qs),
     }
     if fragment == "result":
         return templates.TemplateResponse(request=request, name="servers/_assessment_result.html", context=ctx)
@@ -195,7 +194,7 @@ async def overview(
         # 자원 적정성·이용·포화 도넛 공통 창 라벨 — WINDOW_DAYS 파생(14일). 분류·이용률·포화 한 창(#E3 정합).
         "classification_window_label": f"{recommendation.WINDOW_DAYS}일",
         "active_nav": "overview",
-        "self_back": quote("/", safe=""),
+        "self_back": self_back_of("/"),
     }
     return templates.TemplateResponse(request=request, name="servers/overview.html", context=ctx)
 
@@ -212,7 +211,7 @@ async def servers_list(
     os_distro: str | None = None,
     classification: str | None = None,
     os_eol: str | None = None,
-    fragment: str | None = None,
+    fragment: RowsFragment = None,
 ):
     """서버 목록 (`/servers`) — 검색·필터 + 선택 N대 액션(보고서·install·export).
 
@@ -226,7 +225,7 @@ async def servers_list(
         return templates.TemplateResponse(
             request=request,
             name="servers/_server_rows.html",
-            context={"servers": rows, "self_back": quote("/servers", safe="")},
+            context={"servers": rows, "self_back": self_back_of("/servers")},
         )
     servers = await service.list_servers(
         1,
@@ -249,7 +248,7 @@ async def servers_list(
                 "user": get_web_settings().zdm_default_user,
             },
             # OS 필터 옵션 — endoflife 카탈로그 distro 전체(수집 무관, 지원 distro 노출).
-            # single source: shared.DISTRO_FILTER_OPTIONS.
+            # single source: os_eol.DISTRO_FILTER_OPTIONS.
             "filter_options": {
                 "service_categories": SERVICE_CATEGORIES,
                 "distro_options": DISTRO_FILTER_OPTIONS,

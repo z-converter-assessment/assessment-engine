@@ -11,7 +11,6 @@
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 from redis.exceptions import RedisError
 
 from assessment_engine.cache.redis import (
@@ -22,9 +21,6 @@ from assessment_engine.cache.redis import (
     safe_set,
     safe_set_nx,
 )
-
-pytestmark = pytest.mark.asyncio
-
 
 # --- safe_get -------------------------------------------------------------
 

@@ -14,7 +14,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-import pytest
 from sqlalchemy import text
 
 from assessment_engine.db.dtos.inbound import (
@@ -29,8 +28,6 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
     from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
-
-pytestmark = pytest.mark.asyncio
 
 
 # --- upsert_server (C) ----------------------------------------------------

@@ -12,8 +12,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-import pytest
-
 from assessment_engine.db.dtos.inbound import (
     DiskIoEntry,
     FilesystemEntry,
@@ -25,8 +23,6 @@ from tests.factories import _DISK_DEVICE_ID, _IFACE_ID, make_inventory, make_met
 if TYPE_CHECKING:
     from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
     from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
-
-pytestmark = pytest.mark.asyncio
 
 
 async def _seed_server_with_period_metrics(

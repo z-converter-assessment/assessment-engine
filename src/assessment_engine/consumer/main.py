@@ -1,12 +1,10 @@
 import asyncio
 import signal
-from collections.abc import Callable, Coroutine
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aio_pika
-from aio_pika.abc import AbstractIncomingMessage, AbstractQueue, ConsumerTag
 from aio_pika.exceptions import AMQPError, ChannelInvalidStateError
 from loguru import logger
 
@@ -17,10 +15,14 @@ from assessment_engine.consumer.handlers import (
     make_metrics_handler,
     make_task_result_handler,
 )
+from assessment_engine.consumer.handlers._types import MessageHandler
 from assessment_engine.consumer.settings import get_consumer_settings
 from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
-from assessment_engine.db.session import get_session_factory
+from assessment_engine.db.session import dispose_engine, get_session_factory
 from assessment_engine.log_config import setup_logging
+
+if TYPE_CHECKING:
+    from aio_pika.abc import AbstractIncomingMessage, AbstractQueue, ConsumerTag
 
 # 큐 정책 변경 시 broker의 기존 큐 재선언이 PRECONDITION_FAILED — 큐 수동 삭제 필요.
 # TTL/max-length 둘 중 먼저 도달 시 oldest -> DLX.
@@ -30,11 +32,9 @@ _ERROR_TTL_MS = 300_000  # 5분
 _TASK_RESULT_TTL_MS = 24 * 60 * 60 * 1000  # 24h
 _TASK_RESULT_MAX_LEN = 100_000
 
-# 종료 신호 후 진행 중 핸들러를 기다리는 총 예산. docker 기본 stop_grace_period(10s) 안에서 끝나야
-# SIGKILL 이 drain 을 자르지 않는다.
+# 종료 신호 후 진행 중 핸들러를 기다리는 총 예산. compose 의 `stop_grace_period` 안에서 끝나야
+# SIGKILL 이 drain 을 자르지 않는다 (docker-compose.yml 의 consumer 서비스가 그 값을 선언한다).
 _SHUTDOWN_DRAIN_SEC = 5.0
-
-type _Handler = Callable[[AbstractIncomingMessage], Coroutine[Any, Any, None]]
 
 
 @dataclass
@@ -43,12 +43,12 @@ class _QueueBinding:
     dlx_name: str
     queue_name: str
     routing_key: str
-    handler: _Handler
+    handler: MessageHandler
     ttl_ms: int | None
     max_len: int | None
 
 
-async def _run_logged(handler: _Handler, message: AbstractIncomingMessage) -> None:
+async def _run_logged(handler: MessageHandler, message: AbstractIncomingMessage) -> None:
     """핸들러 예외를 loguru 로 회수한다.
 
     aio-pika 는 콜백을 task 로 띄우고 결과를 아무도 회수하지 않아, 여기서 잡지 않으면 asyncio 기본
@@ -58,7 +58,7 @@ async def _run_logged(handler: _Handler, message: AbstractIncomingMessage) -> No
     """
     try:
         await handler(message)
-    except Exception:
+    except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
         logger.exception(
             "handler failed routing_key={} message_id={} delivery_tag={}",
             message.routing_key,
@@ -67,7 +67,7 @@ async def _run_logged(handler: _Handler, message: AbstractIncomingMessage) -> No
         )
 
 
-def _track_inflight(handler: _Handler, inflight: set[asyncio.Task[Any]]) -> _Handler:
+def _track_inflight(handler: MessageHandler, inflight: set[asyncio.Task[Any]]) -> MessageHandler:
     """핸들러 실행 task 를 등록한다 — 종료 시 기다릴 대상 (`_drain`)."""
 
     async def _run(message: AbstractIncomingMessage) -> None:
@@ -111,7 +111,7 @@ async def _drain(consumers: list[tuple[AbstractQueue, ConsumerTag]], inflight: s
 
 
 async def main() -> None:
-    setup_logging(get_consumer_settings().log_format)
+    setup_logging(get_consumer_settings().log_format, get_consumer_settings().log_level)
 
     # exchange 이름은 여기서 읽는다 — 모듈 스코프에 두면 import 만으로 설정을 요구한다.
     collect_exchange = get_consumer_settings().rabbitmq_exchange
@@ -231,4 +231,5 @@ async def main() -> None:
             logger.info("consumer stopping (signal received) — draining in-flight={}", len(inflight))
             await _drain(consumers, inflight)
     finally:
+        await dispose_engine()
         await close_pool()

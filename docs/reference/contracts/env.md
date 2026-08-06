@@ -90,7 +90,7 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 | Password 주입 | `.env`(.env.dev.example 복사) 평문 | file-secret 단일(`docker-compose.prod.yml` + `./secrets/*` 644) — `/run/secrets/*` 마운트, env 노출 회피 |
 | Schema 관리 | 동일 — base compose `migrate` init-container 가 앱 기동 전 적용 (`docs/guides/migrate.md`) | 동일 |
 | Fail-fast 검증 | 동일 — 미설정·빈값·`_WEAK_VALUES` 는 어느 환경에서도 `Settings()` 생성 시점 `ValueError` | 동일 |
-| Logging | `LOG_FORMAT=text` (colorized·grep 친화) | `LOG_FORMAT=json` 권장 (외부 log aggregator indexing) |
+| Logging | `LOG_FORMAT=text` (colorized·grep 친화) · `LOG_LEVEL=DEBUG` | `LOG_FORMAT=json` 권장 (외부 log aggregator indexing) · `LOG_LEVEL=INFO` |
 | web 노출 | plain HTTP port 8000 | HTTPS 외부 ingress (nginx·envoy 등) 종단, 앱은 plain |
 
 ---
@@ -169,7 +169,7 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 
 | 키 그룹 | web | consumer | worker |
 |--------|:---:|:--------:|:------:|
-| `APP_ENV`·`LOG_FORMAT` | 의무 | 의무 | 의무 |
+| `APP_ENV`·`LOG_FORMAT`·`LOG_LEVEL` | 의무 | 의무 | 의무 |
 | `POSTGRES_*` | 의무 | 의무 | 의무 |
 | `REDIS_*` | 의무 | 의무 | 의무 |
 | `RABBITMQ_*` (broker 접속) | 의무 | 의무 (consume) | 사용 안 함 (DB job-claim) |
@@ -229,6 +229,7 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 |----|--------|--------|------|
 | `APP_ENV` | `dev` | config.py / docker-compose | 환경 마커. `dev`/`staging`/`prod`. 정적 자원 캐시 무효화만 가른다 (4절) |
 | `LOG_FORMAT` | `text` | config.py / 각 entry `setup_logging()` | 로그 출력 format. `text`(dev colorized·grep) 또는 `json`(외부 log aggregator). prod 는 `json` 권장 |
+| `LOG_LEVEL` | `INFO` | config.py / 각 entry `setup_logging()` | 최소 로그 수준(`DEBUG`·`INFO`·`WARNING`·`ERROR`). 루프 내부 흐름은 DEBUG 라 운영에서는 기본값을 쓴다 |
 | `ENV_FILE` | `.env` | compose base `env_file:` | 서비스에 주입할 env 파일 경로. compose 가 `${ENV_FILE:-.env}` 로 참조하는 평범한 보간 변수다 |
 | `ENGINE_IMAGE` | 없음 (미설정 시 compose 가 기동 거부) | compose base | 앱 서비스·migrate 이미지. config.py 미사용 — compose 전용. `deploy.sh vX.Y.Z` 가 `.env` 의 이 줄을 갱신한다. dev override.yml 은 `assessment-engine:local`(로컬 빌드)로 덮음. GHCR public — 토큰 없이 pull |
 | `PGDATA_HOST` | `postgres_data` (named volume) | compose base | postgres 영속 경로. host 절대경로 주입 시 bind mount(infra Cinder `/mnt/pgdata`), 미설정 시 named volume |
@@ -307,6 +308,7 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 - [ ] DB·Redis·MQ 관리 UI 는 loopback 바인딩 유지, AMQP 5672 만 외부 노출(agent 발행 통로) — 바인딩은 base compose 가 정한다 (`docs/reference/docker.md`)
 - [ ] web 노출 결정 (reverse proxy 또는 직접)
 - [ ] `LOG_FORMAT=json` 권장 — 외부 log aggregator indexing (`docs/reference/observability.md`)
+- [ ] `LOG_LEVEL` 기본 `INFO` 유지 — DEBUG 는 메시지별 흐름까지 찍는다
 - [ ] 에이전트 secret 채널은 엔진과 독립 — Ansible vault·SaltStack pillar 등 별도 도구
 - [ ] 기동 직후 `Settings()` 생성 시점 `ValueError` 발생 없음 — fail 시 secret 채널 점검 필요
 
@@ -327,7 +329,7 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 ## 관련 문서
 
 - `docs/guides/deploy.md` — VM 부트스트랩·compose rollout 절차
-- `docs/reference/observability.md` — `LOG_FORMAT` toggle
+- `docs/reference/observability.md` — `LOG_FORMAT`·`LOG_LEVEL`
 - `docs/guides/migrate.md` — schema migrate contract
 - `docs/guides/release.md` — 릴리즈 artifact 카탈로그
 - CLAUDE.md #A0·#F8 — secret·PII 노출 금지 원칙

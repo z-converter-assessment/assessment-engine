@@ -30,6 +30,8 @@ Thumbs.db
 # 테스트 / 빌드 캐시
 .pytest_cache/
 .ruff_cache/
+# hypothesis 반례 DB — 로컬 탐색 결과라 커밋 대상이 아니다 (CI 는 actions/cache 로 잡 사이에 물린다).
+.hypothesis/
 .coverage
 coverage*.xml
 htmlcov/

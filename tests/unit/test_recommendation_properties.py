@@ -35,12 +35,9 @@ def stats_strategy(draw: DrawFn) -> ResourceStats:
     return ResourceStats(
         cpu_p95_pct=draw(_opt(_pct)),
         cpu_peak_pct=draw(_opt(_pct)),
-        cpu_load_15m_max=draw(_opt(st.floats(0, 64, allow_nan=False))),
         cpu_cores=draw(_opt(_cores)),
         mem_p95_pct=draw(_opt(_pct)),
-        swap_used=draw(st.booleans()),
         disk_used_pct=draw(_opt(_pct)),
-        iowait_p95_pct=draw(_opt(_pct)),
         net_avg_kbytes_per_s=draw(_opt(st.floats(0, 1_000_000, allow_nan=False))),
         os_family=draw(st.sampled_from(["linux", "windows", None])),
         sample_sufficiency=draw(_opt(st.floats(0, 1.2, allow_nan=False))),

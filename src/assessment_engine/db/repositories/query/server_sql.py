@@ -1,7 +1,6 @@
 """Server 도메인 concrete — inventory · storage · network · collection status."""
 
 from datetime import UTC, datetime, timedelta
-from typing import Protocol, cast
 
 from sqlalchemy import func, select
 
@@ -23,12 +22,6 @@ from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 # 수집 상태 조회 윈도우 — "이 기간 내 metric 없음 = 수집 끊김(None 표시)" 기준 + C5 hypertable pruning 술어.
 # 수집 생존 신호용 운영 윈도우로 right-sizing 평가 윈도우(recommendation.WINDOW_DAYS)와 독립 — 연동 금지.
 _COLLECTION_STATUS_WINDOW = timedelta(days=7)
-
-
-class _LinkSpeedProvider(Protocol):
-    """server 도메인이 sibling metric sub-repository 에 거는 계약 — `SqlQueryRepository` MRO 결합에서 충족된다."""
-
-    async def latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]: ...
 
 
 class SqlServerQueryRepository(_BaseQueryMixin):
@@ -158,7 +151,7 @@ class SqlServerQueryRepository(_BaseQueryMixin):
         if not r:
             return None
 
-        rows = await self._latest_per_dimension(ServerFilesystem.__tablename__, "mountpoint", server_id, n=1)
+        rows = await self._latest_per_dimension(ServerFilesystem, ServerFilesystem.mountpoint, server_id, n=1)
         filesystems = [
             MountUsageRaw(
                 mountpoint=row.mountpoint,
@@ -200,12 +193,10 @@ class SqlServerQueryRepository(_BaseQueryMixin):
             return None
 
         # 인벤토리 speed_mbps null(virtio·Windows NT5.2) 폴백 — metrics network.link.speed 최신값(bit/s) 재사용.
-        # 구현체는 본 클래스 상속 트리 밖(metric sub-repo)이라 계약 Protocol 로 좁힌다.
-        metric_repo = cast("_LinkSpeedProvider", self)
-        link_speeds = await metric_repo.latest_link_speed([server_id], datetime.now(UTC) - timedelta(days=30))
+        link_speeds = await self._latest_link_speed([server_id], datetime.now(UTC) - timedelta(days=30))
         link_speed_by_iface = link_speeds.get(server_id, {})
 
-        rows = await self._latest_per_dimension(ServerNetIo.__tablename__, "iface_id", server_id, n=2)
+        rows = await self._latest_per_dimension(ServerNetIo, ServerNetIo.iface_id, server_id, n=2)
         net_io = [
             NetIoRaw(
                 iface_id=row.iface_id,

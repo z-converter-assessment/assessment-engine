@@ -2345,7 +2345,8 @@ export interface operations {
             query?: {
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 anchor_at?: string | null;
-                fragment?: string | null;
+                /** @description partial 재렌더 스위치 — 지정 시 해당 조각만 반환. 그 외 값은 full page */
+                fragment?: "result" | null;
                 /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
             };
@@ -2414,7 +2415,8 @@ export interface operations {
             query?: {
                 /** @description 이전 link referrer. 미명시 시 라우터별 기본 목적지 */
                 back?: string | null;
-                fragment?: string | null;
+                /** @description partial 재렌더 스위치 — 지정 시 해당 조각만 반환. 그 외 값은 full page */
+                fragment?: "realtime" | null;
                 /** @description public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경. */
                 ids?: string | null;
             };
@@ -2784,7 +2786,8 @@ export interface operations {
                 os_distro?: string | null;
                 classification?: string | null;
                 os_eol?: string | null;
-                fragment?: string | null;
+                /** @description partial 재렌더 스위치 — 지정 시 해당 조각만 반환. 그 외 값은 full page */
+                fragment?: "rows" | null;
             };
             header?: never;
             path?: never;

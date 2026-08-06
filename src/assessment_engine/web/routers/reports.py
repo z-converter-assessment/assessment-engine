@@ -10,31 +10,29 @@ from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
-from fastapi.responses import HTMLResponse
 
-from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     TimeRange,
 )
-from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, normalize_anchor
+from assessment_engine.diagnostic.report_result import normalize_anchor
 from assessment_engine.web.deps import DiagnosticServiceDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
+from assessment_engine.web.routers._report_snapshot import (
+    VIEW_TITLES,
+    LoadedSnapshot,
+    load_snapshot,
+    render_job_progress,
+)
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.mappers.api_reference import build_api_reference
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
 from assessment_engine.web.services.mappers.shared import build_service_badge_reference
-from assessment_engine.web.services.report_serializer import env_report_from_dict
 from assessment_engine.web.templating import templates
 
 reports_router = APIRouter(prefix="/reports", tags=["pages"])
 # 참고(기준·임계값)는 보고서가 아닌 독립 reference — /reference (사이드바 참고 그룹).
 reference_router = APIRouter(tags=["pages"])
-
-_VIEW_TITLES: dict[str, str] = {
-    "customer": "고객 제출용",
-    "engineer": "엔지니어 검토용",
-}
 
 
 @reports_router.get("/environment")
@@ -64,33 +62,11 @@ async def environment_report(
             "active_nav": "environment",
             "summary": None,
             "view": view,
-            "view_title": _VIEW_TITLES[view],
+            "view_title": VIEW_TITLES[view],
             "back_url": back_url,
             "self_back": self_back_url,
             "report_job_id": None,
             "time_range": time_range,
-        },
-    )
-
-
-def _render_job_progress(
-    request: Request,
-    rec: DiagnosticJobRecord,
-    back_url: str,
-) -> HTMLResponse:
-    """비동기 보고서 job 이 succeeded 아님 — 진행(pending/running) 폴링 또는 실패(failed) 안내 화면.
-
-    pending/running 은 report-poll.js 가 status 폴링 -> 완료 시 reload. failed 는 재발행 안내(폴링 안 함).
-    환경·selection·단일 GET 공용 — 모든 보고서 scope 가 같은 비동기 생성 흐름이라 진행 화면 단일.
-    """
-    return templates.TemplateResponse(
-        request=request,
-        name="reports/report_pending.html",
-        context={
-            "job_id": rec.id,
-            "status": rec.status,
-            "error": rec.error_message if rec.status == "failed" else None,
-            "back_url": back_url,
         },
     )
 
@@ -103,28 +79,21 @@ async def _render_environment_snapshot(
     diag_service: DiagnosticService,
 ):
     """발행된 환경 보고서 렌더 — succeeded 면 정적 스냅샷, 그 외(pending/running/failed)는 진행 화면."""
-    rec = await diag_service.get_report_snapshot(job_id)
-    if rec is None:
-        raise HTTPException(status_code=404, detail="report snapshot not found")
-    if rec.status != "succeeded":
-        return _render_job_progress(request, rec, back_url)
-    if rec.result is None or rec.result.get("kind") != REPORT_KIND_ENV:
-        raise HTTPException(status_code=404, detail="report snapshot not found")
-    result = rec.result
-    summary = env_report_from_dict(result["snapshot"])
-    view = result.get("view", "engineer")
+    loaded = await load_snapshot(job_id, diag_service)
+    if not isinstance(loaded, LoadedSnapshot):
+        return render_job_progress(request, loaded, back_url)
     return templates.TemplateResponse(
         request=request,
         name="reports/environment.html",
         context={
             "active_nav": "environment",
-            "summary": summary,
-            "view": view,
-            "view_title": _VIEW_TITLES.get(view, view),
+            "summary": loaded.summary,
+            "view": loaded.view,
+            "view_title": loaded.view_title,
             "back_url": back_url,
             "self_back": self_back_url,
-            "report_job_id": rec.id,
-            "time_range": rec.input_params.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE),
+            "report_job_id": loaded.record.id,
+            "time_range": loaded.time_range,
         },
     )
 

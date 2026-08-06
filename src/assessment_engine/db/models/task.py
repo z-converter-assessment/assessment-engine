@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Integer, SmallInteger, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
@@ -7,6 +6,7 @@ from sqlalchemy.dialects.postgresql import UUID as PG_UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from assessment_engine.db.models.base import Base
+from assessment_engine.json_types import JsonObject
 
 
 class Task(Base):
@@ -36,7 +36,7 @@ class Task(Base):
     target_agent_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), nullable=False, index=True)
 
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
-    params: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    params: Mapped[JsonObject | None] = mapped_column(JSONB)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="pending")
     # pending -> success / failure. agent 무응답 시 deadline_at 경과로 failure(timeout) 전이.
 

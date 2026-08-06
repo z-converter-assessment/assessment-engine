@@ -2,8 +2,9 @@
 
 라우터가 `responses={200: {"model": AssessmentEnvelope}}` 로 OpenAPI 스키마를 문서화 -> 생성 TS 타입.
 매퍼(services/mappers/assessment_api.py)가 build 하는 dict 구조의 단일 진실 미러. 계약 규약(assessment-api.md):
-모든 키 항상 존재, 값이 없으면 null. 따라서 필드는 present + nullable(`X | None`). extra=forbid 로 골든
-테스트(test_assessment_api_schema)가 매퍼 dict 와의 drift(신규/누락 키)를 잡는다.
+값이 없으면 키를 생략하지 않고 null 이라 필드는 present + nullable(`X | None`). 단 `sizing.axes` 는 축
+종류마다 키 집합이 달라(disk 전용 5키) 그쪽만 default 를 둔 optional 이다 — 계약 문서의 명시된 예외다.
+extra=forbid 로 골든 테스트(test_assessment_api_properties)가 매퍼 dict 와의 drift(신규/누락 키)를 잡는다.
 
 주의: 본 스키마는 응답 검증/재구성에 쓰지 않는다(response_model 아님) — frozen 배포 계약 출력을 바꾸지
 않기 위해 문서화 전용. sizing.axes 이질(cpu/mem vs disk)은 disk 전용 필드를 Optional 로 흡수.

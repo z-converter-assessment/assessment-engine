@@ -11,33 +11,16 @@ from typing import Annotated
 from fastapi import APIRouter, Query
 
 from assessment_engine.web.deps import QueryServiceDep
+from assessment_engine.web.routers._contract_params import (
+    WINDOW_FLOOR_DAYS,
+    normalize_anchor,
+    split_csv,
+    split_pairs_csv,
+)
 from assessment_engine.web.services.mappers.assessment_api import build_assessment_envelope
 from assessment_engine.web.view_models.assessment_api import AssessmentEnvelope
 
 assessment_router = APIRouter(prefix="/api/assessment", tags=["assessment"])
-
-# 계약 3절 — 14 미만은 관측 부족으로 과소 사이징 유발. 연장(14 초과)만 안전 방향.
-_WINDOW_FLOOR_DAYS = 14
-
-
-def _split(
-    v: str | None,
-) -> list[str]:
-    return [s.strip() for s in (v or "").split(",") if s.strip()]
-
-
-def _split_pairs(
-    v: str | None,
-) -> list[tuple[str, str]]:
-    """순서쌍 파싱 — "hostname~discriminator" 쉼표 목록. discriminator = IP 또는 public_id. 형식 불량 토큰 무시."""
-    out: list[tuple[str, str]] = []
-    for token in _split(v):
-        if "~" in token:
-            host, _, disc = token.partition("~")
-            host, disc = host.strip(), disc.strip()
-            if host and disc:
-                out.append((host, disc))
-    return out
 
 
 # responses= (response_model 아님) — OpenAPI 스키마만 문서화(생성 TS 타입 원천). frozen 계약 출력은
@@ -60,11 +43,11 @@ async def get_assessment(
     window_days: Annotated[
         int,
         Query(
-            ge=_WINDOW_FLOOR_DAYS,
+            ge=WINDOW_FLOOR_DAYS,
             le=90,
             description="평가 창(일). 최소 14(계약 3절 — 짧으면 관측 부족 과소 사이징). 연장만 안전 방향.",
         ),
-    ] = _WINDOW_FLOOR_DAYS,
+    ] = WINDOW_FLOOR_DAYS,
     end: Annotated[datetime | None, Query(description="윈도우 종료 시각(ISO 8601, tz-aware 권장). 기본 현재.")] = None,
 ):
     """통합 프로비저닝 어세스먼트 — 소스 서버를 관측해 타겟 VM 재현/수정 사이징에 필요한 것을 한 응답으로.
@@ -80,13 +63,11 @@ async def get_assessment(
     안전(호스트명 중복): hostname 은 유일하지 않다. public_id 를 모를 때 중복 hostname 을 하나로 지정하려면
     pair=hostname~ip 로 host AND ip 동시 만족 서버만 고른다. warnings 가 동명 충돌/해석 실패/미매칭 필터를 알려준다.
     """
-    anchor = end or datetime.now(UTC)
-    if anchor.tzinfo is None:
-        anchor = anchor.replace(tzinfo=UTC)
-    hostnames = _split(hostname)
-    ips = _split(ip)
-    public_ids = _split(public_id)
-    pairs = _split_pairs(pair)
+    anchor = normalize_anchor(end)
+    hostnames = split_csv(hostname)
+    ips = split_csv(ip)
+    public_ids = split_csv(public_id)
+    pairs = split_pairs_csv(pair)
     result = await service.get_assessment(
         window_days=window_days,
         end=anchor,

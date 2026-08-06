@@ -24,15 +24,16 @@ async def graceful_drain(
     shutdown_timeout_sec: float,
     timeout_warning: str,
 ) -> None:
-    """graceful shutdown — stop_event set 으로 새 작업 중단 + 진행 중 1건 timeout 안 완료 시도. 초과 시 cancel.
+    """graceful shutdown — stop_event set 으로 새 작업 중단 + 진행 중 1건을 timeout 안에 마치게 둔다.
 
-    timeout_warning: 초과 cancel 시 남길 경고 문구(워커별 후속 복구 정책 명시 — 예: stale 회수/requeue).
+    초과분은 `wait_for` 가 이미 취소한 뒤 TimeoutError 를 올린다 — 여기서 다시 cancel 하지 않는다.
+
+    timeout_warning: 초과 시 남길 경고 문구(워커별 후속 복구 정책 명시 — 예: stale 회수/requeue).
     """
     stop_event.set()
     try:
         await asyncio.wait_for(task, timeout=shutdown_timeout_sec)
     except TimeoutError:
-        task.cancel()
         logger.warning(timeout_warning)
     except asyncio.CancelledError:
         pass

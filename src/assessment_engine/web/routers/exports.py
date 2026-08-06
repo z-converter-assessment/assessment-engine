@@ -12,12 +12,14 @@ from fastapi import APIRouter, Response
 from pydantic import BaseModel, Field
 
 from assessment_engine.web.deps import QueryServiceDep
+from assessment_engine.web.routers._contract_params import (
+    WINDOW_FLOOR_DAYS,
+    normalize_anchor,
+    split_pairs,
+)
 from assessment_engine.web.services.mappers.assessment_api import build_assessment_envelope
 
 exports_router = APIRouter(prefix="/api/exports", tags=["exports"])
-
-# 계약 3절 — 14 미만은 관측 부족으로 과소 사이징. 연장(14 초과)만 안전 방향(GET /api/assessment 와 동일).
-_WINDOW_FLOOR_DAYS = 14
 
 
 class AssessmentExportRequest(BaseModel):
@@ -27,22 +29,8 @@ class AssessmentExportRequest(BaseModel):
     ip: list[str] = Field(default_factory=list[str])
     public_id: list[str] = Field(default_factory=list[str])
     pair: list[str] = Field(default_factory=list[str])  # "hostname~discriminator" 토큰
-    window_days: int = Field(default=_WINDOW_FLOOR_DAYS, ge=_WINDOW_FLOOR_DAYS, le=90)
+    window_days: int = Field(default=WINDOW_FLOOR_DAYS, ge=WINDOW_FLOOR_DAYS, le=90)
     end: datetime | None = None
-
-
-def _split_pairs(
-    tokens: list[str],
-) -> list[tuple[str, str]]:
-    """순서쌍 파싱 — "hostname~discriminator". discriminator=IP 또는 public_id. 형식 불량 무시."""
-    out: list[tuple[str, str]] = []
-    for token in tokens:
-        if "~" in token:
-            host, _, disc = token.partition("~")
-            host, disc = host.strip(), disc.strip()
-            if host and disc:
-                out.append((host, disc))
-    return out
 
 
 @exports_router.post("/inventory")
@@ -56,13 +44,11 @@ async def export_inventory(
     자동화(Terraform/Ansible)에 투입한다. 필터는 GET 과 동일(hostname/ip/public_id/pair/window_days/end),
     미지정 시 전체 서버. 사이징/재현 산식은 GET 과 동일 단일 진실(get_assessment).
     """
-    anchor = req.end or datetime.now(UTC)
-    if anchor.tzinfo is None:
-        anchor = anchor.replace(tzinfo=UTC)
+    anchor = normalize_anchor(req.end)
     hostnames = [h.strip() for h in req.hostname if h.strip()]
     ips = [i.strip() for i in req.ip if i.strip()]
     public_ids = [p.strip() for p in req.public_id if p.strip()]
-    pairs = _split_pairs(req.pair)
+    pairs = split_pairs(req.pair)
     result = await service.get_assessment(
         window_days=req.window_days,
         end=anchor,

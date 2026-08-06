@@ -6,7 +6,7 @@ repo 계층 `query/_base.py` `_BaseQueryMixin` 과 동형.
 """
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING
 
 from assessment_engine.cache.redis import safe_mget
 from assessment_engine.web.settings import get_web_settings
@@ -15,20 +15,8 @@ from assessment_engine.web.view_models.attention import AttentionSignals, Enviro
 if TYPE_CHECKING:
     from redis.asyncio import Redis
 
-    from assessment_engine.db.dtos.outbound import ReportRowRaw, SaturationRaw, ServerDetail
+    from assessment_engine.db.dtos.outbound import ReportRowRaw, ServerDetail
     from assessment_engine.db.repositories.query.repository import QueryRepository
-    from assessment_engine.web.view_models.metric import MetricDashboard
-    from assessment_engine.web.view_models.task import TaskSummaryItem
-
-    # 도메인 mixin 이 self 로 부르는 형제 mixin 메서드의 타입 계약. 결합은 QueryService 가 하므로 mixin 단독
-    # 클래스에는 선언이 없다 — 호출 지점에서 본 Protocol 로 좁혀 계약을 명시한다(런타임 정의 0).
-    class _MetricSibling(Protocol):  # noqa: PYI046  형제 mixin 이 import 해 쓴다
-        async def get_latest_metric(
-            self, server_id: int, saturation: SaturationRaw | None = None
-        ) -> MetricDashboard | None: ...
-
-    class _TaskSibling(Protocol):  # noqa: PYI046  형제 mixin 이 import 해 쓴다
-        async def latest_tasks_by_servers(self, server_ids: list[int]) -> dict[int, TaskSummaryItem]: ...
 
 
 class _BaseQueryServiceMixin:

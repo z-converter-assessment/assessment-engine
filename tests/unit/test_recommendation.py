@@ -49,13 +49,10 @@ def _stats(**overrides: Any) -> ResourceStats:
     base: JsonObject = {
         "cpu_p95_pct": 40.0,
         "cpu_peak_pct": 50.0,
-        "cpu_load_15m_max": 0.5,
         "procs_running_p95": 0.5,  # Linux CPU 포화 신호 — 미포화 기본
         "cpu_cores": 4,
         "mem_p95_pct": 60.0,
-        "swap_used": False,
         "disk_used_pct": 50.0,
-        "iowait_p95_pct": 5.0,
         "disk_await_p95_ms": 5.0,  # await 5ms < 20 -> io_ok(측정됨)
         "net_avg_kbytes_per_s": 100.0,
     }
@@ -64,13 +61,10 @@ def _stats(**overrides: Any) -> ResourceStats:
 
 
 def _win(**overrides: Any) -> ResourceStats:
-    """Windows 기본 stats — load/iowait/swap 는 Linux 축이라 무의미, run_queue/paging/disk_queue 로 판정."""
+    """Windows 기본 stats — run_queue/paging/disk_queue 로 판정한다."""
     base = {
         "os_family": "windows",
-        "cpu_load_15m_max": None,  # loadavg OS 부재
-        "iowait_p95_pct": None,  # iowait OS 부재
         "disk_await_p95_ms": None,  # Windows await 미발행 -> disk_queue 폴백으로 판정
-        "swap_used": True,  # pagefile baseline (saturation 신호 아님)
     }
     base.update(overrides)
     return _stats(**base)
@@ -80,12 +74,11 @@ def _win(**overrides: Any) -> ResourceStats:
 
 
 def test_mem_saturated_linux_uses_page_out_not_static_swap():
-    # Linux 메모리 포화 = active page-out(mem_swap_paging), 정적 스왑 점유(swap_used) 아님.
-    # swappiness 로 여유 RAM 에도 유휴 페이지 스왑아웃하므로 점유는 압박 신호가 아님.
-    # Gate0 dual-gate: mem_saturated 는 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징일 때만 포화.
-    # 이용률 gate 를 통과시켜(mem_p95_pct=95) 페이징 신호 자체를 검증 — swap_used 는 그래도 무시됨.
-    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", swap_used=True, mem_swap_paging=False)) is False
-    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", swap_used=False, mem_swap_paging=True)) is True
+    # Linux 메모리 포화 = active page-out(mem_swap_paging). 정적 스왑 점유는 아예 입력이 아니다 —
+    # swappiness 가 여유 RAM 에서도 유휴 페이지를 스왑아웃하므로 점유는 압박을 뜻하지 않는다.
+    # Gate0 dual-gate: 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징일 때만 포화.
+    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=False)) is False
+    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=True)) is True
 
 
 def test_mem_saturated_windows_excludes_pagefile_uses_hardfault_rate():
@@ -206,14 +199,19 @@ def test_mem_pressure_active_os_aware():
 # --- 포화 축 미관측 판정 — cpu/memory/disk_io 한정 (network·disk_capacity 제외) ---
 
 
+_ALL_KINDS: tuple[ResourceKind, ...] = ("cpu", "memory", "disk_capacity", "disk_io", "network")
+_SATURATION_AXES: tuple[ResourceKind, ...] = ("cpu", "memory", "disk_io")
+type _Resources = dict[ResourceKind, ResourceAssessment]
+
+
 def _ra(kind: ResourceKind, status: ResourceStatus, *, coverage_gap: bool = False) -> ResourceAssessment:
     return ResourceAssessment(kind, status, confidence=ConfidenceNote(coverage_gap=coverage_gap))
 
 
 def test_host_saturation_unmeasured_limited_to_saturation_axes():
     # 포화 축(cpu/memory/disk_io) 어느 하나라도 coverage_gap 이면 True.
-    for gap_kind in ("cpu", "memory", "disk_io"):
-        res = {
+    for gap_kind in _SATURATION_AXES:
+        res: _Resources = {
             "cpu": _ra("cpu", "optimal"),
             "memory": _ra("memory", "optimal"),
             "disk_capacity": _ra("disk_capacity", "capacity_ok"),
@@ -224,7 +222,7 @@ def test_host_saturation_unmeasured_limited_to_saturation_axes():
         assert host_saturation_unmeasured(HostAssessment(resources=res)) is True
 
     # 포화 축은 전부 측정됐고 network·disk_capacity 만 미측정 -> False(포화 축 아님, 제외).
-    res_non_sat = {
+    res_non_sat: _Resources = {
         "cpu": _ra("cpu", "optimal"),
         "memory": _ra("memory", "optimal"),
         "disk_capacity": _ra("disk_capacity", "unmeasured", coverage_gap=True),
@@ -234,7 +232,7 @@ def test_host_saturation_unmeasured_limited_to_saturation_axes():
     assert host_saturation_unmeasured(HostAssessment(resources=res_non_sat)) is False
 
     # 전 자원 온전 -> False.
-    res_clean = {k: _ra(k, "optimal") for k in ("cpu", "memory", "disk_capacity", "disk_io", "network")}
+    res_clean: _Resources = {k: _ra(k, "optimal") for k in _ALL_KINDS}
     assert host_saturation_unmeasured(HostAssessment(resources=res_clean)) is False
 
 
@@ -242,13 +240,13 @@ def test_host_saturation_unmeasured_limited_to_saturation_axes():
 
 
 def test_root_cause_display_no_under_is_empty():
-    res = {k: _ra(k, "optimal") for k in ("cpu", "memory", "disk_capacity", "disk_io", "network")}
+    res: _Resources = {k: _ra(k, "optimal") for k in _ALL_KINDS}
     assert root_cause_display(HostAssessment(resources=res)) == ""
 
 
 def test_root_cause_display_single_under_is_resource_name():
     # 단일 부족 -> 자원명만(원인 자명). cpu under 하나.
-    res = {
+    res: _Resources = {
         "cpu": _ra("cpu", "under"),
         "memory": _ra("memory", "optimal"),
         "disk_capacity": _ra("disk_capacity", "capacity_ok"),
@@ -260,7 +258,7 @@ def test_root_cause_display_single_under_is_resource_name():
 
 def test_root_cause_display_causal_combined():
     # 인과 결합 -> "root (증상 유발)". 메모리발 + disk_io·cpu 증상.
-    res = {
+    res: _Resources = {
         "cpu": _ra("cpu", "under"),
         "memory": _ra("memory", "under"),
         "disk_capacity": _ra("disk_capacity", "capacity_ok"),
@@ -273,7 +271,7 @@ def test_root_cause_display_causal_combined():
 
 def test_root_cause_display_multiple_independent():
     # 복수 독립(단일 root·증상 없음) -> "·" 나열, _UNDER_ORDER 순(cpu 먼저 아님 — memory,cpu,...).
-    res = {
+    res: _Resources = {
         "cpu": _ra("cpu", "under"),
         "memory": _ra("memory", "optimal"),
         "disk_capacity": _ra("disk_capacity", "filling"),

@@ -88,7 +88,7 @@ DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {r: td.total_seconds() / 86400 for r, 
 DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
 
 # (SQL interval 문자열, Python timedelta) — bucket 단위를 SQL과 Python 양쪽에서 사용.
-_BUCKET_INFO: dict[str, tuple[str, timedelta]] = {
+_BUCKET_INFO: dict[BucketSize, tuple[str, timedelta]] = {
     "1m": ("1 minute", timedelta(minutes=1)),
     "5m": ("5 minutes", timedelta(minutes=5)),
     "15m": ("15 minutes", timedelta(minutes=15)),
@@ -112,7 +112,7 @@ AUTO_BUCKET: dict[str, str] = {
     "30d": "12h",
 }
 
-_AGG: dict[str, str] = {
+_AGG: dict[AggFunc, str] = {
     "avg": "avg(v)",
     "max": "max(v)",
     "p95": "percentile_cont(0.95) WITHIN GROUP (ORDER BY v)",
@@ -128,7 +128,7 @@ _CPU_TOTAL_EXPR = (
     "COALESCE(cpu_user_s,0)+COALESCE(cpu_nice_s,0)+COALESCE(cpu_system_s,0)+COALESCE(cpu_idle_s,0)"
     "+COALESCE(cpu_iowait_s,0)+COALESCE(cpu_irq_s,0)+COALESCE(cpu_softirq_s,0)+COALESCE(cpu_steal_s,0)"
 )
-_CPU_NUMERATOR: dict[str, str] = {
+_CPU_NUMERATOR: dict[MetricType | EnvironmentMetricType, str] = {
     "cpu.usage_percent": (
         "COALESCE(cpu_user_s,0)+COALESCE(cpu_nice_s,0)+COALESCE(cpu_system_s,0)+COALESCE(cpu_iowait_s,0)"
         "+COALESCE(cpu_irq_s,0)+COALESCE(cpu_softirq_s,0)+COALESCE(cpu_steal_s,0)"
@@ -141,7 +141,7 @@ _CPU_NUMERATOR: dict[str, str] = {
 
 # (dim_col, value_col) — disk/net rate per dimension. table 명은 metric.py 에서 결합
 # (types.py 는 ORM import 안 함 — circular 회피).
-_RATE_PER_DIM_DEFS: dict[str, tuple[str, str]] = {
+_RATE_PER_DIM_DEFS: dict[MetricType | EnvironmentMetricType, tuple[str, str]] = {
     "disk.read_iops": ("device_id", "ops_read"),
     "disk.write_iops": ("device_id", "ops_write"),
     # 처리량 — io_*_bytes 는 By 단위 -> KB 는 /1024.
@@ -169,7 +169,7 @@ _DATA_VOLUME_CAGG_FILTER = (
 # 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼(단위 By).
 # guard = 분자 성분이 실측된 행만 집계(미측정 성분 null 을 0 으로 삼키지 않음). Windows 는 mem_cached/buffered
 # 가 null(OS 미측정)이라 IS NOT NULL 가드로 gap 표시.
-_ENV_SCALAR_WEIGHTED: dict[str, tuple[str, str, str]] = {
+_ENV_SCALAR_WEIGHTED: dict[MetricType | EnvironmentMetricType, tuple[str, str, str]] = {
     "mem.usage_percent": (
         "mem_limit_bytes - mem_available_bytes",
         "mem_limit_bytes",

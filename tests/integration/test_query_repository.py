@@ -9,7 +9,7 @@
 """
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, get_args
 
 import pytest
 
@@ -18,6 +18,7 @@ from assessment_engine.db.dtos.inbound import (
     FilesystemEntry,
     NetIoEntry,
 )
+from assessment_engine.db.repositories.query.types import EnvironmentMetricType, MetricType
 from tests.factories import _DISK_DEVICE_ID, agent_id_for, make_inventory, make_metrics
 
 if TYPE_CHECKING:
@@ -25,7 +26,6 @@ if TYPE_CHECKING:
 
     from assessment_engine.db.repositories.collect_sql import SqlCollectRepository
     from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
-    from assessment_engine.db.repositories.query.types import EnvironmentMetricType, MetricType
 
 
 def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
@@ -37,58 +37,10 @@ def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
     return t - timedelta(minutes=t.minute % 5)
 
 
-pytestmark = pytest.mark.asyncio
-
-
-# MetricType 전량 (types.MetricType Literal 과 동기화 — dispatch 커버, #F9).
-# 포화 축은 cpu.run_queue·disk.io_saturation 이 담당한다.
-_ALL_METRIC_TYPES: list[MetricType] = [
-    "cpu.usage_percent",
-    "cpu.user_percent",
-    "cpu.system_percent",
-    "cpu.iowait_percent",
-    "cpu.nice_percent",
-    "cpu.run_queue",
-    "cpu.saturation",
-    "cpu.blocked",
-    "cpu.psi",
-    "mem.usage_percent",
-    "mem.available_percent",
-    "mem.cached_percent",
-    "mem.buffers_percent",
-    "mem.psi",
-    "mem.paging_pressure",
-    "disk.read_iops",
-    "disk.write_iops",
-    "disk.read_kbps",
-    "disk.write_kbps",
-    "disk.io_saturation",
-    "disk.saturation",
-    "disk.psi",
-    "fs.usage_percent",
-    "net.rx_bytes_per_sec",
-    "net.tx_bytes_per_sec",
-    "net.rx_packets_per_sec",
-    "net.tx_packets_per_sec",
-    "net.retrans_percent",
-    "net.drop_percent",
-    "net.congested",
-]
-
-# EnvironmentMetricType 전량 (types.EnvironmentMetricType Literal 과 동기화 — dispatch 커버, #F9).
-# collapse=True(환경 스케일 합산/count) 경로 전용 — server_ids=[1대]로도 dispatch SQL 자체는 검증 가능
-# (환경 전체 서버 대상 실행은 router 통합 테스트 영역).
-_ALL_ENV_METRIC_TYPES: list[EnvironmentMetricType] = [
-    "cpu.usage_percent",
-    "cpu.saturation_hosts",
-    "mem.usage_percent",
-    "mem.paging_pressure_hosts",
-    "fs.usage_percent",
-    "disk.saturation_hosts",
-    "net.rx_bytes_per_sec",
-    "net.tx_bytes_per_sec",
-    "net.congested_hosts",
-]
+# 카탈로그에서 직접 뽑는다 — 손으로 나열하면 Literal 에 값이 늘어도 여기만 옛 목록으로 남는다.
+# PEP 695 별칭은 `__value__` 를 거쳐야 `get_args` 가 값을 준다(그냥 넘기면 빈 튜플이라 조용히 0건 돈다).
+_ALL_METRIC_TYPES: list[MetricType] = sorted(get_args(MetricType.__value__))
+_ALL_ENV_METRIC_TYPES: list[EnvironmentMetricType] = sorted(get_args(EnvironmentMetricType.__value__))
 
 
 async def _seed_one_server_with_metrics(

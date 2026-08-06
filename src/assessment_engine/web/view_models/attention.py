@@ -3,6 +3,8 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
+from assessment_engine.recommendation import Recommendation
+
 
 @dataclass
 class AttentionRow:
@@ -36,7 +38,7 @@ class CapacityWarningItem:
     public_id: str
     hostname: str
     # 분류 — 통합 조치 대상 표에서 under/over/idle 한 표에 섞이므로 행별 분류 노출 (classify_host 파생).
-    classification: str = "under_provisioned"  # 분류 enum 키
+    classification: Recommendation = "under_provisioned"  # 분류 enum 키
     classification_label: str = "자원 부족"  # 표시 라벨 (LABEL_KO)
     badge_class: str = "rec-under_provisioned"  # 뱃지 CSS (BADGE_CLASS)
     classification_rank: int = 0  # 분류 칼럼 정렬값 (ACTION_PRIORITY — 자원 부족 0 > 과다 1 > 유휴 2)

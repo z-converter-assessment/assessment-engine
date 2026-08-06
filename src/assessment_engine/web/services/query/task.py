@@ -7,7 +7,19 @@ from assessment_engine.web.services.mappers.task import to_task_detail, to_task_
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
 
 if TYPE_CHECKING:
+    from assessment_engine.db.repositories.query.repository import QueryRepository
     from assessment_engine.web.view_models.task import TaskDetailItem, TaskSummaryItem
+
+
+async def latest_task_summaries(repo: QueryRepository, server_ids: list[int]) -> dict[int, TaskSummaryItem]:
+    """서버별 최근 task 1건 — 목록 행의 마지막 작업 칸.
+
+    서버 도메인이 목록을 그릴 때 같은 것을 필요로 한다. mixin 메서드였을 때는 그 호출이 형제 호출이라
+    `self` 를 Protocol 로 좁혀야 했고, 그 Protocol 은 런타임에 아무것도 강제하지 않았다.
+    """
+    rows = await repo.latest_tasks_by_servers(server_ids)
+    now = datetime.now(UTC)
+    return {sid: to_task_summary(r, now) for sid, r in rows.items()}
 
 
 class TaskQueryMixin(_BaseQueryServiceMixin):
@@ -32,6 +44,4 @@ class TaskQueryMixin(_BaseQueryServiceMixin):
         self,
         server_ids: list[int],
     ) -> dict[int, TaskSummaryItem]:
-        rows = await self.repo.latest_tasks_by_servers(server_ids)
-        now = datetime.now(UTC)
-        return {sid: to_task_summary(r, now) for sid, r in rows.items()}
+        return await latest_task_summaries(self.repo, server_ids)
