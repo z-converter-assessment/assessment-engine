@@ -59,6 +59,9 @@ class WebSettings(BaseSettings):
 
     # dev=text(colorized·grep 친화), prod=json(외부 log aggregator indexing).
     log_format: Literal["text", "json"] = "text"
+    # 12-factor XI — 로그 수준은 배포 시점 knob 이다. loguru 기본값은 DEBUG 라 명시하지 않으면
+    # 루프 내부 로그가 prod 로 나간다.
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     postgres_host: str = "postgres"
     postgres_db: str = "assessment"

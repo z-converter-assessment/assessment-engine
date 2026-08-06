@@ -39,7 +39,7 @@ async def _query_service_factory() -> AsyncGenerator[QueryService]:
 
 
 async def main() -> None:
-    setup_logging(get_worker_settings().log_format)
+    setup_logging(get_worker_settings().log_format, get_worker_settings().log_level)
     logger.info("worker starting — report generation + install task reaper")
 
     # graceful shutdown (F11) — asyncio.run 은 SIGTERM(docker stop)을 취소로 변환하지 않으므로 asyncio-native

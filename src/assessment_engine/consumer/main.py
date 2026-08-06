@@ -111,7 +111,7 @@ async def _drain(consumers: list[tuple[AbstractQueue, ConsumerTag]], inflight: s
 
 
 async def main() -> None:
-    setup_logging(get_consumer_settings().log_format)
+    setup_logging(get_consumer_settings().log_format, get_consumer_settings().log_level)
 
     # exchange 이름은 여기서 읽는다 — 모듈 스코프에 두면 import 만으로 설정을 요구한다.
     collect_exchange = get_consumer_settings().rabbitmq_exchange

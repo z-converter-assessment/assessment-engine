@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 async def lifespan(app: FastAPI):
     # log sink 단일 등록 — text(dev) vs json(prod) 분기 (LOG_FORMAT env). 모듈 스코프가 아니라 여기서
     # 부른다 — import 만으로 설정을 읽으면 값 없이는 import 조차 못 한다(consumer·worker 동일).
-    setup_logging(get_web_settings().log_format)
+    setup_logging(get_web_settings().log_format, get_web_settings().log_level)
     # schema 관리는 모든 환경에서 Alembic — docker-compose `migrate` 서비스(init-container 패턴)가
     # postgres healthy 후 `alembic upgrade head` 1회 실행 후 종료. 본 lifespan은 schema 가정만 함.
     # web을 포함한 모든 앱 서비스는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동 (ADR 0005).
