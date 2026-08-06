@@ -277,7 +277,6 @@
     });
   }
 
-  /** @type {any} */ (window).NetworkTopology = { render: render };
 
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', render);

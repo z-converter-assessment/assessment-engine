@@ -1068,12 +1068,9 @@ def _rs(**kw: Any) -> recommendation.ResourceStats:
     base = recommendation.ResourceStats(
         cpu_p95_pct=None,
         cpu_peak_pct=None,
-        cpu_load_15m_max=None,
         cpu_cores=None,
         mem_p95_pct=None,
-        swap_used=False,
         disk_used_pct=None,
-        iowait_p95_pct=None,
         net_avg_kbytes_per_s=None,
     )
     return dataclasses.replace(base, **kw)

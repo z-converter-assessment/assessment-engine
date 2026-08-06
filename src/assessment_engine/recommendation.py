@@ -87,14 +87,11 @@ class ResourceStats:
     # CPU
     cpu_p95_pct: float | None  # utilization
     cpu_peak_pct: float | None
-    cpu_load_15m_max: float | None  # saturation 원자료 (saturation_ratio = load / cores)
     cpu_cores: int | None
     # Memory
     mem_p95_pct: float | None  # utilization
-    swap_used: bool  # saturation (page-out 발생)
     # Disk
     disk_used_pct: float | None  # storage capacity utilization (worst mount)
-    iowait_p95_pct: float | None  # disk IO saturation (cpu wait on IO)
     # Network
     net_avg_kbytes_per_s: float | None  # kB/s(킬로바이트, 킬로비트 아님). 유휴 판정용 (saturation metric 미수집)
     # OS family — 신호 의미 분기 (원칙 P2). default None = unknown -> Linux 의미(엔진 fallback 정합).
@@ -161,6 +158,7 @@ def cpu_saturated(stats: ResourceStats) -> bool | None:
 
     Linux: procs_running p95 / cpu_cores >= PROCS_RUNNING_PER_CORE_SATURATION (실행 큐 R-state, USE).
            load 대신 procs_running — load 는 D-state IO 블록 오염(Gregg). 미발행(구 agent) 시 None(unmeasured).
+           loadavg 는 수집해도 판정에 쓰지 않는다. iowait 도 같다 — 디스크 포화는 await 로 본다.
     Windows: Processor Queue Length p95 / cpu_cores >= CPU_RUN_QUEUE_PER_CORE_SATURATION.
              Windows 는 loadavg 개념 부재 -> agent 가 Processor Queue Length 를 발행(loadavg 등가 축).
     측정 불가(값 None·cores 0)면 None -> assess 가 unmeasured("cpu_saturation")로 표시.
@@ -249,6 +247,9 @@ def net_signal_active(
 
 def mem_saturated(stats: ResourceStats) -> bool | None:
     """메모리 포화 여부 — dual-gate: 이용률 높음 AND 페이징 발생 (원칙 P2, os-aware).
+
+    Linux 포화 신호는 page-out(하드폴트) 이고 정적 스왑 점유가 아니다. swappiness 가 여유 RAM 에서도
+    유휴 페이지를 스왑아웃하므로 점유량은 압박을 뜻하지 않는다 — 그래서 스왑 점유는 판정 입력이 아니다.
 
     Gate0 확정: paging 단독은 mmap/프로세스 시작의 정상 하드폴트를 오탐하고(RAM 여유 많은 mmap DB 를
     포화로 오인), 이용률 단독은 페이지캐시로 90% 찬 정상을 오탐한다. 둘 다 참일 때만 포화 —

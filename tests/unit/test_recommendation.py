@@ -49,13 +49,10 @@ def _stats(**overrides: Any) -> ResourceStats:
     base: JsonObject = {
         "cpu_p95_pct": 40.0,
         "cpu_peak_pct": 50.0,
-        "cpu_load_15m_max": 0.5,
         "procs_running_p95": 0.5,  # Linux CPU 포화 신호 — 미포화 기본
         "cpu_cores": 4,
         "mem_p95_pct": 60.0,
-        "swap_used": False,
         "disk_used_pct": 50.0,
-        "iowait_p95_pct": 5.0,
         "disk_await_p95_ms": 5.0,  # await 5ms < 20 -> io_ok(측정됨)
         "net_avg_kbytes_per_s": 100.0,
     }
@@ -64,13 +61,10 @@ def _stats(**overrides: Any) -> ResourceStats:
 
 
 def _win(**overrides: Any) -> ResourceStats:
-    """Windows 기본 stats — load/iowait/swap 는 Linux 축이라 무의미, run_queue/paging/disk_queue 로 판정."""
+    """Windows 기본 stats — run_queue/paging/disk_queue 로 판정한다."""
     base = {
         "os_family": "windows",
-        "cpu_load_15m_max": None,  # loadavg OS 부재
-        "iowait_p95_pct": None,  # iowait OS 부재
         "disk_await_p95_ms": None,  # Windows await 미발행 -> disk_queue 폴백으로 판정
-        "swap_used": True,  # pagefile baseline (saturation 신호 아님)
     }
     base.update(overrides)
     return _stats(**base)
@@ -80,12 +74,11 @@ def _win(**overrides: Any) -> ResourceStats:
 
 
 def test_mem_saturated_linux_uses_page_out_not_static_swap():
-    # Linux 메모리 포화 = active page-out(mem_swap_paging), 정적 스왑 점유(swap_used) 아님.
-    # swappiness 로 여유 RAM 에도 유휴 페이지 스왑아웃하므로 점유는 압박 신호가 아님.
-    # Gate0 dual-gate: mem_saturated 는 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징일 때만 포화.
-    # 이용률 gate 를 통과시켜(mem_p95_pct=95) 페이징 신호 자체를 검증 — swap_used 는 그래도 무시됨.
-    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", swap_used=True, mem_swap_paging=False)) is False
-    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", swap_used=False, mem_swap_paging=True)) is True
+    # Linux 메모리 포화 = active page-out(mem_swap_paging). 정적 스왑 점유는 아예 입력이 아니다 —
+    # swappiness 가 여유 RAM 에서도 유휴 페이지를 스왑아웃하므로 점유는 압박을 뜻하지 않는다.
+    # Gate0 dual-gate: 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징일 때만 포화.
+    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=False)) is False
+    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=True)) is True
 
 
 def test_mem_saturated_windows_excludes_pagefile_uses_hardfault_rate():

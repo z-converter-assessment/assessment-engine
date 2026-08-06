@@ -774,14 +774,10 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         cpu_p95_pct=raw.cpu_p95_pct,
         cpu_peak_pct=raw.cpu_peak_pct,
         # CPU 포화는 실행 큐로 판정한다 — Linux procs_running_p95, Windows cpu_run_queue_p95.
-        cpu_load_15m_max=None,
         cpu_cores=raw.cpu_cores,
         mem_p95_pct=raw.mem_p95_pct,
         mem_near_peak_pct=raw.mem_near_peak_pct,
-        # 필드명은 점유량이지만 싣는 값은 페이징 신호다 — 메모리 포화를 swap 점유가 아니라 refault 지속으로 본다.
-        swap_used=raw.mem_swap_paging,
         disk_used_pct=raw.worst_mount_used_pct,
-        iowait_p95_pct=raw.iowait_p95_pct,
         net_avg_kbytes_per_s=net_avg,
         os_family=raw.os_family,
         sample_sufficiency=min(suffs) if suffs else None,

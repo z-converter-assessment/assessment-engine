@@ -439,8 +439,6 @@ if (filterForm) {
     applyFilters();
   });
 
-  // 자동갱신(replaceServerRows) 후 client 필터 재적용용 — 모듈 외부 노출.
-  /** @type {any} */ (window).__applyDashboardFilters = applyFilters;
   // 초기 1회 — 전체 로드된 행에 clip(20) 적용 + deep-link query(form 초기값) 반영.
   applyFilters();
 }

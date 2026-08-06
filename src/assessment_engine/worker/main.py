@@ -76,7 +76,7 @@ async def main() -> None:
         await stop_event.wait()  # SIGTERM/SIGINT 까지 두 루프 병행 구동 (루프는 내부 격리라 자체 종료 없음)
         logger.info("worker stopping (signal received)")
     finally:
-        # 공유 stop_event 로 두 루프 종료 신호 -> 각자 shutdown timeout 안 진행 중 1건 drain, 초과 시 cancel.
+        # 공유 stop_event 로 두 루프 종료 신호 -> 각자 shutdown timeout 안 진행 중 1건 drain.
         # report 미완 job 은 running 잔류 -> 다음 기동 recover_stale 회수(in-flight 손실 0).
         await graceful_drain(
             report_task,
