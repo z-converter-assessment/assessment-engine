@@ -173,7 +173,11 @@ def build_report_summary_bullets(
     # 디스크 I/O 포화 신호 — OS별 정규화(disk_io_saturated: Linux iowait / Windows disk_queue). 디스크 병목 = 고객 의사결정 직결.
     # build_resource_stats 는 ReportRowRaw 필요(cpu_sufficiency 등 raw 축) — raws 있을 때만 산출 (OS EOL 신호와 동일 게이트).
     if raws:
-        disk_sat_raws = [r for r in raws if recommendation.disk_io_saturated(build_resource_stats(r))]
+        disk_sat_raws = [
+            r
+            for r in raws
+            if recommendation.disk_io_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
+        ]
         if disk_sat_raws:
             phrase = _top_phrase([r.hostname for r in disk_sat_raws])
             bullets.append(f"디스크 I/O 포화 {len(disk_sat_raws)}대 ({phrase}) — 디스크 병목.")
@@ -183,7 +187,8 @@ def build_report_summary_bullets(
         mount_hosts = [
             f"{r.hostname}({r.disk_capacity_driving_mount or '?'} {int(r.disk_capacity_runway_days)}일)"
             for r in raws
-            if recommendation.assess_disk_capacity(build_resource_stats(r)).status == "filling"
+            if recommendation.assess_disk_capacity(build_resource_stats(r, disk_baseline=r.disk_iops_baseline)).status
+            == "filling"
             and r.disk_capacity_runway_days is not None
         ]
         if mount_hosts:
@@ -210,7 +215,11 @@ def build_report_summary_bullets(
         # 와 동일 신호(임계 재계산 0)라 run queue 로 under_provisioned 분류된 Windows 호스트가 요약에서 누락되지
         # 않는다(B1). build_resource_stats 필요 -> raws 있을 때만(disk_io bullet 와 동일 게이트).
         if raws:
-            sat_hosts = [r.hostname for r in raws if recommendation.cpu_saturated(build_resource_stats(r))]
+            sat_hosts = [
+                r.hostname
+                for r in raws
+                if recommendation.cpu_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
+            ]
             if sat_hosts:
                 bullets.append(
                     f"CPU 포화 {len(sat_hosts)}대 ({_top_phrase(sat_hosts)}) — run queue/load 가 코어 처리 한계 초과."
@@ -812,7 +821,8 @@ def to_report_row_item(
     info = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
     os_eol, os_eol_status = ("", "unknown") if info is None else (info.eol_iso, info.status)
     os_eol_disp = os_eol_display(os_eol_status, os_eol)
-    stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
+    # 보고서 경로는 `_assemble_report_raws` 가 disk baseline 을 채워 온 raw 를 받는다 (유일한 주입 경로).
+    stats = build_resource_stats(raw, disk_baseline=raw.disk_iops_baseline)
     # rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생한다 (화면 간 분류 정합).
     host = recommendation.rollup_host(stats)
     # 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). assess_network status 를 라벨로.

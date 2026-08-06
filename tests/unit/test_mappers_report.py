@@ -828,7 +828,8 @@ def test_period_assessment_windows_os_aware_and_hit():
             cpu_run_queue_p95=12.0,
             mem_pages_input_rate_p95=2000.0,
             disk_await_p95_ms=30.0,  # Windows 도 IOCTL await 통일 -> await > 20ms
-        )
+        ),
+        disk_baseline=None,
     )
     pa = build_period_assessment(stats)
     cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
@@ -853,7 +854,8 @@ def test_period_assessment_linux_signals_and_ok():
             procs_running_p95=1.0,
             mem_swap_paging=False,  # Linux 메모리 포화 축 — swap page-out 미발생 -> "L 없음"
             disk_await_p95_ms=5.0,
-        )
+        ),
+        disk_baseline=None,
     )
     pa = build_period_assessment(stats)
     cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
@@ -879,7 +881,8 @@ def test_period_assessment_unmeasured_when_counter_absent():
             cpu_run_queue_p95=None,
             mem_pages_input_rate_p95=None,
             disk_await_p95_ms=None,  # 디스크 I/O 포화 축(await) 미발행 -> 미관측
-        )
+        ),
+        disk_baseline=None,
     )
     pa = build_period_assessment(stats)
     cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
@@ -1109,27 +1112,29 @@ def test_recommendation_action_idle_strong_vs_weak():
 
 def test_build_resource_stats_sums_net_rx_tx():
     """net baseline = rx+tx 합 — 유휴 판정 입력."""
-    assert build_resource_stats(_raw(net_rx=10.0, net_tx=5.0)).net_avg_kbytes_per_s == 15.0
+    assert build_resource_stats(_raw(net_rx=10.0, net_tx=5.0), disk_baseline=None).net_avg_kbytes_per_s == 15.0
 
 
 def test_build_resource_stats_net_none_when_both_missing():
     """rx·tx 둘 다 None 이면 net None — 유휴 판정 skip (미관측을 0 으로 단정 금지)."""
-    assert build_resource_stats(_raw()).net_avg_kbytes_per_s is None
+    assert build_resource_stats(_raw(), disk_baseline=None).net_avg_kbytes_per_s is None
 
 
 def test_build_resource_stats_net_single_side_counts_other_as_zero():
-    assert build_resource_stats(_raw(net_rx=10.0)).net_avg_kbytes_per_s == 10.0
+    assert build_resource_stats(_raw(net_rx=10.0), disk_baseline=None).net_avg_kbytes_per_s == 10.0
 
 
 def test_build_resource_stats_sample_sufficiency_min_of_measured():
     """sufficiency = 측정된 축(p95 not None)의 min — 보수적."""
-    stats = build_resource_stats(_raw(cpu_p95=50.0, cpu_sufficiency=0.4, mem_p95=50.0, mem_sufficiency=0.9))
+    stats = build_resource_stats(
+        _raw(cpu_p95=50.0, cpu_sufficiency=0.4, mem_p95=50.0, mem_sufficiency=0.9), disk_baseline=None
+    )
     assert stats.sample_sufficiency == 0.4
 
 
 def test_build_resource_stats_sample_sufficiency_ignores_unmeasured_axis():
     """p95 None 인 축의 sufficiency 는 제외 — 미측정 축이 표본 판정 왜곡 금지."""
-    stats = build_resource_stats(_raw(cpu_p95=50.0, cpu_sufficiency=0.8, mem_sufficiency=0.1))
+    stats = build_resource_stats(_raw(cpu_p95=50.0, cpu_sufficiency=0.8, mem_sufficiency=0.1), disk_baseline=None)
     assert stats.sample_sufficiency == 0.8
 
 
@@ -1151,7 +1156,8 @@ def test_build_resource_stats_wires_adr0052_signals():
             cpu_percore_p95_max=88.0,
             procs_running_p95=3.0,
             oom_occurred=True,
-        )
+        ),
+        disk_baseline=None,
     )
     assert stats.procs_blocked_p95 == 2.0
     assert stats.procs_running_p95 == 3.0
@@ -1171,19 +1177,19 @@ def test_build_resource_stats_wires_adr0052_signals():
 
 
 def test_build_resource_stats_mem_total_mb_none_when_kb_none():
-    assert build_resource_stats(_raw(mem_total_kb=None)).mem_total_mb is None
+    assert build_resource_stats(_raw(mem_total_kb=None), disk_baseline=None).mem_total_mb is None
 
 
 def test_build_resource_stats_util_trend_rising_from_slopes():
     """util_trend_rising 은 도메인 헬퍼로 slope -> bool 이진화 (임계 recommendation 단일)."""
     # mem slope 가 임계(0.2%/day) 이상 -> 상승 (span 가드 통과 위해 history_hours >= 30)
-    r1 = build_resource_stats(_raw(cpu_trend_slope=-0.1, mem_trend_slope=0.5, history_hours=40.0))
+    r1 = build_resource_stats(_raw(cpu_trend_slope=-0.1, mem_trend_slope=0.5, history_hours=40.0), disk_baseline=None)
     assert r1.util_trend_rising is True
     # 둘 다 임계 미만 -> 비상승
-    r2 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=-1.0, history_hours=40.0))
+    r2 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=-1.0, history_hours=40.0), disk_baseline=None)
     assert r2.util_trend_rising is False
     # 이력 부족(span 가드) -> 추세 미판정 None (boot-ramp 오탐 차단)
-    r3 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=0.5, history_hours=10.0))
+    r3 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=0.5, history_hours=10.0), disk_baseline=None)
     assert r3.util_trend_rising is None  # span 가드
     # 둘 다 None(추세 산출 불가) -> None
-    assert build_resource_stats(_raw(history_hours=40.0)).util_trend_rising is None
+    assert build_resource_stats(_raw(history_hours=40.0), disk_baseline=None).util_trend_rising is None

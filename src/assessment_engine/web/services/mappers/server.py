@@ -365,7 +365,7 @@ def to_server_list_item(
         # rollup_host 1회 산출 -> 분류 배지(classify_host 내부도 rollup_host 경유). 네트워크 혼잡(orthogonal,
         # host_status 미구동)은 목록 배지에서 뺀다 — 분류 칼럼에 붙어 분류의 일부처럼 보이나 실은 별개 트리거
         # (재전송·드롭 임계)라 화면만으로 근거를 확인할 수 없었다. 필요 시 서버 상세에서 확인.
-        host = recommendation.rollup_host(build_resource_stats(raw_period))
+        host = recommendation.rollup_host(build_resource_stats(raw_period, disk_baseline=None))
         rec = recommendation.host_status_to_recommendation(host.host_status)
         seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
         # 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시. 색은 목록이

@@ -16,12 +16,16 @@ if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import ReportRowRaw
 
 
-def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
+def build_resource_stats(raw: ReportRowRaw, *, disk_baseline: int | None) -> recommendation.ResourceStats:
     """ReportRowRaw -> USE Method ResourceStats — report·attention mapper 공용(단일 진실).
 
     net baseline = server_net_io rx+tx 윈도우 평균(kB/s). 둘 다 None 이면 None(유휴 skip),
     하나만 있으면 다른쪽 0. os_family 전달로 포화 축 OS 분기(P2). report·attention·서버목록·환경이
     동일 stats 로 rollup_host 를 타 화면 간 분류 정합(임계 재계산 0).
+
+    `disk_baseline` 은 필수 키워드다. 이 값을 채우는 것은 보고서 경로(`_prefetch`)뿐이고 나머지
+    경로는 None 인데, raw 에서 그냥 읽으면 그 사실이 어디에도 안 보인다 — 새 호출 경로가 조용히
+    None 을 물려받아 유휴 판정 활동 축이 빠진다. 인자로 올려 두면 누락이 pyright 오류가 된다.
     """
     net_avg = (
         None if raw.net_rx_kbps is None and raw.net_tx_kbps is None else (raw.net_rx_kbps or 0) + (raw.net_tx_kbps or 0)
@@ -56,7 +60,7 @@ def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
         mem_swap_paging=raw.mem_swap_paging,
         mem_total_mb=(raw.mem_total_bytes // 1024**2 if raw.mem_total_bytes is not None else None),
         disk_await_p95_ms=raw.disk_await_p95_ms,
-        disk_iops_baseline=raw.disk_iops_baseline,  # 유휴 판정 활동 축 (디스크 I/O 활동량)
+        disk_iops_baseline=disk_baseline,  # 유휴 판정 활동 축 (디스크 I/O 활동량)
         disk_capacity_runway_days=raw.disk_capacity_runway_days,
         disk_inode_runway_days=raw.disk_inode_runway_days,
         disk_inode_used_pct=raw.disk_inode_used_pct,

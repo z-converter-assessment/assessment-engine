@@ -528,7 +528,8 @@ def to_capacity_warning_item(raw: ReportRowRaw):
     환경 요약 원인 집계(_under_cause_summary)의 단일 소스. 임계 재계산 없이 rollup 이 잡은 trigger 키를 매핑
     (drift 방지, runway 소진 디스크 등도 강조).
     """
-    stats = build_resource_stats(raw)
+    # 운영 신호 경로는 report_aggregate 원본만 본다 — disk baseline 주입 없음(유휴 활동 축 미관측).
+    stats = build_resource_stats(raw, disk_baseline=None)
     # 분류·근본원인·처방·신뢰도 전부 rollup_host 단일 모델 — 화면 간 정합(#E3). 처방은 자원별 독립(ADR 0056),
     # confidence_notes 도 host 기반(build_host_confidence_notes).
     host = recommendation.rollup_host(stats)

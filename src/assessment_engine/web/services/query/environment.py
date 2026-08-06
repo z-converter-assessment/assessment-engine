@@ -66,7 +66,9 @@ def assemble_overview(
     # net 혼잡은 사이징 아닌 별도 품질 플래그(assess_network congested, 단일소스) — 포화 도넛에 orthogonal 노출.
     cpu_sat = mem_sat = disk_sat = net_cong = 0
     for raw in raws_period:
-        stats = build_resource_stats(raw)
+        # 호출자마다 raw 의 disk baseline 주입 여부가 다르다 — 보고서 경로만 채워 오고 환경 개요는
+        # 비어 있다. 여기서 None 으로 고정하면 보고서 화면 분류가 바뀌므로 raw 가 실은 것을 그대로 쓴다.
+        stats = build_resource_stats(raw, disk_baseline=raw.disk_iops_baseline)
         rec = recommendation.classify_host(stats)
         seg = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
         risk_counts[seg] = risk_counts.get(seg, 0) + 1

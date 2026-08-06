@@ -212,7 +212,8 @@ def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambigu
     분류·근본원인·신뢰도·권고 전부 rollup_host 종합에서 파생 — 보고서/자원평가 화면과 값 정합(재계산 0).
     hostname_ambiguous = 이 hostname 이 환경 내 2대+ 공유(안전 신호) — 소비 측이 hostname 단독 대신 public_id/순서쌍 사용 판단.
     """
-    stats = build_resource_stats(raw)
+    # 계약 API 는 net baseline 만 주입받는다 — disk 활동 축은 미관측(보고서 경로 전용).
+    stats = build_resource_stats(raw, disk_baseline=None)
     host = recommendation.rollup_host(stats)
     rec = recommendation.host_status_to_recommendation(host.host_status)
     net = host.resources["network"]

@@ -298,7 +298,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             err = await self.repo.latest_errors(server_id, end_dt - timedelta(days=period_days))
             errors = build_error_signals(err, window_label=f"최근 {win_days}일", os_family=raw0.os_family)
             summary.period_assessment = build_period_assessment(
-                build_resource_stats(raw0),
+                build_resource_stats(raw0, disk_baseline=raw0.disk_iops_baseline),
                 errors,
                 disk_worst_mount=raw0.disk_capacity_worst_mount,
                 window_days=win_days,

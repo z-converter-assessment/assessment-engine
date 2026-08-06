@@ -373,7 +373,8 @@ def build_assessment_entry(
     분류/사이징/근본원인 전부 rollup_host 종합에서 파생 — 화면/right-sizing API 와 값 정합(재계산 0).
     link_speeds = iface별 최신 link.speed(bit/s) — inventory speed_mbps null 폴백(reproduction 정확도).
     """
-    stats = build_resource_stats(raw)
+    # 계약 API 는 net baseline 만 주입받는다 — disk 활동 축은 미관측(보고서 경로 전용).
+    stats = build_resource_stats(raw, disk_baseline=None)
     host = recommendation.rollup_host(stats)
     return {
         "identity": _identity(raw, is_online, hostname_ambiguous),
