@@ -7,7 +7,7 @@
 ## 파이프라인
 
 ```
-FastAPI 엔드포인트(response_model / return 타입)
+FastAPI 엔드포인트(return 어노테이션)
         |  app.openapi()
         v
 OpenAPI 스키마  --openapi-typescript-->  생성 TS 타입(static/js/generated/api.ts, 커밋)
@@ -34,8 +34,9 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 
 ## 규약
 
-- 서버 JSON 엔드포인트는 응답 타입을 선언한다 — `response_model=` 또는 return 어노테이션(`-> Foo`). FastAPI 가
-  stdlib dataclass ViewModel 도 OpenAPI 스키마로 변환한다(Pydantic 필수 아님). 응답 검증도 함께 붙는다.
+- 서버 JSON 엔드포인트는 응답 타입을 return 어노테이션(`-> Foo`)으로 선언한다. `response_model=` 은 쓰지 않는다
+  — 같은 일을 데코레이터 인자로 하면 시그니처가 반환 타입을 숨긴다. FastAPI 가 stdlib dataclass ViewModel 도
+  OpenAPI 스키마로 변환한다(Pydantic 필수 아님). 응답 검증도 함께 붙는다.
 - 클라 JS 는 파일 선두 주석의 `// @ts-check` 로 tsc 대상이 된다(vendor 제외 전 파일 채택). strict + noImplicitAny 라
   함수 파라미터·로컬까지 타입 강제 — (1) `fetch('/api/...')` 응답을 `/** @type {import('...generated/api').components['schemas']['<Name>'][]} */`
   로 annotate(계약 핵심) (2) 함수 파라미터·콜백은 JSDoc `@param` (3) strictNullChecks(DOM null 등)를 가드/캐스트로
@@ -50,7 +51,7 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 
 ## 확장 방법
 
-- 신규 JSON 엔드포인트: return 타입/`response_model` 선언 -> `pnpm run codegen` -> 커밋. 소비 JS 에서 응답
+- 신규 JSON 엔드포인트: return 어노테이션 선언 -> `pnpm run codegen` -> 커밋. 소비 JS 에서 응답
   annotate.
 - ViewModel 필드 변경: mapper 등 갱신(F9) 후 `pnpm run codegen` 으로 `api.ts` 재생성 -> 커밋(drift 게이트).
 - JS 파일 타입 채택: `// @ts-check` 추가 -> fetch 경계 annotate + null 가드 -> `pnpm run typecheck` 로 그
@@ -66,8 +67,8 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 ## frozen dict 응답 (assessment/right-sizing) — schema-only 패턴
 
 `/api/assessment`·`/api/right-sizing` 은 매퍼가 hand-built dict 를 반환하는 배포된 frozen 외부 계약이다.
-`response_model=` (검증/재구성)은 이질 구조(예: sizing.axes 의 cpu/mem vs disk)에 null 키를 더하거나 필드를
-stripping 해 출력을 바꿀 수 있어 쓰지 않는다. 대신:
+FastAPI 의 응답 모델 검증·재구성은 이질 구조(예: sizing.axes 의 cpu/mem vs disk)에 null 키를 더하거나 필드를
+stripping 해 출력을 바꿀 수 있어, 이 둘은 응답 타입을 선언하지 않는다. 대신:
 - `view_models/assessment_api.py`·`view_models/right_sizing_api.py` 에 계약 전체를 미러링한 Pydantic 모델
   (규약대로 필드 present + nullable, `extra=forbid`).
 - 라우터 `responses={200: {"model": ...}}` 로 OpenAPI 스키마만 문서화 — 실 응답은 매퍼 dict 그대로(재구성 0).
