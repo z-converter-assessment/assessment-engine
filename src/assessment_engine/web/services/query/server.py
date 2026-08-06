@@ -10,13 +10,18 @@ from assessment_engine.web.services.cache_serializer import (
     server_detail_to_json,
 )
 from assessment_engine.web.services.mappers.metric import to_collection_status_item
+from assessment_engine.web.services.mappers.metrics_calculator import build_error_signals
+from assessment_engine.web.services.mappers.os_eol import (
+    lookup_os_eol,
+)
+from assessment_engine.web.services.mappers.report import build_period_assessment
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.server import (
     to_network_detail,
     to_server_detail,
     to_server_list_item,
     to_storage_detail,
 )
-from assessment_engine.web.services.mappers.shared import lookup_os_eol
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.server import (
@@ -185,11 +190,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         """서버 세부 '최근 N일' 카드 — 자원별 이용률(p95)+포화 2축 (right-sizing 분류 창=WINDOW_DAYS).
 
         ServerDetailResponse 캐시(inventory)와 분리 — 14일 집계라 매 요청 산출(목록 분류와 동일 입력·창, #E3).
-        build_resource_stats/build_period_assessment 는 report mapper 지연 import(report->server 모듈 순환 회피).
         """
-        from assessment_engine.web.services.mappers.report import build_period_assessment, build_resource_stats
-        from assessment_engine.web.services.metrics_calculator import build_error_signals
-
         end_dt = end or datetime.now(UTC)
         raws = await self.repo.report_aggregate([server_id], period_days=recommendation.WINDOW_DAYS, end=end_dt)
         if not raws:

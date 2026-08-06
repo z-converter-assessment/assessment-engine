@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from assessment_engine import recommendation
 from assessment_engine.contract import API_CONTRACT_VERSION
 from assessment_engine.json_types import JsonObject, json_list
-from assessment_engine.web.services.mappers.report import build_resource_stats
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     build_host_confidence_notes,
     primary_ip,

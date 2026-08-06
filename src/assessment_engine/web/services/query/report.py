@@ -29,10 +29,10 @@ from assessment_engine.web.services.mappers.environment_report import (
     build_saturation_trend,
     to_environment_report,
 )
+from assessment_engine.web.services.mappers.metrics_calculator import build_error_signals
 from assessment_engine.web.services.mappers.report import (
     build_period_assessment,
     build_report_summary_bullets,
-    build_resource_stats,
     build_role_distribution,
     build_selection_context,
     compute_report_avg_p95,
@@ -40,6 +40,7 @@ from assessment_engine.web.services.mappers.report import (
     sort_rows_for_report,
     to_report_row_item,
 )
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.server import (
     build_cpu_breakdown,
     build_memory_breakdown,
@@ -47,7 +48,6 @@ from assessment_engine.web.services.mappers.server import (
     build_server_inventory,
     build_storage_tree,
 )
-from assessment_engine.web.services.metrics_calculator import build_error_signals
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview, _filter_attention
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
 from assessment_engine.web.settings import get_web_settings

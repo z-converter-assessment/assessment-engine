@@ -15,17 +15,17 @@ from typing import TYPE_CHECKING
 from assessment_engine import recommendation
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import disk_total_bytes
-from assessment_engine.web.services.mappers.report import (
-    build_resource_stats,
+from assessment_engine.web.services.mappers.os_eol import (
+    lookup_os_eol,
+    resolve_os_eol,
 )
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
     _CAUSE_LABEL_BY_TRIGGER,
     _DONUT_SEGMENT_DEFS,
     UTIL_GAUGE_COLOR,
     build_host_confidence_notes,
-    lookup_os_eol,
-    resolve_os_eol,
     spec_display_line,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib

@@ -22,22 +22,24 @@ from assessment_engine.web.services.mappers.attention import (
     to_capacity_warning_item,
     to_os_eol_warning_item,
 )
+from assessment_engine.web.services.mappers.os_eol import (
+    _classify_eol,
+    lookup_os_eol,
+    resolve_os_eol,
+)
 from assessment_engine.web.services.mappers.report import (
     _RISK_FROM_RECOMMENDATION,
     _build_recommendation_action,
     build_period_assessment,
     build_report_summary_bullets,
-    build_resource_stats,
     build_role_distribution,
     compute_report_avg_p95,
     compute_report_totals_from_raw,
     to_report_row_item,
 )
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_FROM_REC,
-    _classify_eol,
-    lookup_os_eol,
-    resolve_os_eol,
 )
 
 if TYPE_CHECKING:

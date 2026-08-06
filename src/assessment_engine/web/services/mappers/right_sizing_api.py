@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 
 from assessment_engine import recommendation
 from assessment_engine.web.services.device_filters import disk_total_bytes
-from assessment_engine.web.services.mappers.report import build_resource_stats
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     _CAUSE_LABEL_BY_TRIGGER,
     build_host_confidence_notes,

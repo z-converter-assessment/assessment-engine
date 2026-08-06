@@ -227,7 +227,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T10. ViewModel 비대화 vs 클라이언트 재계산 (P2 따름)
 
-> 관련 코드: `src/assessment_engine/web/view_models/`, `src/assessment_engine/web/services/mappers/`, `src/assessment_engine/web/services/metrics_calculator.py`
+> 관련 코드: `src/assessment_engine/web/view_models/`, `src/assessment_engine/web/services/mappers/`, `src/assessment_engine/web/services/mappers/metrics_calculator.py`
 > 관련 문서: CLAUDE.md #E1 P2 · #E3, `docs/reference/web/view-models.md`
 
 선택

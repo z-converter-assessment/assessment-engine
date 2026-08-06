@@ -22,7 +22,7 @@ from assessment_engine.web.services.mappers.attention import (
     build_environment_realtime,
     to_capacity_warning_item,
 )
-from assessment_engine.web.services.mappers.report import build_resource_stats
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.right_sizing_api import build_right_sizing_entry
 from assessment_engine.web.services.mappers.shared import _DONUT_SEGMENT_FROM_REC
 from assessment_engine.web.services.mappers.topology import build_network_topology

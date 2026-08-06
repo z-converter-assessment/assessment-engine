@@ -19,9 +19,9 @@ from assessment_engine.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import QueryServiceDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back, self_back_of
 from assessment_engine.web.routers._fragment import RealtimeFragment, ResultFragment, RowsFragment
+from assessment_engine.web.services.mappers.os_eol import DISTRO_FILTER_OPTIONS
 from assessment_engine.web.services.mappers.shared import (
     DIAGNOSTIC_RANGE_LABEL_KR,
-    DISTRO_FILTER_OPTIONS,
     PROVISIONING_CLASS_OPTIONS,
 )
 from assessment_engine.web.services.query_service import QueryService
@@ -248,7 +248,7 @@ async def servers_list(
                 "user": get_web_settings().zdm_default_user,
             },
             # OS 필터 옵션 — endoflife 카탈로그 distro 전체(수집 무관, 지원 distro 노출).
-            # single source: shared.DISTRO_FILTER_OPTIONS.
+            # single source: os_eol.DISTRO_FILTER_OPTIONS.
             "filter_options": {
                 "service_categories": SERVICE_CATEGORIES,
                 "distro_options": DISTRO_FILTER_OPTIONS,

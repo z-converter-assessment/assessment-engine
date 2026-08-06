@@ -27,18 +27,21 @@ from assessment_engine.web.services.device_filters import (
     is_virtual_interface,
     swap_total_bytes,
 )
+from assessment_engine.web.services.mappers.metrics_calculator import compute_net_io
+from assessment_engine.web.services.mappers.os_eol import (
+    lookup_os_eol,
+    os_eol_display,
+    os_id_to_distro,
+    windows_legacy_version_from_build,
+    windows_short_label_from_product_name,
+)
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_FROM_REC,
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
-    lookup_os_eol,
-    os_eol_display,
-    os_id_to_distro,
     spec_display_line,
-    windows_legacy_version_from_build,
-    windows_short_label_from_product_name,
 )
-from assessment_engine.web.services.metrics_calculator import compute_net_io
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib, usage_pct
 from assessment_engine.web.templating.filters import storagesize  # 사이즈 라벨 단일 규약 (트리·페이지 통일)
 from assessment_engine.web.view_models.environment_report import (
@@ -359,9 +362,6 @@ def to_server_list_item(
     rec_label, seg_key = "", ""
     if raw_period is not None:
         # build_resource_stats 단일 진실(net baseline 포함) — 보고서·대시보드와 동일 분류 입력 (#E3).
-        # report mapper 지연 import: report.py 가 본 모듈을 import 하므로 모듈 레벨 순환 회피.
-        from assessment_engine.web.services.mappers.report import build_resource_stats
-
         # rollup_host 1회 산출 -> 분류 배지(classify_host 내부도 rollup_host 경유). 네트워크 혼잡(orthogonal,
         # host_status 미구동)은 목록 배지에서 뺀다 — 분류 칼럼에 붙어 분류의 일부처럼 보이나 실은 별개 트리거
         # (재전송·드롭 임계)라 화면만으로 근거를 확인할 수 없었다. 필요 시 서버 상세에서 확인.

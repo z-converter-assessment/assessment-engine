@@ -18,7 +18,7 @@ from assessment_engine.web.services.cache_serializer import (
     dashboard_to_json,
 )
 from assessment_engine.web.services.mappers.metric import to_metric_series_item
-from assessment_engine.web.services.metrics_calculator import (
+from assessment_engine.web.services.mappers.metrics_calculator import (
     build_dashboard,
     build_saturation_signals,
 )
