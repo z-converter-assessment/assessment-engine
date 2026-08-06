@@ -34,6 +34,13 @@ WORKDIR /app
 RUN groupadd --system --gid 1000 app && \
     useradd  --system --uid 1000 --gid app --no-create-home --shell /usr/sbin/nologin app
 
+# 베이스가 딸려 보낸 pip 을 걷는다. 애플리케이션은 /opt/venv 만 쓰고 그 venv 는
+# include-system-site-packages=false 라 여기를 보지 않으므로, 남겨 두면 실행되지 않는 채로
+# vendor 트리(pip/_vendor)의 취약점만 이미지에 싣는다.
+RUN rm -rf /usr/local/lib/python3.*/site-packages/pip \
+           /usr/local/lib/python3.*/site-packages/pip-*.dist-info \
+           /usr/local/bin/pip /usr/local/bin/pip3 /usr/local/bin/pip3.*
+
 COPY --from=builder /opt/venv /opt/venv
 
 USER app

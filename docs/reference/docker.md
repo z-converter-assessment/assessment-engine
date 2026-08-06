@@ -25,6 +25,8 @@ docker-compose 는 엔진 그 자체다 — web·consumer·worker·migrate·post
 
 builder 가 가상환경을 만들고 runtime 은 그것만 복사한다. uv 바이너리와 소스 트리가 최종 이미지에 남지 않는다.
 
+runtime 은 베이스가 딸려 보낸 pip 도 걷는다. 애플리케이션은 `/opt/venv` 만 쓰고 그 venv 는 `include-system-site-packages=false` 라 `/usr/local/lib/python3.*/site-packages` 를 보지 않으므로, pip 은 실행되지 않으면서 vendor 트리(`pip/_vendor`)의 취약점만 이미지에 싣는다.
+
 ### 빌드 캐시 — 2단 uv sync
 
 ```dockerfile
