@@ -12,29 +12,14 @@ from fastapi import APIRouter, Query
 
 from assessment_engine.json_types import JsonObject
 from assessment_engine.web.deps import QueryServiceDep
+from assessment_engine.web.routers._contract_params import (
+    normalize_anchor,
+    split_csv,
+    split_pairs_csv,
+)
 from assessment_engine.web.view_models.right_sizing_api import RightSizingResponse
 
 right_sizing_router = APIRouter(prefix="/api/right-sizing", tags=["right-sizing"])
-
-
-def _split(
-    v: str | None,
-) -> list[str]:
-    return [s.strip() for s in (v or "").split(",") if s.strip()]
-
-
-def _split_pairs(
-    v: str | None,
-) -> list[tuple[str, str]]:
-    """순서쌍 파싱 — "hostname~discriminator" 쉼표 목록. discriminator = IP 또는 public_id. 형식 불량 토큰은 무시."""
-    out: list[tuple[str, str]] = []
-    for token in _split(v):
-        if "~" in token:
-            host, _, disc = token.partition("~")
-            host, disc = host.strip(), disc.strip()
-            if host and disc:
-                out.append((host, disc))
-    return out
 
 
 # responses= (response_model 아님) — OpenAPI 스키마만 문서화(생성 TS 타입 원천). frozen 계약 출력은 매퍼
@@ -82,13 +67,11 @@ async def get_right_sizing(
     페이지네이션: 목록 endpoint 이나 page/cursor 없이 매칭 전량 반환 — 외부 자동화가 fleet 를 한 번에 소비하는
     목적의 의식적 결정(#E2 이탈, export 규약과 동종). 대규모 인벤토리는 ids/hostname 으로 스코프해 호출 비용을 줄인다.
     """
-    anchor = end or datetime.now(UTC)
-    if anchor.tzinfo is None:
-        anchor = anchor.replace(tzinfo=UTC)
-    hostnames = _split(hostname)
-    ips = _split(ip)
-    public_ids = _split(public_id)
-    pairs = _split_pairs(pair)
+    anchor = normalize_anchor(end)
+    hostnames = split_csv(hostname)
+    ips = split_csv(ip)
+    public_ids = split_csv(public_id)
+    pairs = split_pairs_csv(pair)
     result = await service.get_right_sizing(
         window_days=window_days,
         end=anchor,
