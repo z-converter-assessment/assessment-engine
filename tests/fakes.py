@@ -272,7 +272,13 @@ class InMemoryQueryRepository:
         return self._value("report_uptime_stats", {})
 
     async def resolve_server_id(self, public_id: str) -> int | None:
-        return self._value("resolve_server_id", None)
+        """유일하게 인자를 보는 메서드 — 미존재 식별자의 404 분기가 여기서 갈린다.
+
+        나머지는 인자와 무관하게 seed 를 돌려준다. 이 하나만 예외인 이유는 "없는 서버" 경로가
+        화면 계약의 일부라 대역이 항상 찾아주면 그 분기를 영영 못 캡처하기 때문이다.
+        """
+        mapping: dict[str, int] = self._seed.get("resolve_server_ids", {})
+        return mapping.get(public_id)
 
     async def resolve_server_ids(self, public_ids: list[str]) -> dict[str, int]:
         return self._value("resolve_server_ids", {})
@@ -310,3 +316,19 @@ class FakeRedis:
 
 # 대역이 protocol 을 실제로 만족하는지 컴파일 시점에 못박는다 — 메서드가 늘거나 시그니처가 바뀌면 여기서 깨진다.
 _query_repo_conformance: QueryRepository = InMemoryQueryRepository()
+
+
+class InMemoryDiagnosticService:
+    """`DiagnosticService` 대역 — 라우터가 부르는 표면만 갖는다.
+
+    발행 경로(`enqueue_report`)는 캡처 대상이 아니므로 조회 표면만 채운다.
+    """
+
+    async def list_reports(self, *args: Any, **kwargs: Any) -> tuple[list[Any], int]:
+        return ([], 0)
+
+    async def get_report_snapshot(self, *args: Any, **kwargs: Any) -> Any:
+        return None
+
+    async def get_job(self, *args: Any, **kwargs: Any) -> Any:
+        return None

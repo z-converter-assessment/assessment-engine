@@ -83,6 +83,10 @@ jobs:
           HYPOTHESIS_SCALE: ${{ github.base_ref == 'main' && '1' || '0.1' }}
         run: uv run pytest tests/unit/ -q
 
+      # 스텝을 나눠 두면 실패가 어느 계층인지 job 로그 한 줄로 갈린다.
+      - name: pytest http (경계 스냅샷)
+        run: uv run pytest tests/http/ -q
+
   typecheck:
     name: frontend typecheck
     runs-on: ubuntu-latest

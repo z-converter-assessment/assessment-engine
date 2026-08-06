@@ -1,0 +1,6 @@
+{
+  "status": 200,
+  "content_type": "application/json",
+  "cache_control": null,
+  "body": "[{\"hostname\":\"host-1\",\"public_id\":\"5a89db82-97c0-5a2e-8fcf-c30dc90aed8f\",\"os_id\":\"ubuntu\"},{\"hostname\":\"host-2\",\"public_id\":\"128563d3-681a-591d-8fa3-ea6beef3c5fd\",\"os_id\":\"ubuntu\"},{\"hostname\":\"host-3\",\"public_id\":\"62a8a73c-6d27-523f-b875-4eb52e08fd7c\",\"os_id\":\"ubuntu\"}]"
+}
