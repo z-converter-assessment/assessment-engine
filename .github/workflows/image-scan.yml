@@ -13,6 +13,7 @@ on:
 permissions:
   contents: read
   security-events: write   # Security 탭 alert 작성
+  packages: read           # 아래 ghcr 로그인이 실제 스코프를 갖게 한다
 
 concurrency:
   group: ${{ github.workflow }}
@@ -33,7 +34,7 @@ jobs:
 
       - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
-          # 소스가 아니라 발행된 이미지를 본다 — 배포되는 실물과 일치해야 신호가 의미를 갖는다.
+          # Dockerfile 이 아니라 발행된 이미지를 본다 — 빌드가 실제로 무엇을 담았는지는 결과물에만 있다.
           image-ref: ghcr.io/${{ github.repository_owner }}/assessment-engine:latest
           format: sarif
           output: trivy.sarif

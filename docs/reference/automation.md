@@ -49,7 +49,11 @@ develop PR 은 5개, main PR 은 그 5개에 `wheel build`·`pytest (integration
 
 `image-scan` 만 schedule 이다. 이미지가 바뀌어서가 아니라 취약점 DB 가 자라서 생기는 신호라 시간에 맞췄다 — 근거는 `docs/guides/dependencies.md` 5절.
 
-schedule 워크플로는 기본 브랜치에서만 발화한다. `main` 에 올라가기 전에는 develop 에 파일이 있어도 돌지 않는다.
+schedule 워크플로는 기본 브랜치에서만 발화한다. `main` 에 올라가기 전에는 develop 에 파일이 있어도 돌지 않고, `workflow_dispatch` 수동 실행도 같은 제약을 받아 미리 시험할 수 없다.
+
+GitHub 은 public repo 에 60일간 활동이 없으면 schedule 워크플로를 자동 비활성화한다. 버전 고정 정책은 저장소가 조용한 상태를 전제하므로, 이 채널은 가장 필요한 국면에서 조용히 멈출 수 있다. 릴리즈 간격이 두 달을 넘기면 Actions 탭에서 마지막 `image-scan` 실행 시각을 확인한다.
+
+실패해도 신호가 없다. trivy DB 를 못 받아 job 이 죽으면 SARIF 를 안 올리고 기존 alert 이 그대로 남는데, 화면상으로는 "새 취약점 없음" 과 구분되지 않는다. 위 실행 시각 확인이 이 경우도 함께 덮는다.
 
 ## 관련 문서
 
