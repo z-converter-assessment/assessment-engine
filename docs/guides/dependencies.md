@@ -101,13 +101,19 @@ uv lock && uv sync --all-groups      # 5. lockfile 재-resolve (해당 minor whe
 
 의존성 floor 는 실제로 resolve 된 버전으로 올린다 — 검증한 조합과 선언이 갈리면 lockfile 없이 설치한 환경이 테스트 안 된 조합을 받는다.
 
-## 5. dependabot 미사용 정책
+## 5. dependabot 정책 — 생태계로 가른다
 
-Dependabot 이 자동 PR 을 여는 두 항목(security updates·version updates)을 끈다. `.github/dependabot.yml` 도 두지 않는다. 사유:
+거부 사유는 lockfile 하나다. Dependabot 이 `uv.lock` 을 갱신하지 못해 `pyproject.toml` 만 바뀐 PR 이 열리고, 그 PR 은 `ci.yml` 의 `uv lock --check` 에서 실패한다. 결국 운영자가 수동으로 `uv lock` 을 돌려야 하므로 자동화의 이점이 없다.
 
-- Dependabot 이 `uv.lock` 직접 갱신 미지원 (uv 의 ecosystem 미통합) — PR 머지 시 `pyproject.toml` 만 갱신, `uv.lock` 은 drift 상태로 남음. `ci.yml` 의 `uv lock --check` 가 그 PR 을 실패시킨다.
-- lockfile 이 갱신되지 않은 채 머지되면 결국 운영자가 수동으로 `uv lock` 을 돌려야 한다. 자동화의 이점이 없다.
-- 의존성 PR 폭주 + 자동 merge 패턴이 운영 흐름 방해.
+이 사유는 lockfile 이 있는 생태계에만 적용된다.
+
+| 생태계 | 자동 PR | 사유 |
+|--------|---------|------|
+| uv / pip | 끔 | `uv.lock` 미갱신 -> `uv lock --check` 실패 |
+| docker | 켬 | `FROM` digest 한 줄 갱신. lockfile 무관 |
+| github-actions | 켬 | `uses` SHA 한 줄 갱신. lockfile 무관 |
+
+`.github/dependabot.yml` 은 docker·github-actions 둘만 등재한다. Dockerfile 의 베이스 이미지가 digest 로 핀돼 있어, 갱신 담당이 없으면 3.14.x 패치가 나와도 이미지가 안 따라가고 핀이 낡았다는 신호가 어디에도 안 뜬다.
 
 대안 — 운영자 수동 주기 검토:
 
