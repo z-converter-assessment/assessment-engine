@@ -364,8 +364,6 @@
     });
   }
 
-  // globals.d.ts ChartUtilsApi 선언과 실제 구현이 일부 어긋나 로컬 any 캐스트로 우회.
-  // (COLORS 는 string[] 인데 선언은 Record<string,string>, getAnchorEnd 는 (inputId)->Date|null 인데 선언은 ()->string|null)
   root.ChartUtils = /** @type {any} */ ({
     RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, RANGE_MS, BUCKET_MS, COLORS, themeColor,
     fmtKst, fmtLabel, fmtKbChart,
