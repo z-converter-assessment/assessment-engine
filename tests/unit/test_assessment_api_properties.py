@@ -9,6 +9,7 @@ properties)가 rollup_host 를 덮고, 본 스위트는 그 위 API 표현 계�
 import json
 from typing import Any
 
+import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
@@ -21,7 +22,9 @@ from assessment_engine.web.services.mappers.assessment_api import (
     build_assessment_entry,
     build_assessment_envelope,
 )
+from assessment_engine.web.services.mappers.right_sizing_api import _action
 from assessment_engine.web.view_models.assessment_api import AssessmentServer
+from tests.builders import report_row_raw
 from tests.hypothesis_scale import examples
 
 _ACTIONS = {"increase", "decrease", "keep"}
@@ -324,3 +327,52 @@ def test_reproduction_boot_and_mounts_null_fallback():
     repro = build_assessment_entry(raw, [], False)["reproduction"]
     assert repro["boot"] == {"kernel_cmdline": None, "root_ref_type": None, "grub_install_target": None}
     assert repro["mounts"] == []
+
+
+# --- 키 생략 (계약 문서 "필드 존재 대 값" 절) --------------------------------
+
+_DISK_ONLY_KEYS = {"mountpoint", "device_ref", "used_pct", "runway_days", "note"}
+_COMMON_AXIS_KEYS = {"axis", "unit", "current", "recommended", "action", "estimate_quality"}
+
+
+def test_sizing_axes_key_sets_differ_by_axis():
+    """`sizing.axes` 는 축 종류마다 키 집합이 다르다 — disk 전용 5키는 cpu/memory 에 아예 없다.
+
+    계약 문서가 오래 "모든 키 항상 존재, 생략 아님" 이라고 말해 왔는데 이 축만 사실이 아니었다. 문서를
+    현황으로 고쳤으므로 그 현황을 여기서 고정한다 — 반대 방향(문서대로 키를 채우는 변경)이 들어오면
+    소비자 파싱이 바뀌므로 계약 개정 절차를 거쳐야 한다.
+    """
+    raw = report_row_raw(cpu_p95_pct=95.0, cpu_cores=2, mem_p95_pct=95.0, mem_total_bytes=4 * 1024**3)
+    mounts = [MountCapacityRaw("/", 100 * 1024**3, 92.0, 30.0, None, 40.0, 200 * 1024**3)]
+
+    axes = {a["axis"]: set(a) for a in build_assessment_entry(raw, mounts, True, False)["sizing"]["axes"]}
+
+    assert axes["cpu"] == _COMMON_AXIS_KEYS
+    assert axes["memory"] == _COMMON_AXIS_KEYS
+    assert axes["disk"] == _COMMON_AXIS_KEYS | _DISK_ONLY_KEYS
+
+
+@pytest.mark.parametrize(
+    ("kind", "sizing_target", "expected_target_key"),
+    [
+        ("cpu", 4, "target_cores"),
+        ("memory", 8192, "target_mb"),
+        ("disk_capacity", 500, "target_gb"),
+        ("cpu", None, None),
+        ("network", 4, None),
+        ("disk_io", 4, None),
+    ],
+)
+def test_right_sizing_action_target_key_is_omitted_when_absent(
+    kind: recommendation.ResourceKind,
+    sizing_target: int | None,
+    expected_target_key: str | None,
+):
+    """`actions[]` 의 목표 수치 키는 자원 종류와 목표 유무에 따라 생략된다 (null 이 아니라 부재).
+
+    사이징 축이 아닌 자원(network·disk_io)은 목표 키 자체가 없다 — 크기로 푸는 조치가 아니기 때문이다.
+    """
+    action = _action(kind, recommendation.ResourceAssessment(kind, "under", sizing_target=sizing_target), "increase")
+
+    target_keys = set(action) - {"resource", "op", "target_display"}
+    assert target_keys == ({expected_target_key} if expected_target_key else set())

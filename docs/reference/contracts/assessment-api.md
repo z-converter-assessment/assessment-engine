@@ -34,7 +34,8 @@
 - 표시 enum(confidence, estimate_quality)의 모르는 값은 가장 보수적인 등급(confidence=low, estimate_quality=uncertain)으로 취급한다.
 
 필드 존재 대 값:
-- 구조(필드 존재)는 지금 확정한다. 문서화된 모든 키는 항상 존재하며, 아직 안 채워진 값은 `null`로 나온다(키 생략 아님). 소비자는 항상 `null`을 처리한다.
+- 구조(필드 존재)는 지금 확정한다. 값이 안 채워진 키는 생략하지 않고 `null`로 나온다 — 소비자는 항상 `null`을 처리한다.
+- 예외 하나: `sizing.axes` 원소는 축 종류마다 키 집합이 다르다. `cpu`/`memory` 축은 `axis`·`unit`·`current`·`recommended`·`action`·`estimate_quality` 여섯 키만 갖고, `disk` 축이 추가로 갖는 `mountpoint`·`device_ref`·`used_pct`·`runway_days`·`note` 다섯 키는 아예 없다(값이 `null` 인 것이 아니라 키가 없다). 소비자는 이 다섯 키를 읽기 전에 존재 여부를 확인하거나 `axis` 로 분기한다.
 
 ## 3. 요청
 
