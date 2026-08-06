@@ -25,13 +25,17 @@ _GENERATED_AT = re.compile(r'("generated_at":\s*")[^"]+(")')
 # 라이브 미리보기 보고서는 설계상 "지금" 을 표제에 찍는다 (report_page.py: preview 는 anchor 없음).
 _RENDERED_NOW = re.compile(r"(발행|기준) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
 _ASSET_V = re.compile(r"\?v=[0-9a-f]+")
+# 사이드바에 찍히는 엔진 버전 — 릴리즈 범프마다 전 페이지 스냅샷이 함께 바뀐다. 이 안전망이 지키는 것은
+# 화면 구조이지 버전 문자열이 아니므로 지운다. 버전 표기 자체의 회귀는 `test_engine_version_is_rendered` 가 본다.
+_ENGINE_VERSION = re.compile(r"\bv\d+\.\d+\.\d+\b")
 _SEED_IDS = {public_id(n) for n in range(1, 7)}
 
 
 def normalize(value: object) -> object:
-    """실행마다 달라지는 값만 지운다. 세 종류 외에 남으면 정규화를 늘리지 말고 실패시킨다.
+    """실행마다 달라지는 값만 지운다. 아래 다섯 외에 남으면 정규화를 늘리지 말고 실패시킨다.
 
     - `?v=` 정적 자원 토큰: 프로세스 import 시각 hex
+    - 사이드바 엔진 버전: 릴리즈 범프마다 바뀐다
     - 시드 밖 UUID: 발행 job id 등 런타임 생성분
     - 라이브 미리보기 보고서 표제의 발행·기준 시각: anchor 를 받지 않는 경로라 설계상 "지금" 이다.
     - 계약 응답의 `generated_at`: "이 응답을 언제 만들었나" 라 입력 고정으로 없앨 수 없다.
@@ -39,8 +43,11 @@ def normalize(value: object) -> object:
       전체 타임스탬프를 지우면 창 계산 회귀를 함께 가린다.
     """
     if isinstance(value, str):
-        text = _RENDERED_NOW.sub(
-            r"\1 RENDER_TIME", _GENERATED_AT.sub(r"\1GENERATED_AT\2", _ASSET_V.sub("?v=ASSET_V", value))
+        text = _ENGINE_VERSION.sub(
+            "vENGINE_VERSION",
+            _RENDERED_NOW.sub(
+                r"\1 RENDER_TIME", _GENERATED_AT.sub(r"\1GENERATED_AT\2", _ASSET_V.sub("?v=ASSET_V", value))
+            ),
         )
         counter: dict[str, str] = {}
 
