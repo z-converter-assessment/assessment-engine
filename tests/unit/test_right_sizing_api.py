@@ -10,12 +10,17 @@
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from pydantic import TypeAdapter
+
 from assessment_engine.web.services.mappers.right_sizing_api import build_right_sizing_entry
 from assessment_engine.web.view_models.right_sizing_api import RightSizingServer
 from tests.builders import report_row_raw
 
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import ReportRowRaw
+
+# TypedDict 는 인스턴스 메서드가 없어 어댑터를 거친다 — extra=forbid 검증은 그대로다.
+_SERVER_SCHEMA = TypeAdapter(RightSizingServer)
 
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
@@ -244,4 +249,4 @@ def test_entry_matches_response_schema():
     ]
     for raw in scenarios:
         entry = build_right_sizing_entry(raw, is_online=True)
-        RightSizingServer.model_validate(entry)  # 위반 시 즉시 실패
+        _SERVER_SCHEMA.validate_python(entry)  # 위반 시 즉시 실패

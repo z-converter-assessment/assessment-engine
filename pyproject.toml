@@ -187,6 +187,8 @@ runtime-evaluated-base-classes = [
     "pydantic_settings.BaseSettings",
     "sqlalchemy.orm.DeclarativeBase",
     "assessment_engine.db.models.base.Base",
+    # 계약 스키마 TypedDict — FastAPI 가 OpenAPI 를 만들 때 pydantic 이 어노테이션을 값으로 읽는다.
+    "typing.TypedDict",
 ]
 # dataclass 는 FastAPI 가 응답 모델로 쓸 때 pydantic 이 어노테이션을 resolve 하고, hypothesis 는
 # @composite 함수의 어노테이션을 읽어 전략을 만든다.

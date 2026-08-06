@@ -8,7 +8,7 @@ reproduction 은 인벤토리(os 서술자·boot·nonblock_mounts 컬럼 + block
 계약 OUTPUT 형태로 reshape. sizing 은 near-peak 메모리 + p95 CPU + per-mount 디스크(도메인 assess_*).
 """
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from assessment_engine import recommendation
 from assessment_engine.contract import API_CONTRACT_VERSION
@@ -20,13 +20,22 @@ from assessment_engine.web.services.mappers.shared import (
     resource_confidence_notes,
     saturation_block,
 )
+from assessment_engine.web.view_models.assessment_api import (
+    Assessment,
+    AssessmentIdentity,
+    DiagUtilization,
+    ReproBlockDevice,
+    Reproduction,
+    ReproInterface,
+    ReproLvmVg,
+)
 
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
 
 
 # --- identity ----------------------------------------------
-def _identity(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool) -> JsonObject:
+def _identity(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool) -> AssessmentIdentity:
     return {
         "public_id": raw.public_id,
         "hostname": raw.hostname,
@@ -65,51 +74,19 @@ def _norm_raid_level(v: object) -> int | None:
 
 
 # 계약 4.3 block_devices 전 키 — OUTPUT 은 "전 키 존재(null)" 규약(미수집 키도 노출). wire 는 자연노드만(엔진이 채움).
-_BLOCK_DEVICE_KEYS = (
-    "id",
-    "id_type",
-    "name",
-    "type",
-    "parent",
-    "size_bytes",
-    "partition_table",
-    "sector_size",
-    "serial",
-    "wwn",
-    "rotational",
-    "part_number",
-    "part_start_bytes",
-    "part_type",
-    "part_name",
-    "part_flags",
-    "fstype",
-    "fs_uuid",
-    "fs_label",
-    "block_size",
-    "mountpoint",
-    "mount_options",
-    "fs_freq",
-    "fs_passno",
-    "lvm_vg",
-    "lvm_lv",
-    "lvm_segtype",
-    "lvm_stripes",
-    "lvm_stripe_size_kib",
-    "raid_level",
-    "raid_chunk_kib",
-    "raid_metadata",
-    "raid_uuid",
-    "crypt_type",
-)
+# 계약 스키마에서 파생 — 키 목록을 손으로 한 번 더 적으면 필드가 늘 때 여기만 옛 상태로 남는다.
+# 전부 pass-through 라 순서·집합이 스키마와 같아야 하고, 그 동일성이 파생으로 보장된다.
+_BLOCK_DEVICE_KEYS = tuple(ReproBlockDevice.__annotations__)
 
 
-def _repro_block_device(d: JsonObject) -> JsonObject:
+def _repro_block_device(d: JsonObject) -> ReproBlockDevice:
+    # 키 집합이 스키마에서 파생되므로 모양은 맞지만, 동적 키 생성이라 pyright 가 그것을 증명하지 못한다.
     out = {k: d.get(k) for k in _BLOCK_DEVICE_KEYS}
     out["raid_level"] = _norm_raid_level(d.get("raid_level"))
-    return out
+    return cast("ReproBlockDevice", out)
 
 
-def _repro_interface(i: JsonObject, link_speeds: dict[str, int] | None = None) -> JsonObject:
+def _repro_interface(i: JsonObject, link_speeds: dict[str, int] | None = None) -> ReproInterface:
     # speed_mbps null(Windows NT5.2/virtio 는 inventory 미발행) 시 metrics link.speed(bit/s)로 폴백 — reproduction
     # 정확도(agent 확정 규약). iface 안정 id 로 매칭. link.speed 도 null(virtio)이면 그대로 null.
     speed = i.get("speed_mbps")
@@ -142,7 +119,7 @@ def _repro_interface(i: JsonObject, link_speeds: dict[str, int] | None = None) -
     }
 
 
-def _repro_lvm_vg(v: JsonObject) -> JsonObject:
+def _repro_lvm_vg(v: JsonObject) -> ReproLvmVg:
     return {
         "name": v.get("name"),
         "vg_uuid": v.get("vg_uuid"),
@@ -153,7 +130,7 @@ def _repro_lvm_vg(v: JsonObject) -> JsonObject:
     }
 
 
-def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) -> JsonObject:
+def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) -> Reproduction:
     """재현 팩트 — 현 인벤토리를 계약 OUTPUT 형태로 reshape.
 
     os 재현 서술자(arch/bits/boot_firmware 등)·boot·nonblock_mounts 는 server_inventory 전용 컬럼에서,
@@ -290,7 +267,7 @@ def _sizing(
 
 
 # --- assessment --------------------------------------------
-def _assessment(host: recommendation.HostAssessment) -> JsonObject:
+def _assessment(host: recommendation.HostAssessment) -> Assessment:
     """호스트 종합 판정 — classification(도메인 Recommendation, 계약 enum 과 동일 값) + confidence + data_quality.
 
     confidence: insufficient_data -> low / 하향 사유 있으면 medium / 없으면 high. 불변식(high 아니면 notes 최소 1).
@@ -316,7 +293,7 @@ def _assessment(host: recommendation.HostAssessment) -> JsonObject:
 _DIAG_AXES = ("cpu", "memory", "disk_capacity", "disk_io", "network")
 
 
-def _diag_util(kind: str, raw: ReportRowRaw) -> JsonObject:
+def _diag_util(kind: str, raw: ReportRowRaw) -> DiagUtilization:
     """utilization eval/sizing — eval=판정 p95, sizing=축별 사이징 통계(cpu p95, memory near-peak, 비사이징 null)."""
     if kind == "cpu":
         p = round(raw.cpu_p95_pct, 1) if raw.cpu_p95_pct is not None else None

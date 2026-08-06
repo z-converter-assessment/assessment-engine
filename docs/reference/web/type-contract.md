@@ -68,8 +68,13 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 `/api/assessment`·`/api/right-sizing` 은 매퍼가 hand-built dict 를 반환하는 배포된 frozen 외부 계약이다.
 FastAPI 의 응답 모델 검증·재구성은 이질 구조(예: sizing.axes 의 cpu/mem vs disk)에 null 키를 더하거나 필드를
 stripping 해 출력을 바꿀 수 있어, 이 둘은 응답 타입을 선언하지 않는다. 대신:
-- `view_models/assessment_api.py`·`view_models/right_sizing_api.py` 에 계약 전체를 미러링한 Pydantic 모델
-  (규약대로 필드 present + nullable, `extra=forbid`).
+- `view_models/assessment_api.py`·`view_models/right_sizing_api.py` 에 계약 전체를 `TypedDict` 로 선언
+  (`__pydantic_config__` 로 `extra=forbid`). 규약대로 필드는 present + nullable 이고, 실제로 생략되는 키만
+  `NotRequired` 다.
+- 매퍼 함수가 그 `TypedDict` 를 반환 타입으로 단다 — 매퍼가 만드는 것이 dict 이므로 선언과 조립이 같은 타입을
+  공유하고, 키 이름·타입 불일치가 pyright 에서 걸린다. `BaseModel` 로 두면 매퍼 쪽 dict 리터럴은 검사 밖이었다.
 - 라우터 `responses={200: {"model": ...}}` 로 OpenAPI 스키마만 문서화 — 실 응답은 매퍼 dict 그대로(재구성 0).
-- drift 가드는 테스트(`test_assessment_api_properties` property·`test_right_sizing_api` 시나리오)가 매퍼 출력을
-  모델에 `model_validate` — 신규/누락 키·타입 불일치 = 즉시 실패.
+  `TypedDict` 도 `BaseModel` 과 같은 스키마(properties·required·additionalProperties)를 낸다.
+- 실행 시점 drift 가드는 그대로다 — 테스트(`test_assessment_api_properties` property·`test_right_sizing_api`
+  시나리오)가 매퍼 출력을 `TypeAdapter(...).validate_python` 에 태운다. 동적 키로 조립하는 자리는 pyright 가
+  증명하지 못하므로 이 실행 시점 검증이 여전히 필요하다.

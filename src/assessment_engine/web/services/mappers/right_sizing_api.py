@@ -23,6 +23,7 @@ from assessment_engine.web.services.unit_converter import bytes_to_gb
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import ReportRowRaw
     from assessment_engine.json_types import JsonObject
+    from assessment_engine.web.view_models.right_sizing_api import RsAction, RsNetSignal, RsRecommendation
 
 # ResourceStatus(도메인 enum) -> 외부 노출 한국어 라벨. 프로젝트 통일 어휘(자원 적정성 화면과 동일 개념).
 _STATUS_LABEL_KO: dict[str, str] = {
@@ -56,7 +57,7 @@ def _sizeable_recommendation(kind: recommendation.ResourceKind, ra: recommendati
     return None
 
 
-def _net_signal(value: float | None, threshold: float, *, inclusive: bool = False) -> JsonObject:
+def _net_signal(value: float | None, threshold: float, *, inclusive: bool = False) -> RsNetSignal:
     """네트워크 품질 신호 1개 — 값·임계·초과여부·측정여부. resource saturation 블록과 대칭.
 
     inclusive = conntrack(>= 임계) 여부. retrans/drop 은 > 임계. 미측정(value None)이면 exceeded=None.
@@ -140,25 +141,32 @@ def _disk_resource(
     }
 
 
-_TARGET_KEY: dict[str, str] = {"cpu": "target_cores", "memory": "target_mb", "disk_capacity": "target_gb"}
+def _action(kind: recommendation.ResourceKind, ra: recommendation.ResourceAssessment, op: str) -> RsAction:
+    """조치 1건 — 자원·연산·목표 표시. 목표 수치는 자원 종류별 키(target_cores/_mb/_gb)로 직접 파싱 가능.
 
-
-def _action(kind: recommendation.ResourceKind, ra: recommendation.ResourceAssessment, op: str) -> JsonObject:
-    """조치 1건 — 자원·연산·타입 목표(있으면)·표시. 목표 수치는 타입별 키(target_cores/_mb/_gb)로 직접 파싱 가능."""
-    a: JsonObject = {
+    사이징 축이 아닌 자원(network·disk_io)과 목표 미상은 그 키 자체가 없다 — 계약이 명시한 생략이다.
+    자원별로 분기해 쓰는 이유는 변수 키 대입(`a[key] = v`)을 타입 검사기가 검증하지 못하기 때문이다.
+    """
+    action: RsAction = {
         "resource": kind,
         "op": op,
         "target_display": recommendation.resource_prescription(kind, ra) or None,
     }
-    key = _TARGET_KEY.get(kind)
-    if key and ra.sizing_target is not None:
-        a[key] = ra.sizing_target
-    return a
+    target = ra.sizing_target
+    if target is None:
+        return action
+    if kind == "cpu":
+        return {**action, "target_cores": target}
+    if kind == "memory":
+        return {**action, "target_mb": target}
+    if kind == "disk_capacity":
+        return {**action, "target_gb": target}
+    return action
 
 
 def _recommendation(
     host: recommendation.HostAssessment, stats: recommendation.ResourceStats, rec: recommendation.Recommendation
-) -> JsonObject:
+) -> RsRecommendation:
     """종합 권고 구조 (파싱용 견고 포맷) — 이 하나만 보고 조치를 결정한다.
 
     actions = 관측된 under 자원 전부(자원별 독립, 인과에 의한 억제 없음 — assessment API sizing.axes 와 동일
