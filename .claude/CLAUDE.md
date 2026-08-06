@@ -464,6 +464,6 @@ consumer 측 상세: `docs/reference/consumer.md` "Disposability" 절.
 - 수식 없는 "빌드" — 이미지 빌드와 wheel 빌드가 다른 워크플로다.
 - wheel 을 배포 산출물·배포처와 같은 층위로 나열.
 
-워크플로 책임 카탈로그는 루트 `README.md` "워크플로" 절, 발화 조건·required check 는 `docs/guides/ci-setup.md` 3.4 소유.
+워크플로 책임 카탈로그는 루트 `README.md` "워크플로" 절, 발화 시점 지도(플랫폼 기능 포함)는 `docs/reference/automation.md`, required check 등록 목록은 `docs/guides/ci-setup.md` 3.4 소유.
 
 ---
