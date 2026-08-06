@@ -125,7 +125,6 @@ def _service(session_factory: MagicMock, diag_repo: AsyncMock) -> DiagnosticServ
     )
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize("view", ["customer", "engineer"])
 async def test_emit_report_marks_succeeded(
     view: str,
@@ -159,7 +158,6 @@ async def test_emit_report_marks_succeeded(
     assert create_arg.input_params["server_public_ids"] == ["a", "b"]
 
 
-@pytest.mark.asyncio
 async def test_emit_report_server_single_adds_singular_key(
     stub_session_factory: MagicMock,
     stub_diag_repo: AsyncMock,
@@ -183,7 +181,6 @@ async def test_emit_report_server_single_adds_singular_key(
     assert params["server_public_id"] == "uuid-a"
 
 
-@pytest.mark.asyncio
 async def test_emit_report_child_jobs_stored_in_result(
     stub_session_factory: MagicMock,
     stub_diag_repo: AsyncMock,
@@ -208,7 +205,6 @@ async def test_emit_report_child_jobs_stored_in_result(
     assert "child_jobs" not in stub_diag_repo.enqueue.call_args[0][0].input_params
 
 
-@pytest.mark.asyncio
 async def test_emit_report_active_conflict_returns_existing(
     stub_session_factory: MagicMock,
     stub_diag_repo: AsyncMock,
@@ -238,7 +234,6 @@ async def test_emit_report_active_conflict_returns_existing(
 # --- enqueue_report (비동기 parent pending) + 워커 lifecycle --------------
 
 
-@pytest.mark.asyncio
 async def test_enqueue_report_pending_no_mark_succeeded(
     stub_session_factory: MagicMock,
     stub_diag_repo: AsyncMock,
@@ -263,7 +258,6 @@ async def test_enqueue_report_pending_no_mark_succeeded(
     assert create_arg.input_params["server_public_ids"] == ["a", "b"]
 
 
-@pytest.mark.asyncio
 async def test_enqueue_report_active_conflict_returns_existing(
     stub_session_factory: MagicMock,
     stub_diag_repo: AsyncMock,
@@ -286,7 +280,6 @@ async def test_enqueue_report_active_conflict_returns_existing(
     session.commit.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_enqueue_and_emit_same_input_hash(
     stub_session_factory: MagicMock,
     stub_diag_repo: AsyncMock,
@@ -313,7 +306,6 @@ async def test_enqueue_and_emit_same_input_hash(
     assert captured[0].input_hash == captured[1].input_hash
 
 
-@pytest.mark.asyncio
 async def test_claim_pending_commits_and_returns(
     stub_session_factory: MagicMock,
     stub_diag_repo: AsyncMock,
@@ -328,7 +320,6 @@ async def test_claim_pending_commits_and_returns(
     session.commit.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_recover_stale_delegates(
     stub_session_factory: MagicMock,
     stub_diag_repo: AsyncMock,
@@ -343,7 +334,6 @@ async def test_recover_stale_delegates(
     session.commit.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_finish_failed_delegates(
     stub_session_factory: MagicMock,
     stub_diag_repo: AsyncMock,

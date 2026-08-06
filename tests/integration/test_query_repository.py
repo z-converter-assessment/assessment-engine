@@ -37,9 +37,6 @@ def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
     return t - timedelta(minutes=t.minute % 5)
 
 
-pytestmark = pytest.mark.asyncio
-
-
 # MetricType 전량 (types.MetricType Literal 과 동기화 — dispatch 커버, #F9).
 # 포화 축은 cpu.run_queue·disk.io_saturation 이 담당한다.
 _ALL_METRIC_TYPES: list[MetricType] = [
