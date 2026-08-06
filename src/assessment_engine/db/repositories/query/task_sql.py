@@ -2,29 +2,47 @@
 
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import text
+from sqlalchemy import select
 
 from assessment_engine.db.dtos.outbound import TaskRow
+from assessment_engine.db.models.server_inventory import ServerInventory
+from assessment_engine.db.models.task import Task
 from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 
 if TYPE_CHECKING:
     from datetime import datetime
 
+    from sqlalchemy import Select
+
+# 엔티티(select(Task))가 아니라 컬럼을 명시한다 — 엔티티는 표시에 쓰지 않는 컬럼까지 전부 실어 온다.
+_TASK_COLUMNS = (
+    Task.public_id,
+    Task.target_server_id,
+    Task.task_type,
+    Task.status,
+    Task.created_at,
+    Task.deadline_at,
+    Task.completed_at,
+    Task.failure_reason,
+    Task.exit_code,
+    Task.signal_no,
+    Task.duration_ms,
+    Task.stdout_tail,
+    Task.stderr_tail,
+    Task.params,
+    ServerInventory.public_id.label("target_public_id"),
+    ServerInventory.hostname.label("target_hostname"),
+)
+
+
+def _task_select() -> Select[Any]:
+    """task 1행 + 대상 서버 표시 정보. 대상 서버가 지워졌어도 task 는 남으므로 outer join 이다."""
+    return select(*_TASK_COLUMNS).outerjoin(ServerInventory, ServerInventory.id == Task.target_server_id)
+
 
 class SqlTaskQueryRepository(_BaseQueryMixin):
     async def get_task_by_public_id(self, public_id: str) -> TaskRow | None:
-        sql = text("""
-            SELECT
-                t.public_id, t.target_server_id, t.task_type, t.status,
-                t.created_at, t.deadline_at, t.completed_at,
-                t.failure_reason, t.exit_code, t.signal_no, t.duration_ms,
-                t.stdout_tail, t.stderr_tail, t.params,
-                s.public_id AS target_public_id, s.hostname AS target_hostname
-            FROM tasks t
-            LEFT JOIN server_inventory s ON s.id = t.target_server_id
-            WHERE t.public_id = :pid
-        """)
-        result = await self.session.execute(sql, {"pid": public_id})
+        result = await self.session.execute(_task_select().where(Task.public_id == public_id))
         row = result.first()
         if row is None:
             return None
@@ -38,25 +56,11 @@ class SqlTaskQueryRepository(_BaseQueryMixin):
     ) -> list[TaskRow]:
         # cursor: created_at < cursor 조건 (시간 역순 pagination). None 이면 첫 페이지.
         # ORDER BY 에 id DESC tie-breaker — 같은 created_at microsecond 에 다중 INSERT 시 정렬 안정성.
-        params: dict[str, Any] = {"sid": target_server_id, "lim": limit}
-        cursor_clause = ""
+        stmt = _task_select().where(Task.target_server_id == target_server_id)
         if cursor is not None:
-            cursor_clause = " AND t.created_at < :cursor"
-            params["cursor"] = cursor
-        sql = text(f"""
-            SELECT
-                t.public_id, t.target_server_id, t.task_type, t.status,
-                t.created_at, t.deadline_at, t.completed_at,
-                t.failure_reason, t.exit_code, t.signal_no, t.duration_ms,
-                t.stdout_tail, t.stderr_tail, t.params,
-                s.public_id AS target_public_id, s.hostname AS target_hostname
-            FROM tasks t
-            LEFT JOIN server_inventory s ON s.id = t.target_server_id
-            WHERE t.target_server_id = :sid{cursor_clause}
-            ORDER BY t.created_at DESC, t.id DESC
-            LIMIT :lim
-        """)
-        result = await self.session.execute(sql, params)
+            stmt = stmt.where(Task.created_at < cursor)
+        stmt = stmt.order_by(Task.created_at.desc(), Task.id.desc()).limit(limit)
+        result = await self.session.execute(stmt)
         return [self._row_to_task(r) for r in result.all()]
 
     async def latest_tasks_by_servers(
@@ -66,19 +70,14 @@ class SqlTaskQueryRepository(_BaseQueryMixin):
         if not server_ids:
             return {}
         # DISTINCT ON 서버별 최근 1건. id DESC tie-breaker — 같은 created_at microsecond INSERT 정렬 안정성.
-        sql = text("""
-            SELECT DISTINCT ON (t.target_server_id)
-                t.public_id, t.target_server_id, t.task_type, t.status,
-                t.created_at, t.deadline_at, t.completed_at,
-                t.failure_reason, t.exit_code, t.signal_no, t.duration_ms,
-                t.stdout_tail, t.stderr_tail, t.params,
-                s.public_id AS target_public_id, s.hostname AS target_hostname
-            FROM tasks t
-            LEFT JOIN server_inventory s ON s.id = t.target_server_id
-            WHERE t.target_server_id = ANY(:sids)
-            ORDER BY t.target_server_id, t.created_at DESC, t.id DESC
-        """)
-        result = await self.session.execute(sql, {"sids": server_ids})
+        # DISTINCT ON 선두와 ORDER BY 선두가 같아야 한다는 제약은 ORM 이 검사하지 않는다 — 순서 유지.
+        stmt = (
+            _task_select()
+            .where(Task.target_server_id.in_(server_ids))
+            .distinct(Task.target_server_id)
+            .order_by(Task.target_server_id, Task.created_at.desc(), Task.id.desc())
+        )
+        result = await self.session.execute(stmt)
         return {r.target_server_id: self._row_to_task(r) for r in result.all()}
 
     @staticmethod

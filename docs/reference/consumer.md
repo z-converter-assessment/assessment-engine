@@ -60,7 +60,9 @@ metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 metric 7개 �
 
 ### 팩토리 함수 + 클로저
 
-`make_*_handler`는 핸들러 함수를 반환하는 팩토리. 인자로 받은 의존성을 내부 `_handle`이 클로저로 캡처한다. 클래스 없이 의존성을 함수 수준에서 바인딩하는 패턴.
+`make_*_handler`는 핸들러 함수를 반환하는 팩토리. 인자로 받은 의존성을 내부 처리 함수가 클로저로 캡처한다. 클래스 없이 의존성을 함수 수준에서 바인딩하는 패턴.
+
+파싱과 ack/nack 경계는 팩토리가 직접 열지 않고 `_common._in_message_context(model, label, handle)` 가 만든다 — 4 핸들러가 같은 블록을 복제하면 정제 문구나 컨텍스트 진입 하나가 어긋나도 드러나지 않는다. 팩토리는 파싱된 모델을 받는 처리 함수만 쓰고, 그 함수 안에서 모든 await 를 마친다(#F11). 핸들러 시그니처 별칭 `MessageHandler` 는 `handlers/_types.py` 단일 진실 — `handlers/__init__.py` 에 두면 4 핸들러 모듈과 순환이다.
 
 ### `message.process(requeue=False)`
 
@@ -68,7 +70,7 @@ aio-pika async context manager. 블록 정상 종료 → ack, 예외 발생 → 
 
 ### DB 재시도 정책
 
-3회 시도 (`attempt 0/1/2`), `2 ** (attempt + 1)` full jitter 백오프. attempt 0 실패 → [0,2s] sleep → 1, 1 실패 → [0,4s] sleep → 2, 2 실패 → 즉시 raise(sleep 없음). 재시도 대상은 일시 장애 — `_is_retryable_db_exc` 가 예외 타입(`OperationalError`·`InterfaceError`)과 SQLSTATE 두 축 중 하나만 걸려도 재시도로 판정한다. SQLSTATE 축은 class `08`(connection exception) 전 코드 + `40001` serialization_failure + `40P01` deadlock_detected + `57P01`·`57P02`·`57P03`(서버 종료·크래시 복구·기동 중). 타입만으로 가르지 못하는 이유는 asyncpg dialect 의 예외 번역표에 sqlalchemy `OperationalError` 로 가는 항목이 없어 커넥션 유실·서버 재기동·deadlock 이 base `DBAPIError` 로만 래핑되기 때문. asyncpg 의 connect·command timeout 은 `asyncio.TimeoutError` 로 올라와 `DBAPIError` 에 감싸이지 않으므로 별도 분기가 같은 백오프를 탄다. deadlock 은 동시 신규서버 insert 시 hypertable chunk 생성 레이스로 발생하며 victim rollback 후 재시도가 흡수한다. `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6). full jitter 는 동시 재연결 쏠림(thundering herd) 방지. 재시도 창은 큐 TTL 안에 들어가 단기 DB 장애 회복을 커버한다(값은 `docs/reference/rabbitmq.md` 큐 정책 표). error 핸들러는 DB 접근이 없어 해당 큐 TTL 과 무관.
+3회 시도, `2 ** attempt` full jitter 백오프. 1 실패 → [0,2s] sleep → 2, 2 실패 → [0,4s] sleep → 3, 3 실패 → 즉시 raise(sleep 없음). 마지막 시도는 루프 밖에 있어 "재시도 소진" 분기가 코드에 없다. 재시도 대상은 일시 장애 — `_is_retryable_db_exc` 가 예외 타입(`OperationalError`·`InterfaceError`)과 SQLSTATE 두 축 중 하나만 걸려도 재시도로 판정한다. SQLSTATE 축은 class `08`(connection exception) 전 코드 + `40001` serialization_failure + `40P01` deadlock_detected + `57P01`·`57P02`·`57P03`(서버 종료·크래시 복구·기동 중). 타입만으로 가르지 못하는 이유는 asyncpg dialect 의 예외 번역표에 sqlalchemy `OperationalError` 로 가는 항목이 없어 커넥션 유실·서버 재기동·deadlock 이 base `DBAPIError` 로만 래핑되기 때문. asyncpg 의 connect·command timeout 은 `asyncio.TimeoutError` 로 올라와 `DBAPIError` 에 감싸이지 않으므로 별도 분기가 같은 백오프를 탄다. deadlock 은 동시 신규서버 insert 시 hypertable chunk 생성 레이스로 발생하며 victim rollback 후 재시도가 흡수한다. `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6). full jitter 는 동시 재연결 쏠림(thundering herd) 방지. 재시도 창은 큐 TTL 안에 들어가 단기 DB 장애 회복을 커버한다(값은 `docs/reference/rabbitmq.md` 큐 정책 표). error 핸들러는 DB 접근이 없어 해당 큐 TTL 과 무관.
 
 ---
 
@@ -130,7 +132,7 @@ handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (�
 
 ### Disposability — SIGTERM 흐름 (#F11)
 
-종료 신호(SIGTERM/SIGINT)는 `loop.add_signal_handler` 로 받아 `stop_event` 를 set 한다. 이후 순서는 `_drain` 이 consumer 별 `queue.cancel(tag)`(basic.cancel)로 신규 배달을 끊고 → in-flight 핸들러가 ack/nack 를 마칠 때까지 기다린 뒤 → `async with conn, conn.channel()` unwind 로 채널·커넥션 close → `finally` 로 Redis pool close. cancel 호출과 대기가 같은 예산 `_SHUTDOWN_DRAIN_SEC`(`main.py` 상단 명명 상수)을 나눠 쓰며, 예산은 docker `stop_grace_period` 안에서 끝나야 SIGKILL 이 drain 을 자르지 않는다. 채널 close 가 진행 중 consumer task 에 CancelledError 를 던지므로 cancel·대기가 close 보다 앞선다.
+종료 신호(SIGTERM/SIGINT)는 `loop.add_signal_handler` 로 받아 `stop_event` 를 set 한다. 이후 순서는 `_drain` 이 consumer 별 `queue.cancel(tag)`(basic.cancel)로 신규 배달을 끊고 → in-flight 핸들러가 ack/nack 를 마칠 때까지 기다린 뒤 → `async with conn, conn.channel()` unwind 로 채널·커넥션 close → `finally` 로 DB 엔진 dispose·Redis pool close. cancel 호출과 대기가 같은 예산 `_SHUTDOWN_DRAIN_SEC`(`main.py` 상단 명명 상수)을 나눠 쓰며, 예산은 compose 가 선언한 `stop_grace_period` 안에서 끝나야 SIGKILL 이 drain 을 자르지 않는다. 채널 close 가 진행 중 consumer task 에 CancelledError 를 던지므로 cancel·대기가 close 보다 앞선다.
 
 진행 중 메시지는 `async with message.process(requeue=False)` 컨텍스트가 보장 — 다음 둘 중 하나:
 - 정상 종료 → broker ACK → 메시지 사라짐
@@ -155,6 +157,6 @@ docker compose restart consumer       # 의존성 변경 등 dev watchfiles 가 
 | 증상 | 원인 |
 |------|------|
 | 메시지 처리 안 됨 | broker queue declare 실패 — 로그에 `consuming queue=...` 라인 확인 |
-| 같은 메시지 반복 처리 | timeout nack 후 재전송 — `_db_retry` 총 sleep 최대 [0,6s] + 최대 3회 DB call |
+| 같은 메시지 반복 처리 | timeout nack 후 재전송 — `_db_retry` 가 DB call 3회를 백오프 [0,6s] 사이에 끼워 돌린다. 최악 벽시계는 backoff 가 아니라 `command_timeout`(30s) x 3 이 지배해 약 96초 |
 | `<메시지 타입> parse error count=N <필드경로>=<오류종류>` 로그 | 검증 실패 — 4 핸들러가 원본 `ValidationError` 대신 필드 경로·오류 종류만 담은 `ValueError` 로 정제 후 nack → DLQ. 새 필드는 `extra=ignore` 로 통과하므로 실린 필드의 타입·제약 위반 또는 스키마가 계약보다 좁은 경우 |
 | DLQ 누적 | 영구 오류. 위 DLQ peek 명령으로 확인 — 큐 이름은 `{queue}.dead` 실명 지정 (와일드카드 불가) |

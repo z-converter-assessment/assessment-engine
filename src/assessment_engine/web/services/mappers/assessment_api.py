@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 from assessment_engine import recommendation
 from assessment_engine.contract import API_CONTRACT_VERSION
 from assessment_engine.json_types import JsonObject, json_list
-from assessment_engine.web.services.mappers.report import build_resource_stats
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
     build_host_confidence_notes,
     primary_ip,
@@ -240,7 +240,11 @@ def _sizing(
 ) -> JsonObject:
     """사이징 축 배열 — cpu/memory(호스트 1축) + disk(마운트별 N축). 소비자 전 원소 순회 + max(current,recommended)."""
     axes: list[JsonObject] = []
-    for kind, unit, current in (("cpu", "vcpus", stats.cpu_cores), ("memory", "mib", stats.mem_total_mb)):
+    sizing_axes: tuple[tuple[recommendation.ResourceKind, str, int | None], ...] = (
+        ("cpu", "vcpus", stats.cpu_cores),
+        ("memory", "mib", stats.mem_total_mb),
+    )
+    for kind, unit, current in sizing_axes:
         if current is None:
             continue  # base 수량(코어/총 RAM) 미상 -> 축 생략(recommended never-null 보장, disk 축과 대칭)
         ra = host.resources[kind]
@@ -373,7 +377,8 @@ def build_assessment_entry(
     분류/사이징/근본원인 전부 rollup_host 종합에서 파생 — 화면/right-sizing API 와 값 정합(재계산 0).
     link_speeds = iface별 최신 link.speed(bit/s) — inventory speed_mbps null 폴백(reproduction 정확도).
     """
-    stats = build_resource_stats(raw)
+    # 계약 API 는 net baseline 만 주입받는다 — disk 활동 축은 미관측(보고서 경로 전용).
+    stats = build_resource_stats(raw, disk_baseline=None)
     host = recommendation.rollup_host(stats)
     return {
         "identity": _identity(raw, is_online, hostname_ambiguous),

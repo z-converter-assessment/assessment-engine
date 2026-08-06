@@ -25,7 +25,7 @@ async def _render_server_tab(
     *,
     internal_id: int,
     server_id: str,
-    back: str | None,
+    back: BackUrl,
     service: QueryService,
     include_period: bool = False,
     resource_index: int | None = None,

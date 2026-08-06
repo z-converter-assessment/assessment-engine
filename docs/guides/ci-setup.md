@@ -142,11 +142,12 @@ Dependabot 은 워크플로가 아니라 플랫폼 기능이다. 러너에서 �
 
 | 항목 | 값 | 동작 |
 |------|----|------|
-| Dependabot alerts | 활성 | 취약점 발견 시 Security 탭에 경고 |
+| Dependabot alerts | 활성 | 전 생태계. 취약점 발견 시 Security 탭에 경고 |
 | Dependabot security updates | 비활성 | 켜면 취약점 건에 자동 수정 PR |
-| Dependabot version updates | 비활성 | 켜면 취약점과 무관한 정기 버전 올림 PR |
+| Dependabot version updates | 활성 | `.github/dependabot.yml` 등재 생태계(docker·github-actions)만 정기 PR |
 
-자동 PR 을 여는 두 항목을 끄는 사유와 그 대신 쓰는 절차는 `docs/guides/dependencies.md` 5절이 갖는다.
+version updates 는 설정 파일이 정한다 — 파일에 없는 생태계(uv/pip)는 토글이 켜져 있어도 PR 이 열리지 않는다.
+생태계를 가르는 사유와 파이썬 의존성 수동 갱신 절차는 `docs/guides/dependencies.md` 5절이 갖는다.
 
 상태 조회는 API 로 한다.
 
@@ -163,7 +164,7 @@ gh api repos/<owner>/<repo>/automated-security-fixes  # enabled = security updat
 
 - [ ] Actions -> Workflow permissions -> Read repository contents and packages (기본값)
 - [ ] Code scanning -> Default setup 켜지 않음 (Advanced 유지)
-- [ ] Dependabot alerts 활성 (security updates·version updates 비활성)
+- [ ] Dependabot alerts 활성 (security updates 비활성 / version updates 는 설정 파일 등재분만)
 - [ ] Ruleset: main (3.1)
 - [ ] Ruleset: develop (3.2)
 - [ ] Ruleset: release tags (3.3) + 첫 릴리즈에서 tag 생성 확인

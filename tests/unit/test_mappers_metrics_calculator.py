@@ -12,7 +12,7 @@ from assessment_engine.db.dtos.outbound import (
     NetIoRaw,
     SaturationRaw,
 )
-from assessment_engine.web.services.metrics_calculator import (
+from assessment_engine.web.services.mappers.metrics_calculator import (
     _clip_to_remaining,
     _delta_rate,
     _group_by_dim,

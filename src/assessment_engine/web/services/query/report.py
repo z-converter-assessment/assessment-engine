@@ -2,14 +2,12 @@
 
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Protocol, cast
+from typing import TYPE_CHECKING, cast
 
 from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget
 from assessment_engine.db.dtos.outbound import (
     CpuBreakdownRaw,
-    EnvironmentUtilizationRaw,
-    FleetErrorRaw,
     MemoryBreakdownRaw,
     ReportRowRaw,
     ServerDetail,
@@ -29,10 +27,10 @@ from assessment_engine.web.services.mappers.environment_report import (
     build_saturation_trend,
     to_environment_report,
 )
+from assessment_engine.web.services.mappers.metrics_calculator import build_error_signals
 from assessment_engine.web.services.mappers.report import (
     build_period_assessment,
     build_report_summary_bullets,
-    build_resource_stats,
     build_role_distribution,
     build_selection_context,
     compute_report_avg_p95,
@@ -40,6 +38,7 @@ from assessment_engine.web.services.mappers.report import (
     sort_rows_for_report,
     to_report_row_item,
 )
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.server import (
     build_cpu_breakdown,
     build_memory_breakdown,
@@ -47,8 +46,9 @@ from assessment_engine.web.services.mappers.server import (
     build_server_inventory,
     build_storage_tree,
 )
-from assessment_engine.web.services.metrics_calculator import build_error_signals
 from assessment_engine.web.services.query._base import _BaseQueryServiceMixin, _empty_overview, _filter_attention
+from assessment_engine.web.services.query.attention import attention_signals
+from assessment_engine.web.services.query.environment import assemble_overview
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.view_models.attention import (
@@ -61,39 +61,6 @@ if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
     from assessment_engine.web.services.mappers.shared import ReportView
     from assessment_engine.web.view_models.environment_report import EnvironmentReportSummary
-
-    class _CrossDomainCalls(Protocol):
-        """본 mixin 이 self 로 호출하는 타 도메인 mixin(environment·attention) 메서드 계약.
-
-        QueryService 가 6 mixin 을 multiple inheritance 로 결합할 때 MRO 로 해결되는 호출이라
-        본 mixin 자신에는 정의가 없다 — 계약만 선언하고 구현은 각 도메인 mixin 이 갖는다.
-        """
-
-        def _assemble_overview(
-            self,
-            details: list[ServerDetail],
-            util: EnvironmentUtilizationRaw,
-            raws_period: list[ReportRowRaw],
-            online_by_id: dict[int, bool],
-            full_under: bool = ...,
-            error_summary: FleetErrorRaw | None = ...,
-        ) -> EnvironmentOverview: ...
-
-        async def get_attention_signals(
-            self,
-            disk_threshold_pct: float = ...,
-            gap_minutes: int = ...,
-            gap_recent_hours: int = ...,
-            limit_each: int | None = ...,
-            days_until_full_threshold: int = ...,
-            end: datetime | None = ...,
-            raws: list[ReportRowRaw] | None = ...,
-        ) -> AttentionSignals: ...
-
-    class _ReportMixinBase(_BaseQueryServiceMixin, _CrossDomainCalls): ...
-
-else:
-    _ReportMixinBase = _BaseQueryServiceMixin
 
 
 @dataclass
@@ -110,7 +77,7 @@ class _ChildPrefetch:
     cpu_raw: CpuBreakdownRaw
 
 
-class ReportQueryMixin(_ReportMixinBase):
+class ReportQueryMixin(_BaseQueryServiceMixin):
     async def get_environment_report(
         self,
         time_range: TimeRange = DIAGNOSTIC_DEFAULT_TIME_RANGE,
@@ -138,7 +105,7 @@ class ReportQueryMixin(_ReportMixinBase):
             base = await self.get_report(server_ids, period_days, end=end_dt, view=view, raws=raws_window)
             online_by_id = await self._online_map(server_ids, details, end_dt)
             util = await self.repo.environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
-            overview = self._assemble_overview(details, util, raws_window, online_by_id)
+            overview = assemble_overview(details, util, raws_window, online_by_id)
         else:
             overview = _empty_overview()
             base = ReportSummary(
@@ -152,7 +119,7 @@ class ReportQueryMixin(_ReportMixinBase):
             details = []
 
         # 운영 신호 — 이미 산출한 raws_window 재사용(B2: os_eol/agent 는 창 독립이라 aggregate 재조회 생략).
-        attention = await self.get_attention_signals(end=end_dt, limit_each=None, raws=raws_window)
+        attention = await attention_signals(self.repo, end=end_dt, limit_each=None, raws=raws_window)
 
         # 환경 시계열 추이 — 발행 모달 time_range 윈도우의 CPU·메모리 평균 버킷. 정적 스냅샷 저장.
         trend = []
@@ -205,13 +172,13 @@ class ReportQueryMixin(_ReportMixinBase):
         online_by_id = await self._online_map(server_ids, details, end_dt)
         # 평균 활용률 — capacity-weighted (자원 총량 가중). 전체 환경과 동일 SQL, server_ids 로 N대 한정.
         util = await self.repo.environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
-        overview = self._assemble_overview(details, util, raws_window, online_by_id)
+        overview = assemble_overview(details, util, raws_window, online_by_id)
 
         # 운영 신호 — 선택 N대 raws_window 재사용(B2). os_eol/agent 는 창 독립이라 선택 raws 로 산출 후
         # hostname 필터 = 전체 산출 후 필터와 동일 결과(선택분만 계산, 전체 aggregate 재조회 생략).
         hostnames = {d.hostname for d in details}
         attention = _filter_attention(
-            await self.get_attention_signals(end=end_dt, limit_each=None, raws=raws_window), hostnames
+            await attention_signals(self.repo, end=end_dt, limit_each=None, raws=raws_window), hostnames
         )
 
         # 환경 시계열 추이 — 선택 N대 한정 (metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
@@ -274,7 +241,7 @@ class ReportQueryMixin(_ReportMixinBase):
         )
         # N대 fan-out 은 라우터가 1회 수집한 attention 주입 — 루프마다 전역 집계(report_aggregate 전체서버) 재계산 회피.
         if attention is None:
-            attention = await self.get_attention_signals(end=end_dt, limit_each=None)
+            attention = await attention_signals(self.repo, end=end_dt, limit_each=None)
 
         # overview — 단일 서버 자원량. is_online 은 Redis online TTL (fail-open) 기반.
         flag = await safe_get(self.redis, get_web_settings().redis_key_online.format(detail.id))
@@ -331,7 +298,7 @@ class ReportQueryMixin(_ReportMixinBase):
             err = await self.repo.latest_errors(server_id, end_dt - timedelta(days=period_days))
             errors = build_error_signals(err, window_label=f"최근 {win_days}일", os_family=raw0.os_family)
             summary.period_assessment = build_period_assessment(
-                build_resource_stats(raw0),
+                build_resource_stats(raw0, disk_baseline=raw0.disk_iops_baseline),
                 errors,
                 disk_worst_mount=raw0.disk_capacity_worst_mount,
                 window_days=win_days,

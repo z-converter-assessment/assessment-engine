@@ -45,7 +45,16 @@ RUN uv sync --frozen --no-dev --no-editable        # project 만 추가
 - `--no-editable` — 소스를 가리키는 링크가 아니라 파일을 복사해 넣는다. 최종 이미지에 소스 트리가 없어도 동작한다. dev 는 호스트 패키지를 venv 안 같은 경로에 bind mount 해 코드 변경을 반영한다.
 - `UV_PROJECT_ENVIRONMENT=/opt/venv` — venv 안 스크립트에 절대경로 shebang 이 박혀 builder 와 runtime 이 같은 경로를 써야 한다. 작업 디렉토리(`/app`)와 분리해 둔다.
 
-베이스 이미지의 python minor 를 올릴 때는 `pyproject.toml` `requires-python`, Dockerfile `FROM` 과 `ALEMBIC_CONFIG`, site-packages 경로가 박힌 override 3줄(마운트·watch 경로)을 함께 고친다.
+### 베이스 이미지 핀
+
+`FROM` 3줄은 태그 뒤에 digest 를 붙인다. 같은 `python:3.14-slim` 태그가 시점마다 다른 레이어를 가리키므로,
+digest 가 없으면 같은 커밋을 빌드해도 다른 이미지가 나온다. 갱신은 Dependabot docker 생태계가 PR 로 연다
+(`docs/guides/dependencies.md` 5절).
+
+compose 가 쓰는 인프라 이미지(timescaledb·rabbitmq·redis)는 태그 그대로 둔다. 재현 대상은 본 repo 가
+빌드해 GHCR 로 올리는 엔진 이미지 하나이고, 인프라 이미지는 배포 VM 이 pull 하는 시점에 정해진다.
+
+베이스 이미지의 python minor 를 올릴 때 고칠 곳은 `pyproject.toml` `requires-python` 과 Dockerfile `FROM` 둘뿐이다. 이미지 안 site-packages 경로를 아는 자리가 없다 — alembic 설정은 진입점(`assessment_engine.migrate`)이 패키지에서 찾고, dev override 는 설치본을 덮어쓰는 대신 `./src` 를 얹고 `PYTHONPATH` 로 앞에 세운다.
 
 ### CI 빌드 검증
 
@@ -171,10 +180,11 @@ web / consumer / worker
 bind mount 와 hot reload 는 override 에만 있다. base 는 불변 이미지다.
 
 ```yaml
-volumes: [./src/assessment_engine:/opt/venv/lib/python3.14/site-packages/assessment_engine]
+volumes: [./src:/app/src]
+environment: {PYTHONPATH: /app/src}
 ```
 
-앱 패키지를 컨테이너 가상환경에 덮어씌운다. `migrations/` 가 패키지 안에 있어 이 마운트 하나로 마이그레이션 파일까지 함께 덮인다.
+호스트 소스를 얹고 `PYTHONPATH` 로 site-packages 앞에 세운다. 설치본을 덮어쓰지 않으므로 이미지 안 경로(파이썬 minor 포함)를 아는 자리가 없다. `migrations/`·`_alembic.ini` 가 패키지 안에 있어 이 마운트 하나로 마이그레이션 파일까지 함께 앞선다.
 
 - `web` — uvicorn `reload=True`(`WEB_RELOAD=true`, override 주입)가 파일 변경을 감지해 재기동한다.
 - `consumer`·`worker` — override 가 base command 를 watchfiles 래퍼 명령으로 덮어 `.py` 변경 시 프로세스를 재시작한다 (uvicorn 이 아니라서).

@@ -37,7 +37,7 @@ model: opus
 - 런타임 데드코드 (`assert x is not None` 같은 type checker 만족용)
 - `TYPE_CHECKING` 블록 남용 (실제 순환 import 없는데 사용)
 - Pydantic 모델 필드 타입을 `TYPE_CHECKING` 블록에만 뒀는지 — 런타임 resolve 라 `NameError` 가 난다
-- 시그니처가 정직한지 — 실제로 `None` 을 반환하면 `-> T | None`. `# type: ignore[return-value]` 로 덮은 거짓 시그니처는 위반
+- 시그니처가 정직한지 — 실제로 `None` 을 반환하면 `-> T | None`. `# pyright: ignore[return-value]` 로 덮은 거짓 시그니처는 위반
 
 ### F9. 자동화 변환 — 메인 책임 영역만 보조 검토
 

@@ -3,7 +3,7 @@
 # 각 명령이 무엇을 왜 하는지는 docs/guides/ 가 갖는다. 여기는 이름과 실행만 둔다.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup dev dev-build dev-down logs test test-unit test-integration lint format typecheck codegen migrate migration screenshot eol
+.PHONY: help setup dev dev-build dev-down logs test test-unit test-integration test-http test-cov lint format typecheck codegen migrate migration screenshot eol
 
 help: ## 명령 목록
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -38,6 +38,13 @@ test-unit: ## 단위 테스트
 test-integration: ## 통합 테스트 (TimescaleDB 컨테이너 기동)
 	uv run pytest tests/integration/
 
+test-http: ## HTTP 경계 스냅샷 대조 (기록은 SNAPSHOT_UPDATE=1)
+	uv run pytest tests/http/
+
+test-cov: ## 커버리지 측정 (게이트 아님 — 어디가 비었는지 보는 용도)
+	COVERAGE_CORE=sysmon uv run coverage run -m pytest tests/unit tests/http
+	uv run coverage report
+
 lint: ## ruff (format 검사 + lint)
 	uv run ruff format --check .
 	uv run ruff check .
@@ -53,10 +60,10 @@ codegen: ## OpenAPI -> 클라이언트 TS 타입 재생성
 	pnpm run codegen
 
 migrate: ## 마이그레이션 적용 (upgrade head)
-	docker compose run --rm migrate alembic upgrade head
+	docker compose run --rm migrate python -m assessment_engine.migrate upgrade head
 
 migration: ## 마이그레이션 초안 생성 — make migration M="설명"
-	docker compose run --rm migrate alembic revision --autogenerate -m "$(M)"
+	docker compose run --rm migrate python -m assessment_engine.migrate revision --autogenerate -m "$(M)"
 
 screenshot: ## 화면 캡처 — make screenshot OUT=shots SERVER=<public_id>
 	node scripts/screenshot.mjs $(OUT) $(if $(SERVER),--server $(SERVER))

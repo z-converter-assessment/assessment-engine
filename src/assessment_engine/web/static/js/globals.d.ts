@@ -15,7 +15,8 @@ interface ChartUtilsApi {
   BUCKET_LABEL: Record<string, string>;
   RANGE_MS: Record<string, number>;
   BUCKET_MS: Record<string, number>;
-  COLORS: Record<string, string>;
+  /** 시리즈 색 팔레트 — 인덱스 순환(`COLORS[i % COLORS.length]`). 구현이 배열이므로 배열로 선언한다. */
+  COLORS: readonly string[];
   themeColor(): string;
   fmtKst(isoStr: string): string;
   fmtLabel(ts: string, range: string): string;
@@ -61,7 +62,12 @@ interface EmitUtilsApi {
 interface TaskModalApi {
   open(taskId: string): void;
   close(): void;
-  pollUntilFinal(taskId: string): void;
+  /** final 상태 도달까지 polling. `onUpdate` 는 매 응답마다 불린다 — 목록 행 cell 갱신이 이걸 쓴다.
+   *  반환은 최종 detail, 예산(capSeconds) 초과면 null. */
+  pollUntilFinal(
+    taskId: string,
+    opts?: { intervalMs?: number; capSeconds?: number; onUpdate?: (detail: any) => void },
+  ): Promise<any | null>;
 }
 
 interface SignalUtilsApi {

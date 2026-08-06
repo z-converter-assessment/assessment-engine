@@ -5,7 +5,7 @@ env_report_to_dict(실제 ViewModel 직렬화)는 디스패치 테스트 범위 
 """
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -17,6 +17,8 @@ from assessment_engine.web.services.report_generator import (
     ReportGenerationError,
     build_report_result_for_job,
 )
+from tests.builders import report_row_raw, server_detail
+from tests.fakes import FakeRedis, InMemoryQueryRepository
 
 if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
@@ -44,7 +46,6 @@ def _stub_serializer(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(report_generator, "env_report_to_dict", _stub)
 
 
-@pytest.mark.asyncio
 async def test_environment_scope_generates_result():
     qs = AsyncMock()
     summary = MagicMock()
@@ -59,7 +60,6 @@ async def test_environment_scope_generates_result():
     qs.get_environment_report.assert_awaited_once()
 
 
-@pytest.mark.asyncio
 async def test_environment_no_servers_raises():
     qs = AsyncMock()
     summary = MagicMock()
@@ -71,7 +71,6 @@ async def test_environment_no_servers_raises():
         await build_report_result_for_job(qs, AsyncMock(), rec)
 
 
-@pytest.mark.asyncio
 async def test_server_no_valid_ids_raises():
     qs = AsyncMock()
     qs.resolve_server_ids = AsyncMock(return_value={})  # 매칭 0
@@ -83,7 +82,6 @@ async def test_server_no_valid_ids_raises():
         await build_report_result_for_job(qs, AsyncMock(), rec)
 
 
-@pytest.mark.asyncio
 async def test_server_single_generates_without_children():
     qs = AsyncMock()
     qs.resolve_server_ids = AsyncMock(return_value={"a": 1})
@@ -104,7 +102,6 @@ async def test_server_single_generates_without_children():
     ds.emit_report.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_server_multi_fans_out_children():
     qs = AsyncMock()
     qs.resolve_server_ids = AsyncMock(return_value={"a": 1, "b": 2})
@@ -129,7 +126,6 @@ async def test_server_multi_fans_out_children():
     assert ds.emit_report.await_count == 2
 
 
-@pytest.mark.asyncio
 async def test_server_child_error_propagates():
     """child 생성 중 예외는 함수 밖으로 전파 -> 워커가 parent 를 failed 로 전이(부분 succeeded parent 차단)."""
     qs = AsyncMock()
@@ -146,62 +142,56 @@ async def test_server_child_error_propagates():
         await build_report_result_for_job(qs, AsyncMock(), rec)
 
 
-@pytest.mark.asyncio
+def _seed_detail(server_id: int, hostname: str) -> Any:
+    return server_detail(server_id, hostname)
+
+
+def _service_with(**seed: Any) -> QueryService:
+    """실제 `QueryService` 를 대역 repo·redis 로 조립한다 — 형제 메서드 stub 0."""
+    return QueryService(cast("Any", InMemoryQueryRepository(seed)), cast("Any", FakeRedis()))
+
+
 async def test_build_child_prefetched_reports_matches_per_server():
-    """A5: 배치 조회 결과를 server 별로 정확히 매칭해 prefetch 구성 (서버 간 데이터 섞임 방지 가드)."""
-    qs = QueryService.__new__(QueryService)  # 생성자 우회 — repo·메서드만 stub
-    qs.repo = AsyncMock()
-    raw1 = MagicMock(server_id=1)
-    raw2 = MagicMock(server_id=2)
-    qs._assemble_report_raws = AsyncMock(return_value=[raw1, raw2])
-    qs.repo.get_servers = AsyncMock(return_value=[MagicMock(id=1), MagicMock(id=2)])
-    qs.repo.report_memory_breakdown_batch = AsyncMock(return_value={})
-    qs.repo.report_cpu_breakdown_batch = AsyncMock(return_value={})
+    """A5: 배치 조회 결과를 server 별로 정확히 매칭 — 서버 간 데이터 섞임 방지 가드.
 
-    captured: JsonObject = {}
-
-    async def fake_single(
-        pid: str,
-        *,
-        view: str,
-        time_range: str,
-        anchor_at: datetime,
-        attention: object,
-        prefetch: object,
-    ) -> MagicMock:
-        captured[pid] = prefetch
-        return MagicMock()
-
-    qs.get_single_server_report = AsyncMock(side_effect=fake_single)
-    sid_map = {"pa": 1, "pb": 2}
+    형제 메서드를 stub 하지 않고 실제 서비스를 조립해 돌린다. stub 하면 "지금 어느 메서드가 어느
+    메서드를 부르는가" 를 고정해 버려서, 그 배치를 바꾸는 리팩토링이 동작을 보존해도 깨진다.
+    """
+    service = _service_with(
+        report_aggregate=[
+            report_row_raw(server_id=1, public_id="pa", hostname="host-a"),
+            report_row_raw(server_id=2, public_id="pb", hostname="host-b"),
+        ],
+        get_servers=[_seed_detail(1, "host-a"), _seed_detail(2, "host-b")],
+        resolve_server_ids={"pa": 1, "pb": 2},
+    )
     anchor = datetime(2026, 5, 12, tzinfo=UTC)
 
-    out = await qs.build_child_prefetched_reports(["pa", "pb"], sid_map, "engineer", "7d", anchor, None)
+    out = await service.build_child_prefetched_reports(["pa", "pb"], {"pa": 1, "pb": 2}, "engineer", "7d", anchor)
 
-    assert len(out) == 2
-    assert captured["pa"].raw is raw1
-    assert captured["pa"].detail.id == 1
-    assert captured["pb"].raw is raw2
-    assert captured["pb"].detail.id == 2
+    by_pid = dict(out)
+    assert by_pid["pa"] is not None
+    assert by_pid["pb"] is not None
+    assert [r.hostname for r in by_pid["pa"].base.rows] == ["host-a"]
+    assert [r.hostname for r in by_pid["pb"].base.rows] == ["host-b"]
 
 
-@pytest.mark.asyncio
 async def test_build_child_prefetched_reports_missing_server_yields_none():
     """sid_map 에 없는 public_id 는 (pid, None) — 미존재 서버 skip."""
-    qs = QueryService.__new__(QueryService)
-    qs.repo = AsyncMock()
-    qs._assemble_report_raws = AsyncMock(return_value=[MagicMock(server_id=1)])
-    qs.repo.get_servers = AsyncMock(return_value=[MagicMock(id=1)])
-    qs.get_single_server_report = AsyncMock(return_value=MagicMock())
+    service = _service_with(
+        report_aggregate=[report_row_raw(server_id=1, public_id="pa", hostname="host-a")],
+        get_servers=[_seed_detail(1, "host-a")],
+        resolve_server_ids={"pa": 1},
+    )
     anchor = datetime(2026, 5, 12, tzinfo=UTC)
 
-    out = await qs.build_child_prefetched_reports(["pa", "ghost"], {"pa": 1}, "customer", "7d", anchor, None)
+    out = await service.build_child_prefetched_reports(["pa", "ghost"], {"pa": 1}, "customer", "7d", anchor)
 
-    assert dict(out)["ghost"] is None
-    assert dict(out)["pa"] is not None
+    by_pid = dict(out)
+    assert by_pid["ghost"] is None
+    assert by_pid["pa"] is not None
 
 
-@pytest.mark.asyncio
 async def test_report_trend_uses_valid_metric_types():
     """_build_report_trend 3 콜사이트가 유효 MetricType 만 사용 — 이름 drift 회귀 가드.
 

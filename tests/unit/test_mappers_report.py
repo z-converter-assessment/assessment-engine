@@ -2,7 +2,7 @@
 
 import dataclasses
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, get_args
 
 import pytest
 
@@ -12,6 +12,7 @@ from assessment_engine.db.dtos.outbound import (
     ReportRowRaw,
     ServerDetail,
 )
+from assessment_engine.recommendation import Recommendation
 from assessment_engine.web.services.mappers.attention import (
     _UTIL_COLOR_GAUGE,
     _UTIL_COLOR_NONE,
@@ -22,28 +23,32 @@ from assessment_engine.web.services.mappers.attention import (
     to_capacity_warning_item,
     to_os_eol_warning_item,
 )
+from assessment_engine.web.services.mappers.os_eol import (
+    _classify_eol,
+    lookup_os_eol,
+    resolve_os_eol,
+)
 from assessment_engine.web.services.mappers.report import (
     _RISK_FROM_RECOMMENDATION,
     _build_recommendation_action,
     build_period_assessment,
     build_report_summary_bullets,
-    build_resource_stats,
     build_role_distribution,
     compute_report_avg_p95,
     compute_report_totals_from_raw,
     to_report_row_item,
 )
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.shared import (
-    _DONUT_SEGMENT_FROM_REC,
-    _classify_eol,
-    lookup_os_eol,
-    resolve_os_eol,
+    _DONUT_SEGMENT_DEFS,
 )
 
 if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
 
 # --- 헬퍼 ----------------------------------------------------------------
+
+from tests.builders import report_row_raw
 
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
@@ -100,7 +105,15 @@ def _raw(
     procs_running_p95: float | None = None,
     oom_occurred: bool = False,
 ) -> ReportRowRaw:
-    return ReportRowRaw(
+    optional: dict[str, Any] = {}
+    if net_interfaces is not None:
+        optional["net_interfaces"] = net_interfaces
+    if block_devices is not None:
+        optional["block_devices"] = block_devices
+    if boot_time is not None:
+        optional["boot_time"] = boot_time
+    return report_row_raw(
+        **optional,
         server_id=server_id,
         public_id=public_id,
         hostname=hostname,
@@ -109,21 +122,7 @@ def _raw(
         os_version=os_version,
         os_codename=os_codename,
         kernel_version=kernel_version,
-        net_interfaces=net_interfaces
-        if net_interfaces is not None
-        else [
-            {
-                "id": "52:54:00:12:34:56",
-                "id_type": "mac",
-                "name": "eth0",
-                "kind": "physical",
-                "speed_mbps": 1000,
-                "gateway": None,
-                "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}],
-            }
-        ],
         services=list(services) if services else None,
-        last_seen_at=_NOW,
         cpu_avg_pct=cpu_avg,
         cpu_p95_pct=cpu_p95,
         cpu_peak_pct=cpu_peak,
@@ -136,10 +135,6 @@ def _raw(
         mem_pages_input_rate_p95=mem_pages_input_rate_p95,
         cpu_cores=cpu_cores,
         mem_total_bytes=(mem_total_kb * 1024 if mem_total_kb is not None else None),
-        block_devices=block_devices
-        if block_devices is not None
-        else [{"name": "sda", "size_bytes": 50 * 10**9, "type": "disk"}],
-        boot_time=boot_time if boot_time is not None else _NOW - timedelta(days=30),
         disk_capacity_driving_mount=worst_mount,
         worst_mount_used_pct=worst_used,
         reboot_count=reboot_count,
@@ -532,19 +527,16 @@ def test_risk_donut_segments_empty_total():
     assert all(s.dash_length == 0 for s in segs)
 
 
-@pytest.mark.parametrize(
-    ("rec", "expected_key"),
-    [
-        # 자원 적정성 5 상태 1:1 매핑 (정석). T13.
-        ("under_provisioned", "under_provisioned"),
-        ("over_provisioned", "over_provisioned"),
-        ("idle", "idle"),
-        ("optimal", "optimal"),
-        ("insufficient_data", "insufficient_data"),
-    ],
-)
-def test_donut_segment_from_rec_mapping(rec: str, expected_key: str):
-    assert _DONUT_SEGMENT_FROM_REC[rec] == expected_key
+def test_donut_segments_cover_every_recommendation():
+    """도넛 세그먼트 정의가 `Recommendation` 5값을 빠짐없이 덮는다.
+
+    이전에는 enum -> 세그먼트 키를 항등 dict 로 한 번 더 적어 두고 그 dict 를 검사했다. 항등이라
+    소비처가 `.get(rec, "insufficient_data")` 로 읽는 순간 좁힌 타입이 다시 str 로 넓어졌고,
+    검사 대상도 "적은 대로 적혀 있나" 뿐이었다. 지금은 세그먼트 키가 곧 enum 값이라 덮는지만 본다.
+    """
+    segment_keys = {key for key, _, _ in _DONUT_SEGMENT_DEFS}
+
+    assert segment_keys == set(get_args(Recommendation.__value__))
 
 
 # --- CapacityWarningItem.active_causes (발화 원인 os-neutral 집계) -------------
@@ -834,7 +826,8 @@ def test_period_assessment_windows_os_aware_and_hit():
             cpu_run_queue_p95=12.0,
             mem_pages_input_rate_p95=2000.0,
             disk_await_p95_ms=30.0,  # Windows 도 IOCTL await 통일 -> await > 20ms
-        )
+        ),
+        disk_baseline=None,
     )
     pa = build_period_assessment(stats)
     cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
@@ -859,7 +852,8 @@ def test_period_assessment_linux_signals_and_ok():
             procs_running_p95=1.0,
             mem_swap_paging=False,  # Linux 메모리 포화 축 — swap page-out 미발생 -> "L 없음"
             disk_await_p95_ms=5.0,
-        )
+        ),
+        disk_baseline=None,
     )
     pa = build_period_assessment(stats)
     cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
@@ -885,7 +879,8 @@ def test_period_assessment_unmeasured_when_counter_absent():
             cpu_run_queue_p95=None,
             mem_pages_input_rate_p95=None,
             disk_await_p95_ms=None,  # 디스크 I/O 포화 축(await) 미발행 -> 미관측
-        )
+        ),
+        disk_baseline=None,
     )
     pa = build_period_assessment(stats)
     cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
@@ -1076,12 +1071,9 @@ def _rs(**kw: Any) -> recommendation.ResourceStats:
     base = recommendation.ResourceStats(
         cpu_p95_pct=None,
         cpu_peak_pct=None,
-        cpu_load_15m_max=None,
         cpu_cores=None,
         mem_p95_pct=None,
-        swap_used=False,
         disk_used_pct=None,
-        iowait_p95_pct=None,
         net_avg_kbytes_per_s=None,
     )
     return dataclasses.replace(base, **kw)
@@ -1118,27 +1110,29 @@ def test_recommendation_action_idle_strong_vs_weak():
 
 def test_build_resource_stats_sums_net_rx_tx():
     """net baseline = rx+tx 합 — 유휴 판정 입력."""
-    assert build_resource_stats(_raw(net_rx=10.0, net_tx=5.0)).net_avg_kbytes_per_s == 15.0
+    assert build_resource_stats(_raw(net_rx=10.0, net_tx=5.0), disk_baseline=None).net_avg_kbytes_per_s == 15.0
 
 
 def test_build_resource_stats_net_none_when_both_missing():
     """rx·tx 둘 다 None 이면 net None — 유휴 판정 skip (미관측을 0 으로 단정 금지)."""
-    assert build_resource_stats(_raw()).net_avg_kbytes_per_s is None
+    assert build_resource_stats(_raw(), disk_baseline=None).net_avg_kbytes_per_s is None
 
 
 def test_build_resource_stats_net_single_side_counts_other_as_zero():
-    assert build_resource_stats(_raw(net_rx=10.0)).net_avg_kbytes_per_s == 10.0
+    assert build_resource_stats(_raw(net_rx=10.0), disk_baseline=None).net_avg_kbytes_per_s == 10.0
 
 
 def test_build_resource_stats_sample_sufficiency_min_of_measured():
     """sufficiency = 측정된 축(p95 not None)의 min — 보수적."""
-    stats = build_resource_stats(_raw(cpu_p95=50.0, cpu_sufficiency=0.4, mem_p95=50.0, mem_sufficiency=0.9))
+    stats = build_resource_stats(
+        _raw(cpu_p95=50.0, cpu_sufficiency=0.4, mem_p95=50.0, mem_sufficiency=0.9), disk_baseline=None
+    )
     assert stats.sample_sufficiency == 0.4
 
 
 def test_build_resource_stats_sample_sufficiency_ignores_unmeasured_axis():
     """p95 None 인 축의 sufficiency 는 제외 — 미측정 축이 표본 판정 왜곡 금지."""
-    stats = build_resource_stats(_raw(cpu_p95=50.0, cpu_sufficiency=0.8, mem_sufficiency=0.1))
+    stats = build_resource_stats(_raw(cpu_p95=50.0, cpu_sufficiency=0.8, mem_sufficiency=0.1), disk_baseline=None)
     assert stats.sample_sufficiency == 0.8
 
 
@@ -1160,7 +1154,8 @@ def test_build_resource_stats_wires_adr0052_signals():
             cpu_percore_p95_max=88.0,
             procs_running_p95=3.0,
             oom_occurred=True,
-        )
+        ),
+        disk_baseline=None,
     )
     assert stats.procs_blocked_p95 == 2.0
     assert stats.procs_running_p95 == 3.0
@@ -1180,19 +1175,19 @@ def test_build_resource_stats_wires_adr0052_signals():
 
 
 def test_build_resource_stats_mem_total_mb_none_when_kb_none():
-    assert build_resource_stats(_raw(mem_total_kb=None)).mem_total_mb is None
+    assert build_resource_stats(_raw(mem_total_kb=None), disk_baseline=None).mem_total_mb is None
 
 
 def test_build_resource_stats_util_trend_rising_from_slopes():
     """util_trend_rising 은 도메인 헬퍼로 slope -> bool 이진화 (임계 recommendation 단일)."""
     # mem slope 가 임계(0.2%/day) 이상 -> 상승 (span 가드 통과 위해 history_hours >= 30)
-    r1 = build_resource_stats(_raw(cpu_trend_slope=-0.1, mem_trend_slope=0.5, history_hours=40.0))
+    r1 = build_resource_stats(_raw(cpu_trend_slope=-0.1, mem_trend_slope=0.5, history_hours=40.0), disk_baseline=None)
     assert r1.util_trend_rising is True
     # 둘 다 임계 미만 -> 비상승
-    r2 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=-1.0, history_hours=40.0))
+    r2 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=-1.0, history_hours=40.0), disk_baseline=None)
     assert r2.util_trend_rising is False
     # 이력 부족(span 가드) -> 추세 미판정 None (boot-ramp 오탐 차단)
-    r3 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=0.5, history_hours=10.0))
+    r3 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=0.5, history_hours=10.0), disk_baseline=None)
     assert r3.util_trend_rising is None  # span 가드
     # 둘 다 None(추세 산출 불가) -> None
-    assert build_resource_stats(_raw(history_hours=40.0)).util_trend_rising is None
+    assert build_resource_stats(_raw(history_hours=40.0), disk_baseline=None).util_trend_rising is None

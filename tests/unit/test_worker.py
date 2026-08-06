@@ -14,11 +14,13 @@ import pytest
 from loguru import logger
 
 from assessment_engine.config import WorkerSettings
+from assessment_engine.db.session import dispose_engine, get_engine
 from assessment_engine.web.services.task_service import (
     TaskNotConfiguredError,
     _resolve_install_dispatch,
 )
 from assessment_engine.web.settings import get_web_settings
+from assessment_engine.worker.main import _drain_logged
 from assessment_engine.worker.report_worker import run_report_worker
 from assessment_engine.worker.task_reaper import run_task_reaper
 from assessment_engine.worker.worker_lifecycle import graceful_drain
@@ -340,3 +342,46 @@ def test_resolve_install_dispatch_unsupported_raises():
     for bad in ("macos", "aix", "", "Linux", "darwin"):
         with pytest.raises(TaskNotConfiguredError, match=re.escape(repr(bad))):
             _resolve_install_dispatch(bad)
+
+
+# --- _drain_logged (종료 정리 격리, F11) ----
+
+
+async def test_drain_logged_returns_none_on_clean_shutdown():
+    """정상 종료는 예외를 돌려주지 않는다 — 호출자는 이 값으로 exit code 를 정한다."""
+    stop = asyncio.Event()
+
+    async def quick() -> None:
+        await stop.wait()
+
+    failure = await _drain_logged(asyncio.create_task(quick()), stop, 1.0, "w")
+
+    assert failure is None
+
+
+async def test_drain_logged_returns_child_exception(captured_logs: list[str]):
+    """자식이 예외로 죽어도 호출자에게 제어를 돌려준다 — 뒤따르는 정리(dispose·close)가 돌아야 한다."""
+    stop = asyncio.Event()
+
+    async def boom() -> None:
+        raise RuntimeError("loop died")
+
+    task = asyncio.create_task(boom())
+    await asyncio.sleep(0)
+
+    failure = await _drain_logged(task, stop, 1.0, "w")
+
+    assert isinstance(failure, RuntimeError)
+    assert any("worker loop failed during shutdown" in line for line in captured_logs)
+
+
+# --- dispose_engine (프로세스 종료 마지막 단계) ----
+
+
+async def test_dispose_engine_noop_without_engine():
+    """엔진을 만든 적 없는 프로세스에서 부르면 접속 설정을 요구하지 않는다."""
+    get_engine.cache_clear()
+
+    await dispose_engine()
+
+    assert get_engine.cache_info().currsize == 0

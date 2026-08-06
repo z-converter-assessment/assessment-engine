@@ -8,10 +8,14 @@
 """
 
 from datetime import UTC, datetime
+from typing import TYPE_CHECKING
 
-from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.web.services.mappers.right_sizing_api import build_right_sizing_entry
 from assessment_engine.web.view_models.right_sizing_api import RightSizingServer
+from tests.builders import report_row_raw
+
+if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import ReportRowRaw
 
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
@@ -35,38 +39,22 @@ def _raw(
     net_retrans_pct: float | None = None,
     net_drop_pct: float | None = None,
 ) -> ReportRowRaw:
-    """right-sizing API 테스트용 최소 ReportRowRaw 빌더.
+    """right-sizing API 테스트용 어휘 — 이 파일이 쓰는 축만 짧은 이름으로 받는다.
 
-    본 파일 전용(자기완결) — 시계열/inventory wire 계약이 아니라 report_aggregate 산출 outbound DTO 다.
-    크기는 `mem_total_bytes`(By), 인터페이스는 `net_interfaces` 로 채운다. 포화 신호 축은
-    `procs_running_p95`·`disk_await_p95_ms` 다.
+    baseline 은 `tests/builders.report_row_raw` 가 갖는다. 이 파일은 계약 형태(단위 By)와 포화 축
+    (`procs_running_p95`·`disk_await_p95_ms`)만 다루므로 나머지는 baseline 그대로 둔다.
+    디스크·부팅 시각은 이 계약이 읽지 않아 비운다.
     """
-    return ReportRowRaw(
+    return report_row_raw(
         server_id=server_id,
         public_id=public_id,
         hostname=hostname,
         os_family=os_family,
         os_id=os_id,
         os_version=os_version,
-        os_codename="jammy",
-        kernel_version="5.15",
-        net_interfaces=[
-            {
-                "id": "52:54:00:12:34:56",
-                "id_type": "mac",
-                "name": "eth0",
-                "kind": "physical",
-                "addresses": [{"address": "10.0.0.1", "prefix": 24, "family": "ipv4"}],
-            }
-        ],
-        services=None,
-        last_seen_at=_NOW,
         cpu_p95_pct=cpu_p95,
-        cpu_avg_pct=None,
         cpu_peak_pct=cpu_peak,
         mem_p95_pct=mem_p95,
-        mem_avg_pct=None,
-        mem_peak_pct=None,
         cpu_cores=cpu_cores,
         mem_total_bytes=mem_total_bytes,
         procs_running_p95=procs_running_p95,
@@ -74,6 +62,8 @@ def _raw(
         disk_await_p95_ms=disk_await_p95_ms,
         net_retrans_pct=net_retrans_pct,
         net_drop_pct=net_drop_pct,
+        block_devices=None,
+        boot_time=None,
     )
 
 

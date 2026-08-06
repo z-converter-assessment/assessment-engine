@@ -1,11 +1,11 @@
 from datetime import datetime
-from typing import Any
 
 from sqlalchemy import BigInteger, Boolean, DateTime, Index, Integer, String, Text, UniqueConstraint, text
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from assessment_engine.db.models.base import Base
+from assessment_engine.json_types import JsonObject
 
 
 class ServerInventory(Base):
@@ -67,19 +67,19 @@ class ServerInventory(Base):
     agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     # 스토리지 트리 — [{name,type,size_bytes,fstype,mountpoint,parent,id,id_type}] (type=swap 포함).
-    block_devices: Mapped[list[Any] | None] = mapped_column(JSONB)
+    block_devices: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
     # 네트워크 그래프 — [{name,id,id_type,kind,speed_mbps,addresses:[{address,prefix,family}],gateway}].
-    net_interfaces: Mapped[list[Any] | None] = mapped_column(JSONB)
+    net_interfaces: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
     # LVM VG — [{name,size_bytes,free_bytes,data_percent,metadata_percent}] (Linux 전용).
-    lvm_vgs: Mapped[list[Any] | None] = mapped_column(JSONB)
+    lvm_vgs: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
     # boot 재현 서술자 — {kernel_cmdline,root_ref_type,grub_install_target} (Linux; Windows null).
-    boot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    boot: Mapped[JsonObject | None] = mapped_column(JSONB)
     # 비블록 마운트 — [{source,target,fstype,options,fs_freq,fs_passno}] (tmpfs/nfs/cifs/bind 등, Linux).
-    nonblock_mounts: Mapped[list[Any] | None] = mapped_column(JSONB)
+    nonblock_mounts: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
-    services: Mapped[list[Any] | None] = mapped_column(JSONB)  # [{unit,sub,pid,exe}]
-    listen_ports: Mapped[list[Any] | None] = mapped_column(JSONB)  # [{proto,addr,port,uid,pid,comm}]
+    services: Mapped[list[JsonObject] | None] = mapped_column(JSONB)  # [{unit,sub,pid,exe}]
+    listen_ports: Mapped[list[JsonObject] | None] = mapped_column(JSONB)  # [{proto,addr,port,uid,pid,comm}]
     # 서비스 카테고리 집합 (ingest 사전계산, service_classifier.compute_service_categories 단일 진실).
     # 이름·comm·포트 어느 신호로 식별되든 동일 — 모든 read 경로가 본 저장값 소비(목록·상세·리포트·필터 뱃지 일치).
     service_categories: Mapped[list[str] | None] = mapped_column(ARRAY(Text))

@@ -12,7 +12,7 @@ log aggregator 로 indexing·alerting 을 붙일 수 있다.
 | ERROR | 처리 실패 + 사용자/메시지 영향 (DB raise·DLQ·5xx) |
 | WARNING | 정상 흐름이지만 운영 시그널 (시계 invariant 위반·재시작 burst·Redis fail-open·DB 재시도 백오프) |
 | INFO | 상태 전이 (auto-register·consumer 기동/구독/종료·중복 메시지 skip·워커 job 전이) |
-| DEBUG | 루프 내부·메시지별 흐름 — 운영 기본 비활성 |
+| DEBUG | 루프 내부·메시지별 흐름 — 기본값이 `INFO` 라 안 찍힌다. `LOG_LEVEL=DEBUG` 로 연다 |
 
 원칙·금지·loguru 규약은 CLAUDE.md #F7.
 
@@ -29,12 +29,18 @@ log aggregator 로 indexing·alerting 을 붙일 수 있다.
 
 ## 로그 format toggle
 
-stdout 로그 출력 format 을 `LOG_FORMAT` 환경변수로 토글.
+stdout 로그 출력 format 을 `LOG_FORMAT` 환경변수로 토글하고, 최소 수준은 `LOG_LEVEL` 로 정한다(기본 `INFO`).
+
+uvicorn·SQLAlchemy·aio-pika 는 stdlib `logging` 으로 내보내므로 `setup_logging` 이 그 레코드를 같은 loguru
+sink 로 넘긴다 — 브릿지가 없으면 `LOG_FORMAT=json` 을 켜도 그 로그만 형식이 달라 aggregator 가 파싱에 실패한다.
+
+예외 traceback 은 호출 스택만 남기고 프레임 지역변수는 남기지 않는다(`diagnose=False`). 그 프레임에는
+비밀번호와 메시지 payload 가 들어온다(#F8).
 
 - `text` (default) — loguru colorized 콘솔. dev grep·시연 가독성.
 - `json` — loguru `serialize=True` 로 record 를 JSON 으로 변환. 외부 log aggregator (Loki·ELK·CloudWatch·Datadog 등) 가 `level`·`time`·`message`·`extra` 필드 자동 indexing → 검색·필터·alerting 가능.
 
-구현: `src/assessment_engine/log_config.py` 의 `setup_logging(log_format)`. 각 entry (web/consumer/worker) 가 Composition Root 에서 호출 (F4 단일 진실). 세 컴포넌트의 Settings 가 모두 같은 env 를 읽는다.
+구현: `src/assessment_engine/log_config.py` 의 `setup_logging(log_format, log_level)`. 각 entry (web/consumer/worker) 가 Composition Root 에서 호출 (F4 단일 진실). 세 컴포넌트의 Settings 가 모두 같은 env 를 읽는다.
 
 환경별 권장값은 `docs/reference/contracts/env.md` 키 카탈로그.
 
@@ -45,5 +51,5 @@ stdout 로그 출력 format 을 `LOG_FORMAT` 환경변수로 토글.
 
 - CLAUDE.md #F7 — 로깅 일상 룰 (단일 진실)
 - CLAUDE.md #F6 — 외부 의존 fail-open/close 결정 매트릭스
-- `docs/reference/contracts/env.md` "전체 키 카탈로그" — `LOG_FORMAT` env
+- `docs/reference/contracts/env.md` "전체 키 카탈로그" — `LOG_FORMAT`·`LOG_LEVEL`
 - `docs/explanation/tradeoffs.md` T23 — 분산 trace 미적용 근거와 재검토 트리거

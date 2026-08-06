@@ -1,0 +1,6 @@
+{
+  "status": 200,
+  "content_type": "application/json",
+  "cache_control": null,
+  "body": "{\"online_count\":0,\"total_count\":3,\"last_collected_at\":null}"
+}

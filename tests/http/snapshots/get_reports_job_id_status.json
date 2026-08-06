@@ -1,0 +1,6 @@
+{
+  "status": 404,
+  "content_type": "application/json",
+  "cache_control": null,
+  "body": "{\"detail\":\"job not found\"}"
+}

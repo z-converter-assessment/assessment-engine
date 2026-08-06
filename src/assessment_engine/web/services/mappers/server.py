@@ -27,18 +27,20 @@ from assessment_engine.web.services.device_filters import (
     is_virtual_interface,
     swap_total_bytes,
 )
-from assessment_engine.web.services.mappers.shared import (
-    _DONUT_SEGMENT_FROM_REC,
-    _USAGE_DANGER_PCT,
-    _USAGE_WARN_PCT,
+from assessment_engine.web.services.mappers.metrics_calculator import compute_net_io
+from assessment_engine.web.services.mappers.os_eol import (
     lookup_os_eol,
     os_eol_display,
     os_id_to_distro,
-    spec_display_line,
     windows_legacy_version_from_build,
     windows_short_label_from_product_name,
 )
-from assessment_engine.web.services.metrics_calculator import compute_net_io
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
+from assessment_engine.web.services.mappers.shared import (
+    _USAGE_DANGER_PCT,
+    _USAGE_WARN_PCT,
+    spec_display_line,
+)
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib, usage_pct
 from assessment_engine.web.templating.filters import storagesize  # 사이즈 라벨 단일 규약 (트리·페이지 통일)
 from assessment_engine.web.view_models.environment_report import (
@@ -325,7 +327,7 @@ def to_server_list_item(
 ) -> ServerListItem:
     """ServerSummary -> ServerListItem. raw_period(ReportRowRaw)가 있으면 권장 조치 분류 채움.
 
-    분류 라벨은 recommendation.LABEL_KO, provisioning_class(raw enum)는 shared._DONUT_SEGMENT_FROM_REC 경유 (P2 단일 진실).
+    분류 라벨은 recommendation.LABEL_KO, provisioning_class 는 Recommendation enum 값 그대로 (P2 단일 진실).
     raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
     today 주어지면 OS 지원 단계 판정(lookup_os_eol) — 카탈로그 매칭 여부로 판정 결과와 "미상(판정 불가)" 분리.
     카탈로그 미수록(oracle 외 tencent 등)·미매칭을 "지원 중"으로 단정하지 않는다.
@@ -359,18 +361,15 @@ def to_server_list_item(
     rec_label, seg_key = "", ""
     if raw_period is not None:
         # build_resource_stats 단일 진실(net baseline 포함) — 보고서·대시보드와 동일 분류 입력 (#E3).
-        # report mapper 지연 import: report.py 가 본 모듈을 import 하므로 모듈 레벨 순환 회피.
-        from assessment_engine.web.services.mappers.report import build_resource_stats
-
         # rollup_host 1회 산출 -> 분류 배지(classify_host 내부도 rollup_host 경유). 네트워크 혼잡(orthogonal,
         # host_status 미구동)은 목록 배지에서 뺀다 — 분류 칼럼에 붙어 분류의 일부처럼 보이나 실은 별개 트리거
         # (재전송·드롭 임계)라 화면만으로 근거를 확인할 수 없었다. 필요 시 서버 상세에서 확인.
-        host = recommendation.rollup_host(build_resource_stats(raw_period))
+        host = recommendation.rollup_host(build_resource_stats(raw_period, disk_baseline=None))
         rec = recommendation.host_status_to_recommendation(host.host_status)
-        seg_key = _DONUT_SEGMENT_FROM_REC.get(rec, "insufficient_data")
+        seg_key = rec
         # 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시. 색은 목록이
         # provisioning_class 기반 under-only 강조(#E, _server_rows.html)라 분류색 미사용(다색 배지는 상세/보고서).
-        rec_label = recommendation.LABEL_KO.get(seg_key, seg_key)
+        rec_label = recommendation.LABEL_KO[seg_key]
 
     return ServerListItem(
         id=dto.id,

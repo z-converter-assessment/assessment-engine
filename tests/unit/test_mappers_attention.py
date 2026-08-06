@@ -3,12 +3,10 @@
 capacity-weighted 평균·top_n 피크·포화 카운트(realtime) + 분류순·심각도 정렬·효율 집계(action targets) 검증.
 """
 
-import dataclasses
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from assessment_engine import recommendation
-from assessment_engine.db.dtos.outbound import ReportRowRaw
 from assessment_engine.web.services.mappers.attention import (
     _NET_CONGESTED_COLOR,
     _UTIL_COLOR_GAUGE,
@@ -18,8 +16,10 @@ from assessment_engine.web.services.mappers.attention import (
     build_environment_realtime,
     to_capacity_warning_item,
 )
+from tests.builders import report_row_raw
 
 if TYPE_CHECKING:
+    from assessment_engine.db.dtos.outbound import ReportRowRaw
     from assessment_engine.json_types import JsonObject
 
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
@@ -39,62 +39,12 @@ def _snap(hostname: str, public_id: str, **kw: Any) -> JsonObject:
 
 
 def _raw(**kw: Any) -> ReportRowRaw:
-    """ReportRowRaw 최소 구성 — 모든 신호 축 None 기본, kw 로 발화 축만 채움.
+    """attention 화면용 baseline — 신호 축 전부 None, kw 로 발화 축만 채운다.
 
-    tests/factories·conftest 수정 금지 규약 상 인라인 구성(지정 파일 한정 편집).
+    baseline 은 `tests/builders.report_row_raw` 가 갖는다. 이 파일은 NIC 없는 호스트를 다루므로
+    `net_interfaces` 만 비운다.
     """
-    d = ReportRowRaw(
-        server_id=1,
-        public_id="a",
-        hostname="h",
-        os_family=None,
-        os_id="ubuntu",
-        os_version="22.04",
-        os_codename="jammy",
-        kernel_version="5.15",
-        net_interfaces=[],
-        services=None,
-        last_seen_at=_NOW,
-        cpu_avg_pct=None,
-        cpu_p95_pct=None,
-        cpu_peak_pct=None,
-        mem_avg_pct=None,
-        mem_p95_pct=None,
-        mem_peak_pct=None,
-        iowait_p95_pct=None,
-        iowait_peak_pct=None,
-        cpu_run_queue_p95=None,
-        mem_pages_input_rate_p95=None,
-        cpu_cores=2,
-        mem_total_bytes=2 * 1024**3,
-        block_devices=[{"name": "sda", "size_bytes": 50 * 10**9, "type": "disk"}],
-        boot_time=_NOW - timedelta(days=30),
-        disk_capacity_driving_mount=None,
-        worst_mount_used_pct=None,
-        reboot_count=0,
-        disk_iops_baseline=None,
-        disk_throughput_kbps=None,
-        net_rx_kbps=None,
-        net_tx_kbps=None,
-        cpu_sufficiency=None,
-        mem_sufficiency=None,
-        procs_blocked_p95=None,
-        mem_swap_paging=False,
-        disk_await_p95_ms=None,
-        disk_capacity_runway_days=None,
-        disk_inode_runway_days=None,
-        net_retrans_pct=None,
-        net_drop_pct=None,
-        history_hours=None,
-        cpu_burst_ratio=None,
-        cpu_trend_slope=None,
-        mem_trend_slope=None,
-        cpu_steal_p95_pct=None,
-        cpu_percore_p95_max=None,
-        procs_running_p95=None,
-        oom_occurred=False,
-    )
-    return dataclasses.replace(d, **kw)
+    return report_row_raw(net_interfaces=[], **kw)
 
 
 # --- build_environment_realtime — capacity-weighted 평균 -----------------

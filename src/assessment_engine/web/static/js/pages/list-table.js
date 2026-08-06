@@ -215,8 +215,7 @@ function pollAndUpdateRow(targetPublicId, taskId) {
   if (!cell) return;
   cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${taskId}"><span class="badge rec-pending">진행 중</span></a>`;
   if (!window.TaskModal) return;
-  // globals.d.ts TaskModalApi.pollUntilFinal 은 (taskId) 1-arity 로 선언됐으나 실제 2번째 opts({onUpdate}) 인자 수용 — 로컬 any 캐스트로 우회.
-  /** @type {any} */ (window.TaskModal).pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
+  window.TaskModal.pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
 }
 
 async function submitInstall() {
@@ -439,8 +438,6 @@ if (filterForm) {
     applyFilters();
   });
 
-  // 자동갱신(replaceServerRows) 후 client 필터 재적용용 — 모듈 외부 노출.
-  /** @type {any} */ (window).__applyDashboardFilters = applyFilters;
   // 초기 1회 — 전체 로드된 행에 clip(20) 적용 + deep-link query(form 초기값) 반영.
   applyFilters();
 }
@@ -454,7 +451,7 @@ function trackPendingTasks() {
     const taskId = a.dataset.taskId;
     if (!taskId || !window.TaskModal) return;
     const cell = /** @type {Element} */ (a.closest('td'));
-    /** @type {any} */ (window.TaskModal).pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
+    window.TaskModal.pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
   });
 }
 

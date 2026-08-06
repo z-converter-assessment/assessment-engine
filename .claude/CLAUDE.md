@@ -198,25 +198,26 @@ Pagination 정책:
 - 신규 ViewModel 파생 필드 추가 시 #F9 영향도 체크리스트 적용.
 - right-sizing 분류 단일 진실 = `recommendation.rollup_host(stats) -> HostAssessment` (자원 5개 per-resource USE + 인과 근본원인 종합). 배지 = `classify_host` = `host_status_to_recommendation(rollup_host().host_status)`. 네트워크 혼잡은 host under 아닌 별도 `network_congested` 플래그.
 - saturation 3축은 os-aware helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`) 단일 진실 경유 의무 — 임계 재계산·직접 해석 금지. `if raw.swap_used` 등 raw 직접 해석 금지. 윈도우 분류·환경·보고서(dual-gate)가 이 3축 verdict helper를 쓰고, 실시간 순간 스냅샷은 목적상 sibling single-gate helper(`cpu_saturation_index`·`mem_pressure_active`·`disk_io_saturation_index`·`net_signal_active`, 동일 `RS_*` 상수 재사용)를 경유한다 — 두 경로의 미세 원자료·경계 불일치는 의식적 유예(tradeoffs T20), 실시간 sibling helper 사용은 본 규범 위반 아님.
-- triggers·stats 재사용 의무 — report 진단(`_build_diagnosis`, host.resources 상태·trigger 파생)·권고(`under_prescription(host)`)·attention 자원 부족 카드·서버목록·도넛이 `rollup_host` + `build_resource_stats` 공용 입력을 쓴다 (화면 간 분류 정합, 임계 재계산 0).
+- triggers·stats 재사용 의무 — report 진단(`_build_diagnosis`, host.resources 상태·trigger 파생)·권고(`under_prescription(host)`)·attention 자원 부족 카드·서버목록·도넛이 `rollup_host` + `build_resource_stats` 공용 입력을 쓴다 (화면 간 분류 정합, 임계 재계산 0). 조건부 주입 축은 `build_resource_stats` 의 필수 키워드 인자로 올린다 — 새 호출 경로가 주입 여부를 결정하지 않고는 컴파일되지 않게 한다. 현행 비대칭(`disk_baseline` 은 보고서 경로만 주입)은 tradeoffs T24.
 - 분류 명세·판정 순서·합성 규칙·OS 분기·미관측(unmeasured) 처리·한계 단일 진실 = `docs/reference/right-sizing.md`. 임계 수치와 그 근거는 `docs/reference/right-sizing-thresholds.md`.
 
 ## E4. URL 식별자 — 정수 PK 노출 금지
 
-라우터 path 파라미터는 `public_id` (UUID). 구현 메커니즘(UUID 타입 선언·422/404 분기·`resolve_internal_id` Depends 브릿지): `docs/reference/web/layering.md`.
+라우터 path 파라미터는 `public_id` (UUID). 구현 메커니즘(UUID 타입 선언·422/404 분기·`ServerIdDep` 브릿지): `docs/reference/web/layering.md`.
 
 ## E5. Jinja2 인프라
 
 `Jinja2Templates` 단일 인스턴스 + 필터 등록은 `web/templating/setup.py`에 격리. 라우터는 `from assessment_engine.web.templating import templates` 만. Redis 캐시 datetime은 `datetime.fromisoformat()`로 파싱(`json.loads` str 그대로 두면 `kst` 필터 오작동).
 
 
-## E6. 정적 자원 — JS 외부화 의무 + 타입 계약
+## E6. 정적 자원 — JS·CSS 외부화 의무 + 타입 계약
 
-디렉토리 구조 / `chart-utils.js` base.html 단일 로드 / `ChartUtils` API / 페이지별 .js: `docs/reference/web/static-assets.md`. 외부화 강제 채널: #F5.
+디렉토리 구조 / `chart-utils.js` base.html 단일 로드 / `ChartUtils` API / 페이지별 .js / `app.css`: `docs/reference/web/static-assets.md`. 외부화 강제 채널: #F5.
 
 본 절 결정:
+- 전역 스타일은 `static/css/app.css` 단일 파일이다 — 템플릿 안 `<style>` 블록으로 두지 않는다. JS 에는 grep 으로 강제하면서 CSS 만 예외로 두면 같은 규칙이 자원 종류로 갈린다. 페이지 로컬 `<style>`(용지 방향 등 페이지별 override)과 inline `style=` 은 대상 밖.
 - 클라 JS 는 서버 ViewModel 과 타입 계약을 컴파일 강제한다 — FastAPI OpenAPI -> 생성 TS 타입(`static/js/generated/api.ts`) -> `// @ts-check` 클라 JS 를 `tsc --checkJs`. 파일별 점진 채택(`// @ts-check` opt-in), 핵심 강제 지점은 `fetch('/api/...')` 응답을 생성 타입으로 annotate 하는 fetch 경계. 메커니즘·확장·CI 게이트 단일 진실 = `docs/reference/web/type-contract.md`.
-- 서버 JSON 엔드포인트는 응답 타입을 선언한다(`response_model=` 또는 return 어노테이션) — 생성 타입의 원천. 엔드포인트/ViewModel 변경 시 `pnpm run codegen` 으로 `api.ts` 재생성·커밋(CI drift 게이트).
+- 서버 JSON 엔드포인트는 응답 타입을 return 어노테이션으로 선언한다 — 생성 타입의 원천. `response_model=` 은 쓰지 않는다(같은 일을 데코레이터 인자로 하면 시그니처가 거짓이 된다). 엔드포인트/ViewModel 변경 시 `pnpm run codegen` 으로 `api.ts` 재생성·커밋(CI drift 게이트).
 - 클라는 서버 파생을 재계산하지 않는다(P2 보존) — 통계·분류·단위 변환은 서버 props 로만. 인터랙션 파생(차트 range 토글 등)만 예외(P4).
 
 ## E7. 도메인 분류 책임 (P2)
@@ -279,7 +280,7 @@ Pagination 정책:
 
 ## F3. 검증의 단일 경로
 
-원칙: 검증은 요청 진입점에서 한 번만 — 라우터 Pydantic(query/path/body) · Consumer `model_validate_json()`(MQ payload) · `BaseSettings`(환경변수). path UUID는 `resolve_internal_id` Depends가 422(형식)·404(미존재) 자동.
+원칙: 검증은 요청 진입점에서 한 번만 — 라우터 Pydantic(query/path/body) · Consumer `model_validate_json()`(MQ payload) · `BaseSettings`(환경변수). path UUID 는 `ServerIdDep` 이 422(형식)·404(미존재)를 자동 처리한다.
 
 금지: Service·Mapper·Repository·사용처에서 재검증 (`_VALID_*` frozenset 비교 등).
 
@@ -312,7 +313,7 @@ Protocol 카탈로그·새 Repository 절차: `docs/reference/web/layering.md` �
 메인 자가 검증 의무:
 1. 옛 패턴 잔존 0건 grep.
 2. 새 패턴이 의도된 스코프에만 (함수 외부·의도 외 위치 grep 검증).
-3. `.html` 변경 시 신규 inline `<script>` 코드 줄 grep (외부 `.js` 강제).
+3. `.html` 변경 시 신규 inline `<script>` 코드 줄 + 신규 `<style>` 블록 grep (외부 `.js`·`.css` 강제).
 4. DTO · 매퍼 · `cache_serializer` · 템플릿 · JS 체인 의미적 동기화.
 
 금지:
@@ -405,6 +406,8 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 - 전용 워커 프로세스(`assessment_engine.worker`) — 보고서 생성 + install reaper 를 web(HTTP 전담)에서 분리한 별도 컨테이너. `worker/main.py` 가 두 루프를 공유 stop_event 로 병행 구동, consumer 와 동일 asyncio-native SIGTERM(`loop.add_signal_handler`) graceful. `signal.signal`·`os._exit` 금지(아래 일관).
 - 보고서 생성 루프 — SIGTERM 시 stop_event 로 새 claim 중단 + 진행 중 1건은 `report_worker_shutdown_timeout_sec` 안 drain, 미완은 running 잔류 -> 다음 기동 `recover_stale_running` 가 pending 으로 회수(in-flight 손실 0). job 상태는 DB(`diagnostic_jobs`)라 메모리 손실 없음.
 - install task reaper 루프 — SIGTERM 시 stop_event 로 tick 중단(진행 중 UPDATE 1건 짧아 즉시 drain). deadline 경과 pending 을 emit 무관하게 `expire_all_overdue_tasks` 로 failure(timeout) 전역 전이 — task 상태는 DB(`tasks`)라 메모리 손실 0.
+- 세 프로세스 종료 경로의 마지막은 `db/session.dispose_engine()` + `cache/redis.close_pool()` 순서 단일. 외부 자원 해제를 다른 정리 실패가 건너뛰지 못하게 별도 `finally` 에 둔다 — 남긴 asyncpg 커넥션이 루프 종료 후 GC 되면 "Event loop is closed" 가 stdout 으로 새고 `LOG_FORMAT=json` 계약이 깨진다.
+- 워커 자식 루프가 예외로 죽으면 정리를 마친 뒤 그 예외를 그대로 올린다 — 0 으로 나가면 `restart: unless-stopped` 가 재기동하지 않아 컨테이너만 살아 있는 상태가 된다.
 
 금지:
 - `signal.signal(SIGTERM, ...)` 직접 핸들러 — uvicorn/asyncio 자체 처리, 중복은 종료 race.

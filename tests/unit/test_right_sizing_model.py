@@ -16,13 +16,10 @@ def _stats(**kw: Any) -> r.ResourceStats:
     base = r.ResourceStats(
         cpu_p95_pct=None,
         cpu_peak_pct=None,
-        cpu_load_15m_max=None,
         procs_running_p95=None,  # Linux CPU 포화 신호(load 대체)
         cpu_cores=None,
         mem_p95_pct=None,
-        swap_used=False,
         disk_used_pct=None,
-        iowait_p95_pct=None,
         net_avg_kbytes_per_s=None,
     )
     return dataclasses.replace(base, **kw)
@@ -69,7 +66,7 @@ def test_cpu_percore_hold_suppresses_over():
 
 
 def test_cpu_unmeasured_no_util_no_sat():
-    a = r.assess_cpu(_stats(cpu_p95_pct=None, cpu_cores=8, cpu_load_15m_max=None))
+    a = r.assess_cpu(_stats(cpu_p95_pct=None, cpu_cores=8))
     assert a.status == "unmeasured"
     assert a.confidence.coverage_gap is True
 

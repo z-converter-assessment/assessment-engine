@@ -8,13 +8,9 @@ from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 from uuid import UUID
 
-import pytest
-
 from assessment_engine.consumer.handlers import _common
 from assessment_engine.consumer.handlers._common import _check_idempotent, _track_agent_restart
 from assessment_engine.consumer.settings import get_consumer_settings
-
-pytestmark = pytest.mark.asyncio
 
 _STARTED = datetime(2026, 5, 1, 0, 0, tzinfo=UTC)
 

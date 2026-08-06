@@ -15,17 +15,18 @@ from typing import TYPE_CHECKING
 from assessment_engine import recommendation
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import disk_total_bytes
-from assessment_engine.web.services.mappers.report import (
-    build_resource_stats,
+from assessment_engine.web.services.mappers.os_eol import (
+    lookup_os_eol,
+    resolve_os_eol,
 )
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.server import workload_category_counter
 from assessment_engine.web.services.mappers.shared import (
     _CAUSE_LABEL_BY_TRIGGER,
     _DONUT_SEGMENT_DEFS,
+    BADGE_CLASS,
     UTIL_GAUGE_COLOR,
     build_host_confidence_notes,
-    lookup_os_eol,
-    resolve_os_eol,
     spec_display_line,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
@@ -155,7 +156,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list[RiskDon
     total = sum(risk_counts.values())
     segments: list[RiskDonutSegment] = []
     cum_offset = 0.0
-    for key, label, _color, description in _DONUT_SEGMENT_DEFS:
+    for key, _color, description in _DONUT_SEGMENT_DEFS:
         count = risk_counts.get(key, 0)
         dash_length = _donut_dash(count, total)
         pct = _donut_pct(count, total)
@@ -164,7 +165,7 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list[RiskDon
                 key=key,
                 # 표시 라벨 = right-sizing 한국어 분류명(LABEL_KO 단일 진실).
                 # 보고서·대시보드 통일, 영어 enum 노출 금지.
-                label=recommendation.LABEL_KO.get(key, label),
+                label=recommendation.LABEL_KO[key],
                 # 색 = 게이지 테마 단색 통일 (분류 막대 — 라벨이 의미 전달, 색 무관). _DONUT_SEGMENT_DEFS 다색 미사용.
                 color=UTIL_GAUGE_COLOR,
                 count=count,
@@ -528,7 +529,8 @@ def to_capacity_warning_item(raw: ReportRowRaw):
     환경 요약 원인 집계(_under_cause_summary)의 단일 소스. 임계 재계산 없이 rollup 이 잡은 trigger 키를 매핑
     (drift 방지, runway 소진 디스크 등도 강조).
     """
-    stats = build_resource_stats(raw)
+    # 운영 신호 경로는 report_aggregate 원본만 본다 — disk baseline 주입 없음(유휴 활동 축 미관측).
+    stats = build_resource_stats(raw, disk_baseline=None)
     # 분류·근본원인·처방·신뢰도 전부 rollup_host 단일 모델 — 화면 간 정합(#E3). 처방은 자원별 독립(ADR 0056),
     # confidence_notes 도 host 기반(build_host_confidence_notes).
     host = recommendation.rollup_host(stats)
@@ -569,9 +571,9 @@ def to_capacity_warning_item(raw: ReportRowRaw):
         public_id=raw.public_id,
         hostname=raw.hostname,
         classification=classification,
-        classification_label=recommendation.LABEL_KO.get(classification, classification),
-        badge_class=recommendation.BADGE_CLASS.get(classification, ""),
-        classification_rank=recommendation.CLASSIFICATION_ORDER.get(classification, 99),
+        classification_label=recommendation.LABEL_KO[classification],
+        badge_class=BADGE_CLASS[classification],
+        classification_rank=recommendation.CLASSIFICATION_ORDER[classification],
         active_causes=active_causes,
         # 워크로드 카테고리 카운트 — role_distribution 과 동일 단일 진실 (services 이름 + listen 소켓).
         services=dict(workload_category_counter(raw.services, raw.listen_ports)),

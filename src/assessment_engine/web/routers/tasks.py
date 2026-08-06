@@ -110,11 +110,11 @@ class InstallRequest(BaseModel):
         raise ValueError(f"invalid IP, hostname, host:port, or URL: {v}")
 
 
-@tasks_router.post("/install", response_model=list[TaskCreated])
+@tasks_router.post("/install")
 async def install(
     req: InstallRequest,
     service: TaskServiceDep,
-):
+) -> list[TaskCreated]:
     """N대 ZConverter 설치 발행 — 서버당 task 1건. zdm_ip/zdm_user 미지정 시 서버 기본값(ZDM_DEFAULT_*) 사용.
 
     이미 pending 인 서버가 있으면 409, 대상 서버 미존재는 404, ZDM 좌표 미해결(메타 조회 실패 등)은 503.
@@ -135,11 +135,11 @@ async def install(
         raise HTTPException(status_code=503, detail=str(e)) from e
 
 
-@tasks_router.get("/{task_id}", response_model=TaskDetailItem)
+@tasks_router.get("/{task_id}")
 async def get_task(
     task_id: UUID,
     service: QueryServiceDep,
-):
+) -> TaskDetailItem:
     """단일 task 상세 — JSON. polling / list cell 갱신 callback 용."""
     detail = await service.get_task(str(task_id))
     if detail is None:
@@ -168,7 +168,7 @@ async def get_task_detail_fragment(
     )
 
 
-@tasks_router.get("", response_model=list[TaskSummaryItem])
+@tasks_router.get("")
 async def list_recent_tasks(
     service: QueryServiceDep,
     server_public_id: Annotated[UUID, Query(description="대상 서버 public_id (UUID)")],

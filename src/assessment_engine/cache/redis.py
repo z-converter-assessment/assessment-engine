@@ -1,4 +1,4 @@
-from functools import lru_cache
+from functools import cache
 from typing import cast
 
 from loguru import logger
@@ -11,7 +11,7 @@ from assessment_engine.config import WebSettings
 # 첫 get_pool 호출에서 만든다 — import 만으로 설정을 요구하지 않는다.
 
 
-@lru_cache(maxsize=1)
+@cache
 def get_pool() -> ConnectionPool:
     # redis 는 from_url 의 **kwargs 를 타입 없이 선언한다 — 인자 이름별 검증이 성립하지 않는다.
     return ConnectionPool.from_url(  # pyright: ignore[reportUnknownMemberType]

@@ -13,6 +13,12 @@ from assessment_engine import recommendation
 from assessment_engine.json_types import json_list
 from assessment_engine.service_classifier import SIGNATURE_CATEGORIES, detect_listen_categories
 from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
+from assessment_engine.web.services.mappers.os_eol import (
+    lookup_os_eol,
+    os_eol_display,
+    resolve_os_eol,
+)
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.server import (
     _os_display,
     _services_or_none,
@@ -23,15 +29,12 @@ from assessment_engine.web.services.mappers.server import (
 )
 from assessment_engine.web.services.mappers.shared import (
     _DONUT_SEGMENT_DEFS,
-    _DONUT_SEGMENT_FROM_REC,
+    BADGE_CLASS,
     OS_FAMILY_LABEL_KO,
     RISK_LEVEL_ORDER,
     ReportView,
     SaturationAxisDisplay,
     build_host_confidence_notes,
-    lookup_os_eol,
-    os_eol_display,
-    resolve_os_eol,
     saturation_axis_displays,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
@@ -170,7 +173,11 @@ def build_report_summary_bullets(
     # 디스크 I/O 포화 신호 — OS별 정규화(disk_io_saturated: Linux iowait / Windows disk_queue). 디스크 병목 = 고객 의사결정 직결.
     # build_resource_stats 는 ReportRowRaw 필요(cpu_sufficiency 등 raw 축) — raws 있을 때만 산출 (OS EOL 신호와 동일 게이트).
     if raws:
-        disk_sat_raws = [r for r in raws if recommendation.disk_io_saturated(build_resource_stats(r))]
+        disk_sat_raws = [
+            r
+            for r in raws
+            if recommendation.disk_io_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
+        ]
         if disk_sat_raws:
             phrase = _top_phrase([r.hostname for r in disk_sat_raws])
             bullets.append(f"디스크 I/O 포화 {len(disk_sat_raws)}대 ({phrase}) — 디스크 병목.")
@@ -180,7 +187,8 @@ def build_report_summary_bullets(
         mount_hosts = [
             f"{r.hostname}({r.disk_capacity_driving_mount or '?'} {int(r.disk_capacity_runway_days)}일)"
             for r in raws
-            if recommendation.assess_disk_capacity(build_resource_stats(r)).status == "filling"
+            if recommendation.assess_disk_capacity(build_resource_stats(r, disk_baseline=r.disk_iops_baseline)).status
+            == "filling"
             and r.disk_capacity_runway_days is not None
         ]
         if mount_hosts:
@@ -207,7 +215,11 @@ def build_report_summary_bullets(
         # 와 동일 신호(임계 재계산 0)라 run queue 로 under_provisioned 분류된 Windows 호스트가 요약에서 누락되지
         # 않는다(B1). build_resource_stats 필요 -> raws 있을 때만(disk_io bullet 와 동일 게이트).
         if raws:
-            sat_hosts = [r.hostname for r in raws if recommendation.cpu_saturated(build_resource_stats(r))]
+            sat_hosts = [
+                r.hostname
+                for r in raws
+                if recommendation.cpu_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
+            ]
             if sat_hosts:
                 bullets.append(
                     f"CPU 포화 {len(sat_hosts)}대 ({_top_phrase(sat_hosts)}) — run queue/load 가 코어 처리 한계 초과."
@@ -675,11 +687,11 @@ def build_period_assessment(
     # 종합·자원별 판정 — rollup_host 1회(목록 자원 적정성과 동일 단일 진실). 배지=host_status 종합, 소제목 옆
     # verdict=자원별 status(어느 자원발인지). 문제 자원만 색, 정상·유휴·미측정은 muted.
     host = rec.rollup_host(stats)
-    seg_key = _DONUT_SEGMENT_FROM_REC.get(rec.host_status_to_recommendation(host.host_status), "insufficient_data")
-    cls_label = rec.LABEL_KO.get(seg_key, seg_key)
-    cls_color = next((c for k, _, c, _ in _DONUT_SEGMENT_DEFS if k == seg_key), "#64748b")
+    seg_key = rec.host_status_to_recommendation(host.host_status)
+    cls_label = rec.LABEL_KO[seg_key]
+    cls_color = next(c for k, c, _ in _DONUT_SEGMENT_DEFS if k == seg_key)
 
-    def _rstat(kind: str) -> str:
+    def _rstat(kind: recommendation.ResourceKind) -> recommendation.ResourceStatus:
         return host.resources[kind].status if kind in host.resources else "unmeasured"
 
     # 스토리지 = 용량(disk_capacity) + 성능/IO(disk_io) 독립 2축 — 배지 1개로 합치면(우선순위 승자만 노출)
@@ -754,72 +766,6 @@ def build_period_assessment(
 # --- ReportRowRaw -> ReportRowItem (P2 단일 변환) ---
 
 
-def build_resource_stats(raw: ReportRowRaw) -> recommendation.ResourceStats:
-    """ReportRowRaw -> USE Method ResourceStats — report·attention mapper 공용(단일 진실).
-
-    net baseline = server_net_io rx+tx 윈도우 평균(kB/s). 둘 다 None 이면 None(유휴 skip),
-    하나만 있으면 다른쪽 0. os_family 전달로 포화 축 OS 분기(P2). report·attention·서버목록·환경이
-    동일 stats 로 rollup_host 를 타 화면 간 분류 정합(임계 재계산 0).
-    """
-    net_avg = (
-        None if raw.net_rx_kbps is None and raw.net_tx_kbps is None else (raw.net_rx_kbps or 0) + (raw.net_tx_kbps or 0)
-    )
-    # 표본 충분성 — 측정된 축(p95 not None)의 sufficiency 만 모아 min(보수적). 둘 다 부재면 None(판정 무관).
-    suffs = [
-        s
-        for p95, s in ((raw.cpu_p95_pct, raw.cpu_sufficiency), (raw.mem_p95_pct, raw.mem_sufficiency))
-        if p95 is not None and s is not None
-    ]
-    return recommendation.ResourceStats(
-        cpu_p95_pct=raw.cpu_p95_pct,
-        cpu_peak_pct=raw.cpu_peak_pct,
-        # CPU 포화는 실행 큐로 판정한다 — Linux procs_running_p95, Windows cpu_run_queue_p95.
-        cpu_load_15m_max=None,
-        cpu_cores=raw.cpu_cores,
-        mem_p95_pct=raw.mem_p95_pct,
-        mem_near_peak_pct=raw.mem_near_peak_pct,
-        # 필드명은 점유량이지만 싣는 값은 페이징 신호다 — 메모리 포화를 swap 점유가 아니라 refault 지속으로 본다.
-        swap_used=raw.mem_swap_paging,
-        disk_used_pct=raw.worst_mount_used_pct,
-        iowait_p95_pct=raw.iowait_p95_pct,
-        net_avg_kbytes_per_s=net_avg,
-        os_family=raw.os_family,
-        sample_sufficiency=min(suffs) if suffs else None,
-        # Windows CPU saturation — Processor Queue Length p95 / Memory 는 Pages Input/sec rate p95 (os-aware 소비).
-        cpu_run_queue_p95=raw.cpu_run_queue_p95,
-        mem_pages_input_rate_p95=raw.mem_pages_input_rate_p95,
-        # --- rollup_host 입력 — report_aggregate 산출 raw 를 도메인 축으로 배선 ---
-        # 가장 바쁜 코어 p95 — 단일스레드 병목 판정(RS_CPU_PERCORE_HOLD). Windows·구 agent 는 None(graceful skip).
-        cpu_percore_p95_max=raw.cpu_percore_p95_max,
-        procs_blocked_p95=raw.procs_blocked_p95,
-        # Linux CPU 포화 신호 + OOM 메모리 증거 — cpu_saturated·assess_memory os-aware 소비.
-        procs_running_p95=raw.procs_running_p95,
-        oom_occurred=raw.oom_occurred,
-        mem_swap_paging=raw.mem_swap_paging,
-        mem_total_mb=(raw.mem_total_bytes // 1024**2 if raw.mem_total_bytes is not None else None),
-        disk_await_p95_ms=raw.disk_await_p95_ms,
-        disk_iops_baseline=raw.disk_iops_baseline,  # 유휴 판정 활동 축 (디스크 I/O 활동량)
-        disk_capacity_runway_days=raw.disk_capacity_runway_days,
-        disk_inode_runway_days=raw.disk_inode_runway_days,
-        disk_inode_used_pct=raw.disk_inode_used_pct,
-        disk_capacity_target_gb=raw.disk_capacity_target_gb,
-        net_retrans_pct=raw.net_retrans_pct,
-        net_drop_pct=raw.net_drop_pct,
-        conntrack_ratio=raw.conntrack_ratio,
-        history_hours=raw.history_hours,
-        cpu_burst_ratio=raw.cpu_burst_ratio,
-        # 이용률 상승 추세 — 임계 이진화는 도메인 단일(regr_slope %/day raw -> bool). 다운사이즈 정상성 게이트.
-        # span 가드 — 이력이 추세 신뢰 바닥(RS_CONFIDENCE_MIN_HOURS) 미만이면 slope 가 boot-ramp/지터에 지배돼
-        # 오탐(상승추세)이므로 추세 미판정(None). 짧은 이력은 어차피 low_precision 으로 다운사이즈 이미 보류.
-        util_trend_rising=(
-            recommendation.util_trend_rising_from_slopes(raw.cpu_trend_slope, raw.mem_trend_slope)
-            if raw.history_hours is not None and raw.history_hours >= recommendation.RS_CONFIDENCE_MIN_HOURS
-            else None
-        ),
-        cpu_steal_p95_pct=raw.cpu_steal_p95_pct,
-    )
-
-
 def _build_workload_display(
     raw: ReportRowRaw,
 ) -> tuple[list[ReportWorkloadGroup], list[ReportListenItem]]:
@@ -875,7 +821,8 @@ def to_report_row_item(
     info = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
     os_eol, os_eol_status = ("", "unknown") if info is None else (info.eol_iso, info.status)
     os_eol_disp = os_eol_display(os_eol_status, os_eol)
-    stats = build_resource_stats(raw)  # net baseline·OS 분기 포함 — report·attention 공용 단일 진실
+    # 보고서 경로는 `_assemble_report_raws` 가 disk baseline 을 채워 온 raw 를 받는다 (유일한 주입 경로).
+    stats = build_resource_stats(raw, disk_baseline=raw.disk_iops_baseline)
     # rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생한다 (화면 간 분류 정합).
     host = recommendation.rollup_host(stats)
     # 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). assess_network status 를 라벨로.
@@ -947,7 +894,7 @@ def to_report_row_item(
         net_congested=host.network_congested,
         recommendation=rec,
         recommendation_label=recommendation.LABEL_KO[rec],
-        badge_class=recommendation.BADGE_CLASS[rec],
+        badge_class=BADGE_CLASS[rec],
         risk_level=risk_level,
         risk_label=risk_label,
         risk_badge_class=risk_badge_class,

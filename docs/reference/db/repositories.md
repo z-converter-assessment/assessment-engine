@@ -60,7 +60,7 @@
 | `report_memory_breakdown_batch` / `report_cpu_breakdown_batch` | 위 둘의 N대 배치판 (GROUP BY server_id) |
 | `metric_gap_warnings(gap_minutes, recent_hours, limit)` | metric 발행 갭이 gap_minutes 초과 + 최근 recent_hours 안 발행이 있던 서버. limit=None 이면 전수 |
 | `environment_utilization(period_days, end, server_ids?)` | 환경 평균 활용률 도넛 (capacity-weighted, sum(used)/sum(total)). server_ids 한정 시 선택 N대·단일(selection 보고서), None 이면 전체 환경 |
-| `metric_trend(metric_type, start, end, bucket, server_ids?, agg, dimension, collapse)` | 통일 차트 시계열 — 환경·선택·서버상세 단일 진실. `bucket: BucketSize`(SQL interval·경계 timedelta 는 repo 내부 `_BUCKET_INFO` 파생, 캡슐화). metric_type 풀세트를 내부 SQL 분기로 흡수(그룹별 시점값 산식은 아래). server_ids=None 전체·[1대]=서버상세 동치·[N]=선택. collapse=False 면 device/iface/mount dimension 보존(상세 멀티라인), True 면 합산 단일선(환경). agg=avg/max/p95 |
+| `metric_trend(metric_type, start, end, bucket, server_ids?, agg, dimension, collapse)` | 통일 차트 시계열 — 환경·선택·서버상세 단일 진실. `bucket: BucketSize`(SQL interval·경계 timedelta 는 repo 내부 `_BUCKET_INFO` 파생, 캡슐화). metric_type 풀세트를 `_TREND_PAIRS` dispatch table 이 흡수 — 키 하나에 builder 함수 하나이고, 누락·중복은 import 시점 AssertionError (그룹별 시점값 산식은 아래). server_ids=None 전체·[1대]=서버상세 동치·[N]=선택. collapse=False 면 device/iface/mount dimension 보존(상세 멀티라인), True 면 합산 단일선(환경). agg=avg/max/p95 |
 
 ### 차트 집계 (`metric_trend`) — 그룹별 시점값 산식
 

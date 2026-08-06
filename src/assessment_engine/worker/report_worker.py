@@ -44,7 +44,7 @@ async def _process_one(
         # 도메인 사유(등록 서버 0·유효 id 0 등) — 운영자에게 그대로 노출 가능(PII 아님).
         await diag_service.finish_failed(rec.id, str(e))
         logger.info("report job failed (generation) job_id={} reason={}", rec.id, str(e))
-    except Exception:
+    except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
         # 워커 격리 — 한 job 실패가 루프를 중단시키면 안 됨(F6 except Exception 예외: reraise 시 워커 사망).
         # raw 예외는 traceback 로그만, 사용자 노출 error_message 는 sanitize(F8).
         logger.exception("report job failed (internal) job_id={}", rec.id)
@@ -68,7 +68,7 @@ async def run_report_worker(
         recovered = await diag_service.recover_stale(stale_seconds)
         if recovered:
             logger.info("report worker recovered stale running jobs n={}", recovered)
-    except Exception:
+    except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
         # 기동 시 DB 일시 장애 — 워커를 죽이지 않고 루프 진입(claim 이 이후 재시도). F6 격리.
         logger.exception("report worker stale recovery failed at startup")
     logger.info("report worker started poll_interval={}s stale={}s", poll_interval_sec, stale_seconds)
@@ -76,7 +76,7 @@ async def run_report_worker(
     while not stop_event.is_set():
         try:
             rec = await diag_service.claim_pending()
-        except Exception:
+        except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
             # claim 자체 실패(DB 일시 장애 등) — 루프 유지, poll 후 재시도.
             logger.exception("report worker claim failed")
             await sleep_or_stop(stop_event, poll_interval_sec)
@@ -86,7 +86,7 @@ async def run_report_worker(
             continue
         try:
             await _process_one(diag_service, query_service_factory, rec)
-        except Exception:
+        except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
             # _process_one 은 생성 예외를 내부 격리하나 finish_succeeded/finish_failed 의 DB 호출은 전파 가능 —
             # 루프에서 방어(워커 사망 방지). job 은 running 잔류 -> 다음 기동 recover_stale 가 회수(F6 격리).
             logger.exception("report worker process failed job_id={}", rec.id)
