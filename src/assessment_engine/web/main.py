@@ -5,9 +5,10 @@ from typing import TYPE_CHECKING
 
 import aio_pika
 import httpx
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from loguru import logger
+from starlette.datastructures import MutableHeaders
 
 from assessment_engine.cache.redis import close_pool
 from assessment_engine.log_config import setup_logging
@@ -22,9 +23,7 @@ from assessment_engine.web.settings import get_diagnostic_settings, get_web_sett
 from assessment_engine.web.templating.setup import env_globals
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
-
-    from starlette.responses import Response
+    from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 
 @asynccontextmanager
@@ -84,26 +83,47 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ZConverter Assessment Portal", lifespan=lifespan)
 
 
-@app.middleware("http")
-async def disable_html_cache(request: Request, call_next: Callable[[Request], Awaitable[Response]]) -> Response:
-    """SSR(text/html) + dev 한정 static asset 에 `Cache-Control: no-store` 적용.
+class DisableHtmlCache:
+    """SSR(text/html) + dev 한정 static asset 에 `Cache-Control: no-store` 를 얹는 ASGI 미들웨어.
 
-    HTML: 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저 HTTP cache·BFCache 로
-    list 페이지가 stale HTML 그대로 복원되는 회귀 회피.
+    HTML: 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저 HTTP cache·BFCache 로 list 페이지가
+    stale HTML 그대로 복원되는 회귀 회피.
 
     Static (JS/CSS): dev 환경 한정. hot reload 후 클라이언트가 즉시 새 JS 받게 강제.
     prod 는 cdn·long-cache 운영을 위해 본 분기 비활성.
-    """
-    dev = getattr(request.app.state, "dev_assets", False)
-    # dev — 매 요청 asset_v 재발급: 정적 자원 URL(`?v=`)이 매번 바뀌어 브라우저 disk cache·304 까지 회피.
-    if dev:
-        env_globals["asset_v"] = format(int(time.time() * 1000), "x")
-    response = await call_next(request)
-    ct = response.headers.get("content-type", "")
-    if ct.startswith("text/html") or (dev and request.url.path.startswith("/static/")):
-        response.headers["Cache-Control"] = "no-store"
-    return response
 
+    `BaseHTTPMiddleware`(@app.middleware) 를 쓰지 않는다 — 그쪽은 응답을 별도 task 로 감싸 스트리밍
+    응답과 contextvar 전파에 제약이 생긴다. 헤더 한 줄을 얹는 데 그 비용을 낼 이유가 없다.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        dev = getattr(app.state, "dev_assets", False)
+        # dev — 매 요청 asset_v 재발급: 정적 자원 URL(`?v=`)이 매번 바뀌어 브라우저 disk cache·304 까지 회피.
+        if dev:
+            env_globals["asset_v"] = format(int(time.time() * 1000), "x")
+        is_static = scope.get("path", "").startswith("/static/")
+
+        async def send_with_header(message: Message) -> None:
+            if message["type"] == "http.response.start":
+                headers = MutableHeaders(scope=message)
+                # ASGI 규약상 헤더 이름은 소문자로 온다. raw 리스트에 append 하면 Cache-Control 이
+                # 중복으로 나가므로 반드시 대입(replace)으로 얹는다.
+                content_type = headers.get("content-type", "")
+                if content_type.startswith("text/html") or (dev and is_static):
+                    headers["Cache-Control"] = "no-store"
+            await send(message)
+
+        await self.app(scope, receive, send_with_header)
+
+
+app.add_middleware(DisableHtmlCache)
 
 _STATIC_DIR = Path(__file__).parent / "static"
 app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
