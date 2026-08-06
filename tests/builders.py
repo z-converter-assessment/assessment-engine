@@ -11,6 +11,7 @@ outbound DTO 를 만든다 — 계약이 아니라 조회 결과라 필드가 �
 원본과 참조를 공유해서, 제자리 변형(`_inject_net_baseline` 등)이 다음 테스트로 샌다.
 """
 
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -63,3 +64,43 @@ def report_row_raw(**overrides: Any) -> ReportRowRaw:
     }
     base.update(overrides)
     return ReportRowRaw(**base)
+
+
+def server_detail(server_id: int, hostname: str, **overrides: Any) -> Any:
+    """`ServerDetail` outbound DTO. 필수 필드를 전부 채운 최소 인벤토리 한 대."""
+    from datetime import timedelta
+
+    from assessment_engine.db.dtos.outbound import ServerDetail
+
+    base: dict[str, Any] = {
+        "id": server_id,
+        "public_id": f"p{server_id}",
+        "agent_id": f"00000000-0000-4000-8000-{server_id:012d}",
+        "composite_id": f"composite-{server_id}",
+        "machine_id": None,
+        "hostname": hostname,
+        "agent_version": "1.0.0",
+        "os_family": "linux",
+        "os_id": "ubuntu",
+        "os_version": "22.04",
+        "os_codename": "jammy",
+        "kernel_version": "5.15.0",
+        "cpu_cores": 4,
+        "cpu_model": "builder-cpu",
+        "cpu_arch": "x86_64",
+        "cpu_bits": 64,
+        "mem_total_bytes": 8 * 1024**3,
+        "swap_total_bytes": 0,
+        "last_seen_at": BUILDER_NOW,
+        "boot_time": BUILDER_NOW - timedelta(days=30),
+        "agent_started_at": BUILDER_NOW - timedelta(days=1),
+        "net_interfaces": [dict(_DEFAULT_NIC)],
+        "ip_external": None,
+        "block_devices": [dict(_DEFAULT_DISK)],
+        "lvm_vgs": [],
+        "services": None,
+        "listen_ports": [],
+    }
+    base.update(overrides)
+    fields = {f.name for f in dataclasses.fields(ServerDetail)}
+    return ServerDetail(**{k: v for k, v in base.items() if k in fields})
