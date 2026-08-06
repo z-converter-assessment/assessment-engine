@@ -15,7 +15,6 @@ from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     TimeRange,
 )
-from assessment_engine.diagnostic.report_result import normalize_anchor
 from assessment_engine.web.deps import DiagnosticServiceDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.routers._report_snapshot import (
@@ -28,6 +27,7 @@ from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.mappers.api_reference import build_api_reference
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
 from assessment_engine.web.services.mappers.shared import build_service_badge_reference
+from assessment_engine.web.services.report_result import normalize_anchor
 from assessment_engine.web.templating import templates
 
 reports_router = APIRouter(prefix="/reports", tags=["pages"])

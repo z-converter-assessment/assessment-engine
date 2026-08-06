@@ -2,7 +2,7 @@
 
 정책: CLAUDE.md #D. aio-pika 기반 순수 비동기 컨슈머, FastAPI와 독립 프로세스.
 
-책임 축 — `schemas.py`(에이전트 메시지 파싱·검증 계약) / `mappers.py`(Pydantic 스키마 → Inbound DTO) / `handlers/`(routing key 별 처리 흐름 + `_common.py` 공용 helper — 멱등성·DB 재시도·시계 invariant·agent 재시작 추적) / `main.py`(진입점·MQ 토폴로지 선언·Redis 생명주기).
+책임 축 — `schemas.py`(에이전트 메시지 파싱·검증 계약) / `mappers.py`(Pydantic 스키마 → Inbound DTO) / `handlers/`(routing key 별 처리 흐름 + `_common.py` 공용 helper — 멱등성·DB 재시도·시계 invariant·agent 재시작 추적) / `task_policy.py`(task.result 성공/실패 판정 — 소비자가 handlers 하나라 consumer 소속) / `main.py`(진입점·MQ 토폴로지 선언·Redis 생명주기).
 
 ---
 
@@ -43,7 +43,7 @@ online 마킹 + 메트릭 캐시 무효화 + `_track_agent_restart` 호출 (동�
 없음. 파싱 + 멱등성 + 로깅만 (재시도 컨텍스트 `retry_count`/`first_failed_at`/`recovered_at` 포함).
 
 ### task.result 후처리
-1. 성공 보정 — `task_policy.effective_task_result` 가 status/failure_reason 을 보정한다. 정책 키·기본값은 `docs/reference/contracts/env.md` `TASK_INSTALL_SUCCESS_EXIT_CODES` 단일 진실. `exit_code` 는 raw 로 보존한다(감사용).
+1. 성공 보정 — `consumer/task_policy.py` 의 `effective_task_result` 가 status/failure_reason 을 보정한다. 정책 키·기본값은 `docs/reference/contracts/env.md` `TASK_INSTALL_SUCCESS_EXIT_CODES` 단일 진실. `exit_code` 는 raw 로 보존한다(감사용).
 2. DB UPDATE — `complete_task(TaskResultUpdate)`. 저장 필드는 `db/dtos/inbound.py` `TaskResultUpdate` 단일 진실. task_id 미존재 시 silent ack (운영자가 task 삭제했을 가능성 — DLQ 부적합).
 3. 보정이 일어난 경우 remapped INFO 로그를 남긴다.
 

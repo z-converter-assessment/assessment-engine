@@ -41,9 +41,9 @@ def _jsonable(value: object) -> object:
 def to_jsonable(vm: DataclassInstance) -> JsonObject:
     """dataclass ViewModel -> JSONB 저장 가능 dict (datetime -> ISO str, nested 재귀).
 
-    `asdict` 가 이미 트리를 깊은 복사하므로 그 위를 한 번 더 걷는다. 예전에는 datetime 하나를 ISO 로
-    바꾸려고 트리 전체를 JSON 문자열로 인코딩했다 다시 파싱했다 — 환경 보고서는 서버 N대 트리 전체가
-    발행 때마다 그 왕복을 탔다.
+    `asdict` 가 이미 트리를 깊은 복사하므로 그 위를 한 번 더 걷는다 — datetime 하나를 ISO 로 바꾸려고
+    트리 전체를 JSON 문자열로 인코딩했다 다시 파싱할 이유가 없다. 환경 보고서는 서버 N대 트리 전체가
+    발행 때마다 이 경로를 탄다.
     """
     return cast("JsonObject", _jsonable(dataclasses.asdict(vm)))
 

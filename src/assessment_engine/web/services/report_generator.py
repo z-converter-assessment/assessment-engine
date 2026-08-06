@@ -15,7 +15,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from assessment_engine.db.repositories.query.types import DIAGNOSTIC_DEFAULT_TIME_RANGE
-from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV, build_report_result
+from assessment_engine.web.services.report_result import REPORT_KIND_ENV, build_report_result
 from assessment_engine.web.services.report_serializer import env_report_to_dict
 
 if TYPE_CHECKING:

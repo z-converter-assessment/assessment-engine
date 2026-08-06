@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 성능 추이 페이지 차트 로직.
  *
@@ -18,9 +17,8 @@
  * - body data-server-id/data-os-family (E6 외부화 규약, static-assets.md)
  */
 /** @typedef {import('../generated/api').components['schemas']['MetricSeriesItem']} Row */
-const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
-        fmtKbChart, fmtThroughput, safeArray, bindToggle, renderChipLegend,
-        buildAvgMaxDatasets, buildAvgMaxLegend, buildDimDatasets } = ChartUtils;
+import { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, fmtKbChart, fmtThroughput, safeArray, bindToggle, renderChipLegend, buildAvgMaxDatasets, buildAvgMaxLegend, buildDimDatasets } from "@/chart-utils";
+import * as ChartUtils from "@/chart-utils";
 
 const SERVER_ID = document.body.dataset.serverId;
 

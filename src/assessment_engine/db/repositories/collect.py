@@ -1,3 +1,8 @@
+"""Consumer 측 데이터 접근 Protocol + 그 반환 타입 (#C2 · #F4).
+
+핸들러가 구현이 아니라 이 인터페이스에 의존하게 해서, 대역으로 갈아끼울 수 있게 한다.
+"""
+
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 

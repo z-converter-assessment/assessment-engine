@@ -13,6 +13,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
+from pydantic import TypeAdapter
 
 from assessment_engine import recommendation
 from assessment_engine.contract import API_CONTRACT_VERSION
@@ -26,6 +27,9 @@ from assessment_engine.web.services.mappers.right_sizing_api import _action
 from assessment_engine.web.view_models.assessment_api import AssessmentServer
 from tests.builders import report_row_raw
 from tests.hypothesis_scale import examples
+
+# TypedDict 는 인스턴스 메서드가 없어 어댑터를 거친다 — extra=forbid 검증은 그대로다.
+_SERVER_SCHEMA = TypeAdapter(AssessmentServer)
 
 _ACTIONS = {"increase", "decrease", "keep"}
 _QUALITY = {"exact", "floor", "uncertain"}
@@ -167,7 +171,7 @@ def test_entry_contract_invariants(raw: ReportRowRaw, mounts: list[MountCapacity
     json.dumps(entry)
     # 2b. 응답 스키마(계약 타입 미러) drift 가드 — 매퍼 dict 가 AssessmentServer(extra=forbid)에 검증.
     #     신규/누락 키나 타입 불일치 = OpenAPI 스키마와 매퍼 어긋남 = 즉시 실패.
-    AssessmentServer.model_validate(entry)
+    _SERVER_SCHEMA.validate_python(entry)
 
     # 3. identity passthrough
     ident = entry["identity"]

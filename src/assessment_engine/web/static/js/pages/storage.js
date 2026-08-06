@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * storage 페이지 차트 로직.
  *
@@ -11,9 +10,9 @@
  * 같은 창·시점으로 그려진다(신호 간 시점 상관).
  */
 // ChartUtils — /static/js/chart-utils.js (base.html에서 로드)
-const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, fmtThroughput,
-        makeBucketGrid, pageTimeControl, initAutoRefresh, safeArray,
-        buildAvgMaxDatasets, buildAvgMaxLegend, buildDimDatasets, renderChipLegend } = ChartUtils;
+import { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, fmtThroughput, makeBucketGrid, pageTimeControl, initAutoRefresh, safeArray, buildAvgMaxDatasets, buildAvgMaxLegend, buildDimDatasets, renderChipLegend } from "@/chart-utils";
+import * as ChartUtils from "@/chart-utils";
+import * as SignalUtils from "@/signal-utils";
 
 const SERVER_ID = document.body.dataset.serverId;
 

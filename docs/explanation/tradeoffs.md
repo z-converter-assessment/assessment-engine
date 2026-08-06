@@ -195,35 +195,30 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ---
 
-## T9. 차트 공통 JS — 전역 `ChartUtils` 단일 로드 (모듈 시스템 없음)
+## T9. 클라이언트 JS — 브라우저 네이티브 ESM, 번들러 미도입
 
-> 관련 코드: `src/assessment_engine/web/static/js/chart-utils.js`, `src/assessment_engine/web/main.py` `StaticFiles` 마운트, `src/assessment_engine/web/static/js/pages/`
+> 관련 코드: `src/assessment_engine/web/static/js/`, `src/assessment_engine/web/templates/base.html` importmap, `tsconfig.json` paths
 
 선택
-- 차트 페이지 공통 정의(시각 포매터·버킷 그리드·색·range 토글 등)는 `/static/js/chart-utils.js` 한 곳. `base.html`에서 단일 로드 -> 전역 `ChartUtils` IIFE 객체 노출. API 카탈로그는 `docs/reference/web/static-assets.md` 단일 진실.
-- 각 페이지 .js 는 상단에서 `const { ... } = ChartUtils;`로 destructure.
+- 공용 유틸은 ESM 모듈로 두고 페이지 .js 가 `import` 로 부른다. bare specifier(`@/chart-utils`)를 base.html `importmap` 이 `?v=` 붙은 실 URL 로 해석한다.
+- 번들러는 두지 않는다 — 브라우저가 파일을 그대로 받는다. 빌드 산출물 0, node 는 dev/CI 전용(타입 계약 검사·codegen)이라 런타임 의존이 아니다.
 
 대안
-- 페이지별 사본: 각 페이지 .js 가 공통 정의를 자기 안에 둠. 빌드 도구 불필요, 한 파일만 보면 모든 로직 파악.
-- 번들러 도입 (Vite/esbuild + ESM): import/export로 모듈화. 트리쉐이킹·타입체크 가능.
-- WebComponent: 차트를 컴포넌트로 분리하고 props/이벤트로 인터랙션.
+- 번들러 도입 (Vite/esbuild): 트리쉐이킹·코드 분할. 대신 node_modules·빌드 스텝·소스맵·CI 변경이 런타임 경로에 들어온다.
+- 페이지별 사본: 빌드 도구 불필요하고 한 파일만 보면 되지만, 공통 정의가 페이지 수만큼 갈라진다.
+- WebComponent: 차트를 컴포넌트로 분리. 지금 필요한 것은 함수 재사용이지 캡슐화가 아니다.
 
 트레이드오프
-- 얻은 것: 공통 정의가 한 곳 — 시그니처 변경이 1곳 수정으로 끝난다. 페이지 .js 에는 차트 데이터셋 빌드 로직만 남는다.
-- 포기한 것: 모듈 시스템(import/export) 없음. `ChartUtils.X` 또는 destructure 형태로만 노출. 의존 그래프가 명시적이지 않음.
+- 얻은 것: 의존 그래프가 `import` 문으로 명시된다. tsc 가 구현에서 타입을 추론하므로 손으로 미러링한 ambient 선언이 필요 없고, 따라서 그 선언이 구현과 어긋날 자리도 없다.
+- 포기한 것: 번들이 없어 모듈 수만큼 요청이 난다. HTTP/2 다중화와 모듈 캐시로 흡수되는 범위라 판단.
 
 왜 받아들였나
-- 본 포털은 번들러 운영 비용(node_modules·빌드 스텝·소스맵·CI 변경) 대비 이득 작음.
-- IIFE + 단일 로드는 브라우저 캐싱 친화적이고 디버깅이 단순.
-
-정적 자원 형태 (외부화 배치 자체는 T6):
-- 번들 없이 브라우저가 파일을 그대로 받는다 — 빌드 산출물 0. node 는 dev/CI 전용(타입 계약 검사·codegen)이라 런타임 의존이 아니다. 타입 계약 메커니즘은 `docs/reference/web/type-contract.md` 단일 진실.
+- ESM 은 브라우저 기본 기능이라 번들러 운영 비용이 발생하지 않는다 — 이 절이 번들러를 기각한 근거(node_modules·빌드 스텝·소스맵)가 ESM 에는 적용되지 않는다.
+- 캐시 무효화는 importmap 이 맡는다. 상대 경로 import 를 쓰면 Jinja 가 그 URL 에 손댈 수 없어 재배포 후 브라우저가 옛 모듈을 캐시에서 꺼낸다.
 
 언제 다시 봐야 하는가
-- 모듈 그래프가 커져 전역 `ChartUtils` 노출로 의존을 못 따라갈 때.
-- -> Vite/esbuild 번들 도입 — `app.mount("/static", ...)`을 `dist/`로 변경.
-
----
+- 모듈 수가 늘어 초기 요청 수가 체감될 때 -> Vite/esbuild 번들 도입, `app.mount("/static", ...)` 을 `dist/` 로 변경.
+- vendor UMD(Chart·cytoscape)가 ESM 배포판을 내면 -> `globals.d.ts` 의 마지막 ambient 선언 둘도 제거.
 
 ## T10. ViewModel 비대화 vs 클라이언트 재계산 (P2 따름)
 

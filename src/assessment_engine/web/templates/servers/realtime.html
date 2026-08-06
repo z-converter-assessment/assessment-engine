@@ -13,6 +13,6 @@
 </div>
 
 {% include "_reference_link.html" %}
-<script src="/static/js/pages/realtime.js?v={{ asset_v }}" defer></script>
+<script type="module" src="/static/js/pages/realtime.js?v={{ asset_v }}"></script>
 {% endblock %}
 {% block body_attrs %} data-selection-ids="{{ selection_ids }}"{% endblock %}

@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * cpu 페이지 차트 로직.
  *
@@ -10,6 +9,10 @@
  * 시간축: 페이지 단일 range + anchor(#F10) — 3 차트(사용률·분류·실행큐)가 pageTimeControl 하나를 공유해
  * 같은 창·시점으로 그려진다(신호 간 시점 상관). usage 차트만 agg(avg/max/p95) 토글 별도 보유.
  */
+
+import * as ChartUtils from "@/chart-utils";
+import * as SignalUtils from "@/signal-utils";
+
 const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
         fmtLabel, makeBucketGrid, joinToGrid, bindToggle, pageTimeControl,
         initAutoRefresh, buildDimDatasets, renderChipLegend } = /** @type {any} */ (ChartUtils);
@@ -114,7 +117,7 @@ async function loadUsageChart() {
         datasets: [{
           label: 'CPU 사용률',
           data,
-          borderColor: /** @type {any} */ (ChartUtils).themeColor(),
+          borderColor: ChartUtils.themeColor(),
           borderWidth: 2,
           pointRadius: 1,
           pointHoverRadius: 3,
@@ -170,7 +173,7 @@ function renderCompChart(range, anchorEnd) {
 
   // Windows 는 cpu_stat 이 user/system/idle 만(iowait 개념 부재) — 해당 축 제외(빈 라인·범례 방지, OS 분기).
   const COMP_META = {
-    user:   { label: 'User',     color: /** @type {any} */ (ChartUtils).themeColor() },
+    user:   { label: 'User',     color: ChartUtils.themeColor() },
     system: { label: 'System',   color: '#f59e0b' },
     ...(OS_FAMILY === 'windows' ? {} : {
       iowait: { label: 'I/O Wait', color: '#ef4444' },
@@ -268,7 +271,7 @@ function renderLoadChart(range, anchorEnd) {
   canvas.style.display = ''; empty.style.display = 'none';
 
   const RUNQ_META = {
-    runq: { label: '실행 큐 (코어당)', color: /** @type {any} */ (ChartUtils).themeColor() },
+    runq: { label: '실행 큐 (코어당)', color: ChartUtils.themeColor() },
   };
   const bMs    = BUCKET_MS[AUTO_BUCKET[range]];
   const grid   = makeBucketGrid(range, AUTO_BUCKET[range], anchorEnd);

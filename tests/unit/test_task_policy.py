@@ -6,7 +6,7 @@
 그 외 모든 경우는 입력 그대로 통과. allowlist 변경 시 본 test 회귀 가시화.
 """
 
-from assessment_engine.task_policy import effective_task_result
+from assessment_engine.consumer.task_policy import effective_task_result
 
 ALLOW = {"20348": [2], "rocky:9": [3], "almalinux:9": [3], "ol:9": [3], "centos:9": [3]}
 

@@ -19,7 +19,6 @@ from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     TimeRange,
 )
-from assessment_engine.diagnostic.report_result import normalize_anchor
 from assessment_engine.web.deps import DiagnosticServiceDep, QueryServiceDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
 from assessment_engine.web.routers._report_snapshot import (
@@ -30,6 +29,7 @@ from assessment_engine.web.routers._report_snapshot import (
 )
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.report_generator import attention_by_host, attention_for_host
+from assessment_engine.web.services.report_result import normalize_anchor
 from assessment_engine.web.templating import templates
 
 # 단일 보고서는 서버 단위(/servers/{id}/report), N대 선택 보고서는 보고서 그룹(/reports/servers) — URL 명사 분리.

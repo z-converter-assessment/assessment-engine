@@ -16,10 +16,6 @@
       "2:script::",
       "2:script::",
       "2:script::",
-      "2:script::",
-      "2:script::",
-      "2:script::",
-      "2:script::",
       "1:body::",
       "2:div:nav-progress,no-print:nav-progress",
       "2:header:no-print,topbar:",
@@ -334,15 +330,16 @@
     "assets": [
       "link:data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563eb'/%3E%3Ctext x='16' y='23' font-size='20' font-family='Arial,sans-serif' font-weight='700' text-anchor='middle' fill='white'%3EZ%3C/text%3E%3C/svg%3E",
       "link:/static/css/app.css?v=ASSET_V",
-      "script:/static/js/chart-utils.js?v=ASSET_V",
-      "script:/static/js/toast-utils.js?v=ASSET_V",
-      "script:/static/js/emit-utils.js?v=ASSET_V",
-      "script:/static/js/table-utils.js?v=ASSET_V",
-      "script:/static/js/signal-utils.js?v=ASSET_V",
-      "script:/static/js/task-modal.js?v=ASSET_V",
+      "importmap:/static/js/chart-utils.js?v=ASSET_V",
+      "importmap:/static/js/emit-utils.js?v=ASSET_V",
+      "importmap:/static/js/signal-utils.js?v=ASSET_V",
+      "importmap:/static/js/table-utils.js?v=ASSET_V",
+      "importmap:/static/js/task-modal.js?v=ASSET_V",
+      "importmap:/static/js/toast-utils.js?v=ASSET_V",
       "script:/static/js/sidebar.js?v=ASSET_V",
       "script:/static/js/nav-progress.js?v=ASSET_V",
       "script:/static/js/topbar.js?v=ASSET_V",
+      "script:/static/js/task-modal.js?v=ASSET_V",
       "script:/static/js/pages/list-table.js?v=ASSET_V"
     ]
   }

@@ -1,4 +1,4 @@
-// @ts-check
+
 // Task 상세 modal + polling — base.html 의 #task-modal 요소를 채운다.
 //
 // 운영자 워크플로:
@@ -11,21 +11,21 @@
 // P4 client 연산 제한 — 표시 파생(badge_class·badge_label·failure_label)은 모두 server mapper precompute.
 // 본 JS 는 fetch + DOM 삽입만.
 
-(function () {
-  const modal     = /** @type {HTMLElement} */ (document.getElementById('task-modal'));
-  if (!modal) return;
-  const closeBtn  = /** @type {HTMLElement} */ (document.getElementById('task-modal-close'));
-  const titleEl   = /** @type {HTMLElement} */ (document.getElementById('task-modal-title'));
-  const bodyEl    = /** @type {HTMLElement} */ (document.getElementById('task-modal-body'));
-  if (!closeBtn || !titleEl || !bodyEl) return;
+// modal 마크업이 없는 페이지도 이 모듈을 import 한다(폴링만 쓰는 경우) — 요소 부재는 정상이고,
+// 그때는 바인딩만 건너뛴다. 모듈 최상위에서는 조기 return 을 쓸 수 없다.
+const modal    = document.getElementById('task-modal');
+const closeBtn = document.getElementById('task-modal-close');
+const titleEl  = document.getElementById('task-modal-title');
+const bodyEl   = document.getElementById('task-modal-body');
 
-  function open() {
-    modal.style.display = 'flex';
-  }
-  function close() {
-    modal.style.display = 'none';
-  }
+function open() {
+  if (modal) modal.style.display = 'flex';
+}
+function close() {
+  if (modal) modal.style.display = 'none';
+}
 
+if (modal && closeBtn && titleEl && bodyEl) {
   closeBtn.addEventListener('click', close);
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape' && modal.style.display === 'flex') close();
@@ -42,68 +42,69 @@
     e.preventDefault();
     openTask(taskId);
   });
+}
 
-  /** @param {string} s */
-  function escapeHtml(s) {
-    return (s || '').replace(/[&<>"']/g, (/** @type {string} */ c) => (/** @type {Record<string, string>} */ ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }))[c]);
+/** @param {string} s */
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, (/** @type {string} */ c) => (/** @type {Record<string, string>} */ ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }))[c]);
+}
+
+/** @param {string} taskId */
+async function fetchTask(taskId) {
+  const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return /** @type {Promise<import('./generated/api').components['schemas']['TaskDetailItem']>} */ (
+    res.json()
+  );
+}
+
+// modal body 는 server fragment endpoint 가 partial HTML 반환 (P3 정공 — JS HTML 합성 폐기).
+// polling 은 위 fetchTask (JSON) 사용 — list cell 갱신 callback 전달 위해 JSON 필요.
+/** @param {string} taskId */
+async function fetchTaskFragment(taskId) {
+  const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/detail`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.text();
+}
+
+/** @param {string} taskId */
+async function openTask(taskId) {
+  if (!bodyEl || !titleEl) return;  // modal 마크업 없는 페이지 — 폴링만 쓰는 경우
+  bodyEl.innerHTML = '불러오는 중...';
+  titleEl.textContent = '작업 상세';
+  open();
+  try {
+    // title 은 JSON detail 의 task_id / target_hostname 필요 — JSON fetch 후 title set + fragment fetch.
+    const detail = await fetchTask(taskId);
+    titleEl.textContent = `작업 ${detail.task_id.slice(0, 8)} — ${detail.target_hostname || '—'}`;
+    bodyEl.innerHTML = await fetchTaskFragment(taskId);
+  } catch (e) {
+    bodyEl.innerHTML = `<p class="text-danger">조회 실패: ${escapeHtml(/** @type {Error} */ (e).message)}</p>`;
   }
+}
 
-  /** @param {string} taskId */
-  async function fetchTask(taskId) {
-    const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return /** @type {Promise<import('./generated/api').components['schemas']['TaskDetailItem']>} */ (
-      res.json()
-    );
-  }
-
-  // modal body 는 server fragment endpoint 가 partial HTML 반환 (P3 정공 — JS HTML 합성 폐기).
-  // polling 은 위 fetchTask (JSON) 사용 — list cell 갱신 callback 전달 위해 JSON 필요.
-  /** @param {string} taskId */
-  async function fetchTaskFragment(taskId) {
-    const res = await fetch(`/api/tasks/${encodeURIComponent(taskId)}/detail`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    return res.text();
-  }
-
-  /** @param {string} taskId */
-  async function openTask(taskId) {
-    bodyEl.innerHTML = '불러오는 중...';
-    titleEl.textContent = '작업 상세';
-    open();
+// 발행 직후 task 가 status='pending' 인 동안 polling. final(success/failure) 도달 시 callback.
+// 호출자: list-table.js install 발행 후 응답 task_ids 각각에 대해 호출.
+// 최대 cap_seconds 동안 try, interval_ms 간격.
+/**
+ * @param {string} taskId
+ * @param {{ intervalMs?: number, capSeconds?: number, onUpdate?: (detail: any) => void }} [opts]
+ */
+async function pollUntilFinal(taskId, { intervalMs = 5000, capSeconds = 180, onUpdate } = {}) {
+  const deadline = Date.now() + capSeconds * 1000;
+  while (Date.now() < deadline) {
     try {
-      // title 은 JSON detail 의 task_id / target_hostname 필요 — JSON fetch 후 title set + fragment fetch.
       const detail = await fetchTask(taskId);
-      titleEl.textContent = `작업 ${detail.task_id.slice(0, 8)} — ${detail.target_hostname || '—'}`;
-      bodyEl.innerHTML = await fetchTaskFragment(taskId);
-    } catch (e) {
-      bodyEl.innerHTML = `<p class="text-danger">조회 실패: ${escapeHtml(/** @type {Error} */ (e).message)}</p>`;
-    }
-  }
-
-  // 발행 직후 task 가 status='pending' 인 동안 polling. final(success/failure) 도달 시 callback.
-  // 호출자: list-table.js install 발행 후 응답 task_ids 각각에 대해 호출.
-  // 최대 cap_seconds 동안 try, interval_ms 간격.
-  /**
-   * @param {string} taskId
-   * @param {{ intervalMs?: number, capSeconds?: number, onUpdate?: (detail: any) => void }} [opts]
-   */
-  async function pollUntilFinal(taskId, { intervalMs = 5000, capSeconds = 180, onUpdate } = {}) {
-    const deadline = Date.now() + capSeconds * 1000;
-    while (Date.now() < deadline) {
-      try {
-        const detail = await fetchTask(taskId);
-        if (onUpdate) onUpdate(detail);
-        if (detail.status === 'success' || detail.status === 'failure' || detail.status === 'failed') {
-          return detail;
-        }
-      } catch (_) {
-        // transient — 다음 tick 에서 재시도.
+      if (onUpdate) onUpdate(detail);
+      if (detail.status === 'success' || detail.status === 'failure' || detail.status === 'failed') {
+        return detail;
       }
-      await new Promise(r => setTimeout(r, intervalMs));
+    } catch (_) {
+      // transient — 다음 tick 에서 재시도.
     }
-    return null;
+    await new Promise(r => setTimeout(r, intervalMs));
   }
+  return null;
+}
 
-  window.TaskModal = { open: openTask, close, pollUntilFinal };
-})();
+export { openTask as open, close, pollUntilFinal };

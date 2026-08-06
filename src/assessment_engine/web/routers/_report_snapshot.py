@@ -15,8 +15,8 @@ from fastapi import HTTPException, Request
 
 from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
 from assessment_engine.db.repositories.query.types import DIAGNOSTIC_DEFAULT_TIME_RANGE
-from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV
 from assessment_engine.json_types import JsonObject
+from assessment_engine.web.services.report_result import REPORT_KIND_ENV
 from assessment_engine.web.services.report_serializer import env_report_from_dict
 from assessment_engine.web.templating import templates
 from assessment_engine.web.view_models.environment_report import EnvironmentReportSummary

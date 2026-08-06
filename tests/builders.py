@@ -8,7 +8,7 @@ outbound DTO 를 만든다 — 계약이 아니라 조회 결과라 필드가 �
 파일별 특수 사정(관심 있는 축만 채우기)은 override 로 표현하고 baseline 자체는 나누지 않는다.
 
 호출마다 새 인스턴스를 만든다. 모듈 상수를 만들어 `dataclasses.replace` 로 파생하면 list·dict 필드가
-원본과 참조를 공유해서, 제자리 변형(`_inject_net_baseline` 등)이 다음 테스트로 샌다.
+원본과 참조를 공유해서, 제자리 변형(`_with_net_baseline` 등)이 다음 테스트로 샌다.
 """
 
 import dataclasses

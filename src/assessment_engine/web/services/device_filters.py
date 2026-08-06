@@ -1,3 +1,9 @@
+"""block_device·net_interface·fstype 계층 술어 단일 진실.
+
+"물리 디스크인가" 같은 판정이 mapper 마다 흩어지면 같은 장치가 화면마다 다르게 세어진다. SQL 쪽
+대응 필터는 `db/repositories/query/types.py` 가 갖고 둘은 같은 agent 태그를 본다.
+"""
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

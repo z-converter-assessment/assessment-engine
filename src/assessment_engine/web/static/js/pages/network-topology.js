@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 네트워크 토폴로지 카드 — Cytoscape.js 3계층 force-directed 렌더러 (P4: 라이브러리 옵션·레이아웃·스타일·인터랙션만).
  *
@@ -15,11 +14,14 @@
  *
  * 외부 의존: cytoscape (topology.html 에서 본 파일보다 먼저 defer 로드). 미로드 시 silent skip.
  */
+
+import * as ChartUtils from "@/chart-utils";
+
 (function () {
   'use strict';
 
   // themeColor() 는 인자 없이 테마 primary 색 반환 (globals.d.ts 선언은 name 필수라 로컬 any 캐스트).
-  var OS_COLOR = /** @type {Record<string, string>} */ ({ linux: /** @type {any} */ (ChartUtils).themeColor(), windows: '#8b5cf6' });
+  var OS_COLOR = /** @type {Record<string, string>} */ ({ linux: ChartUtils.themeColor(), windows: '#8b5cf6' });
   var GW_COLOR = '#d97706';      // 라우터(게이트웨이) — amber, 네트워크 인프라로 구분
   var SUBNET_COLOR = '#475569';  // slate — 흰 텍스트 대비 확보
   var COLLAPSE_THRESHOLD = 150;  // 호스트 이보다 많으면 골격 뷰로 시작 (hairball 회피)

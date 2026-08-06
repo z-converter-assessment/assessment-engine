@@ -1,5 +1,7 @@
 """로그 출력 setup 단일 진실.
 
+패키지 루트에 있는 이유 — web·consumer·worker 세 entry 가 기동 직후 같은 함수를 부른다.
+
 loguru sink 등록 — text(colorized·dev 친화) vs json(외부 log aggregator indexing) 분기.
 각 entry(web/consumer/worker)가 기동 직후 호출.
 

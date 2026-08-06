@@ -1,3 +1,8 @@
+"""보고서 job 상태머신 데이터 접근 Protocol (#C2 · #F4).
+
+web(발행)과 worker(claim·완료)가 같은 인터페이스를 쓴다 — 상태 전이가 한 계약 안에 모여 있다.
+"""
+
 from typing import TYPE_CHECKING, Protocol
 
 if TYPE_CHECKING:

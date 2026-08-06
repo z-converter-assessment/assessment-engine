@@ -1,5 +1,8 @@
 """Right-sizing 분류 — USE Method (Brendan Gregg) + 공식 cloud advisor 임계값.
 
+패키지 루트에 있는 이유 — repo(집계 SQL 임계)와 web(분류·표시)이 같은 판정을 써야 하고, 도메인이
+표시 계층을 역으로 import 하는 일이 없어야 한다 (#E3).
+
 명세·근거 단일 진실: docs/reference/right-sizing.md (분류 정의·임계 출처·OS 분기·한계).
 
 evidence 기반 분류: 자원(CPU/Mem/Disk)별로 "가진 축"을 평가해 신호(trigger)를 모으고,

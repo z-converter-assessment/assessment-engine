@@ -7,17 +7,25 @@
   {# 인라인 SVG data-URI favicon — 새 에셋 없이 /favicon.ico 404 제거(브라우저가 link rel=icon 사용). #}
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563eb'/%3E%3Ctext x='16' y='23' font-size='20' font-family='Arial,sans-serif' font-weight='700' text-anchor='middle' fill='white'%3EZ%3C/text%3E%3C/svg%3E">
   <link rel="stylesheet" href="/static/css/app.css?v={{ asset_v }}">
-  <!-- 자식 template의 inline script(<main> 안)에서 ChartUtils를 즉시 destructure하므로
-       chart-utils.js는 자식 script 실행 전에 로드되어야 한다. <head>에 둠. -->
-  <script src="/static/js/chart-utils.js?v={{ asset_v }}"></script>
-  <script src="/static/js/toast-utils.js?v={{ asset_v }}"></script>
-  <script src="/static/js/emit-utils.js?v={{ asset_v }}"></script>
-  <script src="/static/js/table-utils.js?v={{ asset_v }}"></script>
-  <script src="/static/js/signal-utils.js?v={{ asset_v }}"></script>
-  <script src="/static/js/task-modal.js?v={{ asset_v }}" defer></script>
-  <script src="/static/js/sidebar.js?v={{ asset_v }}" defer></script>
-  <script src="/static/js/nav-progress.js?v={{ asset_v }}" defer></script>
-  <script src="/static/js/topbar.js?v={{ asset_v }}" defer></script>
+  {# importmap 이 캐시 무효화를 맡는다. 모듈은 bare specifier 로 서로를 부르므로, 상대 경로 import 에는
+     Jinja 가 손댈 수 없어 재배포 후에도 브라우저가 옛 파일을 캐시에서 꺼내는 문제가 생기지 않는다. #}
+  <script type="importmap">
+  {
+    "imports": {
+      "@/chart-utils": "/static/js/chart-utils.js?v={{ asset_v }}",
+      "@/toast-utils": "/static/js/toast-utils.js?v={{ asset_v }}",
+      "@/emit-utils": "/static/js/emit-utils.js?v={{ asset_v }}",
+      "@/table-utils": "/static/js/table-utils.js?v={{ asset_v }}",
+      "@/signal-utils": "/static/js/signal-utils.js?v={{ asset_v }}",
+      "@/task-modal": "/static/js/task-modal.js?v={{ asset_v }}"
+    }
+  }
+  </script>
+  {# 전 페이지 공통 위젯 — module 은 기본 defer 라 별도 속성이 필요 없다. #}
+  <script type="module" src="/static/js/sidebar.js?v={{ asset_v }}"></script>
+  <script type="module" src="/static/js/nav-progress.js?v={{ asset_v }}"></script>
+  <script type="module" src="/static/js/topbar.js?v={{ asset_v }}"></script>
+  <script type="module" src="/static/js/task-modal.js?v={{ asset_v }}"></script>
 </head>
 <body data-usage-danger-pct="{{ ui_thresholds.usage_danger_pct }}" data-usage-warn-pct="{{ ui_thresholds.usage_warn_pct }}"{% block body_attrs %}{% endblock %}>
   <div id="nav-progress" class="nav-progress no-print" aria-hidden="true"></div>

@@ -5,7 +5,7 @@ build-backend = "uv_build"
 [project]
 name = "assessment-engine"
 # 릴리스 시 `uv version --bump <part>` 로 올린다.
-version = "1.3.2"
+version = "1.3.3"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.141.1",
@@ -187,6 +187,8 @@ runtime-evaluated-base-classes = [
     "pydantic_settings.BaseSettings",
     "sqlalchemy.orm.DeclarativeBase",
     "assessment_engine.db.models.base.Base",
+    # 계약 스키마 TypedDict — FastAPI 가 OpenAPI 를 만들 때 pydantic 이 어노테이션을 값으로 읽는다.
+    "typing.TypedDict",
 ]
 # dataclass 는 FastAPI 가 응답 모델로 쓸 때 pydantic 이 어노테이션을 resolve 하고, hypothesis 는
 # @composite 함수의 어노테이션을 읽어 전략을 만든다.

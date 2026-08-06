@@ -1,3 +1,8 @@
+"""Redis 캐시 serde — `ServerDetailResponse` / `MetricDashboard` (#C3).
+
+역직렬화 직후 `enrich_*` 를 다시 부른다. 그래야 SSR·JSON·캐시 어느 경로로 와도 같은 ViewModel 이 된다.
+"""
+
 import dataclasses
 import json
 from datetime import datetime
