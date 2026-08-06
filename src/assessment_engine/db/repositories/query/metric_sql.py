@@ -559,19 +559,13 @@ def _trend_net_congested_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
     bi, bucket_td, start = ctx.bi, ctx.bucket_td, ctx.start
     server_ids = ctx.server_ids
     params: JsonObject = {"start": ctx.start, "end": ctx.end}
-    # 네트워크 이상 서버 수 — recommendation.assess_network 의 실제 판정(HostAssessment.
-    # network_congested)과 동일 원자료·임계 3종을 SQL 이식: 재전송율(net_retrans_pct, 임계
-    # RS_NET_RETRANS_PCT)·드롭율(net_drop_pct, 임계 RS_NET_DROP_PCT)은 저트래픽 게이트(RS_NET_
-    # MIN_TRAFFIC_KBPS 미만이면 부팅기 소수 이벤트가 비율을 지배해 억제) 적용, conntrack 고갈
-    # (net_conntrack_usage/limit, 임계 RS_CONNTRACK_SATURATION_RATIO)은 트래픽량과 무관한 절대
-    # 신호라 게이트 제외 — assess_network 와 동일 OR 판정. TCP 재전송율·패킷 드롭율 2개 % 라인이
-    # 시각적으로 거의 겹쳐 구분이 안 되는 문제도 판정 crossing 서버 수(count)로 흡수해 해결.
-    # server_metrics(재전송·conntrack)와 server_net_io(드롭·물리 iface 트래픽)는 같은 agent
-    # 보고 주기라 (collected_at, server_id) 로 조인. reset(카운터 감소)은 GREATEST(delta,0) 흡수 —
-    # iface 별로 delta 를 먼저 구한 뒤 server 로 SUM(net.retrans_percent·net.drop_percent 와 동일
-    # per-iface-then-sum 순서, server SUM 을 먼저 하면 한 iface 의 reset 이 다른 iface 정상 증가분에
-    # 묻혀 GREATEST 클램프가 안 먹는다).
-    # 버킷 먼저 묶고 서버별 bool_or 후 count — cpu.saturation_hosts 와 동일 staggered-report 대응.
+    # 판정 3종(재전송·드롭·conntrack)과 저트래픽 게이트 규약은 `recommendation.assess_network` 와
+    # `docs/reference/db/repositories.md` "차트 집계" 표가 갖는다 — 여기는 그 판정의 SQL 이식이다.
+    #
+    # delta 순서가 결과를 바꾼다: iface 별로 delta 를 먼저 내고 그 다음 server 로 SUM 한다. server SUM 을
+    # 먼저 하면 한 iface 의 카운터 reset 이 다른 iface 정상 증가분에 묻혀 GREATEST 클램프가 안 먹는다.
+    # 두 테이블 조인 키가 (collected_at, server_id) 인 것은 재전송·conntrack(server_metrics)과
+    # 드롭·트래픽(server_net_io)이 같은 agent 보고 주기에 실려 오기 때문이다.
     sid_nc = "AND server_id = ANY(:server_ids)" if server_ids else ""
     params["window_start"] = start - bucket_td
     params["min_traffic_kbps"] = recommendation.RS_NET_MIN_TRAFFIC_KBPS
@@ -889,8 +883,8 @@ def _trend_rate_per_dim(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
         dev_filter = f"{phys_filter} AND (CAST(:dim_filter AS text) IS NULL OR {dim_col} = :dim_filter)"
         params["dim_filter"] = dimension
         # 범례 표시명 — raw id_type:id(예: "mac:fa:16:..") 대신 inventory 의 사람이 읽는 name(예:
-        # "enp3s0"/"PhysicalDrive0")으로 치환. Linux 는 id_type=mac 인터페이스가 흔해 MAC 그대로 노출되면
-        # 가독성이 떨어진다는 지적 반영. 매칭 안 되면(신규 미동기화 등) raw dim 폴백(COALESCE).
+        # "enp3s0"/"PhysicalDrive0")으로 치환. Linux 는 id_type=mac 인터페이스가 흔해 MAC 이 그대로 노출되면
+        # 사람이 못 읽는다. 매칭 안 되면(신규 미동기화 등) raw dim 폴백(COALESCE).
         if dim_col == "device_id":
             name_join = """
                 LEFT JOIN LATERAL (

@@ -7,7 +7,6 @@
  * progressive enhancement: JS 없이도 네비게이션은 정상 동작(브라우저 기본). 본 파일은 피드백만 얹는다.
  * 마크업: base.html(#nav-progress + .nav-progress CSS). z-index 9999 로 off-canvas 사이드바보다 위.
  */
-// @ts-check
 (function () {
   'use strict';
 

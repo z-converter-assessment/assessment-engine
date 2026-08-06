@@ -1,3 +1,5 @@
+"""web 프로세스 조립 — FastAPI app · lifespan 외부 자원 · 라우터 등록 (#F4 Composition Root)."""
+
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path

@@ -15,11 +15,13 @@ from loguru import logger
 
 from assessment_engine.config import WorkerSettings
 from assessment_engine.db.session import dispose_engine, get_engine
+from assessment_engine.web.services.report_generator import ReportGenerationError
 from assessment_engine.web.services.task_service import (
     TaskNotConfiguredError,
     _resolve_install_dispatch,
 )
 from assessment_engine.web.settings import get_web_settings
+from assessment_engine.worker import report_worker
 from assessment_engine.worker.main import _drain_logged
 from assessment_engine.worker.report_worker import run_report_worker
 from assessment_engine.worker.task_reaper import run_task_reaper
@@ -385,3 +387,80 @@ async def test_dispose_engine_noop_without_engine():
     await dispose_engine()
 
     assert get_engine.cache_info().currsize == 0
+
+
+# --- _process_one 3분기 (보고서 job 생성 격리, F6) ----
+
+
+class _ProcessDiag:
+    """생성 결과를 기록하는 DiagnosticService 대역 — 어느 종료 경로를 탔는지 본다."""
+
+    def __init__(self) -> None:
+        self.succeeded: list[tuple[str, object]] = []
+        self.failed: list[tuple[str, str]] = []
+
+    async def finish_succeeded(self, job_id: str, result: object) -> None:
+        self.succeeded.append((job_id, result))
+
+    async def finish_failed(self, job_id: str, message: str) -> None:
+        self.failed.append((job_id, message))
+
+
+class _Job:
+    """DiagnosticJobRecord 중 워커가 읽는 두 필드만."""
+
+    id = "job-1"
+    scope = "environment"
+
+
+@asynccontextmanager
+async def _query_service() -> AsyncGenerator[Any]:
+    yield cast("Any", object())
+
+
+async def _run_process_one(monkeypatch: pytest.MonkeyPatch, build: Any) -> _ProcessDiag:
+    monkeypatch.setattr(report_worker, "build_report_result_for_job", build)
+    diag = _ProcessDiag()
+    await report_worker._process_one(cast("Any", diag), _query_service, cast("Any", _Job()))
+    return diag
+
+
+async def test_process_one_stores_generated_report(monkeypatch: pytest.MonkeyPatch):
+    """정상 경로 — 생성 결과를 그대로 저장한다."""
+
+    async def build(*_args: Any) -> dict[str, str]:
+        return {"kind": "env_report"}
+
+    diag = await _run_process_one(monkeypatch, build)
+
+    assert diag.succeeded == [("job-1", {"kind": "env_report"})]
+    assert diag.failed == []
+
+
+async def test_process_one_surfaces_domain_reason(monkeypatch: pytest.MonkeyPatch, captured_logs: list[str]):
+    """도메인 사유(등록 서버 0 등)는 운영자에게 그대로 노출한다 — PII 가 아니다."""
+
+    async def build(*_args: Any) -> dict[str, str]:
+        raise ReportGenerationError("등록된 서버가 없다")
+
+    diag = await _run_process_one(monkeypatch, build)
+
+    assert diag.failed == [("job-1", "등록된 서버가 없다")]
+    assert any("report job failed (generation)" in line for line in captured_logs)
+
+
+async def test_process_one_hides_internal_error_detail(monkeypatch: pytest.MonkeyPatch, captured_logs: list[str]):
+    """내부 예외는 사용자에게 "internal error" 로만 — raw 예외 문자열이 error_message 로 새면 안 된다 (#F8).
+
+    traceback 은 로그에만 남는다. 워커는 이 job 하나로 죽지 않는다.
+    """
+    leaked = "postgres://user:pw@host/db"
+
+    async def build(*_args: Any) -> dict[str, str]:
+        raise RuntimeError(leaked)
+
+    diag = await _run_process_one(monkeypatch, build)
+
+    assert diag.failed == [("job-1", "internal error")]
+    assert leaked not in diag.failed[0][1]
+    assert any("report job failed (internal)" in line for line in captured_logs)

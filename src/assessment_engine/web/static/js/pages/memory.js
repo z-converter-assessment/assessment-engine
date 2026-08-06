@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * memory 페이지 차트 로직.
  *
@@ -14,10 +13,9 @@
 /** @typedef {import('../generated/api').components['schemas']['MetricDashboard']} MetricDashboard */
 /** @typedef {import('../generated/api').components['schemas']['MetricSeriesItem']} MetricSeriesItem */
 
-const { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
-        fmtLabel, pageTimeControl,
-        makeBucketGrid, joinToGrid, initAutoRefresh, safeArray,
-        buildAvgMaxDatasets, buildDimDatasets, renderChipLegend } = ChartUtils;
+import { RANGE_LABEL, AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, fmtLabel, pageTimeControl, makeBucketGrid, joinToGrid, initAutoRefresh, safeArray, buildAvgMaxDatasets, buildDimDatasets, renderChipLegend } from "@/chart-utils";
+import * as ChartUtils from "@/chart-utils";
+import * as SignalUtils from "@/signal-utils";
 
 const SERVER_ID = document.body.dataset.serverId;
 const OS_FAMILY = document.body.dataset.osFamily || '';  // Windows 미측정 메트릭 N/A 분기

@@ -17,6 +17,13 @@
 
 모두 raw 단위 (P1) — canonical 은 시간 s(Float)·크기 By(int) 그대로. 변환은 service.
 
+전부 `frozen=True, slots=True` 다. 필드가 77개라 오타 대입이 조용히 새 속성을 만드는 실패 모드가 실재했고,
+slots 가 그것을 런타임에, pyright 가 컴파일 시점에 막는다. 값을 얹을 때는 `dataclasses.replace` 로 새 행을
+만든다 — 제자리 수정이 없으니 호출부가 결과를 다시 묶지 않으면 반영이 통째로 빠져 즉시 드러난다.
+
+Inbound entry dataclass 는 이 규칙 밖이다 — `collect_sql` 의 `vars(entry)` shallow spread 가 `__dict__` 를
+전제한다(위 Inbound 절). slots 를 붙이면 인제스트가 첫 메트릭 메시지에서 죽는다.
+
 ### 서버 표시 raw
 
 | DTO | 용도 |
@@ -48,7 +55,7 @@
 | DTO | 용도 |
 |-----|------|
 | `ReportRowRaw` | 보고서 한 행 raw stats — service mapper(`to_report_row_item`)가 `ReportRowItem` ViewModel로 변환 |
-| `DiskIoBaselineRaw` / `NetIoBaselineRaw` | server별 I/O baseline + p95/peak (`report_disk_io_baseline`/`report_net_io_baseline` 반환, service 가 raw 에 필드 대입) |
+| `DiskIoBaselineRaw` / `NetIoBaselineRaw` | server별 I/O baseline + p95/peak (`report_disk_io_baseline`/`report_net_io_baseline` 반환, service 가 baseline 을 합성해 새 raw 를 만든다 — outbound DTO 는 frozen 이라 제자리 수정이 없다) |
 | `RebootEvent` | server_inventory_history에서 boot_time/agent_started_at 변경 시점 (`kind`: reboot/restart) |
 | `MountCapacityRaw` | 마운트별 용량 사이징 입력 (`report_mount_capacity_batch` 반환) — total/target bytes·runway·used%·inode. assessment API disk 축(per-mount) 산출 |
 | `MemoryBreakdownRaw` / `CpuBreakdownRaw` | 개별 보고서 구성 윈도우 평균 — 메모리 used/available/cached/buffers, CPU user/system/iowait |

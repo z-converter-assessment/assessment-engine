@@ -3,17 +3,7 @@
 호스트별 물리 인터페이스에서 도출한 L3 subnet 공동소속 그래프.
 조립·필터·파싱은 mappers/topology.build_network_topology 단일 진실 (본 dataclass 는 결과 형태만 정의).
 
-elements: Cytoscape.js elements 형식(`{"data": {...}}` 리스트)으로 mapper 가 precompute.
-  - 그래프 노드/엣지 조립은 결정론적 표현 변환이라 mapper(P2)에서 굳혀 둔다. 템플릿은 `| tojson`,
-    network-topology.js 는 레이아웃·스타일·클릭 바인딩만(P4: 라이브러리 옵션 조립·시각화).
-  3계층 뷰(gateway 라우터 -> subnet -> host): gateway·subnet 노드와 gateway->subnet 엣지가 기본 표시(라우팅
-  골격), host 노드·host->subnet 엣지는 "collapsed"(초기 숨김) — subnet 노드 클릭 시 해당 host 펼침.
-  - gateway 노드 data: {id "gw:<gw>", label <gw>, kind "gateway", subnetCount}
-  - subnet 노드 data:  {id "subnet:<net>", label <net>, kind "subnet", hostCount, gateway}
-  - host 노드 data:    {id "host:<public_id>", label <hostname>, kind "host", publicId, osFamily, roles,
-                       multiHomed(2+ 서브넷), ifaces[{name,mac,mtu,gateway}] 노드 툴팁} classes "collapsed"
-  - route 엣지 data:   {source "gw:<gw>", target "subnet:<net>", kind "route"}  (기본 표시)
-  - member 엣지 data:  {source "host:<public_id>", target "subnet:<net>", kind "member"} classes "collapsed"
+elements 형식(노드·엣지 data 표)은 `docs/reference/web/view-models.md` "네트워크 토폴로지 그래프 elements" 절.
 """
 
 from dataclasses import dataclass, field

@@ -1,27 +1,29 @@
-"""/api/assessment 응답 계약 스키마 (Pydantic) — 외부(재해복구·마이그레이션 자동화) 타입 계약.
+"""`/api/assessment` 응답 계약 스키마 — 외부(재해복구·마이그레이션 자동화) 타입 계약.
 
-라우터가 `responses={200: {"model": AssessmentEnvelope}}` 로 OpenAPI 스키마를 문서화 -> 생성 TS 타입.
-매퍼(services/mappers/assessment_api.py)가 build 하는 dict 구조의 단일 진실 미러. 계약 규약(assessment-api.md):
-값이 없으면 키를 생략하지 않고 null 이라 필드는 present + nullable(`X | None`). 단 `sizing.axes` 는 축
-종류마다 키 집합이 달라(disk 전용 5키) 그쪽만 default 를 둔 optional 이다 — 계약 문서의 명시된 예외다.
-extra=forbid 로 골든 테스트(test_assessment_api_properties)가 매퍼 dict 와의 drift(신규/누락 키)를 잡는다.
+라우터가 `responses={200: {"model": AssessmentEnvelope}}` 로 OpenAPI 스키마를 문서화하고 거기서 TS 타입이
+생성된다. 응답 검증·재구성에는 쓰지 않는다(frozen 계약 출력을 바꾸지 않는다) — 문서화 전용이다.
 
-주의: 본 스키마는 응답 검증/재구성에 쓰지 않는다(response_model 아님) — frozen 배포 계약 출력을 바꾸지
-않기 위해 문서화 전용. sizing.axes 이질(cpu/mem vs disk)은 disk 전용 필드를 Optional 로 흡수.
+`TypedDict` 인 이유는 매퍼가 만드는 것이 dict 이기 때문이다. 같은 모양을 `BaseModel` 로 적어 두면 매퍼 쪽
+dict 리터럴은 아무 검사도 받지 못하고, 두 선언이 어긋났는지는 테스트가 돌 때에야 드러난다. 여기 선언을
+매퍼 반환 타입으로 달면 키 이름·타입이 컴파일 시점에 맞춰진다.
+
+`NotRequired` 는 실제로 생략되는 키에만 붙는다 — 계약 규약은 "값이 없으면 키를 생략하지 않고 null" 이고,
+그 예외(`sizing.axes` 축별 키 집합 차이)는 `docs/reference/contracts/assessment-api.md` 가 명시한다.
 """
 
-from typing import Literal
+from typing import Literal, NotRequired, TypedDict
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import ConfigDict
 
 from assessment_engine.recommendation import Recommendation, ResourceStatus
 
+# extra=forbid — 매퍼가 계약 밖 키를 얹으면 검증 테스트가 잡는다. OpenAPI 로는 additionalProperties:false.
+_CONTRACT = ConfigDict(extra="forbid")
 
-class _Contract(BaseModel):
-    model_config = ConfigDict(extra="forbid")
 
+class AssessmentIdentity(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
 
-class AssessmentIdentity(_Contract):
     public_id: str | None
     hostname: str | None
     hostname_ambiguous: bool | None
@@ -30,7 +32,9 @@ class AssessmentIdentity(_Contract):
     online: bool | None
 
 
-class ReproOs(_Contract):
+class ReproOs(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     family: str | None
     id: str | None
     version: str | None
@@ -45,25 +49,33 @@ class ReproOs(_Contract):
     rtc_utc: bool | None
 
 
-class ReproBoot(_Contract):
+class ReproBoot(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     kernel_cmdline: str | None
     root_ref_type: str | None
     grub_install_target: str | None
 
 
-class ReproAddress(_Contract):
+class ReproAddress(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     address: str | None
     prefix: int | None
     family: str | None
     origin: str | None
 
 
-class ReproRoute(_Contract):
+class ReproRoute(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     dest: str | None
     via: str | None
 
 
-class ReproInterface(_Contract):
+class ReproInterface(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     id: str | None
     id_type: str | None
     name: str | None
@@ -78,11 +90,15 @@ class ReproInterface(_Contract):
     speed_mbps: int | None
 
 
-class ReproNetwork(_Contract):
+class ReproNetwork(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     interfaces: list[ReproInterface] | None
 
 
-class ReproBlockDevice(_Contract):
+class ReproBlockDevice(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     id: str | None
     id_type: str | None
     name: str | None
@@ -119,7 +135,9 @@ class ReproBlockDevice(_Contract):
     crypt_type: str | None
 
 
-class ReproLvmVg(_Contract):
+class ReproLvmVg(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     name: str | None
     vg_uuid: str | None
     size_bytes: int | None
@@ -128,12 +146,16 @@ class ReproLvmVg(_Contract):
     pv_ids: list[str] | None
 
 
-class ReproStorage(_Contract):
+class ReproStorage(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     block_devices: list[ReproBlockDevice] | None
     lvm_vgs: list[ReproLvmVg] | None
 
 
-class ReproMount(_Contract):
+class ReproMount(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     source: str | None
     target: str | None
     fstype: str | None
@@ -142,7 +164,9 @@ class ReproMount(_Contract):
     fs_passno: int | None
 
 
-class Reproduction(_Contract):
+class Reproduction(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     os: ReproOs
     boot: ReproBoot
     network: ReproNetwork
@@ -150,7 +174,9 @@ class Reproduction(_Contract):
     mounts: list[ReproMount] | None
 
 
-class SizingAxis(_Contract):
+class SizingAxis(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     axis: str
     current: int | None
     recommended: int | None
@@ -158,34 +184,44 @@ class SizingAxis(_Contract):
     action: Literal["increase", "decrease", "keep"]
     estimate_quality: Literal["exact", "floor", "uncertain"]
     # disk 축 전용(cpu/memory 축엔 부재) — Optional 로 흡수.
-    mountpoint: str | None = None
-    device_ref: str | None = None
-    used_pct: float | None = None
-    runway_days: int | None = None
-    note: str | None = None
+    mountpoint: NotRequired[str | None]
+    device_ref: NotRequired[str | None]
+    used_pct: NotRequired[float | None]
+    runway_days: NotRequired[int | None]
+    note: NotRequired[str | None]
 
 
-class Sizing(_Contract):
+class Sizing(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     axes: list[SizingAxis]
 
 
-class DataQuality(_Contract):
+class DataQuality(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     sufficient: bool | None
     notes: list[str] | None
 
 
-class Assessment(_Contract):
+class Assessment(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     classification: Recommendation | None
     confidence: Literal["low", "medium", "high"] | None
     data_quality: DataQuality
 
 
-class DiagUtilization(_Contract):
+class DiagUtilization(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     eval_pct: float | None
     sizing_pct: float | None
 
 
-class DiagSaturation(_Contract):
+class DiagSaturation(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     signal: str | None
     value: float | None
     threshold: float | None
@@ -194,7 +230,9 @@ class DiagSaturation(_Contract):
     saturated: bool | None
 
 
-class DiagResource(_Contract):
+class DiagResource(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     axis: str | None
     status: ResourceStatus | None
     utilization: DiagUtilization
@@ -202,19 +240,25 @@ class DiagResource(_Contract):
     confidence_notes: list[str] | None
 
 
-class DiagAdvisory(_Contract):
+class DiagAdvisory(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     disk_io_tier_hint: str | None
     network_congested: bool | None
 
 
-class Diagnostics(_Contract):
+class Diagnostics(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     root_cause: str | None
     root_cause_detail: str | None
     resources: list[DiagResource] | None
     advisory: DiagAdvisory
 
 
-class AssessmentServer(_Contract):
+class AssessmentServer(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     identity: AssessmentIdentity
     reproduction: Reproduction
     sizing: Sizing
@@ -222,27 +266,35 @@ class AssessmentServer(_Contract):
     diagnostics: Diagnostics
 
 
-class AssessmentWindow(_Contract):
+class AssessmentWindow(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     days: int | None
     start: str | None
     end: str | None
     basis: str | None
 
 
-class AssessmentFilter(_Contract):
+class AssessmentFilter(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     hostname: list[str] | None
     ip: list[str] | None
     public_id: list[str] | None
     pair: list[str] | None
 
 
-class AssessmentWarnings(_Contract):
+class AssessmentWarnings(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     ambiguous_hostnames: list[str] | None
     unresolved_pairs: list[str] | None
     unmatched_filters: list[str] | None
 
 
-class AssessmentEnvelope(_Contract):
+class AssessmentEnvelope(TypedDict):
+    __pydantic_config__ = _CONTRACT  # type: ignore[misc]
+
     contract_version: str
     generated_at: str
     window: AssessmentWindow

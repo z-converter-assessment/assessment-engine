@@ -1,3 +1,9 @@
+"""컴포넌트별 Settings class 정의 — 인스턴스는 만들지 않는다 (#F4).
+
+module-level 인스턴스를 두면 import 만으로 접속 정보를 요구하게 되고, 그러면 비밀번호를 필수 필드로
+둘 수 없다. 인스턴스는 Composition Root 6곳이 사용 시점에 만든다.
+"""
+
 import os
 from pathlib import Path
 from typing import Literal, Self

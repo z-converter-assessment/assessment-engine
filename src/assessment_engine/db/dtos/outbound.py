@@ -1,3 +1,9 @@
+"""Repository -> Service 로 나가는 raw dataclass (#C2 · P1).
+
+단위는 수집 원본 그대로다 — 시간 s, 크기 By, CPU jiffies. 변환·분류는 service 소관이라 여기서는
+값을 옮겨 담기만 한다. 전부 frozen+slots — 근거는 `docs/reference/db/dtos.md`.
+"""
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal
@@ -6,7 +12,7 @@ from typing import Literal
 from assessment_engine.json_types import JsonObject
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ServerSummary:
     id: int
     public_id: str
@@ -27,7 +33,7 @@ class ServerSummary:
     last_seen_at: datetime | None  # Redis online TTL fallback 용도
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ServerDetail:
     id: int
     public_id: str
@@ -62,13 +68,13 @@ class ServerDetail:
     edition: str | None = None  # Windows EditionID(SKU) — os_display 상세 조합 표시용(single_report.html 동형)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CollectionStatus:
     last_metric_at: datetime | None
     last_inventory_at: datetime | None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class TaskRow:
     """Task row raw — query repo 가 채워 service 가 받는 형식. 표시 파생(badge_class·duration_label)은 mapper."""
 
@@ -94,7 +100,7 @@ class TaskRow:
 # ---------- Dashboard raw DTOs (delta 계산용 2행 페어) ----------
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class MetricPairRaw:
     collected_at: datetime
     # CPU 시간 (seconds counter, calculator 가 prev-cur delta 로 util%)
@@ -122,7 +128,7 @@ class MetricPairRaw:
     agent_started_at: datetime | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CpuCoreRaw:
     """per-core CPU 시간 원자료 (server_cpu_core, Linux 전용 — Windows 미발행). 단일스레드 병목 실시간 표시."""
 
@@ -138,7 +144,7 @@ class CpuCoreRaw:
     cpu_steal_s: float | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class DiskIoRaw:
     device_id: str  # 안정키 ("<scheme>:<value>")
     collected_at: datetime
@@ -155,7 +161,7 @@ class DiskIoRaw:
     agent_started_at: datetime | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class NetIoRaw:
     iface_id: str  # 안정키 (mac:..)
     collected_at: datetime
@@ -173,7 +179,7 @@ class NetIoRaw:
     agent_started_at: datetime | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class MountUsageRaw:
     mountpoint: str
     used_bytes: int | None = None
@@ -185,7 +191,7 @@ class MountUsageRaw:
     collected_at: datetime | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class DashboardRaw:
     metrics: list[MetricPairRaw]  # 최대 2행, collected_at desc
     disk_io: list[DiskIoRaw]  # 디바이스당 최대 2행, desc within device
@@ -204,7 +210,7 @@ class DashboardRaw:
 # ---------- Storage / Network 풍부화 DTOs ----------
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class StorageWithUsage:
     server_id: int
     public_id: str
@@ -216,7 +222,7 @@ class StorageWithUsage:
     os_family: str | None = None  # OS 분기 표시(Windows PSI N/A 등, #E6 data-os-family)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class NetworkWithIo:
     server_id: int
     public_id: str
@@ -231,7 +237,7 @@ class NetworkWithIo:
     link_speed_by_iface: dict[str, int] = field(default_factory=dict[str, int])
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class EnvironmentUtilizationRaw:
     """환경(또는 선택 N대) capacity-weighted 평균 활용률 (sum(used) / sum(total)).
 
@@ -247,7 +253,7 @@ class EnvironmentUtilizationRaw:
     mem_p95_pct: float | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class DiskIoBaselineRaw:
     """report_disk_io_baseline — 서버별 디스크 I/O baseline + p95/peak. baseline=SUM(delta)/SUM(dt)."""
 
@@ -259,7 +265,7 @@ class DiskIoBaselineRaw:
     kbps_peak: float | None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class NetIoBaselineRaw:
     """report_net_io_baseline — 서버별 네트워크 I/O baseline + p95/peak."""
 
@@ -271,7 +277,7 @@ class NetIoBaselineRaw:
     tx_peak: float | None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SaturationRaw:
     """latest_saturation — 신선 표본 실시간 포화 원자료 (os-aware). 미존재 server 는 빈 인스턴스(전 필드 None) 사용."""
 
@@ -296,7 +302,7 @@ class SaturationRaw:
     psi_io: float | None = None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ErrorFleetRaw:
     """latest_errors — 창내 하드웨어/디스크/네트워크 에러 카운트 (Errors 축, 정상 0). counter delta(max-min).
 
@@ -315,7 +321,7 @@ class ErrorFleetRaw:
     last_error_at: datetime | None = None  # 창 안 최근 에러 관측 표본 시각 (approx 시점 컨텍스트)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class FleetErrorRaw:
     """fleet_error_summary — 전 서버 에러축 영향 호스트 수 (환경 개요 fleet 에러 표시자). 창내 발생 호스트 count."""
 
@@ -327,7 +333,7 @@ class FleetErrorRaw:
     disk_error_hosts: int = 0  # disk error(mdraid/btrfs/ext4 등) 발생 호스트 수
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class MountCapacityRaw:
     """마운트별 용량 사이징 raw (per-mount) — /api/assessment 디스크 축 입력.
 
@@ -344,7 +350,7 @@ class MountCapacityRaw:
     target_bytes: int | None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class MemoryBreakdownRaw:
     """메모리 구성 윈도우 평균 — used/available/cached/buffers (전체 메모리 대비 %, 시점값 avg)."""
 
@@ -354,7 +360,7 @@ class MemoryBreakdownRaw:
     buffers_pct: float | None
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CpuBreakdownRaw:
     """CPU 분류 윈도우 평균 — user/system/iowait (시간 delta 기반 %, reset 정책 metric_trend 동일)."""
 
@@ -366,7 +372,7 @@ class CpuBreakdownRaw:
 # ---------- Series ----------
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class MetricSeries:
     collected_at: datetime
     # SQL avg·sum 은 numeric 을 Decimal 로 준다 — raw 그대로 싣고 표시 변환은 매퍼가 한다.
@@ -378,7 +384,7 @@ class MetricSeries:
 # ---------- Reboot / Agent restart 이벤트 (차트 vertical marker용) ----------
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ReportRowRaw:
     """Assessment 보고서 한 행의 raw stats — repository가 반환 (P1).
 
@@ -494,7 +500,7 @@ class ReportRowRaw:
     cpu_percore_p95_max: float | None = None  # 가장 바쁜 코어의 이용률 p95 (단일스레드 병목, server_cpu_core)
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class RebootEvent:
     """server_inventory_history에서 boot_time / agent_started_at 변경 시점 추출.
 
@@ -512,7 +518,7 @@ class RebootEvent:
 # ---------- 주의 신호 (목록 화면 상단 운영신호 — gap 전용) ----------
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class MetricGapWarningRaw:
     """metric 발행 갭 — last_metric_at이 임계 초과로 끊김. raw (P1). 통신 끊김 운영신호."""
 
@@ -524,7 +530,7 @@ class MetricGapWarningRaw:
 # --- 보고서 발행 job 조회 결과 ---
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class DiagnosticJobRecord:
     """보고서 발행 job 단건 — 라우터 조회 응답·발행 이력 표현.
 

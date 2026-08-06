@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 환경 자원 평가 페이지(assessment.html) — 윈도우/앵커 변경 시 결과 partial fetch + swap + 자원 부족 clip.
  *
@@ -6,6 +5,10 @@
  * 자원 부족: 데이터는 전체 렌더, 20개 초과 시 21+ 행 숨김 + 더보기/접기 토글 (표시 디테일만 JS, P3 서버 렌더 유지).
  * 외부 의존: chart-utils.js(ChartUtils.initAnchor).
  */
+
+import * as ChartUtils from "@/chart-utils";
+import * as TableUtils from "@/table-utils";
+
 (function () {
   const rangeSel = document.getElementById('assess-range');
   const anchorInput = document.getElementById('assess-anchor');
@@ -13,9 +16,9 @@
   if (!rangeSel || !result) return;
 
   // 앵커 datetime-local 초기값 — 현재 시각(KST). 비우면 서버가 현재 기준 평가.
-  if (anchorInput && window.ChartUtils && /** @type {any} */ (window.ChartUtils).initAnchor) {
+  if (anchorInput && ChartUtils.initAnchor) {
     // globals.d.ts 의 initAnchor 선언(onChange 콜백)과 실제 시그니처(inputId 문자열)가 어긋나 로컬 캐스트.
-    /** @type {any} */ (window.ChartUtils).initAnchor('assess-anchor');
+    ChartUtils.initAnchor('assess-anchor');
   }
 
   // --- 자원 부족 20개 clip + 더보기/접기 ----------------------------------
@@ -43,7 +46,7 @@
       if (btn) btn.textContent = underExpanded ? '접기' : `전체보기 (${UNDER_SHOWN}/${serverCount})`;
     }
     // 보이는 행만 zebra 재줄무늬 — clip 으로 숨은 행 제외(흰색 어긋남 방지, table-utils).
-    if (window.TableUtils && table) window.TableUtils.restripe(table);
+    if (table) TableUtils.restripe(table);
   }
 
   // --- 칼럼 클릭 정렬 (조치 대상 표) — 공용 TableUtils(정렬·zebra 단일화). 정렬 후 clip 재적용(restripe 포함). ---
@@ -61,7 +64,7 @@
       if (!table) return;
       if (!th.parentNode) return;
       const idx = Array.from(th.parentNode.children).indexOf(th);
-      window.TableUtils.sortByColumn(/** @type {HTMLElement} */ (table), idx);
+      TableUtils.sortByColumn(/** @type {HTMLElement} */ (table), idx);
       underExpanded = false;
       applyUnderClip();
     }

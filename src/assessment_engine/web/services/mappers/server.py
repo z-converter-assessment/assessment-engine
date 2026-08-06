@@ -537,10 +537,9 @@ _SPANNING_KINDS = ("raid", "mpath", "dynamic")
 def _member_ref_node(c: JsonObject, array_home: dict[str | None, str]) -> StorageNode:
     """이미 다른 디스크 아래 배치된 배열(RAID/멀티패스) 참조 스텁 — 빈 디스크 오인 방지.
 
-    kind_label 에 배열 종류(RAID1 등)를 직접 담아 칩만 봐도 "이 디스크도 그 배열 소속"임을 알 수 있게 한다 —
-    "구성원"만 단독 표기하면 무엇의 구성원인지 맥락(칩만 보고는 안 읽힘) 없이 애매하다는 지적 반영. name·size_gb
-    가 실제 상세 행(홈 디스크 아래)과 값이 동일해 얼핏 중복 디바이스처럼 보일 수 있어 — 칩 텍스트로 즉시 구분
-    + meta 는 실제 상세가 있는 디스크로 화살표(->)를 써 시선 유도(문장으로만 설명하던 것보다 스캔하기 쉬움).
+    `kind_label` 에 배열 종류(RAID1 등)를 담는다. "구성원" 만으로는 무엇의 구성원인지 칩만 보고 못 읽는다.
+    `name`·`size_gb` 가 홈 디스크 아래 실제 상세 행과 같은 값이라 중복 디바이스로 보일 수 있어, `meta` 가
+    실제 상세가 있는 디스크를 가리킨다.
     """
     home = array_home.get(c.get("id"))
     lvl = _raid_level_num(c.get("raid_level"))

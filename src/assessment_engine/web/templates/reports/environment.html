@@ -49,13 +49,13 @@
 {% if view == "engineer" %}
 {# chart-utils.js 는 base.html head 동기 로드. 토폴로지는 정적 표라 cytoscape 스크립트 불요. #}
 <script src="/static/js/vendor/chart.umd.min.js?v={{ asset_v }}" defer></script>
-<script src="/static/js/pages/environment-trend.js?v={{ asset_v }}" defer></script>
+<script type="module" src="/static/js/pages/environment-trend.js?v={{ asset_v }}"></script>
 {% endif %}
 {% else %}
 {# 발행 전 — 본문·live preview 없음. 발행해야 스냅샷 생성·표시·이력 추가 (#C1). #}
 <section class="card">
   <p class="text-muted" style="margin:0; padding:8px 0;">보고서 양식·윈도우·앵커를 선택하고 발행을 누르면 보고서가 생성되어 화면에 표시되고 발행 이력에 추가됩니다.</p>
 </section>
-<script src="/static/js/pages/environment-report.js?v={{ asset_v }}" defer></script>
+<script type="module" src="/static/js/pages/environment-report.js?v={{ asset_v }}"></script>
 {% endif %}
 {% endblock %}

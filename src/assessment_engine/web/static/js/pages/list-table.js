@@ -1,9 +1,14 @@
-// @ts-check
 /**
  * 서버 목록 페이지(list_table.html) — ZConverter Install·선택 N대 액션(보고서·Export·실시간/성능추이)·검색 필터.
  *
  * 외부 의존: 없음 (모달은 list_table.html에 inline markup).
  */
+
+import * as ChartUtils from "@/chart-utils";
+import * as ToastUtils from "@/toast-utils";
+import * as EmitUtils from "@/emit-utils";
+import * as TableUtils from "@/table-utils";
+import * as TaskModal from "@/task-modal";
 
 /** @typedef {import('../generated/api').components['schemas']['TaskDetailItem']} TaskDetailItem */
 
@@ -96,7 +101,7 @@ metricsSelBtn?.addEventListener('click', () => {
   // 다시 보기 / 북마크 / 직접 URL 은 GET 만 → record 안 됨 → 중복 방지.
   function publish() {
     // globals.d.ts EmitUtilsApi.submitNavigate 시그니처가 (url, opts) 로 선언돼 실제 (button, urlFn, opts) 3-arity 와 불일치 — 로컬 any 캐스트로 우회.
-    /** @type {any} */ (window.EmitUtils).submitNavigate(submitBtn, () => {
+    EmitUtils.submitNavigate(submitBtn, () => {
       const ids = currentRows.map(r => r.dataset.publicId).join(',');
       const params = new URLSearchParams();
       params.set('ids', ids);
@@ -112,8 +117,8 @@ metricsSelBtn?.addEventListener('click', () => {
   }
 
   // globals.d.ts ChartUtilsApi.initAnchor 는 (onChange) 로 선언됐으나 실제 첫 인자는 anchor element id 문자열 — 로컬 any 캐스트로 우회.
-  if (anchorInput && window.ChartUtils && /** @type {any} */ (window.ChartUtils).initAnchor) {
-    /** @type {any} */ (window.ChartUtils).initAnchor('multi-server-report-anchor');
+  if (anchorInput && ChartUtils.initAnchor) {
+    ChartUtils.initAnchor('multi-server-report-anchor');
   }
 
   reportCustomerBtn.addEventListener('click', () => open('customer'));
@@ -214,8 +219,7 @@ function pollAndUpdateRow(targetPublicId, taskId) {
   const cell = row.querySelector('td:nth-last-child(2)');
   if (!cell) return;
   cell.innerHTML = `<a class="task-cell" href="#" data-task-id="${taskId}"><span class="badge rec-pending">진행 중</span></a>`;
-  if (!window.TaskModal) return;
-  window.TaskModal.pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
+  TaskModal.pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
 }
 
 async function submitInstall() {
@@ -389,7 +393,7 @@ if (filterForm) {
     if (clearBtn) clearBtn.style.display = active ? 'inline-flex' : 'none';
     if (searchInput) searchInput.classList.toggle('active', !!search);
     // 보이는 행만 zebra 재줄무늬 — 검색·clip 으로 숨은 행 제외(흰색 어긋남 방지, table-utils).
-    if (window.TableUtils && listTable) window.TableUtils.restripe(listTable);
+    if (listTable) TableUtils.restripe(listTable);
     syncSelectAllState();  // 필터 통과 행 집합(분모) 변경 가능성 반영 — 전체선택 체크/indeterminate 재계산
     updateHiddenSelectionHint();  // clip/정렬로 display 변경 — 화면 밖 선택 힌트 재계산
   }
@@ -406,7 +410,7 @@ if (filterForm) {
     const th = /** @type {HTMLElement} */ (e.target).closest('th.sort-col');
     if (!th) return;
     const idx = Array.from(/** @type {ParentNode} */ (th.parentNode).children).indexOf(th);
-    window.TableUtils.sortByColumn(/** @type {HTMLElement} */ (listTable), idx);
+    TableUtils.sortByColumn(/** @type {HTMLElement} */ (listTable), idx);
     expanded = false; // 정렬 후 CLIP 복귀 (상위 재적용)
     applyFilters();
   });
@@ -449,9 +453,9 @@ function trackPendingTasks() {
   /** @type {NodeListOf<HTMLElement>} */ (document.querySelectorAll('.task-cell')).forEach(a => {
     if (!a.querySelector('.badge.rec-pending')) return;
     const taskId = a.dataset.taskId;
-    if (!taskId || !window.TaskModal) return;
+    if (!taskId || !TaskModal) return;
     const cell = /** @type {Element} */ (a.closest('td'));
-    window.TaskModal.pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
+    TaskModal.pollUntilFinal(taskId, { onUpdate(/** @type {TaskDetailItem} */ detail) { renderTaskCell(cell, detail); } });
   });
 }
 

@@ -1,4 +1,6 @@
-// @ts-check
+import * as ToastUtils from "@/toast-utils";
+import * as TableUtils from "@/table-utils";
+
 // 보고서 이력 즉시 필터 + 더보기 — 서버 목록 (list-table.js) 와 동일 UX 의도.
 // form change → fetch HTML fragment → 결과 영역 (#report-history-results) 교체 + URL replaceState.
 // "더보기" → 전체보기(limit=total)로 fragment 재조회 후 교체, "접기" → 첫 페이지(20건) 복귀 (page reload 없음). shown/total 카운트는 서버 precompute.
@@ -13,7 +15,7 @@
   // fragment 교체 후 정렬 부여 — 표가 매 swap 마다 새로 생기므로 재부여. 공용 TableUtils(정렬·zebra 단일화, 흰색 버그 방지).
   function wireTable() {
     const table = /** @type {HTMLElement | null} */ (resultsEl.querySelector('table.sortable-table'));
-    if (table && window.TableUtils) window.TableUtils.makeSortable(table);
+    if (table) TableUtils.makeSortable(table);
   }
 
   // limit 미지정(필터 변경) 이면 기본 20 으로 리셋. 더보기는 누적 limit 전달.
@@ -43,7 +45,7 @@
       resultsEl.innerHTML = await res.text();
       wireTable();  // 새 표에 정렬 재부여
     } catch (e) {
-      if (window.ToastUtils) ToastUtils.show('보고서 이력 fetch 실패: ' + (/** @type {Error} */ (e)).message, 'err');
+      if (ToastUtils) ToastUtils.show('보고서 이력 fetch 실패: ' + (/** @type {Error} */ (e)).message, 'err');
     }
   }
 

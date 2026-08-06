@@ -121,7 +121,7 @@ ZDM 패키지 contract:
 - `docs/reference/rabbitmq.md` — exchange·queue·routing key 토폴로지
 - `src/assessment_engine/web/services/task_service.py` — Task 발행
 - `src/assessment_engine/web/routers/tasks.py` — POST /api/tasks/install · GET 조회
-- `src/assessment_engine/task_policy.py` — success/failure 판정 정책 (task_policy 우선, exit_code allowlist 폴백)
+- `src/assessment_engine/consumer/task_policy.py` — success/failure 판정 정책 (task_policy 우선, exit_code allowlist 폴백)
 - `src/assessment_engine/worker/task_reaper.py` — 마감 경과 pending 전역 timeout 전이
 - `src/assessment_engine/consumer/handlers/` — task.result 핸들러 (9 컬럼 UPDATE)
 - `src/assessment_engine/web/static/js/pages/list-table.js` — list "ZDM Install" column polling

@@ -1,7 +1,11 @@
-"""보고서 발행 result JSONB 구조 + 발행 helper — web 발행(snapshot 저장) 단일 진실.
+"""`diagnostic_jobs.result` JSONB 구조 + 조립 helper — 발행 스냅샷 계약 단일 진실.
 
-web `report_serializer` (ViewModel <-> JsonObject) 가 본 모듈의 키·dict 조립 helper 를 참조.
-report_serializer 는 web view_models 에 의존하므로, 순수 계약(키·dict 조립)만 본 모듈에 분리한다.
+`report_serializer` 와 나눠 둔 이유는 의존 방향이다. serializer 는 ViewModel <-> dict 변환이라
+`web/view_models` 를 import 하는데, 여기 있는 것은 키 이름과 dict 모양뿐이라 그 의존이 필요 없다.
+같은 파일에 두면 키 상수를 읽는 쪽까지 ViewModel 을 끌고 온다.
+
+`web/services/` 에 있는 이유는 소비자가 전부 여기이기 때문이다 — 라우터 3곳과 service 3곳.
+다른 계층(consumer·worker)이 이 계약을 읽기 시작하면 그때 도메인 위치로 올린다.
 
 result JSONB 구조 (job_type customer_report/engineer_report 공통):
   {

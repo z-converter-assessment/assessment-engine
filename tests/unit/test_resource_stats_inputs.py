@@ -22,7 +22,8 @@ _SRC = Path(__file__).resolve().parents[2] / "src/assessment_engine"
 # 경로별 기대 인자. 값은 소스에 쓰인 표현식 그대로다 — "raw 가 실은 것을 쓴다" 와 "None 으로 고정한다" 를
 # 구분하는 것이 이 표의 목적이라 정규화하지 않는다.
 EXPECTED: dict[str, set[str]] = {
-    "web/services/mappers/report.py": {"r.disk_iops_baseline", "raw.disk_iops_baseline"},
+    "web/services/mappers/report.py": {"raw.disk_iops_baseline"},
+    "web/services/mappers/report_summary.py": {"r.disk_iops_baseline"},
     "web/services/query/report.py": {"raw0.disk_iops_baseline"},
     "web/services/query/environment.py": {"raw.disk_iops_baseline"},
     "web/services/query/server.py": {"None"},
@@ -63,14 +64,17 @@ def test_call_site_passes_expected_baseline(path: str):
 
 
 def test_only_report_path_fills_the_raw_field():
-    """`disk_iops_baseline` 을 raw 에 채우는 코드는 보고서 prefetch 한 곳뿐이다.
+    """`ReportRowRaw.disk_iops_baseline` 에 값을 공급하는 코드는 보고서 prefetch 한 곳뿐이다.
 
     이 단정이 위 표의 근거다 — 다른 경로가 이 필드를 채우기 시작하면 "None 으로 고정" 이 사실과 어긋난다.
+
+    raw 가 frozen 이라 대입(`raw.x = v`)이 아니라 `replace` 키워드 dict 로 채워진다. 두 형태를 다 보되
+    필드 선언(`disk_iops_baseline: int | None = None`)과 읽기는 제외한다 — 선언까지 세면 DTO·ViewModel·
+    도메인 모듈이 전부 걸려 가드가 아무것도 구분하지 못한다.
     """
+    supplies = re.compile(r'"disk_iops_baseline"\s*:|\w+\.disk_iops_baseline\s*=[^=]')
     writers = {
-        str(path.relative_to(_SRC))
-        for path in _SRC.rglob("*.py")
-        if re.search(r"^\s*\w+\.disk_iops_baseline\s*=", path.read_text(encoding="utf-8"), re.MULTILINE)
+        str(path.relative_to(_SRC)) for path in _SRC.rglob("*.py") if supplies.search(path.read_text(encoding="utf-8"))
     }
 
     assert writers == {"web/services/query/report.py"}

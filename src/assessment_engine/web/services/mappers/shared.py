@@ -19,6 +19,10 @@ if TYPE_CHECKING:
 
 # --- UI 임계값 — base.html body data-attribute 동기화 (#E1 P3 · ADR 0015) ----
 # template_setup.py 가 본 상수를 import 해 Jinja2 globals 로 노출 → body data-attribute 단일 진실.
+# 보고서 표시 전용 임계 — 행 변환(report)과 요약 불릿(report_summary)이 같은 값을 본다.
+_VARIANCE_BURST_RATIO = 1.5  # peak/p95 >= 1.5 — variance burst 표시
+_REBOOT_UNSTABLE_COUNT = 3  # reboot_count >= 3 — Agent 불안정 신호 (#F10 attention 임계)
+
 _USAGE_DANGER_PCT = 90  # 사용률 위험 임계 — disk_warning · server detail badge 공통
 _USAGE_WARN_PCT = 75  # 사용률 주의 임계
 

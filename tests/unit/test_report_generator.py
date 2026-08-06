@@ -10,13 +10,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from assessment_engine.diagnostic.report_result import REPORT_KIND_ENV
 from assessment_engine.web.services import report_generator
 from assessment_engine.web.services.query_service import QueryService
 from assessment_engine.web.services.report_generator import (
     ReportGenerationError,
     build_report_result_for_job,
 )
+from assessment_engine.web.services.report_result import REPORT_KIND_ENV
 from tests.builders import report_row_raw, server_detail
 from tests.fakes import FakeRedis, InMemoryQueryRepository
 

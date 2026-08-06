@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 환경 성능 추이 페이지 차트 로직 — 전체 환경(모든 서버) 차트.
  *
@@ -15,9 +14,8 @@
  * fetch: GET /api/servers/environment/metrics-chart (agg 미지원 — capacity-weighted/합산 단일).
  * 외부 의존: ChartUtils (base.html), Chart.js (페이지 로드). 수집 기준은 SSR(#last-metric-ts) 고정.
  */
-const { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS,
-        fmtKbChart, safeArray, bindToggle, renderChipLegend,
-        buildAvgMaxDatasets, buildAvgMaxLegend } = ChartUtils;
+import { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, fmtKbChart, safeArray, bindToggle, renderChipLegend, buildAvgMaxDatasets, buildAvgMaxLegend } from "@/chart-utils";
+import * as ChartUtils from "@/chart-utils";
 
 /** @typedef {import('../generated/api').components['schemas']['MetricSeriesItem']} MetricSeriesItem */
 

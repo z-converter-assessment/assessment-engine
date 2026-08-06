@@ -402,7 +402,7 @@
 
 {% include "_reference_link.html" %}
 
-<script src="/static/js/pages/detail.js?v={{ asset_v }}" defer></script>
+<script type="module" src="/static/js/pages/detail.js?v={{ asset_v }}"></script>
 {% endblock %}
 
 {% block body_attrs %} data-server-id="{{ server.public_id }}" data-os-family="{{ server.os_family or '' }}"{% endblock %}

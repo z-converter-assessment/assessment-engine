@@ -216,7 +216,7 @@ Pagination 정책:
 
 본 절 결정:
 - 전역 스타일은 `static/css/app.css` 단일 파일이다 — 템플릿 안 `<style>` 블록으로 두지 않는다. JS 에는 grep 으로 강제하면서 CSS 만 예외로 두면 같은 규칙이 자원 종류로 갈린다. 페이지 로컬 `<style>`(용지 방향 등 페이지별 override)과 inline `style=` 은 대상 밖.
-- 클라 JS 는 서버 ViewModel 과 타입 계약을 컴파일 강제한다 — FastAPI OpenAPI -> 생성 TS 타입(`static/js/generated/api.ts`) -> `// @ts-check` 클라 JS 를 `tsc --checkJs`. 파일별 점진 채택(`// @ts-check` opt-in), 핵심 강제 지점은 `fetch('/api/...')` 응답을 생성 타입으로 annotate 하는 fetch 경계. 메커니즘·확장·CI 게이트 단일 진실 = `docs/reference/web/type-contract.md`.
+- 클라 JS 는 서버 ViewModel 과 타입 계약을 컴파일 강제한다 — FastAPI OpenAPI -> 생성 TS 타입(`static/js/generated/api.ts`) -> vendor 제외 전 클라 JS 를 `tsc --checkJs`(파일별 pragma 없이 include 범위 전부). 핵심 강제 지점은 `fetch('/api/...')` 응답을 생성 타입으로 annotate 하는 fetch 경계. 메커니즘·확장·CI 게이트 단일 진실 = `docs/reference/web/type-contract.md`.
 - 서버 JSON 엔드포인트는 응답 타입을 return 어노테이션으로 선언한다 — 생성 타입의 원천. `response_model=` 은 쓰지 않는다(같은 일을 데코레이터 인자로 하면 시그니처가 거짓이 된다). 엔드포인트/ViewModel 변경 시 `pnpm run codegen` 으로 `api.ts` 재생성·커밋(CI drift 게이트).
 - 클라는 서버 파생을 재계산하지 않는다(P2 보존) — 통계·분류·단위 변환은 서버 props 로만. 인터랙션 파생(차트 range 토글 등)만 예외(P4).
 
