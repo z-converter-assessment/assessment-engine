@@ -19,9 +19,20 @@ from tests.fakes import FakeMessage, FakeQueue
 if TYPE_CHECKING:
     import pytest
 
+    from assessment_engine.consumer.handlers._types import MessageHandler
+
 
 def _message() -> Any:
     return cast("Any", FakeMessage(b"{}", routing_key="server.metrics", delivery_tag=7))
+
+
+async def _consume_as_task(handler: MessageHandler) -> None:
+    """aio-pika 가 콜백을 띄우는 방식 그대로 — `_track_inflight` 는 `current_task()` 로 자신을 찾는다."""
+
+    async def _run() -> None:
+        await handler(_message())
+
+    await asyncio.create_task(_run())
 
 
 # --- _run_logged -------------------------------------------------------------
@@ -63,7 +74,7 @@ async def test_track_inflight_registers_during_and_clears_after():
     async def handler(_message: Any) -> None:
         seen.append(len(inflight))
 
-    await asyncio.create_task(_track_inflight(handler, inflight)(_message()))
+    await _consume_as_task(_track_inflight(handler, inflight))
 
     assert seen == [1]
     assert inflight == set()
@@ -77,7 +88,7 @@ async def test_track_inflight_clears_even_when_handler_raises():
         raise RuntimeError("boom")
 
     # _run_logged 가 안쪽에서 회수하므로 여기까지 예외가 오지 않는다.
-    await asyncio.create_task(_track_inflight(boom, inflight)(_message()))
+    await _consume_as_task(_track_inflight(boom, inflight))
 
     assert inflight == set()
 

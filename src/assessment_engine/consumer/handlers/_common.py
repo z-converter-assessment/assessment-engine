@@ -8,6 +8,7 @@ import random
 from typing import TYPE_CHECKING, Any
 
 from loguru import logger
+from pydantic import ValidationError
 from sqlalchemy.exc import DBAPIError, IntegrityError, InterfaceError, OperationalError
 
 from assessment_engine.cache.redis import safe_get, safe_incr_with_ttl, safe_set, safe_set_nx
@@ -18,11 +19,12 @@ if TYPE_CHECKING:
     from datetime import datetime
     from uuid import UUID
 
-    from pydantic import ValidationError
+    from aio_pika.abc import AbstractIncomingMessage
     from redis.asyncio import Redis
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-    from assessment_engine.consumer.schemas import AgentMessageBase
+    from assessment_engine.consumer.handlers._types import MessageHandler
+    from assessment_engine.consumer.schemas import AgentMessageBase, MessageBase
     from assessment_engine.db.repositories.collect import CollectRepository
 
 # 일시 장애만 retry. 영구 장애(IntegrityError·ProgrammingError·DataError 등)는 즉시 raise -> nack -> DLQ (F6).
@@ -174,6 +176,38 @@ async def _db_retry[T](
             label, meta = _describe_db_failure(e)
             logger.error("{} after {} attempts{}", label, _RETRY_MAX_ATTEMPTS, meta)
         raise
+
+
+def _parse[T: MessageBase](model: type[T], label: str, body: bytes) -> T:
+    """wire JSON -> 인바운드 모델. 실패는 nack 에 필요한 만큼만 담은 예외로 바꿔 던진다.
+
+    핸들러 밖으로 빠져나간 예외는 asyncio 가 전문을 출력하는데, 원본 `ValidationError` 문자열은
+    실패 필드의 입력값을 그대로 싣는다 (#F8).
+    """
+    try:
+        return model.model_validate_json(body)
+    except ValidationError as e:
+        detail = _format_validation_err(e)
+        logger.error("{} parse error {}", label, detail)
+        raise ValueError(f"{label} validation failed: {detail}") from None
+
+
+def _in_message_context[T: MessageBase](
+    model: type[T],
+    label: str,
+    handle: Callable[[T], Coroutine[Any, Any, None]],
+) -> MessageHandler:
+    """파싱과 처리를 `message.process` 안에 넣어 ack/nack 경계를 한 곳에서 만든다.
+
+    4 핸들러가 같은 블록을 글자 단위로 복제하면 정제 문구나 컨텍스트 진입 하나가 어긋나도
+    아무도 모른다. 컨텍스트 안에서 모든 await 를 마치는 것이 #F11 의 요구다.
+    """
+
+    async def _handle(message: AbstractIncomingMessage) -> None:
+        async with message.process(requeue=False):
+            await handle(_parse(model, label, message.body))
+
+    return _handle
 
 
 async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:

@@ -60,7 +60,9 @@ metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 metric 7개 �
 
 ### 팩토리 함수 + 클로저
 
-`make_*_handler`는 핸들러 함수를 반환하는 팩토리. 인자로 받은 의존성을 내부 `_handle`이 클로저로 캡처한다. 클래스 없이 의존성을 함수 수준에서 바인딩하는 패턴.
+`make_*_handler`는 핸들러 함수를 반환하는 팩토리. 인자로 받은 의존성을 내부 처리 함수가 클로저로 캡처한다. 클래스 없이 의존성을 함수 수준에서 바인딩하는 패턴.
+
+파싱과 ack/nack 경계는 팩토리가 직접 열지 않고 `_common._in_message_context(model, label, handle)` 가 만든다 — 4 핸들러가 같은 블록을 복제하면 정제 문구나 컨텍스트 진입 하나가 어긋나도 드러나지 않는다. 팩토리는 파싱된 모델을 받는 처리 함수만 쓰고, 그 함수 안에서 모든 await 를 마친다(#F11). 핸들러 시그니처 별칭 `MessageHandler` 는 `handlers/_types.py` 단일 진실 — `handlers/__init__.py` 에 두면 4 핸들러 모듈과 순환이다.
 
 ### `message.process(requeue=False)`
 
