@@ -3,7 +3,7 @@
 # 각 명령이 무엇을 왜 하는지는 docs/guides/ 가 갖는다. 여기는 이름과 실행만 둔다.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup dev dev-build dev-down logs test test-unit test-integration test-http lint format typecheck codegen migrate migration screenshot eol
+.PHONY: help setup dev dev-build dev-down logs test test-unit test-integration test-http test-cov lint format typecheck codegen migrate migration screenshot eol
 
 help: ## 명령 목록
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -40,6 +40,10 @@ test-integration: ## 통합 테스트 (TimescaleDB 컨테이너 기동)
 
 test-http: ## HTTP 경계 스냅샷 대조 (기록은 SNAPSHOT_UPDATE=1)
 	uv run pytest tests/http/
+
+test-cov: ## 커버리지 측정 (게이트 아님 — 어디가 비었는지 보는 용도)
+	COVERAGE_CORE=sysmon uv run coverage run -m pytest tests/unit tests/http
+	uv run coverage report
 
 lint: ## ruff (format 검사 + lint)
 	uv run ruff format --check .

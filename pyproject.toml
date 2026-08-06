@@ -34,6 +34,7 @@ dev = [
     "hypothesis>=6.165.0",
     "jsonschema>=4.26.0",
     "pyright>=1.1.411",
+    "coverage[toml]>=7.15.3",
 ]
 
 [tool.pytest.ini_options]
@@ -47,6 +48,24 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 filterwarnings = ["error"]
+
+[tool.coverage.run]
+source = ["src/assessment_engine"]
+# Protocol 선언 전용 모듈은 본문이 `...` 이라 분모에 들어가면 숫자를 왜곡한다.
+omit = [
+    "*/migrations/versions/*",
+    "*/db/repositories/collect.py",
+    "*/db/repositories/diagnostic.py",
+    "*/db/repositories/query/attention.py",
+    "*/db/repositories/query/metric.py",
+    "*/db/repositories/query/report.py",
+    "*/db/repositories/query/repository.py",
+    "*/db/repositories/query/server.py",
+    "*/db/repositories/query/task.py",
+]
+
+[tool.coverage.report]
+exclude_also = ["if TYPE_CHECKING:", "\\.\\.\\."]
 
 [tool.pyright]
 # 타입 검사 강도를 편집기 설정이 아니라 저장소에 둔다 — Pylance 와 pyright CLI 가 같은 파일을 읽으므로

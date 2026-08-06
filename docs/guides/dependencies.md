@@ -11,6 +11,9 @@
 | `pyproject.toml` | 프로젝트 메타·dependency specifier·도구 설정 (PEP 621 + PEP 735) | 커밋 |
 | `uv.lock` | resolved transitive dependency 트리 — reproducible install 단일 진실 | 커밋 |
 
+dev 그룹의 `coverage[toml]` 은 게이트가 아니라 관측 도구다 (`make test-cov`). 문턱을 CI 에 걸지 않는 이유는
+숫자가 목표가 되면 의미 없는 테스트로 채워지기 때문이고, 어디가 비어 있는지 세는 용도로만 쓴다.
+
 `pyproject.toml` 만 있으면 사용자 마다 다른 transitive 버전 install (resolver 시점 의존). `uv.lock` 이 그 결과를 freeze — 같은 lockfile 로는 어디서나 정확히 같은 install.
 
 CI (`ci.yml`·`alembic-check.yml`) 가 `uv sync --locked` 로 설치한다 — lockfile 을 재해석하지 않고 그대로 써서 빌드 시점과 무관하게 같은 버전 집합이 깔린다. `--locked` 는 lockfile 이 `pyproject.toml` 과 어긋나면 설치 자체를 실패시킨다. `ci.yml` 의 `uv lock --check` 는 lint job 한 곳이라, 그 job 을 타지 않는 워크플로도 스스로 drift 를 잡게 하려는 것이다.
