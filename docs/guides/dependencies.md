@@ -116,6 +116,25 @@ uv lock && uv sync --all-groups      # 5. lockfile 재-resolve (해당 minor whe
 Dependabot alerts(Security 탭 경고)는 켜 둔다. 자동 PR 과 별개 토글이고, 이 정책이 성립하려면 "문제가 생겼다"는
 신호는 남아야 한다. 경고를 받으면 그때 사람이 판단해 올린다.
 
+### 신호 채널은 둘로 나뉜다
+
+alerts 가 보는 것은 GitHub 의존성 그래프가 파싱한 선언뿐이다 — `uv.lock`(dev 그룹 포함)·`pnpm-lock.yaml`·워크플로의
+`uses`. Dockerfile 의 `FROM` 은 대상이 아니라, digest 로 고정한 베이스 이미지 안 OS 패키지(glibc·openssl 등)는
+alerts 로 오지 않는다. 고정 정책에서 이 계층은 스스로 낡는다 — 우리가 안 건드려도 debian 이 보안 갱신을 계속 낸다.
+
+그 계층은 `image-scan.yml` 이 맡는다. 주 1회 GHCR 에 발행된 이미지를 trivy 로 스캔해 결과를 Security 탭 code
+scanning alert 로 올린다. 게이트가 아니라 신호라서 판단은 그대로 사람 몫이고, 이 정책이 요구하는 "사유" 를 공급하는
+쪽이다. 수정 있는 항목(`ignore-unfixed`)만 올린다 — debian 이 no-DSA 로 두는 건은 조치할 수 없어 신호를 덮는다.
+
+| 계층 | 채널 | 무엇을 본다 |
+|------|------|------------|
+| 우리 코드 | `codeql.yml` | 취약 패턴 (SAST) |
+| 의존성 | Dependabot alerts | lockfile 에 적힌 패키지 (SCA) |
+| 베이스 이미지 | `image-scan.yml` | 이미지 안 OS 패키지 |
+
+스캔은 소스가 아니라 발행된 이미지를 본다. 배포되는 실물과 일치해야 신호가 의미를 갖는다. schedule 워크플로는
+기본 브랜치에서만 발화하므로 `main` 에 올라간 뒤부터 돈다.
+
 ### uv 버전은 세 자리가 함께 움직인다
 
 | 자리 | 무엇 |

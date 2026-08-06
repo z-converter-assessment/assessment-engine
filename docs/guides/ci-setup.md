@@ -138,7 +138,9 @@ gh api repos/<owner>/<repo>/rulesets/<id> --jq '[.rules[].type]'
 
 위치: Settings -> Code security -> Dependabot
 
-Dependabot 은 워크플로가 아니라 플랫폼 기능이다. 러너에서 돌지 않고 GitHub 이 저장소의 의존성 선언과 lockfile 을 자기 인프라에서 스캔한다. 분류로는 SCA — 우리가 가져다 쓰는 패키지의 알려진 취약점을 본다. 우리 코드 자체를 보는 CodeQL(SAST, `codeql.yml` 워크플로)과 다른 도구이고 결과만 같은 Security 탭에 모인다.
+Dependabot 은 워크플로가 아니라 플랫폼 기능이다. 러너에서 돌지 않고 GitHub 이 저장소의 의존성 선언과 lockfile 을 자기 인프라에서 스캔한다. 분류로는 SCA — 우리가 가져다 쓰는 패키지의 알려진 취약점을 본다.
+
+Security 탭에는 서로 다른 세 도구의 결과가 모인다. 우리 코드는 CodeQL(SAST, `codeql.yml`), 의존성은 Dependabot alerts, 베이스 이미지 안 OS 패키지는 trivy(`image-scan.yml`) — 셋이 보는 대상이 겹치지 않는다. 앞의 둘은 플랫폼 기능이라 토글로 켜고, 뒤의 하나는 워크플로라 파일로 관리한다. 채널 분담 근거는 `docs/guides/dependencies.md` 5절.
 
 | 항목 | 값 | 동작 |
 |------|----|------|
