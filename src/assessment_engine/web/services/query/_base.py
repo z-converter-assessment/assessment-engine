@@ -57,17 +57,17 @@ class _BaseQueryServiceMixin:
             return {d.id: bool(d.last_seen_at and d.last_seen_at > threshold) for d in details}
         return {sid: (flags[i] is not None) for i, sid in enumerate(server_ids)}
 
-    async def _inject_net_baseline(
+    async def _with_net_baseline(
         self, raws: list[ReportRowRaw], server_ids: list[int], period_days: float, end: datetime
     ) -> list[ReportRowRaw]:
-        """raws(report_aggregate)에 net I/O baseline 을 얹은 새 list — get_report 와 동일한 분류 입력 정합.
+        """raws(report_aggregate)에 net I/O baseline 을 얹은 새 list.
 
         `assemble_overview`·under_hosts 분류가 `build_resource_stats`(net 반영)를 타려면 raw 에 net
         baseline 이 채워져 있어야 한다. 미주입(net None) 시 유휴 판정이 구조적으로 빠져
         get_report(세부행)와 분류가 어긋난다 (#E3 build_resource_stats 단일 진실).
 
-        반환값을 반드시 다시 묶는다. 예전에는 raw 를 제자리에서 고쳤는데, 그러면 호출부가 결과를 안 받아도
-        조용히 동작해 새 경로가 주입을 빠뜨려도 드러나지 않았다. 지금은 안 묶으면 net 이 통째로 사라진다.
+        호출부는 반환값을 반드시 다시 묶는다 — 제자리 수정이 아니라 새 행을 만들므로, 안 묶으면
+        net 이 통째로 빠진 채 조용히 진행된다.
         """
         # period_days 는 15m 창(=0.0104일)까지 내려가는 float 이고 repo 는 timedelta(days=)로 그대로 받는다.
         net_io = await self.repo.report_net_io_baseline(

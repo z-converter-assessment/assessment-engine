@@ -1,3 +1,5 @@
+"""consumer 프로세스 조립 — MQ 토폴로지 declare · 4 핸들러 바인딩 · graceful drain (#F4 · #F11)."""
+
 import asyncio
 import signal
 from contextlib import suppress

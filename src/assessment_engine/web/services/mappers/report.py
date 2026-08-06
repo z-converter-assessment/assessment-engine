@@ -538,7 +538,7 @@ def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExt
     rec = recommendation
 
     def _runway_row(label: str, val: float | None) -> PeriodSignalRow:
-        """runway=None 은 두 원인이 섞여 있어 "N/A" 단독 표기가 애매하다는 지적 반영 — 구분 표기.
+        """runway=None 에 원인 둘이 섞여 있어 "N/A" 단독으로는 어느 쪽인지 못 읽는다 — 구분 표기.
 
         (1) 관측 span 부족(mount_calc 의 rate_min_span 미달) -> 아직 추세를 못 낸 것(진짜 미상).
         (2) span 은 충분한데 free 가 늘거나 그대로(줄지 않음) -> 추세상 안 채워짐(무한대, 안정).
@@ -695,7 +695,7 @@ def build_period_assessment(
         return host.resources[kind].status if kind in host.resources else "unmeasured"
 
     # 스토리지 = 용량(disk_capacity) + 성능/IO(disk_io) 독립 2축 — 배지 1개로 합치면(우선순위 승자만 노출)
-    # 승자 아닌 축 상태가 안 보임("I/O 병목"만 뜨면 용량이 괜찮은지 판단 불가, 사용자 지적 반영). 카드 제목
+    # 승자 아닌 축 상태가 안 보인다 — "I/O 병목" 만 뜨면 용량이 괜찮은지 판단할 수 없다. 카드 제목
     # 옆 배지를 용량/성능 2개로 분리 노출(verdict_label=용량, verdict_label2=성능) — PeriodResource 참고.
     dc, di = _rstat("disk_capacity"), _rstat("disk_io")
 

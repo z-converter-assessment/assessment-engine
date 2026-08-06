@@ -1,3 +1,9 @@
+"""Repository -> Service 로 나가는 raw dataclass (#C2 · P1).
+
+단위는 수집 원본 그대로다 — 시간 s, 크기 By, CPU jiffies. 변환·분류는 service 소관이라 여기서는
+값을 옮겨 담기만 한다. 전부 frozen+slots — 근거는 `docs/reference/db/dtos.md`.
+"""
+
 from dataclasses import dataclass, field
 from datetime import datetime
 from decimal import Decimal

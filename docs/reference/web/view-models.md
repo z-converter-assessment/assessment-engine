@@ -108,3 +108,22 @@
 - `UTIL_GAUGE_COLOR = "var(--color-title)"` (shared 단일 진실, attention `_UTIL_COLOR_GAUGE` alias) — 주색(테마색1). 활용률 정도는 게이지 길이(`dash_length`)로, 색은 값 무관 단일. Right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over)·서버목록 `.rec-over_provisioned` 배지가 동일 주색 공유 (테마 통일, static-assets.md "색 테마"). under(`#ef4444`)와 대비.
 - `_UTIL_COLOR_NONE = "#cbd5e1"` — 표본 부재 (회색).
 
+
+## 네트워크 토폴로지 그래프 elements
+
+`NetworkTopology.elements` 는 Cytoscape.js elements 형식(`{"data": {...}}` 리스트)이다. mapper 가 precompute 하고
+템플릿은 `| tojson`, `network-topology.js` 는 레이아웃·스타일·클릭 바인딩만 한다 (P4).
+
+3계층 뷰 — gateway 라우터 -> subnet -> host. gateway·subnet 노드와 gateway->subnet 엣지가 기본 표시(라우팅 골격)이고,
+host 노드와 host->subnet 엣지는 `collapsed` 클래스로 초기 숨김 상태다. subnet 노드를 클릭하면 그 서브넷 host 가 펼쳐진다.
+
+| 종류 | id / source-target | data | class |
+|------|--------------------|------|-------|
+| gateway 노드 | `gw:<gw>` | `label`(gw) · `kind` "gateway" · `subnetCount` | — |
+| subnet 노드 | `subnet:<net>` | `label`(net) · `kind` "subnet" · `hostCount` · `gateway` | — |
+| host 노드 | `host:<public_id>` | `label`(hostname) · `kind` "host" · `publicId` · `osFamily` · `roles` · `multiHomed`(2+ 서브넷) · `ifaces[{name,mac,mtu,gateway}]`(노드 툴팁) | `collapsed` |
+| route 엣지 | `gw:<gw>` -> `subnet:<net>` | `kind` "route" | — |
+| member 엣지 | `host:<public_id>` -> `subnet:<net>` | `kind` "member" | `collapsed` |
+
+그래프 노드·엣지 조립이 mapper 소관인 이유는 결정론적 표현 변환이기 때문이다 — 같은 인벤토리에서 같은 그래프가
+나오므로 클라가 매번 다시 만들 이유가 없다 (P2).

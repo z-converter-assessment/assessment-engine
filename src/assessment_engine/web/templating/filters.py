@@ -1,3 +1,9 @@
+"""Jinja2 필터 — 표시 경계의 포맷팅만 (#E1 P3).
+
+여기 있는 것은 계산이 아니라 이미 정해진 값의 표기다. KST 변환이 이 계층에 있는 이유는 #F2 가
+표시 경계 4함수에서만 변환하라고 정하기 때문이다.
+"""
+
 from datetime import UTC, datetime, timedelta, timezone
 
 from markupsafe import Markup

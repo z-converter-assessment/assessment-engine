@@ -192,19 +192,12 @@ _ENV_SCALAR_WEIGHTED: dict[MetricType | EnvironmentMetricType, tuple[str, str, s
     ),
 }
 
-# 물리 disk/iface 필터 — 시계열 device 집계를 물리 단위로 한정. agent 가 물리 disk 위 LVM/RAID/crypt/swap LV,
-# 물리 NIC 위 bridge/virtual 을 각각 시계열로 발행하므로, 무필터 SUM 은 물리 disk I/O 에 그 위 논리볼륨 I/O(디스크
-# 통과분)를 더해 이중·삼중집계된다. inventory 로 판정: block_device type=='disk' / net_interface kind in
-# (physical, bond_master) 만 포함. 판정은 시계열 device_id/iface_id = inventory (id_type):(id) 재구성 조인.
-# fail-closed: inventory 에 물리로 확인된 device_id/iface_id 만 포함 — 알려진 것만 인정. Windows
-# agent 가 인벤토리엔 없는 합성/숨김 항목(디스크 id_type=aggregate 집계 pseudo-device, 인터페이스 id_type=name
-# "if7/if8/if9" 숨김 어댑터)을 시계열에는 그대로 발행하므로, fail-open(매칭 안 되면 유지)이면 이들이 물리
-# 디바이스로 오인 통과한다. 신규 미동기화 디바이스가 다음 인벤토리 수집 전까지 잠시 누락되는 트레이드오프보다
-# 합성 항목의 상시 이중집계·오염이 더 크다고 판단해 fail-closed 채택.
-# Windows 디스크는 metrics 수집기가 (id_type:id) 대신 name 으로 device_id 를 발행("name:PhysicalDrive0")—
-# inventory 는 그 디스크를 mbrsig/gptid/serial 등 다른 id_type 로 식별해 1차 조인이 실패한다(win2003·win2025·
-# win2012r2v11 전부 동일 패턴, agent 쪽 inventory/metrics 식별자 불일치). 'name:' || name 매칭을 OR 로 보강.
-# 상관 서브쿼리 — bare server_id/device_id/iface_id 참조라 raw hypertable·cagg 양쪽 컬럼 스코프에서 동작.
+# 물리 disk/iface 필터 — 무필터 SUM 이 물리 disk I/O 에 그 위 LVM/RAID/crypt LV I/O 를 더해 이중집계된다.
+# 판정 규약(fail-closed EXISTS·`id_type:id` 우선·Windows `name:` 폴백)과 그 근거는
+# `docs/reference/db/repositories.md` "집계 필터 단일 진실" 절.
+#
+# 상관 서브쿼리로 쓴 것은 SQL 형태 제약이다 — bare server_id/device_id/iface_id 참조라야 raw hypertable 과
+# cagg 양쪽 컬럼 스코프에서 그대로 동작한다.
 _PHYS_DISK_SQL_FILTER = (
     "EXISTS (SELECT 1 FROM server_inventory si_pf "
     "CROSS JOIN LATERAL jsonb_array_elements(si_pf.block_devices) bd_pf "

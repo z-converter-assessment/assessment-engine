@@ -13,13 +13,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from assessment_engine.diagnostic.report_result import (
+from assessment_engine.web.services.diagnostic_service import DiagnosticService
+from assessment_engine.web.services.report_result import (
     REPORT_KIND_ENV,
     build_report_result,
     compute_hash,
     normalize_anchor,
 )
-from assessment_engine.web.services.diagnostic_service import DiagnosticService
 
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.inbound import DiagnosticJobCreate

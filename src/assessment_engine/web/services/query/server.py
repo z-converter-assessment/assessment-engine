@@ -94,7 +94,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
             end=now,
         )
         # net baseline 주입 — build_resource_stats 의 유휴 판정이 net 사용 (도넛·보고서와 정합).
-        raws_period = await self._inject_net_baseline(raws_period, page_server_ids, recommendation.WINDOW_DAYS, now)
+        raws_period = await self._with_net_baseline(raws_period, page_server_ids, recommendation.WINDOW_DAYS, now)
         raws_by_id: dict[int, ReportRowRaw] = {r.server_id: r for r in raws_period}
 
         last_tasks = await latest_task_summaries(self.repo, page_server_ids)
@@ -195,7 +195,7 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         raws = await self.repo.report_aggregate([server_id], period_days=recommendation.WINDOW_DAYS, end=end_dt)
         if not raws:
             return None
-        raws = await self._inject_net_baseline(raws, [server_id], recommendation.WINDOW_DAYS, end_dt)
+        raws = await self._with_net_baseline(raws, [server_id], recommendation.WINDOW_DAYS, end_dt)
         # 에러축(E) — 창 통일(14일). 실시간 카드 24h 와 분리, 분류 카드 창(WINDOW_DAYS)에 맞춤.
         win_days = recommendation.WINDOW_DAYS
         err = await self.repo.latest_errors(server_id, end_dt - timedelta(days=win_days))

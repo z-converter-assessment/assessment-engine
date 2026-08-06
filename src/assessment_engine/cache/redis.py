@@ -1,3 +1,9 @@
+"""Redis 연결 풀 + `safe_*` helper — 모든 Redis 호출의 유일한 통로 (#C3).
+
+helper 를 거치는 이유는 fail-open 이다. `RedisError` 를 여기서 흡수하고 호출자에게 None/False 를 주면
+캐시 장애가 요청 실패로 번지지 않는다. 직접 client 를 부르면 그 보장이 그 지점에서만 사라진다.
+"""
+
 from functools import cache
 from typing import cast
 

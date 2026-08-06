@@ -7,8 +7,8 @@ from loguru import logger
 
 from assessment_engine.consumer.handlers._common import _check_idempotent, _db_retry, _in_message_context
 from assessment_engine.consumer.schemas import TaskResultInput
+from assessment_engine.consumer.task_policy import effective_task_result
 from assessment_engine.db.dtos.inbound import TaskResultUpdate
-from assessment_engine.task_policy import effective_task_result
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
