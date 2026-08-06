@@ -1,6 +1,10 @@
 # Web 정적 자원 — JS·차트 UI·표준 컴포넌트
 
-정책: CLAUDE.md #E6 (JS 외부화 의무) · #E8 (차트·도넛 UI, P4) · #F5 (외부화 강제 채널). 본 문서는 JS 디렉토리 배치·`ChartUtils` API·P4 5 의무 규약·차트 UI·인쇄 CSS·base.html 표준 컴포넌트 카탈로그·네비게이션 규약 단일 진실.
+정책: CLAUDE.md #E6 (JS·CSS 외부화 의무) · #E8 (차트·도넛 UI, P4) · #F5 (외부화 강제 채널). 본 문서는 정적 자원 배치·`ChartUtils` API·P4 5 의무 규약·차트 UI·인쇄 CSS·표준 컴포넌트 카탈로그·네비게이션 규약 단일 진실.
+
+`static/css/app.css` = 전역 스타일 단일 진실. base.html `<head>` 가 script 태그들보다 앞에서 `<link rel="stylesheet">` 로 건다. 페이지 로컬 `<style>` 블록(용지 방향·페이지별 override)과 inline `style=` 속성은 그대로 둔다 — 전역 규칙만 외부화 대상이다.
+
+`/static/*` 응답에 `Cache-Control` 을 붙이지 않는다. 외부화해도 페이지마다 조건부 요청(304 왕복)이 생기고 "재전송 0" 이 되지는 않는다 — `max-age`·`immutable` 부착은 별건이다.
 
 `static/js/` 배치 규칙 (파일 목록은 `ls` 단일 진실):
 - 루트 = base.html 이 전역 로드하는 공용 유틸. 전역 객체 노출(`ChartUtils`·`ToastUtils`·`EmitUtils`·`TableUtils`·`SignalUtils`·`TaskModal`) 또는 전 페이지 공통 위젯 바인딩(사이드바·상단바·네비 진행바).
@@ -71,7 +75,7 @@
 
 ### 차트 컨트롤 (제목줄 통합)
 - 차트 헤더 = `.chart-head` 단일 행: 제목(h2 좌측) + bucket-label·구간·앵커·집계 컨트롤(우측, bucket-label 부터 `margin-left:auto`). 좁아지면 그룹 단위 wrap.
-- 버킷 라벨 = `<span class="bucket-label">` 배지 (현재 버킷=분해력 표시 — cpu/memory/storage/network 차트 페이지 공용 클래스, base.html 단일 진실). 성능 추이(metrics)는 전역 단일 컨트롤이라 높이·정렬이 달라 별도 스타일.
+- 버킷 라벨 = `<span class="bucket-label">` 배지 (현재 버킷=분해력 표시 — cpu/memory/storage/network 차트 페이지 공용 클래스, `app.css` 단일 진실). 성능 추이(metrics)는 전역 단일 컨트롤이라 높이·정렬이 달라 별도 스타일.
 - 구간/집계 = `<select class="chart-select">` 드롭다운 (너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
 - 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
 - 서버 상세 자원 탭(cpu/memory/network/storage)은 페이지 단일 시간축 컨트롤(`pageTimeControl`, 카드 밖 상단 range+anchor 하나)이 그 페이지 전 차트를 같은 창·시점으로 구동(#F10, 신호 간 시점 상관). 차트별 개별 range/anchor 없음.
@@ -91,33 +95,33 @@
 - 실행 큐 차트(`cpu.run_queue`, os-aware — Linux procs_running / Windows Processor Queue Length)는 backend 가 이미 실행큐 합/코어 합(코어당 값, 포화선은 OS 별)으로 반환 — 클라는 값 그대로 표시. 서버 상세는 연속값 단일선(`cpu.js`), 환경 성능 추이는 같은 임계 판정을 SQL 로 이식한 crossing 서버 수(`cpu.saturation_hosts`, count) 단일선 — 스코프별 표현 단위 차이는 `services.md` "서버 상세 성능 추이" 절.
 
 ## 색 테마 — `:root` 변수 + 주색 단일 진실 (예외 0)
-- 테마 변수 = `base.html :root` 단일 선언. `--color-title`(#2563eb) = 주색 — `.btn-primary` 채움·`.toggle.active`·정렬 칼럼 강조·`.list-filter` 테두리·네비 진행바·스토리지 막대. 사이드바 계열은 `--sidebar-*` 변수군(바탕·글씨·hover·active). `--color-table-head`(#e5e7eb) = 전 테이블 제목행 하단 경계선. 색 변경 시 `:root` 만 수정.
+- 테마 변수 = `app.css :root` 단일 선언. `--color-title`(#2563eb) = 주색 — `.btn-primary` 채움·`.toggle.active`·정렬 칼럼 강조·`.list-filter` 테두리·네비 진행바·스토리지 막대. 사이드바 계열은 `--sidebar-*` 변수군(바탕·글씨·hover·active). `--color-table-head`(#e5e7eb) = 전 테이블 제목행 하단 경계선. 색 변경 시 `app.css :root` 만 수정.
 - JS 차트 시리즈 주색도 본 변수 추종 — `chart-utils.js` `ChartUtils.themeColor()`(getComputedStyle 로 `--color-title` 읽기, 실패 시 #2563eb fallback). 페이지 차트 JS(cpu/metrics/memory/environment-metrics/environment-trend/detail/network-topology)가 hex 직박 대신 본 helper 참조. SVG 게이지는 presentation attribute 가 var 미지원이라 inline `style="stroke: ..."` 로 적용.
 - 데이터 시각화 주색도 동일 변수 — 환경 평균 활용률 도넛 게이지(`_UTIL_COLOR_GAUGE`, mappers/attention.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, mappers/shared.py) · 파일시스템 usage 막대(`_MOUNT_BAR_COLOR`, mappers/server.py) 모두 hex 대신 `var(--color-title)` 을 담아 테마 변경에 자동 추종.
 - under_provisioned = `#ef4444` (red-500) 대비 유지. 과다프로비저닝(여유)과 활용률 게이지가 같은 파랑 — 같은 화면 두 의미지만 테마 단색화를 위한 의식적 통일.
 - 네비게이션 = 좌측 사이드바(`--sidebar-*` 다크 슬레이트 바탕 + 밝은 글씨, `_sidebar.html` + `nav_groups` 글로벌). active 항목은 `--sidebar-active` 채움 + 우측 강조 테두리. 본문 링크(`a`)는 무채 #666666(밑줄 #b0b0b0).
-- 버튼 3종(base.html): `.btn-primary`(주색 채움, 모달 발행 등) / `.btn-select`(흰 바탕·표준 크기, 서버 선택 발행 버튼 — 회색 글씨·테두리(600), 비활성(`:disabled`)은 옅은 회색) / `.btn-action`(흰 톤·표준 크기·회색 글씨, 보조 액션 — 환경보고서 발행·실시간 메트릭·성능 추이·전체보기). 선택 N대 실시간 메트릭·성능 추이 버튼은 `.btn-select`(미선택 시 `:disabled`) — public_id navigate(`?ids=`).
+- 버튼 3종(`app.css`): `.btn-primary`(주색 채움, 모달 발행 등) / `.btn-select`(흰 바탕·표준 크기, 서버 선택 발행 버튼 — 회색 글씨·테두리(600), 비활성(`:disabled`)은 옅은 회색) / `.btn-action`(흰 톤·표준 크기·회색 글씨, 보조 액션 — 환경보고서 발행·실시간 메트릭·성능 추이·전체보기). 선택 N대 실시간 메트릭·성능 추이 버튼은 `.btn-select`(미선택 시 `:disabled`) — public_id navigate(`?ids=`).
 - 상태(is_online) 표시 = 폰트색 (`.status-on` #16a34a / `.status-off` #94a3b8, 10px) — 목록·보고서 표·상세 헤더. 개별 보고서 인벤토리 상태는 일반 폰트(보고서 본문 톤 통일).
 - 운영 신호 경고 = 호박색(amber) 도메인 (`.attn-active`, mappers/attention.py `_ATTN_ACTIVE_BADGE` 가 생산). 발화는 호박 채움 — 경고 의미를 색으로. 테마 파랑(브랜드)과 영역 분리.
 - 네트워크 토폴로지 노드 색(`network-topology.js`·범례 동기화): subnet #475569 / 라우터(게이트웨이) #d97706 / Windows #8b5cf6(파랑과 구분되는 보라) / Linux 는 `ChartUtils.themeColor()`·`var(--color-title)` 추종. host 는 OS 로만 구분(멀티홈 별도 색 없음).
-- 테이블 제목행 = `thead` 옅은 배경(#fbfcfd) + 진한 글씨(#171a20), 하단 경계선만 `--color-table-head`. `base.html` `thead`/`th` 전 테이블 단일 진실 (폰트 크기·위계 표준 유지, 색만).
+- 테이블 제목행 = `thead` 옅은 배경(#fbfcfd) + 진한 글씨(#171a20), 하단 경계선만 `--color-table-head`. `app.css` `thead`/`th` 전 테이블 단일 진실 (폰트 크기·위계 표준 유지, 색만).
 - 파일시스템 usage 게이지 막대는 주색 단색(위 `_MOUNT_BAR_COLOR`). 사용률 위험도는 게이지 색이 아니라 `badge_class`(`badge-warn`/`badge-danger`)로 — 게이지는 톤 통일, 경고는 배지로 분리.
 - 색 상수 단일 진실 = `view-models.md` "신호 임계값 단일 정의".
 
 ## 반응형·정렬 레이아웃 (예외 0)
 - 작은 창에서 카드 무파손. 다열 영역은 `grid-template-columns:repeat(auto-fit, minmax(min(100%, Npx), 1fr))` — 폭 부족 시 자동 1열, 한쪽 칼럼 찌그러짐 0.
-- 고정 다열(`kpi-grid-2/3/4` · `metric-grid-2/3`)은 `@media (max-width:640px)` 에서 1열 (base.html).
+- 고정 다열(`kpi-grid-2/3/4` · `metric-grid-2/3`)은 `@media (max-width:640px)` 에서 1열 (`app.css`).
 - 2칼럼 카드(`env-dual` · `env-pair`)는 `align-items:start`로 칼럼 독립, 같은 행 항목은 grid 정렬로 높이 일치.
 - 언더 프로비저닝 상세(`action_targets_table`, 환경 자원 평가·환경 보고서(engineer) 공유 — 두 화면 칼럼 동일) = 호스트·CPU·메모리·디스크(`spec_display`, 서버 목록과 동일 정적 배정 사양 — 권고 칼럼의 사이징 목표와 나란히 비교)·분류(근본원인 병합)·권고·네트워크 상태·디스크 I/O 상태·신뢰도 sortable-table — host_status 를 구동한 원시 수치(5축)는 표시 안 함(서버 상세 자원별 탭에서 확인). 심각도 상위 정렬(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
 - 환경 개요(`/`) 영역 = 환경 요약 / 주요 워크로드 / 자원 적정성 / 자원 이용·포화 / 시스템 에러 — 집계 위젯 카드만(자동 갱신 없음, 등록 서버 0이면 안내 카드 단일). 환경 부하 추이 + 네트워크 토폴로지 2열(`env-dual`)은 환경 보고서 본문.
 
 ## 인쇄 CSS
 
-인쇄 규칙 단일 진실 = base.html `@media print` — `.no-print` 숨김(사이드바·상단바·조작 컨트롤·버튼)·`.print-only` 노출·카드 page-break·표 격자와 배경색 복원. 용지 방향은 페이지 로컬 `<style>@media print{ @page{ size:...; margin:... } }</style>` 담당 — 환경 보고서 A4 landscape, 성능 추이 두 페이지 A4 portrait(named-page 방향은 브라우저 지원이 불안정해 문서 전체 `@page` 로 확실히). 페이지별 레이아웃 override 는 아래 성능 추이 문단.
+인쇄 규칙 단일 진실 = `app.css` `@media print` — `.no-print` 숨김(사이드바·상단바·조작 컨트롤·버튼)·`.print-only` 노출·카드 page-break·표 격자와 배경색 복원. 용지 방향은 페이지 로컬 `<style>@media print{ @page{ size:...; margin:... } }</style>` 담당 — 환경 보고서 A4 landscape, 성능 추이 두 페이지 A4 portrait(named-page 방향은 브라우저 지원이 불안정해 문서 전체 `@page` 로 확실히). 페이지별 레이아웃 override 는 아래 성능 추이 문단.
 
 컨설턴트가 브라우저 인쇄 -> PDF/PPT 캡처. 백엔드 PDF export는 미도입 (`docs/explanation/tradeoffs.md` 참조).
 
-성능 추이 인쇄(서버 상세 `servers/metrics.html` + 환경 `environment_metrics.html` 공용 패턴, 둘 다 A4 portrait 1페이지): base.html `@media print` 가 두 페이지 공통 기본값(낱개 `.perf-item` page-break, `.perf-grid canvas` 폭·높이 보정, `.perf-stack` 간격·카드 패딩·폰트 축소, `.perf-chart` 높이)을 정하고, 페이지 로컬 스코프(`.metrics-print`/`.env-metrics-print`)가 열 수·차트 높이 등 페이지별 값만 override 한다. 낱개 단위인 이유 — CSS Grid auto-flow 는 "행" DOM 요소가 없어 개별 아이템에 걸어야 한다. canvas 보정 이유 — Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는다. `beforeprint`/`afterprint` 차트 `resize()` 보강(metrics.js·environment-metrics.js).
+성능 추이 인쇄(서버 상세 `servers/metrics.html` + 환경 `environment_metrics.html` 공용 패턴, 둘 다 A4 portrait 1페이지): `app.css` `@media print` 가 두 페이지 공통 기본값(낱개 `.perf-item` page-break, `.perf-grid canvas` 폭·높이 보정, `.perf-stack` 간격·카드 패딩·폰트 축소, `.perf-chart` 높이)을 정하고, 페이지 로컬 스코프(`.metrics-print`/`.env-metrics-print`)가 열 수·차트 높이 등 페이지별 값만 override 한다. 낱개 단위인 이유 — CSS Grid auto-flow 는 "행" DOM 요소가 없어 개별 아이템에 걸어야 한다. canvas 보정 이유 — Chart.js 가 캔버스에 박은 화면 폭(px)이 인쇄 컨테이너를 넘어 꺾은선이 plot 경계를 넘는다. `beforeprint`/`afterprint` 차트 `resize()` 보강(metrics.js·environment-metrics.js).
 
 ## 의존성
 

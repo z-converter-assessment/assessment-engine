@@ -210,11 +210,12 @@ Pagination 정책:
 `Jinja2Templates` 단일 인스턴스 + 필터 등록은 `web/templating/setup.py`에 격리. 라우터는 `from assessment_engine.web.templating import templates` 만. Redis 캐시 datetime은 `datetime.fromisoformat()`로 파싱(`json.loads` str 그대로 두면 `kst` 필터 오작동).
 
 
-## E6. 정적 자원 — JS 외부화 의무 + 타입 계약
+## E6. 정적 자원 — JS·CSS 외부화 의무 + 타입 계약
 
-디렉토리 구조 / `chart-utils.js` base.html 단일 로드 / `ChartUtils` API / 페이지별 .js: `docs/reference/web/static-assets.md`. 외부화 강제 채널: #F5.
+디렉토리 구조 / `chart-utils.js` base.html 단일 로드 / `ChartUtils` API / 페이지별 .js / `app.css`: `docs/reference/web/static-assets.md`. 외부화 강제 채널: #F5.
 
 본 절 결정:
+- 전역 스타일은 `static/css/app.css` 단일 파일이다 — 템플릿 안 `<style>` 블록으로 두지 않는다. JS 에는 grep 으로 강제하면서 CSS 만 예외로 두면 같은 규칙이 자원 종류로 갈린다. 페이지 로컬 `<style>`(용지 방향 등 페이지별 override)과 inline `style=` 은 대상 밖.
 - 클라 JS 는 서버 ViewModel 과 타입 계약을 컴파일 강제한다 — FastAPI OpenAPI -> 생성 TS 타입(`static/js/generated/api.ts`) -> `// @ts-check` 클라 JS 를 `tsc --checkJs`. 파일별 점진 채택(`// @ts-check` opt-in), 핵심 강제 지점은 `fetch('/api/...')` 응답을 생성 타입으로 annotate 하는 fetch 경계. 메커니즘·확장·CI 게이트 단일 진실 = `docs/reference/web/type-contract.md`.
 - 서버 JSON 엔드포인트는 응답 타입을 return 어노테이션으로 선언한다 — 생성 타입의 원천. `response_model=` 은 쓰지 않는다(같은 일을 데코레이터 인자로 하면 시그니처가 거짓이 된다). 엔드포인트/ViewModel 변경 시 `pnpm run codegen` 으로 `api.ts` 재생성·커밋(CI drift 게이트).
 - 클라는 서버 파생을 재계산하지 않는다(P2 보존) — 통계·분류·단위 변환은 서버 props 로만. 인터랙션 파생(차트 range 토글 등)만 예외(P4).
@@ -312,7 +313,7 @@ Protocol 카탈로그·새 Repository 절차: `docs/reference/web/layering.md` �
 메인 자가 검증 의무:
 1. 옛 패턴 잔존 0건 grep.
 2. 새 패턴이 의도된 스코프에만 (함수 외부·의도 외 위치 grep 검증).
-3. `.html` 변경 시 신규 inline `<script>` 코드 줄 grep (외부 `.js` 강제).
+3. `.html` 변경 시 신규 inline `<script>` 코드 줄 + 신규 `<style>` 블록 grep (외부 `.js`·`.css` 강제).
 4. DTO · 매퍼 · `cache_serializer` · 템플릿 · JS 체인 의미적 동기화.
 
 금지:

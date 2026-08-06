@@ -10,7 +10,7 @@
       "2:meta::",
       "2:title::",
       "2:link::",
-      "2:style::",
+      "2:link::",
       "2:script::",
       "2:script::",
       "2:script::",
@@ -190,6 +190,7 @@
     ],
     "assets": [
       "link:data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%232563eb'/%3E%3Ctext x='16' y='23' font-size='20' font-family='Arial,sans-serif' font-weight='700' text-anchor='middle' fill='white'%3EZ%3C/text%3E%3C/svg%3E",
+      "link:/static/css/app.css?v=ASSET_V",
       "script:/static/js/chart-utils.js?v=ASSET_V",
       "script:/static/js/toast-utils.js?v=ASSET_V",
       "script:/static/js/emit-utils.js?v=ASSET_V",
