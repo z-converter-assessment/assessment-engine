@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from assessment_engine.web.main import app
+from assessment_engine.web.templating.setup import ENGINE_VERSION
 from tests.http.digest import html_digest
 from tests.http.seed import ANCHOR, public_id
 
@@ -114,3 +115,14 @@ async def test_unknown_fragment_falls_back_to_full_page(client: AsyncClient, nam
 
     assert resp.status_code == 200, name
     assert "<html" in resp.text.lower(), name
+
+
+async def test_engine_version_is_rendered(client: AsyncClient) -> None:
+    """엔진 버전이 화면에 찍힌다 — 스냅샷은 이 값을 정규화해 지우므로 존재 확인은 여기가 담당한다.
+
+    운영자가 어느 버전이 도는지 화면으로 확인하는 유일한 통로다. 스냅샷이 릴리즈 범프마다
+    빨개지지 않게 지운 대신, 표기가 통째로 사라지는 회귀는 이 단언이 잡는다.
+    """
+    resp = await client.get("/")
+
+    assert f"v{ENGINE_VERSION}" in resp.text
