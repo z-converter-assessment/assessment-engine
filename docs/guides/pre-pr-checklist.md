@@ -155,8 +155,8 @@ Self-audit 메타 인용 제외:
 체크리스트:
 
 정합 (5):
-- [2.1] 추가한 모든 public 함수·메서드에 단위 또는 통합 테스트 존재. private(`_prefix`)은 public 경유 간접 검증.
-- [2.2] 추가·변경한 모든 라우터에 통합 테스트 — happy path + 핵심 분기(422 형식 · 404 미존재 · trigger 별 분기).
+- [2.1] 추가한 모든 public 함수·메서드에 단위 또는 통합 테스트 존재. private(`_prefix`)은 public 경유 간접 검증. 자가 판단 대신 `make test-cov` 로 해당 파일 미커버 줄을 본다.
+- [2.2] 추가·변경한 모든 라우터에 통합 테스트 — happy path + 핵심 분기(422 형식 · 404 미존재 · trigger 별 분기). 화면 응답은 `tests/http/` 스냅샷이 함께 고정한다.
 - [2.3] 변경한 기존 함수·핸들러의 기존 테스트가 여전히 의미를 갖는가 — signature·동작 변경 반영. 통과만 시키는 mock 보강 0건.
 - [2.4] 변경·추가한 임계 상수(`mappers/shared.py` · `recommendation.py` · `_USAGE_DANGER_PCT` 등) 테스트 하드코딩 0건 — 모두 import.
 - [2.5] 삭제한 public 함수·라우터의 deprecated 테스트 0건. Alembic revision 추가 시 라운드트립 검증은 `docs/guides/migrate.md` "신규 마이그레이션 작성 워크플로우" 4단계 수행.

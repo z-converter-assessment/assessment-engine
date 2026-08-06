@@ -81,6 +81,16 @@ jobs:
       - name: Install project (locked)
         run: uv sync --locked --group dev
 
+      # hypothesis 반례 DB 보존 — 선언 23,500 examples 를 매번 처음부터 다시 뒤지면 어렵게 찾은 반례가
+      # 잡 종료와 함께 사라진다. develop(SCALE=0.1)이 우연히 잡은 반례도 main 승격 실행이 승계한다.
+      # key 에 run_id 를 넣어 매 실행 새로 쓰고, restore-keys 로 직전 실행분을 물려받는다.
+      - name: Cache hypothesis examples
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .hypothesis/examples
+          key: hypothesis-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: hypothesis-${{ runner.os }}-
+
       # property 테스트 생성 횟수는 base 브랜치로 가른다 — main 승격은 선언값 전량, develop 통합은 1/10.
       - name: pytest unit
         env:
@@ -174,7 +184,8 @@ jobs:
     name: pytest (integration)
     runs-on: ubuntu-latest
     needs: [test-unit]
-    # main PR 에서만 — 컨테이너 기동이 필요해 무겁다. develop PR 의 CI 는 단위 테스트까지.
+    # main PR 에서만. TimescaleDB 이미지를 안 가진 runner 에서 약 2분 24초, 이미지가 있으면 15초 —
+    # 차이의 대부분이 pull 이다(로컬 실측, 테스트 자체는 14초). develop PR 의 CI 는 단위 테스트까지.
     if: github.base_ref == 'main'
     timeout-minutes: 15
     steps:
@@ -195,5 +206,6 @@ jobs:
         run: uv sync --locked --group dev
 
       # testcontainers 가 TimescaleDB 컨테이너를 띄운다 — runner 의 docker daemon 필요.
+      # 이미지 pull 이 대부분을 차지하므로 timeout 15분은 pull 실패 재시도까지 덮는 여유값이다.
       - name: pytest integration
         run: uv run pytest tests/integration/ -q
