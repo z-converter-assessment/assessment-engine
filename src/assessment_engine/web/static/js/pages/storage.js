@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * storage 페이지 차트 로직.
  *

@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 네트워크 토폴로지 카드 — Cytoscape.js 3계층 force-directed 렌더러 (P4: 라이브러리 옵션·레이아웃·스타일·인터랙션만).
  *

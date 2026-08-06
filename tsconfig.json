@@ -1,6 +1,6 @@
 // 서버가 그대로 서빙하는 정적 JS 를 검사한다 — 번들도 산출물도 없고 tsc 는 검사만 한다.
-// checkJs 를 끄고 파일 맨 위 `// @ts-check` 로 켜는 파일별 opt-in 이라, 새 파일이 통과해도
-// 검사받았다는 뜻은 아니다.
+// checkJs 를 켜 include 범위의 .js 전부가 대상이다. 파일별 `// @ts-check` opt-in 이었을 때는
+// 새 파일이 pragma 없이 들어와도 tsc 가 통과해, 통과가 검사받았다는 뜻이 아니었다.
 {
   "compilerOptions": {
     "target": "ES2020",
@@ -11,7 +11,7 @@
     "strict": true,
     "noImplicitAny": true,
     "allowJs": true,
-    "checkJs": false,
+    "checkJs": true,
     "noEmit": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,

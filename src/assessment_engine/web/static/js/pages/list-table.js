@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 서버 목록 페이지(list_table.html) — ZConverter Install·선택 N대 액션(보고서·Export·실시간/성능추이)·검색 필터.
  *

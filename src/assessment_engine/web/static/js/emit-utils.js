@@ -1,4 +1,3 @@
-// @ts-check
 /* 발행/제출 -> POST -> 응답 view_url navigate 공용 헬퍼 (EmitUtils.submitNavigate).
  *
  * "버튼 disabled -> POST -> view_url 로 이동" 패턴을 한 곳으로 모은다. 이 패턴을 파일마다 복붙하면

@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 사이드바 네비게이션 — 상단바 토글(#sidebar-collapse) 접기/펼치기 + 아코디언 그룹 접기. 둘 다 localStorage persist.
  *

@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 실시간 현황 30초 자동 갱신 — fragment=realtime fetch 후 #rt-mount innerHTML 교체.
  *

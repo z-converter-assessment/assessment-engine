@@ -1,4 +1,3 @@
-// @ts-check
 // 보고서 비동기 생성 폴링 — pending/running job 상태를 주기 조회, succeeded/failed 되면 reload.
 // P3 정공 예외(static-assets.md): P4 차트 아님, 완료 신호까지 1회 fetch 반복. 완료 시 같은 ?job= URL 이
 // 스냅샷(succeeded)·실패 화면(failed)을 렌더하므로 location.reload() 로 전환.

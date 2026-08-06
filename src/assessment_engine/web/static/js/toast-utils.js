@@ -1,4 +1,3 @@
-// @ts-check
 /* 토스트 알림 — install/export/report 등 작업 결과 일관 표시.
  *
  * ToastUtils.show(message, kind, duration_ms?)

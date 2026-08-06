@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * network 페이지 차트 로직.
  *

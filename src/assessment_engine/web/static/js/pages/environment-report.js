@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 환경 보고서 live preview 발행 컨트롤(reports/environment.html, job 없는 preview 전용).
  *

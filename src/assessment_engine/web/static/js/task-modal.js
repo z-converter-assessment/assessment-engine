@@ -1,4 +1,3 @@
-// @ts-check
 // Task 상세 modal + polling — base.html 의 #task-modal 요소를 채운다.
 //
 // 운영자 워크플로:

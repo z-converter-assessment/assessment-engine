@@ -1,4 +1,3 @@
-// @ts-check
 /* detail 페이지 — server 상세 latest metrics 표시 + 30초 polling 자동 갱신.
  *
  * body data-server-id 단일 진실 (#E6 inline <script> 금지).

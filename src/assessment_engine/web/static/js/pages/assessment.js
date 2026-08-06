@@ -1,4 +1,3 @@
-// @ts-check
 /**
  * 환경 자원 평가 페이지(assessment.html) — 윈도우/앵커 변경 시 결과 partial fetch + swap + 자원 부족 clip.
  *
