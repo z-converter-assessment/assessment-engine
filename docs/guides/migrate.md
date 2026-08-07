@@ -1,6 +1,6 @@
 # Alembic 마이그레이션
 
-정책: CLAUDE.md #C4. 본 문서는 Alembic 사용법·절차·트러블슈팅 단일 진실.
+정책: AGENTS.md #C4. 본 문서는 Alembic 사용법·절차·트러블슈팅 단일 진실.
 
 ## 본 프로젝트의 Alembic
 
@@ -96,7 +96,7 @@ ORM 모델과 현재 DB schema에 차이가 있으면 exit 1. 차이가 있다�
 
 ### 6. commit
 
-마이그레이션 파일 + 모델 변경을 한 커밋으로 (CLAUDE.md #C4 의무).
+마이그레이션 파일 + 모델 변경을 한 커밋으로 (AGENTS.md #C4 의무).
 
 ```bash
 git add src/assessment_engine/db/models/ src/assessment_engine/migrations/versions/

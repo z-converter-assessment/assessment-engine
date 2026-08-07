@@ -1,6 +1,6 @@
 # Web 레이어 원칙·DI·식별자
 
-정책: CLAUDE.md #E1 (P1~P4) · #E4 (URL 식별자) · #F3 (검증 단일 경로) · #F4 (인터페이스 우선). 본 문서는 web 컴포넌트 구현 메커니즘 단일 진실.
+정책: AGENTS.md #E1 (P1~P4) · #E4 (URL 식별자) · #F3 (검증 단일 경로) · #F4 (인터페이스 우선). 본 문서는 web 컴포넌트 구현 메커니즘 단일 진실.
 
 ## 데이터 흐름
 
@@ -43,7 +43,7 @@ Browser -> Router -> deps.get_task_service -> TaskService -> broker_channel (tas
 
 ## URL 식별자 — public_id (UUID)
 
-정책: CLAUDE.md #E4 (정수 PK 노출 금지). 본 절은 구현 메커니즘만.
+정책: AGENTS.md #E4 (정수 PK 노출 금지). 본 절은 구현 메커니즘만.
 
 - 라우터 path `{server_id}` 타입을 `UUID`로 선언 -> invalid 형식 422 자동
 - 형식 OK + DB 미존재 -> 404 (`resolve_internal_id`)
@@ -54,7 +54,7 @@ Browser -> Router -> deps.get_task_service -> TaskService -> broker_channel (tas
 
 페이지 자체는 SSR로 즉시 first paint(`서버 목록`, `상세`, `보고서`). 차트는 페이지 로드 후 AJAX, 실시간 메트릭은 polling 으로 갱신한다 (endpoint 카탈로그는 `docs/reference/web/routers.md`).
 
-근거: SPA 도구 미도입 → 빠른 시연·운영. 동적 영역만 JS로 격리 — `static/js/pages/{page}.js` 외부 파일 (CLAUDE.md #E6 JS·CSS 외부화 의무).
+근거: SPA 도구 미도입 → 빠른 시연·운영. 동적 영역만 JS로 격리 — `static/js/pages/{page}.js` 외부 파일 (AGENTS.md #E6 JS·CSS 외부화 의무).
 
 ## 미들웨어 — 순수 ASGI 클래스
 

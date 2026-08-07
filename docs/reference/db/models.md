@@ -1,6 +1,6 @@
 # DB ORM 모델 카탈로그
 
-정책: CLAUDE.md #C1. 본 문서는 ORM 모델·식별자 규약·시계열 자연키 UNIQUE·tasks 부분 UNIQUE 단일 진실. 모델 소재는 `src/assessment_engine/db/models/`.
+정책: AGENTS.md #C1. 본 문서는 ORM 모델·식별자 규약·시계열 자연키 UNIQUE·tasks 부분 UNIQUE 단일 진실. 모델 소재는 `src/assessment_engine/db/models/`.
 
 | 모델 | 테이블 | PK | 종류 | 설명 |
 |------|--------|----|----|------|

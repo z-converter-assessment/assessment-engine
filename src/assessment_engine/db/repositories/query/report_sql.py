@@ -5,7 +5,7 @@
 """
 
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 from sqlalchemy import text
 
@@ -359,47 +359,71 @@ class SqlReportQueryRepository(_BaseQueryMixin):
         ]
 
     async def get_report_uptime_stats(self, server_ids: list[int], period_days: float, end: datetime) -> dict[int, int]:
-        """server_id -> period 안 재부팅 횟수. 현재 boot_time 도 DISTINCT 에 들어오므로 -1."""
+        """server_id -> period 안 boot_time 전환 횟수."""
         start = end - timedelta(days=period_days)
-        sql = text("""
-            SELECT server_id, GREATEST(0, COUNT(DISTINCT boot_time) - 1) AS reboot_count
-            FROM server_inventory_history
-            WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end AND boot_time IS NOT NULL
-            GROUP BY server_id
-        """)
-        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
-        return {r.server_id: int(r.reboot_count) for r in result.all()}
+        return await self._get_inventory_transition_counts(server_ids, start, end, field="boot_time")
 
     async def get_report_agent_restart_stats(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, int]:
-        """server_id -> period 안 agent 재시작 횟수. `get_report_uptime_stats` 와 동일 산식."""
+        """server_id -> period 안 agent_started_at 전환 횟수."""
         start = end - timedelta(days=period_days)
-        sql = text("""
-            SELECT server_id, GREATEST(0, COUNT(DISTINCT agent_started_at) - 1) AS restart_count
-            FROM server_inventory_history
-            WHERE server_id = ANY(:sids) AND collected_at >= :start AND collected_at <= :end
-              AND agent_started_at IS NOT NULL
-            GROUP BY server_id
-        """)
-        result = await self.session.execute(sql, {"sids": server_ids, "start": start, "end": end})
-        return {r.server_id: int(r.restart_count) for r in result.all()}
+        return await self._get_inventory_transition_counts(server_ids, start, end, field="agent_started_at")
 
     async def get_agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]:
-        """since 이후 server 별 agent 재시작 횟수 — attention agent_unstable 의 고정 윈도우.
-
-        consumer 가 쌓는 Redis sliding 카운터를 읽지 않고 DB 에서 다시 세는 자리다.
-        """
+        """since 이후 server별 agent 재시작 횟수를 반환한다."""
         if not server_ids:
             return {}
-        sql = text("""
-            SELECT server_id, GREATEST(0, COUNT(DISTINCT agent_started_at) - 1) AS restart_count
-            FROM server_inventory_history
-            WHERE server_id = ANY(:sids) AND collected_at >= :since AND agent_started_at IS NOT NULL
+        return await self._get_inventory_transition_counts(server_ids, since, field="agent_started_at")
+
+    async def _get_inventory_transition_counts(
+        self,
+        server_ids: list[int],
+        start: datetime,
+        end: datetime | None = None,
+        *,
+        field: Literal["boot_time", "agent_started_at"],
+    ) -> dict[int, int]:
+        end_filter = "AND collected_at <= :end" if end is not None else ""
+        sql = text(f"""
+            WITH range_rows AS (
+                SELECT server_id, collected_at, {field} AS state
+                FROM server_inventory_history
+                WHERE server_id = ANY(:sids)
+                  AND collected_at >= :start {end_filter}
+                  AND {field} IS NOT NULL
+            ), boundary_rows AS (
+                SELECT DISTINCT ON (server_id) server_id, collected_at, {field} AS state
+                FROM server_inventory_history
+                WHERE server_id = ANY(:sids)
+                  AND collected_at < :start
+                  AND {field} IS NOT NULL
+                ORDER BY server_id, collected_at DESC
+            ), transitions AS (
+                SELECT server_id, collected_at, state,
+                    LAG(state) OVER (
+                        PARTITION BY server_id ORDER BY collected_at
+                    ) AS previous_state
+                FROM (
+                    SELECT * FROM boundary_rows
+                    UNION ALL
+                    SELECT * FROM range_rows
+                ) samples
+            )
+            SELECT server_id,
+                COUNT(*) FILTER (
+                    WHERE previous_state IS NOT NULL
+                      AND state IS DISTINCT FROM previous_state
+                ) AS transition_count
+            FROM transitions
+            WHERE collected_at >= :start
             GROUP BY server_id
         """)
-        result = await self.session.execute(sql, {"sids": server_ids, "since": since})
-        return {r.server_id: int(r.restart_count) for r in result.all()}
+        params = {"sids": server_ids, "start": start}
+        if end is not None:
+            params["end"] = end
+        result = await self.session.execute(sql, params)
+        return {r.server_id: int(r.transition_count) for r in result.all()}
 
     async def get_report_disk_io_baseline(
         self, server_ids: list[int], period_days: float, end: datetime

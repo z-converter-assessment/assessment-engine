@@ -5,17 +5,17 @@
 - 외부 공유 자료 — 협의 input·제안서·자료 공유용 메모 등. 상대 repo 와 주고받는 문서
 - 학습 자료 초안 — 즉흥적으로 쓰기 시작한 공부 기록. `docs/learning/` 격상 대상
 
-## 정책 (single source = `.claude/CLAUDE.md` "문서 인덱스" 절)
+## 정책 (single source = `AGENTS.md` "문서 인덱스" 절)
 
 - 디렉토리 위치 자체는 영구. 안의 파일은 임시 — 자유 작성·삭제.
 - 본 repo 영구 문서·코드 가 본 디렉토리 안 파일을 인용 금지 (용도 공통).
 - 외부 공유 자료는 본 repo 영구 문서·코드를 의존 금지 (self-contained 필수 — 외부 reader 가 본 repo 다른 위치 참조 못 함). 학습 자료 초안은 이 제약에서 예외 — 저장소 코드를 예제로 쓰는 것이 목적이고 발신 대상이 아니다.
-- `docs/README.md` 인덱스 표 / `.claude/CLAUDE.md` 문서 인덱스 표 에 추가 안 함.
+- `docs/README.md` 인덱스 표 / `AGENTS.md` 문서 인덱스 표 에 추가 안 함.
 
 ## 새 파일 작성 시 의무
 
 - 본문 첫 줄에 자료 성격 명시 — 어느 용도인지, 삭제 자유임.
-- 외부 공유 자료 한정 — 본 repo 영구 문서 참조 (`docs/reference/...` / CLAUDE.md `#X` 절 인용 등) 사용 금지. 필요 시 본 repo 정책·구조를 self-contained 으로 풀어 박음. 본 repo 코드 path 인용 (예: `src/.../foo.py:123`) 도 외부 공유 시 의미 없으므로 추상화 권고 (코드 path 보다 "어느 모듈·어느 함수의 책임" 표현).
+- 외부 공유 자료 한정 — 본 repo 영구 문서 참조 (`docs/reference/...` / AGENTS.md `#X` 절 인용 등) 사용 금지. 필요 시 본 repo 정책·구조를 self-contained 으로 풀어 박음. 본 repo 코드 path 인용 (예: `src/.../foo.py:123`) 도 외부 공유 시 의미 없으므로 추상화 권고 (코드 path 보다 "어느 모듈·어느 함수의 책임" 표현).
 
 ## 학습 자료 초안의 격상
 

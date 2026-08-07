@@ -98,7 +98,7 @@ gh api repos/<owner>/<repo>/rulesets/<id> \
   --jq '.name, (.rules[] | select(.type=="required_status_checks") | .parameters.required_status_checks[].context)'
 ```
 
-`pr title + metadata` 는 Conventional Commits 형식과 AI 메타데이터 부재를 함께 본다.
+`pr title + metadata` 는 Conventional Commits 형식과 작성 주체 provenance footer 부재를 함께 본다. `Co-Authored-By`, `Generated with/by`, `Assisted by` 형식은 작성 주체와 무관하게 허용하지 않는다.
 
 `wheel build` 와 `pytest (integration)` 은 job 의 `if` 조건으로 main PR 에서만 실행된다. paths 조건은 어느 워크플로에도 없다 — paths 로 skip 된 required check 가 N/A 로 남아 머지를 막는 함정을 피한다.
 
@@ -164,7 +164,7 @@ Dependabot alerts 와 같은 플랫폼 기능이다 — 러너에서 돌지 않�
 
 push protection 만 게이트다. 다른 신호 채널을 전부 경고로 둔 것과 어긋나 보이지만, 비밀은 유출을 되돌릴 수 없어서 사후 경고의 가치가 낮다. public repo 에 한 번 올라간 토큰은 삭제해도 이미 읽힌 것으로 본다 — 막을 수 있는 자리에서 막고, 걸리면 커밋에서 걷어낸 뒤 다시 push 한다.
 
-검출 대상은 GitHub 이 아는 provider 토큰 형태다. DB·broker 비밀번호처럼 형태가 정해지지 않은 값은 잡지 않으므로 PR diff 검토 의무(`.claude/CLAUDE.md` #F8)는 그대로 남는다.
+검출 대상은 GitHub 이 아는 provider 토큰 형태다. DB·broker 비밀번호처럼 형태가 정해지지 않은 값은 잡지 않으므로 PR diff 검토 의무(`AGENTS.md` #F8)는 그대로 남는다.
 
 ```bash
 gh api repos/<owner>/<repo> --jq '.security_and_analysis'

@@ -72,8 +72,22 @@ async def test_something(collect_repo: SqlCollectRepository):
 
 dispatcher 처럼 카탈로그 전량을 훑어야 하는 대상은 parametrize 로 편다 — `MetricType` 전 값을 도는 `test_metric_chart_dispatcher_all_types` 가 누락 타입을 즉시 드러낸다.
 
-## 5. 원칙
+## 5. 저장소에 두지 않은 검증 수단
+
+아래 둘은 상시 필요하지 않아 `tests/` 에 두지 않는다. 해당 계층을 건드릴 때 만들어 쓰고 버린다.
+같은 검증이 반복해서 필요해지면 그때 `tests/` 로 승격한다.
+
+브라우저 오라클 — 클라이언트 JS 를 바꿀 때 쓰는 유일한 런타임 검증이다. `tests/http/conftest.py` 의
+대역 배선(`app.dependency_overrides` + `lifespan="off"`)을 그대로 써서 uvicorn 을 띄우고, playwright 로
+전 페이지를 돌며 콘솔 에러·canvas 렌더 수·전역 표면을 JSON 으로 덤프해 변경 전후를 대조한다.
+HTTP 스냅샷은 서버가 낸 HTML 구조만 보므로 브라우저에서 나는 오류는 잡지 못한다.
+
+SQL 대조 — repository 의 dispatch 를 재배치할 때 쓴다. repo 메서드에 recorder 세션을 주입해 렌더된
+SQL 문자열과 bound parameter 를 전 Literal 조합에 대해 덤프하고 전후를 비교한다. 통합 테스트는 결과를
+보지만 이건 쿼리 자체가 같은지를 본다.
+
+## 6. 원칙
 
 - 새 코드 추가 시 테스트도 함께 작성 — 코드 리뷰 시 누락 지적
 - 리팩토링은 테스트 통과 baseline 위에서만 진행 — 회귀 즉시 식별
-- 에이전트의 pytest 실행 정책은 CLAUDE.md #F5
+- 에이전트의 pytest 실행 정책은 AGENTS.md #F5

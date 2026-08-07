@@ -1,84 +1,90 @@
 # 소스 읽기 순서
 
-기준 시점: 2026-08-07, `develop` = `d9112f8` (이름·배치 정석화 직후).
+기준: 본 문서가 포함된 커밋의 소스 상태.
 
 전제는 저장소 바깥 껍데기(Dockerfile·compose·배포 스크립트·워크플로)와 `src/assessment_engine/` 의
 개략 구조를 이미 봤다는 것이다. 여기서는 세부 모듈로 들어가는 순서만 정한다.
+
+줄 수는 기준 시점 값이고 분량 감을 잡는 용도다. 정확한 값은 `wc -l` 로 본다.
 
 ## 왜 이 순서인가
 
 의존 방향을 실측하면 층이 깔끔하게 갈린다.
 
 ```
-json_types  (계층 소속 없는 어휘)
-    ^
-domain      (right_sizing / service_classifier / boot_time — json_types 만 의존)
-    ^
-db          (config · domain · json_types)
-    ^
-consumer  web   (cache · config · contract · db · domain · json_types · log_config)
-              ^
-            worker  (web 재사용)
+  worker       background loops, reuses web
+     |
+  consumer     web          process entry points
+     |
+  db           models, dtos, repositories
+     |
+  domain       right_sizing, service_classifier, boot_time
+     |
+  json_types   shared vocabulary
+
+  read bottom to top
 ```
 
-역방향 의존이 없다. 그래서 아래에서 위로 읽으면 모르는 이름을 만나지 않는다.
+역방향 의존이 없다. 그래서 그림의 아래층부터 올라가며 읽으면 모르는 이름을 만나지 않는다.
 
-다만 순수 bottom-up 은 "이게 왜 필요한지" 모른 채 읽게 된다. 그래서 층을 훑는 단계(0·1·3)와
-한 줄기를 끝까지 따라가는 수직 슬라이스(2·4·6)를 번갈아 둔다. 슬라이스는 계층의 역할이
-한 흐름 안에서 드러나게 하는 장치다.
+다만 아래층부터 차례로만 읽으면 "이게 왜 필요한지" 모른 채 읽게 된다. 그래서 층을 통째로 훑는
+단계(0·1·3)와 한 줄기를 끝까지 따라가는 수직 슬라이스(2·4·5·6)를 번갈아 둔다. 슬라이스는
+계층의 역할이 한 흐름 안에서 드러나게 하는 장치다.
 
-도메인(3단계)을 조회·표시보다 앞에 두는 이유는 그 뒤 계층이 전부 판정 결과를 나르기 때문이다.
-`rollup_host` 가 무엇을 내는지 모르면 mapper 가 무슨 일을 하는지 보이지 않는다.
+도메인(3단계)을 조회·표시보다 앞에 두는 이유는 그 위 계층이 하는 일의 상당 부분이 도메인 판정을
+나르는 것이기 때문이다. 도메인은 서버 한 대의 통계를 받아 "자원이 부족하다 / 과하다 / 놀고 있다" 같은
+판정과 그 근거를 낸다. 이 판정을 모르는 채 조회·표시 코드를 읽으면 거기 오가는 값이 어디서 왔고 왜
+그렇게 변환되는지가 안 보인다.
 
 ## 전체 분량
 
 | 단계 | 대상 | 줄 수 | 성격 |
 |------|------|-------|------|
-| 0 | 어휘·배선 | 586 | 층 훑기 |
-| 1 | 데이터 모양 | 1,335 | 층 훑기 |
-| 2 | 수집 슬라이스 | 1,993 | 수직 |
-| 3 | 도메인 판정 | 1,731 | 층 훑기 |
-| 4 | 조회 슬라이스 | 893 | 수직 |
-| 5 | 표시 슬라이스 | 1,604 | 수직 |
-| 6 | 비동기 보고서 | 1,365 | 수직 |
-| 7 | 화면별 확장 | 약 6,000 | 필요할 때 |
+| 0 | 어휘·설정 | 534 | 층 훑기 |
+| 1 | 데이터 모양 | 1,289 | 층 훑기 |
+| 2 | 수집 슬라이스 | 1,915 | 수직 |
+| 3 | 도메인 판정 | 1,556 | 층 훑기 |
+| 4 | 조회 슬라이스 | 1,082 | 수직 |
+| 5 | 표시 슬라이스 | 1,692 | 수직 |
+| 6 | 비동기 보고서 | 1,217 | 수직 |
+| 7 | 화면별 확장 | 약 5,900 | 필요할 때 |
 
-1~6 까지가 9,500줄 남짓이다. 7단계는 앞을 다 읽고 나면 같은 패턴의 반복이라 통독하지 않아도 된다.
+1~6 까지가 9,300줄 남짓이다. 7단계는 앞을 다 읽고 나면 같은 패턴의 반복이라 통독하지 않아도 된다.
 
 ---
 
-## 0. 어휘·배선
+## 0. 어휘·설정
 
 | 파일 | 줄 | 무엇 |
 |------|----|------|
 | `json_types.py` | 40 | wire·JSONB 원본 JSON 값의 타입 별칭과 접근 헬퍼 |
 | `contract.py` | 14 | 계약 버전 상수 둘 (에이전트 / 평가 API) |
-| `config.py` | 271 | Settings 클래스 정의. 인스턴스는 여기서 만들지 않는다 |
-| `log_config.py` | 64 | loguru 단일 설정 |
-| `cache/redis.py` | 118 | `safe_*` helper — 모든 Redis 호출의 관문 |
+| `config.py` | 233 | Settings 클래스 정의. 인스턴스는 여기서 만들지 않는다 |
+| `log_config.py` | 51 | loguru 단일 설정 |
+| `cache/redis.py` | 117 | `safe_*` helper — 모든 Redis 호출의 관문 |
 | `db/session.py` | 50 | 세션 진입점 |
 | `migrate.py` | 29 | alembic CLI 진입점 |
 
-얻는 것은 전 계층이 공유하는 어휘와, 설정을 언제 만드는가(Composition Root)라는 규약이다.
+얻는 것은 전 계층이 공유하는 어휘와, 설정 인스턴스를 언제 어디서 만드는가라는 규약(Composition Root)이다.
 `config.py` 에 인스턴스가 없는 이유를 이해하면 나머지 계층의 `get_*_settings()` 호출이 전부 읽힌다.
 
-참고: CLAUDE.md #F4 · #F7 · #C3, `docs/reference/contracts/env.md`, `docs/reference/redis.md`
+참고: AGENTS.md #F4 · #F7 · #C3, `docs/reference/contracts/env.md`, `docs/reference/redis.md`
 
 ## 1. 데이터 모양
 
 | 파일 | 줄 | 무엇 |
 |------|----|------|
-| `db/models/` 13파일 | 545 | ORM 테이블 정의 (시계열 7 + inventory + history + task + job + base) |
-| `db/dtos/inbound.py` | 234 | 저장용 DTO (wire -> DB) |
-| `db/dtos/outbound.py` | 556 | 조회 결과 DTO (repository -> service) |
+| `db/models/` 13파일 | 540 | ORM 테이블 정의 (시계열 8 + inventory + history + task + job + base) |
+| `db/dtos/inbound.py` | 228 | 저장용 DTO (wire -> DB) |
+| `db/dtos/outbound.py` | 521 | 조회 결과 DTO (repository -> service) |
 
 모델을 먼저 보고 DTO 를 보면 왜 둘을 나눴는지가 보인다. inbound 는 Pydantic 검증을 통과한 값,
 outbound 는 표시 파생이 하나도 없는 raw dataclass 다.
 
-읽으면서 확인할 것 — 시계열 7테이블의 자연키 UNIQUE 가 무엇이고 왜 필요한가. 이게 2단계의
+읽으면서 확인할 것 — 시계열 테이블의 자연키 UNIQUE 가 무엇이고 왜 필요한가. 이게 2단계의
 멱등성과 직결된다.
 
-참고: `docs/reference/db/models.md` · `dtos.md`, CLAUDE.md #C1
+참고: `docs/reference/db/models.md` · `dtos.md`, AGENTS.md #C1
 
 ## 2. 수집 슬라이스 (수직)
 
@@ -86,13 +92,13 @@ outbound 는 표시 파생이 하나도 없는 raw dataclass 다.
 
 | 순서 | 파일 | 줄 |
 |------|------|----|
-| 1 | `consumer/main.py` | 237 |
-| 2 | `consumer/schemas.py` | 346 |
-| 3 | `consumer/handlers/_common.py` | 290 |
+| 1 | `consumer/main.py` | 234 |
+| 2 | `consumer/schemas.py` | 311 |
+| 3 | `consumer/handlers/_common.py` | 275 |
 | 4 | `consumer/handlers/metrics.py` | 80 |
-| 5 | `consumer/mappers.py` | 481 |
+| 5 | `consumer/mappers.py` | 466 |
 | 6 | `db/repositories/collect.py` | 97 |
-| 7 | `db/repositories/collect_sql.py` | 462 |
+| 7 | `db/repositories/collect_sql.py` | 452 |
 
 `main.py` 에서 토폴로지 선언과 핸들러 등록을 보고, `schemas.py` 로 무엇이 들어오는지 확인한 뒤,
 `_common.py` 에서 공통 처리(멱등성·재시도·DLQ)를 잡고, `metrics.py` 로 한 routing key 를 끝까지 본다.
@@ -102,17 +108,17 @@ outbound 는 표시 파생이 하나도 없는 raw dataclass 다.
 
 읽으면서 확인할 것 — `safe_set_nx` 가 실패했을 때 왜 시스템이 안 깨지는가 (2단 방어).
 
-참고: `docs/reference/consumer.md` · `rabbitmq.md`, CLAUDE.md #D1 · #D2
+참고: `docs/reference/consumer.md` · `rabbitmq.md`, AGENTS.md #D1 · #D2
 
 ## 3. 도메인 판정
 
 | 순서 | 파일 | 줄 |
 |------|------|----|
-| 1 | `domain/boot_time.py` | 39 |
-| 2 | `domain/service_classifier.py` | 615 |
-| 3 | `domain/right_sizing.py` | 1,077 |
+| 1 | `domain/boot_time.py` | 36 |
+| 2 | `domain/service_classifier.py` | 576 |
+| 3 | `domain/right_sizing.py` | 944 |
 
-작은 것부터 올라간다. `boot_time.py` 는 39줄인데 "왜 정확 비교를 안 하는가" 하나를 다루고,
+작은 것부터 올라간다. `boot_time.py` 는 36줄인데 "왜 정확 비교를 안 하는가" 하나를 다루고,
 `service_classifier.py` 는 카탈로그 하나에서 전부 파생시키는 패턴을 보여주고,
 `right_sizing.py` 가 이 제품의 값어치다.
 
@@ -120,13 +126,13 @@ outbound 는 표시 파생이 하나도 없는 raw dataclass 다.
 
 | 덩이 | 범위 | 무엇 |
 |------|------|------|
-| 임계 상수 | 파일 상단 | 각 수치에 (계층, 출처)가 붙어 있다 |
+| 임계 상수 | 파일 상단 | 각 수치에 출처가 붙어 있다 (Kleinrock · AWS · Azure · Microsoft) |
 | 자원별 판정 | `assess_cpu` ~ `assess_network` | 자원 하나를 USE 로 보는 법 |
 | 호스트 종합 | `rollup_host` · `_host_status` · 처방 | 자원 5개를 인과로 묶는 법 |
 
 읽으면서 확인할 것 — dual-gate 가 무엇을 막는가. 왜 이용률만으로도, 포화 신호만으로도 부족한가.
 
-참고: `docs/reference/right-sizing.md` · `right-sizing-thresholds.md`, CLAUDE.md #E3
+참고: `docs/reference/right-sizing.md` · `right-sizing-thresholds.md`, AGENTS.md #E3
 
 ## 4. 조회 슬라이스 (수직)
 
@@ -134,20 +140,21 @@ URL 이 DTO 가 되기까지. 화면 중 가장 단순한 서버 목록을 고�
 
 | 순서 | 파일 | 줄 |
 |------|------|----|
-| 1 | `web/main.py` · `web/deps.py` | 230 |
-| 2 | `web/routers/pages/list_page.py` | 258 |
-| 3 | `web/services/query/_base.py` | 100 |
-| 4 | `web/services/query/server.py` | 224 |
+| 1 | `web/main.py` · `web/deps.py` | 211 |
+| 2 | `web/routers/pages/list_page.py` | 245 |
+| 3 | `web/services/query/_base.py` | 96 |
+| 4 | `web/services/query/server.py` | 219 |
 | 5 | `db/repositories/query/server.py` | 47 |
 | 6 | `db/repositories/query/server_sql.py` | 264 |
 
 Protocol(`server.py`)을 구현(`server_sql.py`)보다 먼저 보는 것이 중요하다. 인터페이스가 계약이고
 구현은 그 계약을 SQL 로 갚는 쪽이다.
 
-얻는 것은 이 저장소가 의존성 역전을 실제로 어떻게 배선했는가다. `deps.py` 에서 구현이 주입되는
-지점을 확인하면 #F4 의 "구현은 Composition Root 에서만" 이 코드로 보인다.
+얻는 것은 이 저장소가 인터페이스와 구현을 어디서 잇는가다. `deps.py` 에서 구현이 주입되는
+지점을 확인하면 #F4 의 "구현은 Composition Root 에서만" 이 코드로 보인다. `query/__init__.py` 가
+인터페이스만 내보내고 구현은 재수출하지 않는 것도 같은 규약이다.
 
-참고: `docs/reference/web/layering.md` · `routers.md` · `db/repositories.md`, CLAUDE.md #C2 · #F4
+참고: `docs/reference/web/layering.md` · `routers.md` · `db/repositories.md`, AGENTS.md #C2 · #F4
 
 ## 5. 표시 슬라이스 (수직)
 
@@ -155,22 +162,24 @@ DTO 가 화면이 되기까지. 4단계에서 받은 raw 를 이어서 따라간
 
 | 순서 | 파일 | 줄 |
 |------|------|----|
-| 1 | `web/services/mappers/constants.py` | 87 |
-| 2 | `web/services/mappers/resource_stats.py` | 82 |
-| 3 | `web/services/mappers/assessment_display.py` | 206 |
-| 4 | `web/services/mappers/server.py` | 941 |
-| 5 | `web/view_models/server.py` | 288 |
+| 1 | `web/services/mappers/constants.py` | 76 |
+| 2 | `web/services/mappers/resource_stats.py` | 78 |
+| 3 | `web/services/mappers/assessment_display.py` | 196 |
+| 4 | `web/services/mappers/server.py` | 879 |
+| 5 | `web/view_models/server.py` | 265 |
 | 6 | `web/templating/setup.py` · `filters.py` | 198 |
 
-`resource_stats.py` 는 82줄인데 위치가 중요하다. 여기가 DB raw 를 도메인 입력으로 바꾸는 어댑터고,
-`assessment_display.py` 가 도메인 판정을 화면 원자로 바꾼다. 이 둘이 3단계와 5단계를 잇는 다리다.
+`resource_stats.py` 는 78줄인데 위치가 중요하다. DB 에서 꺼낸 raw 수치를 도메인이 받는 입력 형태로
+바꾸는 쪽이고, `assessment_display.py` 는 그 반대편에서 도메인이 낸 판정을 화면에 찍을 문자열·색·배지로
+바꾼다. 3단계에서 읽은 판정이 화면까지 오는 길이 이 둘을 지난다.
 
-얻는 것은 P1~P4 원칙이 코드로 어떻게 나타나는가다. repository 가 왜 percent 를 계산하지 않는지,
-템플릿이 왜 `length` 를 못 쓰는지가 여기서 납득된다.
+얻는 것은 표시 코드를 어느 계층에 두는가라는 규약(#E1 의 P1~P4)이 코드로 어떻게 나타나는가다.
+repository 가 왜 percent 를 계산하지 않는지, 템플릿이 왜 `length` 를 못 쓰는지가 여기서 납득된다.
 
-읽으면서 확인할 것 — 같은 ViewModel 이 SSR·JSON·캐시 세 경로로 나가는데 왜 일관된가 (`enrich_*` idempotent).
+읽으면서 확인할 것 — 같은 ViewModel 이 SSR·JSON·캐시 세 경로로 나가는데 왜 일관된가
+(`enrich_*` idempotent).
 
-참고: `docs/reference/web/services.md` · `view-models.md` · `static-assets.md`, CLAUDE.md #E1 P1~P4
+참고: `docs/reference/web/services.md` · `view-models.md` · `static-assets.md`, AGENTS.md #E1 P1~P4
 
 ## 6. 비동기 보고서 (수직)
 
@@ -178,24 +187,24 @@ DTO 가 화면이 되기까지. 4단계에서 받은 raw 를 이어서 따라간
 
 | 순서 | 파일 | 줄 |
 |------|------|----|
-| 1 | `web/routers/reports.py` | 241 |
-| 2 | `web/services/diagnostic_service.py` | 240 |
-| 3 | `worker/main.py` | 131 |
+| 1 | `web/routers/reports.py` | 224 |
+| 2 | `web/services/diagnostic_service.py` | 226 |
+| 3 | `worker/main.py` | 124 |
 | 4 | `worker/lifecycle.py` | 39 |
-| 5 | `worker/report_loop.py` | 94 |
-| 6 | `web/services/report/generator.py` | 131 |
-| 7 | `web/services/report/result.py` · `serializer.py` | 339 |
-| 8 | `web/routers/_report_snapshot.py` | 94 |
+| 5 | `worker/report_loop.py` | 90 |
+| 6 | `web/services/report/generator.py` | 118 |
+| 7 | `web/services/report/result.py` · `serializer.py` | 308 |
+| 8 | `web/routers/_report_snapshot.py` | 88 |
 
-라우터가 job 을 넣고 즉시 반환하는 지점 -> 워커가 claim 하는 지점 -> 스냅샷이 JSONB 로 굳는 지점 ->
-다시 읽어 렌더하는 지점 순이다.
+라우터가 job 을 넣고 즉시 반환하는 지점 -> 워커가 그 job 을 집어 가는 지점 -> 스냅샷이 JSONB 로
+굳는 지점 -> 다시 읽어 렌더하는 지점 순이다.
 
 얻는 것은 상태를 DB 에 두면 프로세스 재시작이 왜 안전한가, graceful shutdown 이 무엇을 보장하는가다.
-`worker/task_reaper.py`(56줄)도 같이 보면 "능동 정리 루프" 패턴이 하나 더 나온다.
+`worker/task_reaper.py`(51줄)도 같이 보면 주기적으로 훑어 마감 지난 것을 치우는 루프가 하나 더 나온다.
 
 읽으면서 확인할 것 — SIGTERM 이 왔을 때 진행 중인 job 하나가 어떻게 되는가.
 
-참고: `docs/explanation/products/environment-report.md`, CLAUDE.md #C1 · #F11
+참고: `docs/explanation/products/environment-report.md`, AGENTS.md #C1 · #F11
 
 ## 7. 화면별 확장
 
@@ -204,15 +213,16 @@ DTO 가 화면이 되기까지. 4단계에서 받은 raw 를 이어서 따라간
 
 | 묶음 | 파일 |
 |------|------|
-| 운영 신호·환경 개요 | `mappers/attention.py`(652) · `topology.py`(267) |
-| 보고서 본문 | `mappers/report.py`(400) · `environment_report.py`(506) · `report_summary.py`(140) · `period_assessment.py`(424) |
-| 메트릭·차트 | `mappers/metric_dashboard.py`(732) · `metric.py`(28) · `db/repositories/query/metric_sql.py`(1,649) |
-| 계약 API | `routers/assessment.py`(91) · `mappers/assessment_api.py`(399) · `right_sizing_api.py`(260) |
-| 원격 작업 | `services/task_service.py`(422) · `routers/tasks.py` · `consumer/task_policy.py`(90) |
-| 부가 | `mappers/os_eol.py`(258) · `report_history.py`(90) · `api_reference.py`(130) · `service_reference.py`(28) |
+| 운영 신호·환경 개요 | `mappers/attention.py`(551) · `mappers/topology.py`(253) |
+| 보고서 본문 | `mappers/report.py`(356) · `mappers/environment_report.py`(460) · `mappers/report_summary.py`(126) · `mappers/period_assessment.py`(390) |
+| 메트릭·차트 | `mappers/metric_dashboard.py`(687) · `mappers/metric.py`(28) · `db/repositories/query/metric_sql.py`(1,603) |
+| 계약 API | `routers/assessment.py`(89) · `mappers/assessment_api.py`(369) · `mappers/right_sizing_api.py`(253) |
+| 원격 작업 | `services/task_service.py`(386) · `routers/tasks.py` · `consumer/task_policy.py`(64) |
+| 부가 | `mappers/os_eol.py`(238) · `mappers/report_history.py`(90) · `mappers/api_reference.py`(114) · `mappers/service_reference.py`(28) |
 
-`metric_sql.py` 1,649줄이 이 저장소 최대 파일인데, 차트 dispatch table 하나를 이해하면 나머지는
+`metric_sql.py` 1,603줄이 이 저장소 최대 파일인데, 차트 dispatch table 하나를 이해하면 나머지는
 같은 형태의 반복이다. 처음부터 읽지 말고 `get_metric_trend` 의 dispatch 만 잡는 편이 낫다.
+이 파일은 SQL 문자열 안 `--` 주석이 왜 그렇게 되는지를 설명하니 그 주석을 함께 읽는다.
 
 ---
 
@@ -223,6 +233,10 @@ DTO 가 화면이 되기까지. 4단계에서 받은 raw 를 이어서 따라간
 파일 통독은 그 흐름을 한 번 훑은 뒤에 해도 늦지 않다.
 
 층 훑기(0·1·3)는 반대다. 이 파일들은 다른 곳에서 불려 다니는 어휘·판정이라 통독이 맞다.
+
+주석은 why 만 남기는 정리를 거쳤다. 남아 있는 주석은 대개 외부 제약(라이브러리·OS·드라이버 동작),
+되돌리면 안 되는 이유, 자명하지 않은 계약(None 의 의미·단위) 셋 중 하나다. 코드가 왜 그 모양인지
+막히면 그 자리 주석을 먼저 본다.
 
 각 단계 끝의 "읽으면서 확인할 것" 은 그 단계를 이해했는지 자가 점검하는 질문이다. 답이 안 나오면
 해당 참고 문서를 보면 되고, 문서에도 없으면 그건 문서 쪽 결함이다.

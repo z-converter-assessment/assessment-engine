@@ -45,7 +45,7 @@ class ReportQueryRepository(Protocol):
         ...
 
     async def get_agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]:
-        """since 이후 server별 agent 재시작 횟수 — attention agent_unstable fixed 윈도우 (Redis sliding 대체)."""
+        """since 이후 server별 agent 재시작 횟수를 반환한다."""
         ...
 
     async def get_report_disk_io_baseline(

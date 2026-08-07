@@ -332,7 +332,7 @@ class FakeRedis:
 
 
 class FakePipeline:
-    """`safe_incr_with_ttl` 이 여는 MULTI/EXEC — 명령을 모았다가 execute 에서 한 번에 적용한다."""
+    """Redis 트랜잭션 파이프라인 대역."""
 
     def __init__(self, redis: FakeRedis) -> None:
         self._redis = redis

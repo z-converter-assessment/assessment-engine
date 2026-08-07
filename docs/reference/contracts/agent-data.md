@@ -1,6 +1,6 @@
 # Agent 메시지 데이터 계약 (wire)
 
-정본 = `wire.schema.json`(JSON Schema draft 2020-12) + `wire-examples.json`(예시 6종). 본 문서는 그 계약을 사람이 읽는 카탈로그로 서술한다 — 스키마와 어긋나면 스키마가 이긴다. 정책: CLAUDE.md #B.
+정본 = `wire.schema.json`(JSON Schema draft 2020-12) + `wire-examples.json`(예시 6종). 본 문서는 그 계약을 사람이 읽는 카탈로그로 서술한다 — 스키마와 어긋나면 스키마가 이긴다. 정책: AGENTS.md #B.
 
 메시지 4종: `metrics` · `inventory` · `task.result` · `error`.
 

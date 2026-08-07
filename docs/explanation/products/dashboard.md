@@ -159,7 +159,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 - 5분류(under/over/idle/optimal/insufficient_data) 카운트 막대 — `classify_host` 규칙 분류 -> `build_risk_donut_segments`
 - 분류명은 한국어(RECOMMENDATION_LABEL_KO) 단일 진실 — 영어 enum 노출 금지, 보고서·화면 통일
 - 막대 색은 게이지 테마 단색 통일 (라벨이 의미 전달) — `UTIL_GAUGE_COLOR`
-- 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·자원 적정성·capacity trigger 일관, CLAUDE.md #E8)
+- 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·자원 적정성·capacity trigger 일관, AGENTS.md #E8)
 
 모든 카테고리 항상 노출 (count 0 포함, #E9):
 - 카드·범례 위치가 데이터에 따라 움직이면 운영자가 화면을 다시 읽어야 한다 — 슬롯을 고정하고 발화 없는 카테고리는 옅은 회색으로 남긴다
@@ -179,4 +179,4 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 - `docs/explanation/products/{environment-report,server-report}.md` — 보고서 산출물 (scope별)
 - `docs/explanation/products/install-task.md` — "ZDM Install" column source
 - 구현 위치(라우터·서비스·템플릿)는 위 `docs/reference/web/` 카탈로그가 갖는다
-- CLAUDE.md #E1·#E2·#E3·#E8 — 표시 계층 원칙·데이터 흐름·임계 색 단일 진실
+- AGENTS.md #E1·#E2·#E3·#E8 — 표시 계층 원칙·데이터 흐름·임계 색 단일 진실

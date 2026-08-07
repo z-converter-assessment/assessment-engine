@@ -1,6 +1,6 @@
 name: pr-title-check
 
-# PR title 형식과 AI 메타데이터 부재를 강제한다.
+# PR title 형식과 작성 주체 메타데이터 부재를 강제한다.
 # develop PR 은 squash 라 PR title 이 그대로 commit message 가 되고, main PR 은 자동 release notes 의 입력이 된다.
 
 on:
@@ -44,13 +44,14 @@ jobs:
             예: `feat: add ...` / `fix: handle ...`
 
       # title·body 를 env 로 받는다 — run 안에 직접 보간하면 script injection 이 된다.
-      - name: No AI metadata
+      - name: No attribution metadata
         env:
           TITLE: ${{ github.event.pull_request.title }}
           BODY: ${{ github.event.pull_request.body }}
         run: |
-          if grep -iqE 'co-authored-by:.*(claude|anthropic)|generated with .*claude|claude code' <<< "$TITLE
+          metadata_pattern='^[[:space:]]*(co-authored-by:|generated[ -](with|by):?|assisted([ -]by:|[[:space:]]+by)|[^[:space:]]+[ -]generated([^[:alnum:]_]|$))'
+          if grep -iqE "$metadata_pattern" <<< "$TITLE
           $BODY"; then
-            echo "::error::PR title/body 에 AI 메타데이터가 있다 — 제거 후 다시 저장한다."
+            echo "::error::PR title/body 에 작성 주체 메타데이터가 있다 — 제거 후 다시 저장한다."
             exit 1
           fi

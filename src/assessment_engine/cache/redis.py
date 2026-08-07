@@ -100,13 +100,13 @@ async def safe_mget(redis: Redis, keys: list[str]) -> list[str | None] | None:
 
 
 async def safe_incr_with_ttl(redis: Redis, key: str, ttl: int) -> int | None:
-    """슬라이딩 윈도우 카운터 — INCR + EXPIRE 를 MULTI/EXEC 로 묶어 1 RTT·원자.
+    """마지막 이벤트부터 TTL 안에 이어진 이벤트 수를 반환한다.
 
-    EXPIRE 를 매번 reset 하므로 "마지막 INCR 후 ttl 초 내 N 회"를 추적한다 (fixed window 아님).
-    원자로 묶는 이유는 두 명령 사이 크래시로 TTL 없는 키가 남는 것을 막기 위해서다.
-    실패 시 None — 0 이 아니라 "카운터를 못 읽었다"는 뜻이라 호출자는 이번 회차 판정을 건너뛴다.
+    TTL 은 매번 갱신된다. MULTI/EXEC 는 INCR 뒤 EXPIRE 전 장애로 TTL 없는 키가 남는 것을 막는다.
+    Redis 장애는 None 이며 호출자가 이번 판정을 건너뛴다.
     """
     try:
+        # redis-py pipeline 명령은 동기적으로 큐에 쌓이며 execute()만 I/O를 수행한다.
         async with redis.pipeline(transaction=True) as pipe:
             pipe.incr(key)
             pipe.expire(key, ttl)

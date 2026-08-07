@@ -386,19 +386,11 @@ async def test_record_metrics_per_device_unique(
     assert result.disk_io == 3
 
 
-# --- boot_time / agent_started_at 보존 (counter reset 정밀 식별 의존) -------
-
-
 async def test_record_metrics_persists_boot_time_envelope(
     collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
-    """boot_time/agent_started_at 은 envelope(server_metrics)에만 저장한다.
-
-    수집 1회당 1행인 server_metrics 에만 두고 자식 시계열(disk_io·net_io·filesystem)은 동일
-    (server_id, collected_at) 로 본 행을 참조한다 — 메타를 시계열마다 복제하지 않는다(CLAUDE.md C1,
-    모델 docstring). counter reset 판정은 envelope 행에서 읽는다.
-    """
+    """부팅 시각 메타데이터는 server_metrics에만 저장한다."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="mid-bt-1"))
     ts = datetime.now(UTC)
     boot = datetime(2026, 5, 9, 12, 0, tzinfo=UTC)
@@ -406,7 +398,6 @@ async def test_record_metrics_persists_boot_time_envelope(
     m = make_metrics(collected_at=ts, boot_time=boot, agent_started_at=started)
     await collect_repo.record_metrics(sid, m)
 
-    # envelope: server_metrics 에 boot_time/agent_started_at 저장.
     row = (
         await db_session.execute(
             text(
@@ -419,7 +410,6 @@ async def test_record_metrics_persists_boot_time_envelope(
     assert row.boot_time == boot
     assert row.agent_started_at == started
 
-    # 자식 시계열은 동일 (server_id, collected_at) 로 envelope 행을 참조 (메타 미보유).
     for table in ("server_disk_io", "server_net_io", "server_filesystem"):
         count = (
             await db_session.execute(

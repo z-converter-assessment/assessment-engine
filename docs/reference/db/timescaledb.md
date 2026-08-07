@@ -1,6 +1,6 @@
 # TimescaleDB · 차트 SQL 패턴
 
-정책: CLAUDE.md #C1·#C4·#C5. 본 문서는 hypertable 구성·차트 SQL 패턴·`get_report_aggregate` 단일 진실.
+정책: AGENTS.md #C1·#C4·#C5. 본 문서는 hypertable 구성·차트 SQL 패턴·`get_report_aggregate` 단일 진실.
 
 ## hypertable 구성
 

@@ -81,16 +81,15 @@ class WebSettings(BaseSettings):
     # 운영 환경은 false 유지 — 로그 폭증에 더해 접속 문자열·파라미터가 그대로 찍힌다.
     sqlalchemy_echo: bool = False
 
-    # TTL (seconds)
-    redis_ttl_idempotent: int = 86400  # 24h
-    redis_ttl_online: int = 300  # 5min — 운영 신호 "통신 끊김" 임계(gap_minutes=5) 와 단일 진실
-    redis_ttl_last_agent_start: int = 86400  # 24h
-    redis_ttl_agent_restarts: int = 3600  # 1h — 재시작 카운터 슬라이딩 윈도우 폭
-    redis_ttl_time_invariant_warned: int = 3600  # 1h — 로그 쿨다운
-    redis_ttl_cache_metrics: int = 60  # 1min — 실시간 폴링 주기에 맞춘다
-    redis_ttl_cache_detail: int = 300  # 5min
+    # TTL 환경변수의 단위는 초다.
+    redis_ttl_idempotent: int = 86400
+    redis_ttl_online: int = 300
+    redis_ttl_last_agent_start: int = 86400
+    redis_ttl_agent_restarts: int = 3600
+    redis_ttl_time_invariant_warned: int = 3600
+    redis_ttl_cache_metrics: int = 60
+    redis_ttl_cache_detail: int = 300
 
-    # Key prefixes
     redis_key_cache_inventory: str = "cache:inventory:{}"
     redis_key_cache_metrics: str = "cache:metrics:{}"
     redis_key_cache_resolve: str = "cache:resolve:{}"
@@ -100,8 +99,6 @@ class WebSettings(BaseSettings):
     redis_key_agent_restarts: str = "agent_restarts:{}"
     redis_key_time_invariant_warned: str = "time_invariant_warned:{}"
 
-    # redis_ttl_agent_restarts 윈도우 안 재시작 횟수 임계.
-    # env 카탈로그(.env.example·contracts/env.md) 미수록 — 운영 alert 튜닝이 필요하면 env 로 덮는다.
     agent_restart_alert_threshold: int = 3
 
     # install 모달 기본값 — POST body 누락 시 fallback. 오발행 방어는 런타임(resolver 503 차단)과 agent host

@@ -249,11 +249,10 @@ async def _log_time_invariants(redis: Redis, data: AgentMessageBase) -> None:
 
 
 async def _track_agent_restart(redis: Redis, server_id: int, agent_id: str, agent_started_at: datetime | None) -> None:
-    """직전 agent_started_at 과 비교해 바뀌었으면 1h 슬라이딩 윈도우 카운터를 INCR 한다.
+    """짧은 간격으로 이어지는 에이전트 재시작을 감지한다.
 
-    임계 도달 시 warning (agent crash loop 인지). 시스템 재부팅도 agent_started_at 을 바꿔 같은
-    카운터에 들어간다 — 그 빈도도 알릴 값이라 거르지 않는다. agent_started_at null 이면 skip,
-    Redis 장애 시 fail-open(silent skip).
+    시스템 재부팅도 수집 연속성에 영향을 주므로 같은 카운터에 포함한다. 시각이 없거나 Redis가
+    응답하지 않으면 메시지 처리를 계속한다.
     """
     if agent_started_at is None:
         return
@@ -266,11 +265,13 @@ async def _track_agent_restart(redis: Redis, server_id: int, agent_id: str, agen
         count = await safe_incr_with_ttl(redis, counter_key, get_consumer_settings().redis_ttl_agent_restarts)
         if count is not None and count >= get_consumer_settings().agent_restart_alert_threshold:
             logger.warning(
-                "agent restart frequency alert agent_id={} server_id={} count={}/h threshold={}",
+                "agent restart frequency alert agent_id={} server_id={} "
+                "consecutive_count={} threshold={} max_gap_sec={}",
                 agent_id,
                 server_id,
                 count,
                 get_consumer_settings().agent_restart_alert_threshold,
+                get_consumer_settings().redis_ttl_agent_restarts,
             )
 
     await safe_set(redis, last_key, current_iso, ex=get_consumer_settings().redis_ttl_last_agent_start)

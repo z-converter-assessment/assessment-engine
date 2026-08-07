@@ -1,6 +1,6 @@
 # 로컬 개발
 
-정책: CLAUDE.md #A. dev 환경에서 무엇을 어떻게 하는지를 다룬다. 이미지·compose 구성 사양은 `docs/reference/docker.md`, 배포는 `docs/guides/deploy.md`, 테스트는 `docs/guides/testing.md` 가 갖는다.
+정책: AGENTS.md #A. dev 환경에서 무엇을 어떻게 하는지를 다룬다. 이미지·compose 구성 사양은 `docs/reference/docker.md`, 배포는 `docs/guides/deploy.md`, 테스트는 `docs/guides/testing.md` 가 갖는다.
 
 ---
 

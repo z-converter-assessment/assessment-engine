@@ -85,7 +85,9 @@
 | `rotate-secret.sh` | DB·broker 계정 비밀번호 교체 | 위와 같음 |
 | `Makefile` | 개발 명령 단일 진입점 (`make help`) | make 가 실행 디렉토리에서 찾는다 |
 | `README.md` · `CONTRIBUTING.md` | 제품 소개 · 개발 참여 진입점 | GitHub 이 루트에서 렌더하고 PR 화면에 링크 |
-| `.gitignore` · `.dockerignore` · `.claudeignore` | 각 도구의 제외 목록 | 도구가 컨텍스트 루트에서 읽음 |
+| `AGENTS.md` · `.agents/` | 공용 에이전트 규약 · 작업 스킬 · 감사 프롬프트 | Claude Code와 Codex의 공용 정본 |
+| `CLAUDE.md` · `.claude/` | Claude Code 호환 진입점 · 자동 발견 어댑터 | 공용 `AGENTS.md`와 `.agents/`만 가리키며 심링크를 쓰지 않음 |
+| `.gitignore` · `.dockerignore` | 각 도구의 제외 목록 | 도구가 컨텍스트 루트에서 읽음 |
 
 프론트엔드 설정이 섞여 보이지만 별도 프로젝트가 아니다. 번들러도 빌드 산출물도 없고, 서빙되는 JS 는 빌드를 거치지 않고 `src/assessment_engine/web/static/` 에서 그대로 나간다.
 
@@ -114,7 +116,7 @@
 
 | workflow | 검증·작업 |
 |----------|------|
-| `pr-title-check.yml` | PR title 형식(Conventional Commits) + AI 메타데이터 부재 |
+| `pr-title-check.yml` | PR title 형식(Conventional Commits) + 작성 주체 메타데이터 부재 |
 | `ci.yml` | lint(ruff+pyright+hadolint) · 단위 테스트 · 프론트 타입 계약 · wheel build · 통합 테스트 |
 | `alembic-check.yml` | ORM 모델과 migrations 의 drift (`alembic upgrade head` 후 `alembic check`) |
 | `codeql.yml` | CodeQL SAST (Security 탭 alert) |

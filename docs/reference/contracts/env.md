@@ -2,7 +2,7 @@
 
 env 관리 단일 진실 — 정책·secret 채널·주입 흐름·키 카탈로그·운영 체크리스트. 외부 인프라가 본 엔진을 prod 운영할 때 충족해야 할 contract 다.
 
-정책 출처: CLAUDE.md #A0 (외부 인프라 책임 분리) · #F8 (secret·PII 노출 금지). 본 repo 는 결과만 검증하고 secret 주입 채널 자체는 외부 인프라 자유.
+정책 출처: AGENTS.md #A0 (외부 인프라 책임 분리) · #F8 (secret·PII 노출 금지). 본 repo 는 결과만 검증하고 secret 주입 채널 자체는 외부 인프라 자유.
 
 ---
 
@@ -27,7 +27,7 @@ env 관리 단일 진실 — 정책·secret 채널·주입 흐름·키 카탈로
 
 규칙: config 인지 secret 인지 헷갈리면 secret 으로 간주. 잘못 분류해 secret 을 평문 노출하는 비용이 그 반대보다 크다.
 
-코드 측 의무 (CLAUDE.md F8):
+코드 측 의무 (AGENTS.md F8):
 - secret 으로 분류된 필드는 `Settings` 에서 `SecretStr` 타입 의무 — `__repr__` 이 자동 마스킹해 로그·예외·디버거 출력에 평문 노출 차단.
 - 사용 시점에서만 `.get_secret_value()` 로 평문 추출 — 변수에 담아 재사용 금지 (마스킹 우회 위험).
 
@@ -175,7 +175,7 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 | `REPORT_WORKER_*`·`INSTALL_REAPER_*` | 사용 안 함 | 사용 안 함 | 의무 |
 | `SQLALCHEMY_ECHO` | 의무 | 의무 | 의무 |
 
-Settings 인스턴스를 만들 수 있는 위치는 CLAUDE.md #F4 가 정한다.
+Settings 인스턴스를 만들 수 있는 위치는 AGENTS.md #F4 가 정한다.
 
 ---
 
@@ -189,7 +189,7 @@ Settings 인스턴스를 만들 수 있는 위치는 CLAUDE.md #F4 가 정한다
 | C. 계층화 — 공통 + 컴포넌트별 (권장) | `shared.env` (DB·MQ·Redis·LOG_FORMAT) + `<component>.env` (특화 키) | 4 node 분리 prod | Ansible `group_vars`(shared) + `host_vars`(component별). systemd `EnvironmentFile=` 여러 줄 |
 | D. 중앙 secret store | Vault·Consul·AWS Parameter Store·k8s ConfigMap·External Secrets | 다중 환경·동적 회전 | 인프라 측 자체 운영 |
 
-본 매트릭스는 reference — 실제 채널 선택·노드 분리 토폴로지는 외부 인프라 결정 (CLAUDE.md #A0).
+본 매트릭스는 reference — 실제 채널 선택·노드 분리 토폴로지는 외부 인프라 결정 (AGENTS.md #A0).
 
 ---
 
@@ -308,12 +308,12 @@ IPv6 는 받지 않는다 — raw(`::1`)도 bracket(`[::1]:8000`)도 거부다. 
 다음 키는 운영 변경 빈도가 낮아 표에 행을 두지 않는다. BaseSettings 필드라 필요하면 env 로 override 된다.
 
 - `redis_ttl_idempotent` (24h)·`redis_ttl_online` (5min)
-- `redis_ttl_last_agent_start` (24h)·`redis_ttl_agent_restarts` (1h 슬라이딩 윈도우)·`redis_ttl_time_invariant_warned` (1h)
+- `redis_ttl_last_agent_start` (24h)·`redis_ttl_agent_restarts` (1h)·`redis_ttl_time_invariant_warned` (1h)
 - `redis_ttl_cache_metrics` (1min — 대시보드 스냅샷 cache-aside)·`redis_ttl_cache_detail` (5min — 서버 상세 ViewModel cache-aside)
 - `redis_key_*` 패턴 (cache:*·idempotent·online·last_agent_start·agent_restarts·time_invariant_warned)
 - WorkerSettings 전용 (worker 프로세스만): `report_worker_poll_interval_sec` (2s)·`report_worker_stale_seconds` (600 — running 잔류 회수)·`report_worker_shutdown_timeout_sec` (10s)·`install_reaper_interval_sec` (60s)·`install_reaper_shutdown_timeout_sec` (5s)
 - `zdm_package_path`·`zdm_package_script`·`zdm_package_path_windows` — ZDM 제품 패키지 layout 상수 (거의 안 바뀜, ZDM 버전업 시에나). 배포 변동값 아니라 미수록 — task.install download.url 은 `http://{ZDM_IP}{zdm_package_path}` 조립
-- `agent_restart_alert_threshold` (기본 3) — 에이전트 재시작 alert 임계값(1h 윈도우). 운영 alert 튜닝 노브, 평소 default 유지 — 필요 시 env override
+- `agent_restart_alert_threshold` (기본 3) — consumer warning과 web attention 공용 재시작 횟수 임계값. 필요 시 env override
 
 ---
 
@@ -354,4 +354,4 @@ IPv6 는 받지 않는다 — raw(`::1`)도 bracket(`[::1]:8000`)도 거부다. 
 - `docs/reference/observability.md` — `LOG_FORMAT`·`LOG_LEVEL`
 - `docs/guides/migrate.md` — schema migrate contract
 - `docs/guides/release.md` — 릴리즈 artifact 카탈로그
-- CLAUDE.md #A0·#F8 — secret·PII 노출 금지 원칙
+- AGENTS.md #A0·#F8 — secret·PII 노출 금지 원칙

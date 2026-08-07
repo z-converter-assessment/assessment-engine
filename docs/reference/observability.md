@@ -1,6 +1,6 @@
 # 관측 (Observability)
 
-정책 출처: CLAUDE.md #F7 (로깅) · #F6 (외부 의존 실패 모드) · #F8 (시크릿·PII 노출 금지). 운영자는 아래 contract
+정책 출처: AGENTS.md #F7 (로깅) · #F6 (외부 의존 실패 모드) · #F8 (시크릿·PII 노출 금지). 운영자는 아래 contract
 만 충족하면 인프라 측 log aggregator 로 indexing·alerting 을 붙일 수 있다.
 
 ## 로그 레벨
