@@ -1,4 +1,4 @@
-"""SqlDiagnosticRepository 통합 테스트 — ADR 0004 partial UNIQUE·즉시 succeeded·retention.
+"""SqlDiagnosticRepository 통합 테스트 — partial UNIQUE·즉시 succeeded·retention.
 
 각 테스트는 db_session function-scope rollback으로 격리.
 시간 의존 테스트(delete_retention)는 finished_at을 raw SQL로 과거 시점 조작.

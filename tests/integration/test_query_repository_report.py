@@ -367,7 +367,7 @@ async def test_report_breakdowns_single_equals_batch(
     assert cpu_single == cpu_batch
 
 
-# --- cagg counter reset 처리 (ADR 0043 — counter_agg 정석) --------------------
+# --- cagg counter reset 처리 (counter_agg 정석) --------------------
 
 
 async def test_report_aggregate_counter_reset_segments_summed(
@@ -415,7 +415,6 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(
 ):
     """disk ops 카운터 reset(재부팅)을 server_disk_io_5m cagg counter_agg 가 일률 흡수.
 
-    기존 LAG baseline 은 boot_time gate 없이 delta>=0 만이라 reset 처리가 CPU 와 불일치했다(ADR 0043 weirdness).
     counter_agg 는 reset 전후 단조 세그먼트를 합산 — IOPS baseline 이 reset 점프로 왜곡되지 않는다.
     """
     sid = await collect_repo.upsert_server(make_inventory(composite_id="r-disk-reset"))
@@ -452,11 +451,11 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(
     assert iops_baseline > 0
 
 
-# --- ADR 0052 신 신호 get_report_aggregate 집계 ------------------------------
+# --- 신 신호 get_report_aggregate 집계 ------------------------------
 
 
 async def test_report_aggregate_adr0052_signals(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
-    """ADR 0052 신 신호가 get_report_aggregate 로 집계되는지 — steal p95·burst·D-state·swap paging·await·
+    """신 신호가 get_report_aggregate 로 집계되는지 — steal p95·burst·D-state·swap paging·await·
 
     drop%·retrans%·history_hours. 같은 5분 버킷 다중 시점으로 counter_agg delta 성립.
 
@@ -593,7 +592,7 @@ async def test_report_aggregate_adr0052_signals_absent_are_none(
     assert r.mem_swap_paging is False  # paging_major 미발행
 
 
-# --- ADR 0052 per-core 단일스레드 신호 ------------------------------------
+# --- per-core 단일스레드 신호 ------------------------------------
 
 
 async def test_report_aggregate_percore_p95_max_reflects_busy_core(
@@ -659,7 +658,7 @@ async def test_report_aggregate_percore_none_when_absent(
     assert rows[0].cpu_percore_p95_max is None
 
 
-# --- ADR 0052 run-queue(cpu_run_queue) + OOM ------------------------------
+# --- run-queue(cpu_run_queue) + OOM ------------------------------
 
 
 async def test_report_aggregate_runqueue_and_oom(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
@@ -688,7 +687,7 @@ async def test_report_aggregate_runqueue_oom_absent(collect_repo: SqlCollectRepo
     assert r.oom_occurred is False
 
 
-# --- ADR 0052 신 신호 값 검증 — disk await(counter_agg) · conntrack ratio · inode used% ---
+# --- 신호 값 검증 — disk await(counter_agg) · conntrack ratio · inode used% ---
 async def test_report_aggregate_await_conntrack_inode(
     collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository
 ):

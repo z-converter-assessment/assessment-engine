@@ -2126,7 +2126,6 @@
       "안정키 정책 (device 식별)",
       "type=disk",
       ")·물리 iface(",
-      ")만 시계열 집계에 포함해 LVM/RAID/crypt·가상 브리지의 이중집계를 배제한다(ADR 0054 5항",
       "src/",
       "Linux,",
       "windows-agent/src/",

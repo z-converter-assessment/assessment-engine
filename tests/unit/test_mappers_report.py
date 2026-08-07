@@ -87,7 +87,7 @@ def _raw(
     net_tx: float | None = None,
     cpu_sufficiency: float | None = None,
     mem_sufficiency: float | None = None,
-    # ADR 0052 신 모델 입력 raw
+    # 자원 적정성 모델 입력 raw
     procs_blocked_p95: float | None = None,
     mem_swap_paging: bool = False,
     disk_await_p95_ms: float | None = None,
@@ -988,7 +988,7 @@ def test_agent_unstable_item_fields():
     assert item.link_text == "h"
 
 
-# --- resolve_os_eol — 알려진 EOL distro 발화 sanity (endoflife 카탈로그, ADR 0031) ---
+# --- resolve_os_eol — 알려진 EOL distro 발화 sanity (endoflife 카탈로그) ---
 
 
 @pytest.mark.parametrize(
@@ -1010,7 +1010,7 @@ def test_resolve_os_eol_known_eol_distros(os_id: str, os_version: str):
         ({"mem_p95": 92.0, "mem_swap_paging": True}, "메모리 부족 (스왑 발생)"),
         ({"cpu_p95": 20.0, "mem_p95": 30.0, "disk_await_p95_ms": 25.0}, "디스크 I/O 병목"),  # 다른 축 정상
         ({"cpu_cores": 4, "procs_running_p95": 5.0}, "CPU 포화"),
-        ({"mem_p95": 92.0}, "메모리 압박"),  # ADR 0052: mem_util 임계 90(Azure) — 85 는 더 이상 under 아님
+        ({"mem_p95": 92.0}, "메모리 압박"),  # mem_util 임계 90(Azure) — 85 는 더 이상 under 아님
         ({"cpu_p95": 75.0}, "CPU 압박"),
         ({"cpu_p95": 50.0, "cpu_peak": 99.0}, "부하 변동 큼"),  # variance + peak 99>30 -> 발화
         # peak 가 sizing 유의미 수준(>30)일 때만 variance 발화 — 저부하 지터는 gate (거의 미사용 우선).
@@ -1137,7 +1137,7 @@ def test_build_resource_stats_sample_sufficiency_ignores_unmeasured_axis():
 
 
 def test_build_resource_stats_wires_adr0052_signals():
-    """ADR 0052 신 raw 필드 -> ResourceStats 배선 (rollup_host 입력). mem_total_mb 는 kb/1024."""
+    """신 raw 필드 -> ResourceStats 배선 (rollup_host 입력). mem_total_mb 는 kb/1024."""
     stats = build_resource_stats(
         _raw(
             mem_total_kb=4 * 1024 * 1024,  # 4 GiB -> 4096 MB

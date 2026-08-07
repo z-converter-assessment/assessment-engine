@@ -36,7 +36,7 @@ def make_metrics_handler(
             logger.info("metrics duplicate skipped message_id={}", data.message_id)
             return
 
-        # 에이전트 설치 서버는 UTC 정상 시각 발행 전제 — collected_at 을 발행값 그대로 신뢰 (ADR 0050).
+        # 에이전트 설치 서버는 UTC 정상 시각 발행 전제 — collected_at 을 발행값 그대로 신뢰.
         # _log_time_invariants 는 시계·시작순서 이상을 로그로만 노출 (데이터 변형 0, 관측 방어선).
         await _log_time_invariants(redis, data)
 

@@ -1,7 +1,7 @@
 """비동기 보고서 생성 워커 루프 — 전용 워커 프로세스(assessment_engine.worker)가 구동.
 
 발행(emit)은 parent job 을 pending 으로 enqueue 만 하고 즉시 반환 -> 본 워커가 claim 해서 생성한다.
-job 상태가 DB(diagnostic_jobs)에 있어 메모리 상태 기반(ADR 0004 옵션 A)의 in-flight 손실 문제가 없다:
+job 상태가 DB(diagnostic_jobs)에 있어 메모리 상태 기반의 in-flight 손실 문제가 없다:
 - 멀티노드 분산 = `claim_pending` 의 FOR UPDATE SKIP LOCKED (row-lock, 큐 없이 DB 가 조정).
 - graceful(F11) = stop_event 로 새 claim 중단, 진행 중 1건은 shutdown timeout 안 완료 시도, 미완은
   running 으로 남겨 다음 기동 `recover_stale` 가 pending 으로 회수.

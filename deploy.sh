@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# deploy.sh — 엔진 rollout. 배포 대상 VM 에서 사람이 실행한다 (ADR 0048).
+# deploy.sh — 엔진 rollout. 배포 대상 VM 에서 사람이 실행한다.
 #
 #   sudo /opt/assessment-engine/deploy.sh vX.Y.Z
 #

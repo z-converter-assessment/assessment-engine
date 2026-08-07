@@ -827,7 +827,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
             ServiceItem(unit=rep.unit, sub=rep.sub, category=category, ports=ports, display_name=rep.display_name)
         )
 
-    # listen-only 워크로드 보충 (ADR 0032 union) — services 이름이 못 잡았지만 listen 소켓이
+    # listen-only 워크로드 보충 (union) — services 이름이 못 잡았지만 listen 소켓이
     # 증거하는 카테고리를 합성 뱃지로 추가. opaque 한 Windows SCM 이름을 1433/sqlservr 같은
     # 깨끗한 listen 신호로 구제. unit/display_name 없음 (특정 service 에 귀속 불가, T15).
     known_categories = {s.category for s in known}
@@ -882,7 +882,7 @@ def workload_category_counter(
     services: list[JsonObject] | None,
     listen_ports: list[JsonObject] | None = None,
 ) -> Counter[str]:
-    """호스트 워크로드 카테고리 카운터 — services 이름 분류와 listen 소켓 탐지의 합집합 (ADR 0032).
+    """호스트 워크로드 카테고리 카운터 — services 이름 분류와 listen 소켓 탐지의 합집합.
 
     services 이름 분류는 인스턴스 카운트(서버목록 뱃지와 일관). 단 런타임 스택(container)은
     구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → container 1).

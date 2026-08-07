@@ -522,7 +522,7 @@ def matched_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = N
 
 
 def detect_listen_categories(listen_ports: list[JsonObject]) -> dict[str, list[MatchedPort]]:
-    """listen 소켓을 카테고리로 직접 분류 — services unit 과 무관 (ADR 0032, T15 보완).
+    """listen 소켓을 카테고리로 직접 분류 — services unit 과 무관 (T15 보완).
 
     per-unit 분류(`classify_service`)가 pid join 으로 정확해진 뒤에도, 어떤 service unit 에도 속하지 않는
     listen 소켓(비-service 프로세스)은 여전히 이 경로가 comm(exe basename)·port 로 직접 잡는다 —

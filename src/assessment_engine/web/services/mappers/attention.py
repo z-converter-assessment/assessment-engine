@@ -531,7 +531,7 @@ def to_capacity_warning_item(raw: ReportRowRaw):
     """
     # 운영 신호 경로는 get_report_aggregate 원본만 본다 — disk baseline 주입 없음(유휴 활동 축 미관측).
     stats = build_resource_stats(raw, disk_baseline=None)
-    # 분류·근본원인·처방·신뢰도 전부 rollup_host 단일 모델 — 화면 간 정합(#E3). 처방은 자원별 독립(ADR 0056),
+    # 분류·근본원인·처방·신뢰도 전부 rollup_host 단일 모델 — 화면 간 정합(#E3). 처방은 자원별 독립,
     # confidence_notes 도 host 기반(build_host_confidence_notes).
     host = right_sizing.rollup_host(stats)
     classification = right_sizing.host_status_to_recommendation(host.host_status)

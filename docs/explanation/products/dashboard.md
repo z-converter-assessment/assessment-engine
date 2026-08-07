@@ -39,7 +39,7 @@
 ### 영역 3: 자원 적정성 분포
 
 - 자원 적정성 5분류 카운트 가로 막대 (`overview.risk_donut`) — 환경 자원 평가 페이지와 `provisioning_dist_bar` 매크로 공유(단일 소스)
-- 윈도우 = `right_sizing.WINDOW_DAYS` — 서버 목록·보고서 분류와 정합(#E3). 이용률·포화 도넛도 같은 창(화면 간 한 창 통일)
+- 윈도우는 분류와 같은 창이다 (아래 "평가 윈도우" 절)
 - 홈에는 분포 요약만 — 서버별 자원 적정성 상세 표는 환경 자원 평가 페이지(`/environment/assessment`)
 
 답: "환경이 자원 관점에서 적정한가? 부족·과다 서버 분포는?"
@@ -47,7 +47,7 @@
 ### 영역 4: 자원 이용·포화 도넛
 
 - 이용률 3(CPU·메모리·디스크 capacity-weighted 창 평균, 게이지 단색 — 채움 길이로만 정도 표현) + 포화 4(CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡 호스트 수 / 표본)
-- 전부 `right_sizing.WINDOW_DAYS` 창 — 분류와 한 창 통일(#E3). 포화는 dual-gate(CPU·메모리 신호 AND 이용률) 판정 호스트 수
+- 전부 같은 창이고, 포화는 dual-gate(CPU·메모리 신호 AND 이용률) 판정 호스트 수
 - 순간 스냅샷 아닌 윈도우 통계 (실시간 순간값은 `/environment/realtime`)
 
 답: "환경 전체 자원 활용·포화 수준은?"
@@ -135,8 +135,8 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 ## 의사결정 근거
 
 활용률 임계 신호:
-- 색 분기를 갖는 건 서버 badge 뿐 — "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분. 임계 상수(`_USAGE_WARN_PCT`·`_USAGE_DANGER_PCT`)는 `web/services/mappers/constants.py` 단일 진실, 대시보드는 표현만
-- 환경 평균 이용률 게이지는 단색 — 색으로 임계 의미를 주지 않고 채움 길이가 정도를 전달 (색 상수는 `web/services/mappers/constants.py`)
+- 색 분기를 갖는 건 서버 badge 뿐 — "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분. 임계 상수는 표시 계층 단일 진실이고 대시보드는 표현만 한다 (`docs/reference/web/view-models.md`)
+- 환경 평균 이용률 게이지는 단색 — 색으로 임계 의미를 주지 않고 채움 길이가 정도를 전달 (색 상수도 같은 자리)
 
 대시보드 평가 윈도우:
 - `right_sizing.WINDOW_DAYS` 단일 진실 (CLAUDE.md #F10) — 분류·평균 활용률·포화 도넛 전부 한 창 통일(#E3 화면 간 정합)

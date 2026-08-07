@@ -47,7 +47,7 @@ class CapacityWarningItem:
     # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (assessment_display.build_host_confidence_notes,
     # 원칙2). 보고서 행과 동일 채널 — 카드가 list 렌더(P3). 발화 trigger(빨강)와 시각 구분.
     confidence_notes: list[str] = field(default_factory=list[str])
-    # 증설 권고 — 자원별 독립 처방(right_sizing.under_prescription 단일 진실, ADR 0056). 자원 부족 표 권고 칼럼.
+    # 증설 권고 — 자원별 독립 처방(right_sizing.under_prescription 단일 진실). 자원 부족 표 권고 칼럼.
     recommendation_action: str = ""
     # 근본원인 — right_sizing.root_cause_display 단일 진실. 단일 부족=자원명 / 인과 결합="메모리 (CPU 유발)" /
     # 복수 독립="CPU·디스크 I/O" 나열. 부족 없으면 빈 문자열(표시 "—"). 처방을 거르지 않는 진단 근거 표시 축.

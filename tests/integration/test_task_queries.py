@@ -1,4 +1,4 @@
-"""Task 조회·UPDATE 통합 테스트 (ADR 0007).
+"""Task 조회·UPDATE 통합 테스트.
 
 검증:
 - collect_repo.complete_task — result 컬럼 UPDATE

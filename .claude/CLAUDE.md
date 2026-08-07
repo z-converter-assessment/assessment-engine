@@ -189,7 +189,7 @@ Pagination 정책:
 
 ## E3. 서비스 계층·ViewModel·Mapper (P2)
 
-표시 파생은 `mappers/` sub-package 에 모인다. 임계 도메인 둘의 자리 — UI badge 는 `mappers/constants.py`(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT`), USE Method right-sizing 은 도메인 모듈 `assessment_engine/domain/right_sizing.py`(web 공용 import).
+표시 파생은 `mappers/` sub-package 에 모인다. 임계 도메인은 둘이고 섞이지 않는다 — UI badge(표시 계층)와 USE Method right-sizing(`assessment_engine/domain/right_sizing.py`, web 공용 import). 상수 소재는 `docs/reference/web/view-models.md` "신호 임계값 단일 정의" 절.
 
 모듈 카탈로그·`enrich_*` idempotent·ViewModel 카탈로그·mapper 파생 필드·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/reference/web/services.md` · `docs/reference/web/view-models.md` 단일 진실.
 

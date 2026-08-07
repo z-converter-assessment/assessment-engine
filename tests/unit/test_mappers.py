@@ -351,7 +351,7 @@ def test_enrich_server_detail_idempotent():
     assert resp.key_listen_ports == key_ports_before
 
 
-# --- workload 합집합 (ADR 0032) — services 이름 + listen 소켓 탐지 -------------
+# --- workload 합집합 — services 이름 + listen 소켓 탐지 -------------
 
 
 def test_workload_counter_listen_only_rescues_opaque_name():

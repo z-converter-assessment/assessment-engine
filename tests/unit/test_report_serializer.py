@@ -245,7 +245,7 @@ def test_report_row_roundtrip_drops_removed_legacy_fields():
 
 
 def test_action_targets_roundtrip_drops_removed_metrics_fields():
-    """과거 스냅샷의 action.hosts[].metrics·action.metric_labels(ADR 0056 이전, CapacityMetric 폐기)가
+    """과거 스냅샷의 action.hosts[].metrics·action.metric_labels(이전, CapacityMetric 폐기)가
 
     복원을 깨지 않는다 — top_risks 와 동일 `_drop_unknown_fields` 경로.
     """

@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 def _bucket_aligned_base(minutes_ago: int = 7) -> datetime:
     """5분 버킷 시작에 정렬된 과거 시각. server_metrics_5m 등 cagg 가 counter_agg delta 를 내려면 같은 5분
 
-    버킷에 표본 2+ 가 필요 — 1분 간격 표본이 버킷 경계에 갈리지 않도록 base 를 버킷 시작에 맞춘다(ADR 0043).
+    버킷에 표본 2+ 가 필요 — 1분 간격 표본이 버킷 경계에 갈리지 않도록 base 를 버킷 시작에 맞춘다.
     """
     t = (datetime.now(UTC) - timedelta(minutes=minutes_ago)).replace(second=0, microsecond=0)
     return t - timedelta(minutes=t.minute % 5)

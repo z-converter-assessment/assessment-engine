@@ -36,7 +36,7 @@ async def lifespan(app: FastAPI):
     setup_logging(get_web_settings().log_format, get_web_settings().log_level)
     # schema 관리는 모든 환경에서 Alembic — docker-compose `migrate` 서비스(init-container 패턴)가
     # postgres healthy 후 `alembic upgrade head` 1회 실행 후 종료. 본 lifespan은 schema 가정만 함.
-    # web을 포함한 모든 앱 서비스는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동 (ADR 0005).
+    # web을 포함한 모든 앱 서비스는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동.
     logger.info("app_env={} — schema is Alembic-managed (entrypoint applied upgrade)", get_web_settings().app_env)
     # dev 한정 정적 자원 캐시 무효화 신호 — 미들웨어가 매 요청 asset_v 재발급(F4: app_env 판정은 lifespan 에서만).
     app.state.dev_assets = get_web_settings().app_env == "dev"

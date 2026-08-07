@@ -91,7 +91,7 @@ def _extra_row(
 
 
 def _confidence_rows(stats: right_sizing.ResourceStats) -> list[PeriodSignalRow]:
-    """관측 시간·표본 충분성 — host-level 신뢰도 입력(_base_confidence 공용, ADR 0052). 자원마다 별 신뢰도
+    """관측 시간·표본 충분성 — host-level 신뢰도 입력(_base_confidence 공용). 자원마다 별 신뢰도
 
     카드에 반복 노출하는 게 설계 의도(per-resource ConfidenceNote) — 값 자체는 host 공통이라 자원 간 동일.
     """
@@ -191,7 +191,7 @@ def _storage_extra_groups(stats: right_sizing.ResourceStats) -> list[PeriodExtra
     "부하 신호" = 용량 소진 잔여일수(bytes·inode, DISK_RUNWAY_DAYS 미만이면 임박)·inode 사용률(정적 가드
     DISK_STATIC_GUARD_PCT, byte 사용률과 대칭)·IOPS 활동량(baseline, 임계 없는 정보성 — 유휴 device 구분용)·
     확장 목표 용량(1년 수명, 사이징 참고). "통계 신뢰도" = CPU/메모리와 동일 host-level 입력(_confidence_rows).
-    disk_io 의 virtio 편향(biased=True, ADR 0052)은 상시 True 라 표시 노이즈 -> host 신뢰도 노트와 동일하게 생략.
+    disk_io 의 virtio 편향(biased=True)은 상시 True 라 표시 노이즈 -> host 신뢰도 노트와 동일하게 생략.
     """
     rec = right_sizing
 

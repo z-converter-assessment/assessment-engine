@@ -48,7 +48,7 @@ _TASK_QUEUE_MAX_LEN = 100
 
 
 def _resolve_install_dispatch(os_family: str) -> tuple[str, str, str | None]:
-    """os_family -> (package_path, install_type, install_script). ADR 0019 / ADR 0020.
+    """os_family -> (package_path, install_type, install_script).
 
     Linux  = .tar.gz extract + install.sh exec.
     Windows = single .exe 직접 실행 (extract 없음, install.script null).

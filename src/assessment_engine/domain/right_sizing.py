@@ -445,7 +445,7 @@ type ResourceStatus = Literal[
 
 @dataclass
 class ConfidenceNote:
-    """신뢰도 4종 불확실성 — 종류별 하향 사유 (ADR 0052 신뢰도 축). 종류가 다르면 대응도 다르다."""
+    """신뢰도 4종 불확실성 — 종류별 하향 사유 (종류별 하향 사유). 종류가 다르면 대응도 다르다."""
 
     low_precision: bool = False  # 통계: 표본 부족(<30h) or 버스티(p95/median>2)
     coverage_gap: bool = False  # 커버리지: 필요 축 미측정
@@ -480,7 +480,7 @@ class HostAssessment:
 
     resources: dict[ResourceKind, ResourceAssessment]
     root_cause: ResourceKind | None = None
-    # root 의 증상으로 추정되는 kind — 근본원인 표시(root_cause_display)용 라벨일 뿐, 처방 억제에는 안 쓴다(ADR 0055).
+    # root 의 증상으로 추정되는 kind — 근본원인 표시(root_cause_display)용 라벨일 뿐, 처방 억제에는 안 쓴다.
     symptom_of_root: list[ResourceKind] = field(default_factory=list[ResourceKind])
     host_status: HostStatus = "optimal"  # 정렬·배지용 호스트 요약 (조치는 root_cause·자원별에서)
     network_congested: bool = False  # 네트워크 품질 경고 (사이징 아님, 별도 플래그)
@@ -840,11 +840,11 @@ def assess_network(stats: ResourceStats) -> ResourceAssessment:
 
 # 처방 대상 상태 (부족·병목·소진임박) — 호스트 under/over 축. 네트워크 congested 는 제외:
 # 원칙상 네트워크는 사이징(under/over) 축이 아니라 품질 신호라, 호스트를 "자원 부족"으로 분류하지 않고
-# HostAssessment.network_congested 플래그로만 orthogonal 노출 (별도 "네트워크 혼잡" 경고). ADR 0052 정합.
+# HostAssessment.network_congested 플래그로만 orthogonal 노출 (별도 "네트워크 혼잡" 경고).
 # 호스트 under_provisioned/root_cause 는 사이징 가능 축(cpu under·memory under·disk_capacity filling)만 결정.
 # io_bound(disk_io)는 크기로 안 풀리는 advisory(tier hint) — network congested 와 동일한 직교 플래그라 여기서 제외
 # (사이징 처방 0인 축이 top-line 분류를 뒤집는 자기모순 방지). disk_io 는 아래 인과 로직에서 근본원인 라벨(진단
-# 근거)에만 참조 — ADR 0055 이후 처방(actions/advisory) 자체를 억제하는 데는 쓰이지 않는다.
+# 근거)에만 참조 — 처방(actions/advisory) 자체를 억제하는 데는 쓰이지 않는다.
 _ROOTABLE_UNDER: tuple[ResourceStatus, ...] = ("under", "filling")
 
 
@@ -888,7 +888,7 @@ def rollup_host(stats: ResourceStats) -> HostAssessment:
 
     인과: 메모리 -> 디스크 I/O -> CPU. 판별: swap 발생 / procs_blocked(D-state) / await. iowait 미사용.
     root_cause·symptom_of_root 는 진단 근거(왜 부족한가)로만 쓴다 — 처방(prescribed_under_kinds 등)은
-    ADR 0055 부터 자원별 독립이라 symptom_of_root 로 억제되지 않는다(근본원인 추정이 틀려도, 즉 원인 자원만
+    자원별 독립이라 symptom_of_root 로 억제되지 않는다(근본원인 추정이 틀려도, 즉 원인 자원만
     고쳤을 때 하류가 실제로 해소된다는 보장이 없어도 관측된 부족을 누락하지 않는 것이 안전 우선 — assessment
     API 사이징 정책과 통일). 결합 신호 없이 각자 부족이면 각자(root=최상류 부족 자원, 나열 순서만 결정).
     """
@@ -966,7 +966,7 @@ def _format_sizing_target(kind: ResourceKind, target: int) -> str:
 
 
 def prescribed_under_kinds(host: HostAssessment) -> list[ResourceKind]:
-    """처방 대상 under 자원 kind (단일 진실) — 관측된 under 자원 전부, 인과에 의한 억제 없음(ADR 0055).
+    """처방 대상 under 자원 kind (단일 진실) — 관측된 under 자원 전부, 인과에 의한 억제 없음.
 
     근본원인(root_cause/symptom_of_root)은 진단 근거일 뿐 처방 필터가 아니다 — 원인 자원만 고쳐도 하류가
     실제로 해소된다는 보장이 없어(추정이 틀릴 수 있음), 관측된 부족을 누락하지 않는 쪽이 안전하다(assessment
@@ -1016,7 +1016,7 @@ def root_cause_display(host: HostAssessment) -> str:
 
 
 def downsize_prescribable(assessment: ResourceAssessment, stats: ResourceStats) -> bool:
-    """다운사이즈 '처방' 게이트 (ADR 0052) — over 분류는 늘 뜨나 구체 처방은 조건 만족 시만.
+    """다운사이즈 '처방' 게이트 — over 분류는 늘 뜨나 구체 처방은 조건 만족 시만.
 
     잘못된 다운사이즈가 최악(전제2). 신뢰도 높음(정밀·커버리지·충실도) AND 상승추세 아님 AND 창이 충분히 관측됨.
     이력 문턱은 창 대비 관측 비율(sample_sufficiency >= 0.7) — 절대 시간 아님(WINDOW_DAYS 바뀌어도 불변, 미세 갭 흡수).

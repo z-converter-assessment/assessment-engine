@@ -40,7 +40,7 @@ _OS_ID_TO_EOL_PRODUCT: dict[str, str] = {
 }
 
 # --- OS distro 필터 ---
-# endoflife.date 카탈로그 product 전체를 OS 필터 옵션으로 (수집 무관 — 지원 distro 노출, ADR 0031 출처).
+# endoflife.date 카탈로그 product 전체를 OS 필터 옵션으로 (수집 무관 — 지원 distro 노출).
 # 수집 os_id <-> distro(product slug) 정규화. windows 는 os_id=="windows" -> windows-server.
 _DISTRO_LABELS: dict[str, str] = {
     "debian": "Debian",

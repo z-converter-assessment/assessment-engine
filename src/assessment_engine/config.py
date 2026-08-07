@@ -121,7 +121,7 @@ class WebSettings(BaseSettings):
     # sha256·size_bytes 는 publish 직전 ETag 기반 동적 산출 (cache invalidation = ETag 변경).
     zdm_package_path: str = "/download/ZConverter_CloudSource_Setup_Linux.tar.gz"
     zdm_package_script: str = "zconverter_install_source/install.sh"
-    # Windows install (ADR 0019 install.type=direct_exec). single binary 라 script 없음.
+    # Windows install (install.type=direct_exec). single binary 라 script 없음.
     zdm_package_path_windows: str = "/download/ZConverter_CloudSource_Setup_Windows.exe"
     zdm_meta_connect_timeout_sec: float = 5.0
     zdm_meta_total_timeout_sec: float = 120.0

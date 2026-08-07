@@ -1,4 +1,4 @@
-"""자원 적정성 모델 — per-resource USE + 근본원인 종합 + 신뢰도 4종 회귀 가드 (ADR 0052).
+"""자원 적정성 모델 — per-resource USE + 근본원인 종합 + 신뢰도 4종 회귀 가드.
 
 대상: right_sizing.py 의 assess_cpu/memory/disk_capacity/disk_io/network · rollup_host ·
 downsize_prescribable · ConfidenceNote. 합성 ResourceStats 입력으로 분기·사이징·근본원인·신뢰도를 검증.
@@ -504,7 +504,7 @@ def test_labels_cover_all_triggers():
 def test_under_prescription_coupled_root_still_lists_symptom_resources():
     """메모리발 결합 — root_cause 는 "메모리"로 잡히지만, 처방(under_prescription)은 자원별 독립이라 CPU 도
 
-    함께 나열된다(ADR 0055 — 인과 추정이 틀려도 관측된 부족을 누락하지 않는 게 안전 우선). 근본원인은
+    함께 나열된다(인과 추정이 틀려도 관측된 부족을 누락하지 않는 게 안전 우선). 근본원인은
     root_cause_display(별도 칼럼)가 "메모리 (CPU 유발)" 식으로 전달.
     """
     s = _stats(

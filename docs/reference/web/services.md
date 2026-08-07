@@ -104,7 +104,7 @@ IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(�
 
 도메인 모듈: `assessment_engine/domain/right_sizing.py` (web·diagnostic 양쪽 import). `WINDOW_DAYS` 평가 윈도우(#F10)·USE Method 임계값 모두 본 모듈 코드 단일 진실(모듈 상단 명명 상수).
 
-UI badge 임계값(`mappers/constants.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
+UI badge 임계값(소재는 `view-models.md` "신호 임계값 단일 정의")과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
 right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기)의 명세 단일 진실은 `docs/reference/right-sizing.md`, 임계 수치·벤더 출처는 `docs/reference/right-sizing-thresholds.md`, 운영자 카탈로그는 `right_sizing_thresholds.html`. web 계층 책임은 소비만 (P2/P4):
 - 표시 계층은 임계를 다시 계산하지 않는다. 분류 결과의 triggers 와 os-aware helper 를 그대로 받아 한국어 라벨로만 바꾼다.

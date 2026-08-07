@@ -86,7 +86,7 @@ def test_detect_listen_categories_extended_ports(port: int, expected: str):
     assert list(result.keys()) == [expected]
 
 
-# --- classify: Windows SCM 이름 (이름 신호로 흡수, ADR 0032) ------------------
+# --- classify: Windows SCM 이름 (이름 신호로 흡수) ------------------
 
 
 @pytest.mark.parametrize(
@@ -194,7 +194,7 @@ def test_matched_ports_empty_listen():
     assert matched_ports("nginx.service", []) == []
 
 
-# --- pid 정확 join (comm~name / well-known 폴백과 구별, ADR 0032) -------------
+# --- pid 정확 join (comm~name / well-known 폴백과 구별) -------------
 
 
 def test_matched_ports_pid_join_attributes_unrelated_comm_and_port():
@@ -278,7 +278,7 @@ def test_classify_pid_join_ignores_other_pid_socket():
     assert classify_service("app.service", listen, pid=100) == "unknown"
 
 
-# --- 카탈로그 파생 일관성 (drift 회귀, ADR 0032) -----------------------------
+# --- 카탈로그 파생 일관성 (drift 회귀) -----------------------------
 
 
 def test_catalog_categories_match_derived():

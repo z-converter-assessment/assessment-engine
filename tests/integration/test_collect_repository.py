@@ -43,7 +43,7 @@ async def test_upsert_server_stores_machine_id(
     collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
-    """machine_id 표시 컬럼 저장 (ADR 0027) — agent_id 식별과 별개, 표시 전용 nullable."""
+    """machine_id 표시 컬럼 저장 — agent_id 식별과 별개, 표시 전용 nullable."""
     inv = make_inventory(
         agent_id="00000000-0000-4000-8000-000000000002",
         machine_id="raw-machine-xyz",
@@ -83,11 +83,11 @@ async def test_upsert_server_same_agent_id_converges_across_reboot(
     collect_repo: SqlCollectRepository,
     db_session: AsyncSession,
 ):
-    """agent_id 단일 UNIQUE 키 — 같은 agent_id 면 composite_id·hostname 이 바뀌어도 한 row 로 수렴 (ADR 0049).
+    """agent_id 단일 UNIQUE 키 — 같은 agent_id 면 composite_id·hostname 이 바뀌어도 한 row 로 수렴.
 
     agent_id 는 첫 실행 시 생성·영구저장한 불변 UUID. 재부팅으로 NIC MAC 재발급 -> composite_id 가
     바뀌어도(OpenStack Windows VM) 같은 agent_id 라 동일 row 의 composite_id·hostname 만 갱신 —
-    별도 row 생성 안 함 (agent_id 불변이라 호스트 재연결 로직 불요, ADR 0049).
+    별도 row 생성 안 함 (agent_id 불변이라 호스트 재연결 로직 불요).
     """
     aid = "00000000-0000-4000-8000-000000000004"
     inv1 = make_inventory(agent_id=aid, composite_id="reboot-A", hostname="host-a", cpu_cores=4)
@@ -149,7 +149,7 @@ async def test_different_agent_id_same_machine_id_hostname_isolated(
 ):
     """agent_id 가 다르면 machine_id·hostname 이 같아도 별개 행 — clone(미sysprep) 오병합 방지.
 
-    agent_id 불변 UUID 는 clone 마다 고유해 오병합 위험 자체가 없다 — 호스트 재연결 로직 없이 자연 격리 (ADR 0049).
+    agent_id 불변 UUID 는 clone 마다 고유해 오병합 위험 자체가 없다 — 호스트 재연결 로직 없이 자연 격리.
     """
     sid_a = await collect_repo.upsert_server(
         make_inventory(

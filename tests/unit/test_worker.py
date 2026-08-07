@@ -311,7 +311,7 @@ async def test_graceful_drain_swallows_already_cancelled():
     assert stop.is_set()
 
 
-# --- _resolve_install_dispatch (OS 분기 순수함수, ADR 0019/0020) --
+# --- _resolve_install_dispatch (OS 분기 순수함수) --
 
 
 def test_resolve_install_dispatch_linux():

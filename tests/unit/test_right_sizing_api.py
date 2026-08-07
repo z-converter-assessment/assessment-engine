@@ -3,7 +3,7 @@
 이 API 는 외부 자동화가 파싱해 프로비저닝을 결정하므로 계약이 깨지면 안 된다:
 - saturation·network 신호는 raw number(표시 문자열 아님).
 - recommendation 은 구조 {summary, kind, actions[], suppressed[]} — actions 는 관측된 under 자원 전부(자원별
-  독립, 억제 없음. ADR 0055). suppressed 는 항상 빈 배열(구 스키마 호환).
+  독립, 억제 없음). suppressed 는 항상 빈 배열(구 스키마 호환).
 - 사이징 목표는 타입 키(target_cores/_mb/_gb)로 파싱 가능.
 """
 
@@ -123,7 +123,7 @@ def test_saturation_unmeasured_is_null():
 def test_recommendation_structure_independent_actions_despite_causal_link():
     """under: kind=provision, actions 는 인과 결합(memory 근본원인)이어도 관측된 under 자원 전부(memory·cpu·
 
-    disk_io) 포함 — ADR 0055 자원별 독립 처방. suppressed 는 항상 빈 배열(구 스키마 호환 필드).
+    disk_io) 포함 — 자원별 독립 처방. suppressed 는 항상 빈 배열(구 스키마 호환 필드).
     """
     e = build_right_sizing_entry(_under_mem_root(), is_online=True)
     assert e["classification"] == "under_provisioned"

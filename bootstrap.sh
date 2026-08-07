@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# bootstrap.sh — 배포 대상 VM 1회성 부트스트랩 (ADR 0048). deploy.sh 가 전제하는 VM 상태를 만든다.
+# bootstrap.sh — 배포 대상 VM 1회성 부트스트랩. deploy.sh 가 전제하는 VM 상태를 만든다.
 # 멱등이라 다시 돌려도 되고, 대상 OS 는 Debian/Ubuntu(apt) 다.
 #
 #   curl -fsSL https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main/bootstrap.sh -o bootstrap.sh

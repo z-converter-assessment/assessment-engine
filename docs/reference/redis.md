@@ -101,7 +101,7 @@ cache_serializer가 dataclass-JSON serde 담당. 역직렬화 직후 `enrich_ser
 
 풀은 `cache/redis.py` 모듈이 단일 인스턴스로 갖고 첫 호출 때 만든다. 각 entry 는 종료 시 `close_pool` 로 닫는다.
 
-- 단일 모듈 레벨 `_pool`. 모든 호출이 같은 풀 공유.
+- `@cache` 로 감싼 `get_pool()` 하나 — 첫 호출에서 만들고 이후 모든 호출이 같은 풀을 공유한다. import 만으로 설정을 요구하지 않으려는 배치이고, `close_pool()` 이 `cache_clear()` 로 비운다.
 - `decode_responses=True` — bytes가 아닌 str로 자동 디코딩. JSON 캐시 직렬화/역직렬화 단순화.
 
 ### web 측 — DI

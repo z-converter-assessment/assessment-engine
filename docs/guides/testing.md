@@ -41,7 +41,7 @@ pytest 설정은 `pyproject.toml` `[tool.pytest.ini_options]`. 세 가지를 엄
 - `--strict-markers` — 오타 마커가 조용히 무시되지 않는다.
 - `--strict-config` — 오타 설정 키가 조용히 무시되지 않는다.
 
-Fixture 는 세 층이다 — 루트 `tests/conftest.py`(컨테이너·엔진·세션), `tests/unit/conftest.py`(비밀번호 env 주입과 Composition Root 캐시 초기화 autouse), `tests/integration/conftest.py`(repo 별 function fixture, TRUNCATE 격리). 데이터 빌더는 `tests/factories.py`.
+Fixture 는 세 층이다 — 루트 `tests/conftest.py`(컨테이너·엔진·세션 + 비밀번호 env 주입과 Composition Root 캐시 초기화 autouse), `tests/http/conftest.py`(HTTP 경계 characterization 대역 배선), `tests/integration/conftest.py`(repo 별 function fixture, TRUNCATE 격리). 데이터 빌더는 `tests/factories.py`.
 
 데이터 빌더 사용:
 ```python

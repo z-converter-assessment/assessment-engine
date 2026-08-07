@@ -122,7 +122,7 @@ class DiagnosticService:
         child_jobs: JsonObject | None = None,
         requested_by: str | None = None,
     ) -> str | None:
-        """완성 스냅샷 동기 저장 — 즉시 succeeded INSERT (워커의 child 단일 보고서 발행 경로, ADR 0040).
+        """완성 스냅샷 동기 저장 — 즉시 succeeded INSERT (워커의 child 단일 보고서 발행 경로).
 
         GET(세부·이력)은 본 job_id 의 정적 스냅샷만 렌더 (재계산 없음, 정적 보관).
         같은 input 활성 충돌(더블클릭) 시 기존 job_id 회수.

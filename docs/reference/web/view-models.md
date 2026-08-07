@@ -80,8 +80,7 @@
 | `AttentionSignals` | `QueryService.get_attention_signals` 묶음 (내부 `_assemble_attention` 조립) — 운영신호 3 카탈로그(gap·os_eol·agent_unstable). `has_any` property로 빈 카드 분기 | 위 3 builder(gap/os_eol/agent_unstable) | — | blue (`#eff6ff`) |
 
 신호 임계값 단일 정의 (mapper·service 모듈 상단):
-- `_USAGE_DANGER_PCT = 90` — disk_warning 공통 (mapper)
-- `_USAGE_WARN_PCT   = 75` — 위험도 분류 보조
+- `_USAGE_DANGER_PCT` / `_USAGE_WARN_PCT` — 사용률 위험·주의 두 단계 (mapper). disk_warning 과 서버 상세 badge 공통
 - `_UTIL_DONUT_CIRC` — `2*pi*_DONUT_RADIUS`(템플릿 SVG r 과 정합) 단일 진실 (mapper, E8)
 - `_DONUT_SEGMENT_DEFS` — 자원 적정성 5 카테고리 (분류 enum·색·조치 설명). 세그먼트 키가 곧 `Recommendation` 값이라 별도 매핑 dict 를 두지 않는다. 한국어 분류명은 `right_sizing.RECOMMENDATION_LABEL_KO`, 배지 CSS 는 `mappers/constants.BADGE_CLASS` 단일 진실
 - `_CAUSE_LABEL_BY_TRIGGER` — trigger key -> os-neutral 원인 라벨 (자원 부족 원인 집계 단일 진실, mapper)
