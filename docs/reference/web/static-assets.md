@@ -1,6 +1,6 @@
 # Web 정적 자원 — JS·차트 UI·표준 컴포넌트
 
-정책: CLAUDE.md #E6 (JS·CSS 외부화 의무) · #E8 (차트·도넛 UI, P4) · #F5 (외부화 강제 채널). 정적 자원 배치·`ChartUtils` API·P4 5 의무 규약·차트 UI·인쇄 CSS·표준 컴포넌트 카탈로그·표기 규약·네비게이션 규약 단일 진실.
+정책: AGENTS.md #E6 (JS·CSS 외부화 의무) · #E8 (차트·도넛 UI, P4) · #F5 (외부화 강제 채널). 정적 자원 배치·`ChartUtils` API·P4 5 의무 규약·차트 UI·인쇄 CSS·표준 컴포넌트 카탈로그·표기 규약·네비게이션 규약 단일 진실.
 
 `static/css/app.css` = 전역 스타일 단일 진실. `:root` 테마 변수부터 컴포넌트 클래스·`@media print` 까지 전부 여기 있고, base.html 에는 `<style>` 블록이 없다. base.html `<head>` 가 script 태그들보다 앞에서 `<link rel="stylesheet">` 로 건다. 페이지 로컬 `<style>` 블록(용지 방향·페이지별 override)과 inline `style=` 속성은 그대로 둔다 — 전역 규칙만 외부화 대상이다.
 
@@ -37,7 +37,7 @@
 | `initAutoRefresh(onRefresh, intervalMs)` | 호출자가 준 주기로 자동 갱신 (setInterval + pagehide 정리) |
 | `safeArray(arr)` | `Array.isArray` 방어 (P4 c) |
 | `buildDimDatasets(rows, bMs, grid, metaMap, opts)` | dimension별(device/iface/mount) 멀티라인 dataset 조립 — grid join + 색·라벨 매핑 |
-| `fmtThroughput(kb)` | kB/s -> B/s·kB/s·MB/s 표시 단위 자동 결정 (P4) |
+| `fmtThroughput(kb)` | kB/s -> kB/s 또는 MB/s 표시 단위 선택 (P4) |
 | `naWindows(osFamily, key, formatted)` / `setValText(el, text)` / `setNaText(el, osFamily, key, formatted)` | os-aware N/A 텍스트 — Windows 미측정 축은 대체 표기, 그 외 formatted 값 (서버 상세 실시간 카드) |
 | `renderChipLegend(container, chart)` | 색점+라벨 칩(pill) 토글 범례 — dataset 1개당 1칩, 클릭 시 show/hide. comp/load 계열 (cpu·memory) |
 | `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글 — storage io·network·metrics 통일) |

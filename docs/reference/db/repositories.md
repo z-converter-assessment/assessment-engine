@@ -1,6 +1,6 @@
 # Repository 계층
 
-정책: CLAUDE.md #C2 · #F4. 인터페이스 규칙(Protocol·이름·상속 안 함)은 `docs/guides/conventions.md` 3절이 갖는다.
+정책: AGENTS.md #C2 · #F4. 인터페이스 규칙(Protocol·이름·상속 안 함)은 `docs/guides/conventions.md` 3절이 갖는다.
 
 인터페이스는 셋이다 — `CollectRepository`(Consumer) / `QueryRepository`(Web) / `DiagnosticRepository`(보고서 발행·diagnostic_jobs 스냅샷). 구현 import 는 composition root 셋(`web/deps.py` · `consumer/main.py` · `worker/main.py`)만 한다.
 

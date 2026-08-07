@@ -134,11 +134,7 @@ scanning alert 로 올린다. Dockerfile 이 아니라 발행된 이미지를 �
 
 발화 조건 자체의 한계는 `docs/reference/automation.md` "시간으로 도는 것" 절이 갖는다.
 
-워크플로를 못 돌리는 상태에서 같은 결과를 보려면 로컬에서 같은 필터로 스캔한다.
-
-```bash
-docker run --rm aquasec/trivy image --ignore-unfixed --severity HIGH,CRITICAL --scanners vuln <image>
-```
+워크플로를 못 돌리는 상태에서는 `make image-scan IMAGE=<image>` 로 같은 필터를 적용한다.
 
 `ignore-unfixed` 를 빼면 건수가 크게 늘지만 대부분 debian 이 수정본을 내지 않은 항목이라 조치할 수 없다.
 

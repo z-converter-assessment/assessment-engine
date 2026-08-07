@@ -3,7 +3,7 @@
 # 각 명령이 무엇을 왜 하는지는 docs/guides/ 가 갖는다. 여기는 이름과 실행만 둔다.
 
 .DEFAULT_GOAL := help
-.PHONY: help setup dev dev-build dev-down logs test test-unit test-integration test-http test-cov lint format typecheck codegen migrate migration screenshot eol
+.PHONY: help setup dev dev-build dev-down logs test test-unit test-integration test-http test-cov lint format typecheck codegen migrate migration screenshot eol image-scan
 
 help: ## 명령 목록
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) \
@@ -70,3 +70,7 @@ screenshot: ## 화면 캡처 — make screenshot OUT=shots SERVER=<public_id>
 
 eol: ## OS EOL 카탈로그 갱신 (인터넷 필요)
 	uv run python scripts/snapshot_os_eol.py src/assessment_engine/web/services/mappers/os_eol_catalog.json
+
+image-scan: ## 발행 이미지 취약점 검사 - make image-scan IMAGE=<image>
+	@test -n "$(IMAGE)" || (echo 'IMAGE가 필요하다. 예: make image-scan IMAGE=ghcr.io/org/image:tag' >&2; exit 2)
+	docker run --rm aquasec/trivy image --ignore-unfixed --severity HIGH,CRITICAL --scanners vuln "$(IMAGE)"

@@ -45,9 +45,9 @@ htmlcov/
 !.vscode/settings.json
 !.vscode/extensions.json
 
-# Claude Code 런타임 상태 (CLAUDE.md는 프로젝트 규약이므로 제외)
+# Claude Code 런타임 파일
 .claude/*.lock
-# Claude Code 개인 로컬 오버라이드 (settings.json은 팀 공유, .local.json은 개인용)
+# Claude Code 개인 로컬 설정
 .claude/settings.local.json
 
 

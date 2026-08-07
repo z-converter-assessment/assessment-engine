@@ -2,7 +2,8 @@
 
 검증 영역:
 - get_report_aggregate — iowait_p95/peak + inventory(cpu_cores·mem_total_bytes·block_devices) + 용량 임박 마운트
-- get_report_uptime_stats — period 안 boot_time DISTINCT count - 1
+- get_report_uptime_stats — period 경계 직전 상태를 포함한 boot_time 전환 수
+- get_report_agent_restart_stats — period 경계 직전 상태를 포함한 agent_started_at 전환 수
 - get_report_disk_io_baseline — io_bytes·ops delta 평균 (IOPS·throughput_kbps), DiskIoBaselineRaw
 - get_report_net_io_baseline — rx/tx bytes delta 평균 (kbps), NetIoBaselineRaw
 - get_report_memory_breakdown — used/available/cached/buffers 윈도우 평균 (전체 메모리 대비)
@@ -156,9 +157,6 @@ async def test_report_aggregate_returns_reproduction_columns(
     assert r.nonblock_mounts[0]["fstype"] == "tmpfs"
 
 
-# --- get_report_uptime_stats — boot_time DISTINCT count - 1 ------------------
-
-
 async def test_report_uptime_stats_no_reboot(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-up-stable")
     counts = await query_repo.get_report_uptime_stats(
@@ -166,7 +164,6 @@ async def test_report_uptime_stats_no_reboot(collect_repo: SqlCollectRepository,
         period_days=1,
         end=end + timedelta(minutes=1),
     )
-    # period 안 boot_time 1개 (DISTINCT count = 1) -> 0회 재부팅
     assert counts.get(sid, 0) == 0
 
 
@@ -174,40 +171,59 @@ async def test_report_uptime_stats_counts_reboot_transitions(
     collect_repo: SqlCollectRepository,
     query_repo: SqlQueryRepository,
 ):
-    """boot_time 2회 변경 -> reboot_count 2 (inventory_history는 boot_time 변경 시 append)."""
-    boot1 = datetime(2026, 5, 1, tzinfo=UTC)
-    boot2 = datetime(2026, 5, 5, tzinfo=UTC)
-    boot3 = datetime(2026, 5, 10, tzinfo=UTC)
+    end = datetime(2026, 5, 10, 12, tzinfo=UTC)
+    start = end - timedelta(days=1)
+    samples = [
+        (start - timedelta(minutes=5), start - timedelta(days=2)),
+        (start + timedelta(minutes=10), start + timedelta(minutes=1)),
+        (start + timedelta(minutes=20), start + timedelta(minutes=11)),
+        (start + timedelta(minutes=30), start + timedelta(minutes=21)),
+    ]
 
-    # 3번 upsert — boot_time 다를 때마다 history append
-    sid = await collect_repo.upsert_server(
-        make_inventory(
-            composite_id="r-up-reboot",
-            boot_time=boot1,
-            collected_at=datetime(2026, 5, 1, 1, tzinfo=UTC),
+    sid = 0
+    for collected_at, boot_time in samples:
+        sid = await collect_repo.upsert_server(
+            make_inventory(
+                composite_id="r-up-reboot-boundary",
+                boot_time=boot_time,
+                collected_at=collected_at,
+            )
         )
-    )
-    await collect_repo.upsert_server(
-        make_inventory(
-            composite_id="r-up-reboot",
-            boot_time=boot2,
-            collected_at=datetime(2026, 5, 5, 1, tzinfo=UTC),
-        )
-    )
-    await collect_repo.upsert_server(
-        make_inventory(
-            composite_id="r-up-reboot",
-            boot_time=boot3,
-            collected_at=datetime(2026, 5, 10, 1, tzinfo=UTC),
-        )
-    )
 
-    counts = await query_repo.get_report_uptime_stats(
-        [sid],
-        period_days=30,
-        end=datetime(2026, 5, 15, tzinfo=UTC),
-    )
-    assert counts.get(sid, 0) == 2  # boot_time DISTINCT 3 - 1 = 2회 재부팅
+    counts = await query_repo.get_report_uptime_stats([sid], period_days=1, end=end)
+    assert counts[sid] == 3
+
+
+async def test_agent_restart_counts_include_pre_window_state(
+    collect_repo: SqlCollectRepository,
+    query_repo: SqlQueryRepository,
+):
+    end = datetime(2026, 5, 10, 12, tzinfo=UTC)
+    start = end - timedelta(days=1)
+    boot_time = datetime(2026, 5, 1, tzinfo=UTC)
+    samples = [
+        (start - timedelta(minutes=5), datetime(2026, 5, 9, 11, tzinfo=UTC)),
+        (start + timedelta(minutes=10), datetime(2026, 5, 9, 12, 5, tzinfo=UTC)),
+        (start + timedelta(minutes=20), datetime(2026, 5, 9, 12, 15, tzinfo=UTC)),
+        (start + timedelta(minutes=30), datetime(2026, 5, 9, 12, 25, tzinfo=UTC)),
+    ]
+
+    sid = 0
+    for collected_at, agent_started_at in samples:
+        sid = await collect_repo.upsert_server(
+            make_inventory(
+                composite_id="r-agent-restart-boundary",
+                collected_at=collected_at,
+                boot_time=boot_time,
+                agent_started_at=agent_started_at,
+            )
+        )
+
+    report_counts = await query_repo.get_report_agent_restart_stats([sid], period_days=1, end=end)
+    recent_counts = await query_repo.get_agent_restart_counts_recent([sid], start)
+
+    assert report_counts[sid] == 3
+    assert recent_counts[sid] == 3
 
 
 # --- get_report_disk_io_baseline — IOPS + throughput -------------------------

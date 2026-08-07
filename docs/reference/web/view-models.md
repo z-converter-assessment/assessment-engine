@@ -1,6 +1,6 @@
 # Web ViewModel 카탈로그
 
-정책: CLAUDE.md #E3 (mapper 단일 변환) · #E8 (차트·도넛 UI). 신규 파생 필드 추가 시 `cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화 필수.
+정책: AGENTS.md #E3 (mapper 단일 변환) · #E8 (차트·도넛 UI). 신규 파생 필드 추가 시 `cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화 필수.
 
 ## 서버 표시
 
@@ -83,7 +83,7 @@
 | `AttentionRow` (gap) | `to_gap_warning_item(raw, now)` — `badge_text`(경과 분 `{gap_min}분`) / `badge_class`(`attn-active`, 운영신호 통신끊김) | `get_metric_gap_warnings` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |
 | `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `active_causes`(발화 원인 os-neutral 라벨, `_CAUSE_LABEL_BY_TRIGGER` 파생 — 환경 요약 원인 집계 `_under_cause_summary` 단일 소스)·`recommendation_action`(자원별 독립 처방, `under_prescription` — 인과 결합이어도 관측된 under 자원 전부)·`root_cause_label`(진단 근거 전용, 처방을 거르지 않음)·`net_status_label`+`net_status_color`(네트워크 품질 전용 필드 — `action_targets_table` 전용)·`disk_io_status_label`+`disk_io_status_color`(디스크 I/O 상태, network 와 동형)·`spec_display`(정적 배정 사양 "4코어 · 8.00GB · 100GB", `host_display.spec_display_line` 단일 진실 — `ServerListItem.spec_display` 와 동일 산식, 표 호스트 옆 노출). caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `get_report_aggregate(WINDOW_DAYS)` + `build_resource_stats` -> `rollup_host`(triggers) | 평가 윈도우 USE Method | blue (`#eff6ff`) |
 | `AttentionRow` (os_eol) | `to_os_eol_warning_item(raw, now)` — `resolve_os_eol`(endoflife 카탈로그) 무상 보안 패치 종료 시 반환 (운영신호) | `os_id`/`os_version`/`kernel_version` + endoflife 스냅샷 카탈로그 | endoflife.date 스냅샷 (Linux distro + Windows Server build) | blue (`#eff6ff`) |
-| `AttentionRow` (agent_unstable) | `to_agent_unstable_item(public_id, hostname, restart_count)` — caller가 임계 필터링 | `get_agent_restart_counts_recent` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | blue (`#eff6ff`) |
+| `AttentionRow` (agent_unstable) | `to_agent_unstable_item(public_id, hostname, restart_count)` — caller가 임계 필터링 | `get_agent_restart_counts_recent` SQL (`server_inventory_history` `agent_started_at` 전환 수, 구간 직전 상태 포함) | DB 기준 최근 1h 고정 구간 | blue (`#eff6ff`) |
 | `AttentionSignals` | `QueryService.get_attention_signals` 묶음 (내부 `_assemble_attention` 조립) — 운영신호 3 카탈로그(gap·os_eol·agent_unstable). `has_any` property로 빈 카드 분기 | 위 3 builder(gap/os_eol/agent_unstable) | — | blue (`#eff6ff`) |
 
 신호 임계값 단일 정의 (mapper·service 모듈 상단):
@@ -92,7 +92,7 @@
 - `_DONUT_SEGMENT_DEFS` — 자원 적정성 5 카테고리 (분류 enum·색·조치 설명). 세그먼트 키가 곧 `Recommendation` 값이라 별도 매핑 dict 를 두지 않는다. 한국어 분류명은 `right_sizing.RECOMMENDATION_LABEL_KO`, 배지 CSS 는 `mappers/constants.BADGE_CLASS` 단일 진실
 - `_CAUSE_LABEL_BY_TRIGGER` — trigger key -> os-neutral 원인 라벨 (자원 부족 원인 집계 단일 진실, mapper)
 - `_WORKLOAD_COLORS` — 주요 워크로드 도넛 세그먼트 색 (`SIGNATURE_CATEGORIES` 6종 hex, mapper). `app.css` 의 `.badge-cat-*` 뱃지 색과 같은 값을 보여야 한다 — SVG stroke 는 hex 를 요구해 CSS 클래스를 재사용할 수 없고 두 소스가 갈라지므로, 카테고리 색 변경 시 양쪽 동시 갱신 의무
-- `agent_restart_alert_threshold` — 1h 윈도우 재시작 임계 (WebSettings, 값은 `docs/reference/contracts/env.md`)
+- `agent_restart_alert_threshold` — DB 기준 최근 1h 재시작 attention 임계 (WebSettings, 값은 `docs/reference/contracts/env.md`)
 - 디스크 용량·I/O 임계 — 본 목록 아님(운영신호가 아닌 USE Method 분류 축, `right_sizing` 모듈 단일 진실)
 - `_eol_info` (mapper, os_eol) — endoflife.date 스냅샷 카탈로그(`os_eol_catalog.json`) 조회 + 경계 3개로 지원 단계 판정 단일 진실.
 

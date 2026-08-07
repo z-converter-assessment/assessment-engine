@@ -10,7 +10,7 @@
 
 > 관련 코드: `src/assessment_engine/consumer/handlers/` `_check_idempotent`, `src/assessment_engine/cache/redis.py` `safe_set_nx`, `src/assessment_engine/db/repositories/collect_sql.py` `record_metrics`
 >
-> 관련 문서: CLAUDE.md #D2 · #C1
+> 관련 문서: AGENTS.md #D2 · #C1
 
 선택
 1. 1단은 DB 커밋 이전의 Redis `SET idempotent:{message_id} 1 EX 86400 NX` 다. fail-open 이라 Redis 장애 시에도 처리를 진행한다.
@@ -39,7 +39,7 @@
 ## T2. 캐시 일관성: cache-aside (write-around)
 
 > 관련 코드: `src/assessment_engine/web/services/query/metric.py` `get_latest_metric`, `src/assessment_engine/consumer/handlers/` metrics handler
-> 관련 문서: CLAUDE.md #D1
+> 관련 문서: AGENTS.md #D1
 
 선택
 - web 은 cache MISS 시 DB 를 조회하고 그 결과를 `cache:metrics` 에 SET 한다.
@@ -65,7 +65,7 @@
 ## T3. 시계열 raw 무한 누적 (retention 정책 없음)
 
 > 관련 코드: `src/assessment_engine/db/models/server_metrics.py`, `src/assessment_engine/db/models/server_disk_io.py` 등
-> 관련 문서: CLAUDE.md #C1 · #C5
+> 관련 문서: AGENTS.md #C1 · #C5
 
 선택
 - TimescaleDB hypertable 의 raw 메트릭을 무기한 보존한다. 무거운 집계는 5분 버킷 continuous aggregate 가 흡수하고(#C5), 만료 정책만 두지 않는다.
@@ -109,7 +109,7 @@
 ## T6. 클라이언트 차트 JS는 P3 명시 예외 (P4)
 
 > 관련 코드: `src/assessment_engine/web/static/js/pages/`, `src/assessment_engine/web/static/js/chart-utils.js`
-> 관련 문서: CLAUDE.md #E1 P4, `docs/reference/web/static-assets.md`
+> 관련 문서: AGENTS.md #E1 P4, `docs/reference/web/static-assets.md`
 
 선택
 - 차트 JS 에 그리드 계산·라벨 포매팅·Chart.js 옵션 조립 등의 연산을 허용한다 (P3 위반).
@@ -191,7 +191,7 @@ broker 재기동 시 에이전트는 다음 retry 사이클에서 publish 에 �
 ## T10. ViewModel 비대화 vs 클라이언트 재계산 (P2 따름)
 
 > 관련 코드: `src/assessment_engine/web/view_models/`, `src/assessment_engine/web/services/mappers/`, `src/assessment_engine/web/services/mappers/metric_dashboard.py`
-> 관련 문서: CLAUDE.md #E1 P2 · #E3, `docs/reference/web/view-models.md`
+> 관련 문서: AGENTS.md #E1 P2 · #E3, `docs/reference/web/view-models.md`
 
 선택
 - 정렬 결과·임계값 -> CSS 클래스/hex·누적 비율 같은 표시 파생을 모두 mapper 에서 미리 계산해 ViewModel 에 둔다. 템플릿과 JS 는 read-only 다. 파생 필드 카탈로그는 `docs/reference/web/view-models.md` 가 갖는다.
@@ -242,7 +242,7 @@ broker 재기동 시 에이전트는 다음 retry 사이클에서 publish 에 �
 ## T12. server_inventory 호스트 식별 — 불변 agent_id 단독 UNIQUE
 
 > 관련 코드: `src/assessment_engine/db/models/server_inventory.py`, `src/assessment_engine/db/repositories/collect_sql.py`
-> 관련 문서: CLAUDE.md #C1, `docs/reference/db/models.md`, `docs/reference/contracts/agent-data.md`
+> 관련 문서: AGENTS.md #C1, `docs/reference/db/models.md`, `docs/reference/contracts/agent-data.md`
 
 선택
 - `server_inventory` UNIQUE 는 `agent_id` 단독이다. agent 가 첫 실행 시 1회 생성해 영구저장하는 불변 UUID 라, 부팅마다 NIC MAC 이 재발급되는 환경(OpenStack Windows VM)에서도 같은 행을 upsert 한다. 별도 재연결 로직이 없다.
@@ -272,7 +272,7 @@ broker 재기동 시 에이전트는 다음 retry 사이클에서 publish 에 �
 ## T13. 보고서 = diagnostic_jobs 통합 (job_type)
 
 > 관련 코드: `src/assessment_engine/db/models/diagnostic_job.py`, `src/assessment_engine/web/services/diagnostic_service.py`
-> 관련 문서: CLAUDE.md #C1, `docs/reference/db/models.md`
+> 관련 문서: AGENTS.md #C1, `docs/reference/db/models.md`
 
 선택
 - 보고서 발행은 별도 테이블을 만들지 않고 `diagnostic_jobs` 에 row 를 남긴다. `job_type` 이 customer/engineer 를 가르고, server scope 와 environment scope 는 같은 테이블 위에서 양식만 다르다.

@@ -1,4 +1,4 @@
-"""web 컴포넌트 Settings 진입점 (Composition Root, CLAUDE.md #F4).
+"""web 컴포넌트 Settings 진입점.
 
 import 이 아니라 첫 호출에서 인스턴스화한다. 모듈 로드만으로 설정을 읽으면 비밀번호를 필수 필드로
 둘 수 없고(테스트가 import 만 해도 값을 요구한다), 검증이 언제 도는지도 흐려진다.

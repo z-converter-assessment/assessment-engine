@@ -90,4 +90,4 @@ SQL 문자열과 bound parameter 를 전 Literal 조합에 대해 덤프하고 �
 
 - 새 코드 추가 시 테스트도 함께 작성 — 코드 리뷰 시 누락 지적
 - 리팩토링은 테스트 통과 baseline 위에서만 진행 — 회귀 즉시 식별
-- 에이전트의 pytest 실행 정책은 CLAUDE.md #F5
+- 에이전트의 pytest 실행 정책은 AGENTS.md #F5

@@ -1,6 +1,6 @@
 # RabbitMQ
 
-정책: CLAUDE.md #B. 본 문서는 broker 토폴로지·큐 정책·dev/prod 분기 단일 진실. 코드 동작은 `docs/reference/consumer.md`.
+정책: AGENTS.md #B. 본 문서는 broker 토폴로지·큐 정책·dev/prod 분기 단일 진실. 코드 동작은 `docs/reference/consumer.md`.
 
 ---
 
@@ -56,7 +56,7 @@ vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도�
 `agent.tasks.<agent_id>` 정책 근거:
 - 머신별 전용 큐 — `task.install.<agent_id>` routing key 로 정확히 해당 머신만 배달.
 - 엔진이 task 발행 시점에 동적 declare (수신 측은 declare 권한 없음 가정). idempotent.
-- `x-message-ttl` = `install_task_deadline_sec` — 엔진 `tasks.deadline_at` 과 같은 창 (CLAUDE.md #F10). 머신이 그 사이 consume 못 하면 만료 (해당 머신 오프라인). DLX 없음 — 만료 메시지는 drop 되고, 대응하는 task 의 상태 전이는 `docs/explanation/products/install-task.md`.
+- `x-message-ttl` = `install_task_deadline_sec` — 엔진 `tasks.deadline_at` 과 같은 창 (AGENTS.md #F10). 머신이 그 사이 consume 못 하면 만료 (해당 머신 오프라인). DLX 없음 — 만료 메시지는 drop 되고, 대응하는 task 의 상태 전이는 `docs/explanation/products/install-task.md`.
 - max-length + `x-overflow=reject-publish`: 버퍼 폭주 차단. publish 시 publisher 측이 error 인지 (best-effort 운영 시그널).
 - prod 에서 DLX 정책 보강은 별도 ADR.
 

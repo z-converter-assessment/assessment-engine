@@ -1,6 +1,6 @@
 # Redis 전략
 
-정책: CLAUDE.md #C3. 캐시·온라인 TTL·멱등성·부가 시그널 상태의 4가지 역할을 한 인스턴스로 처리.
+정책: AGENTS.md #C3. 캐시·온라인 TTL·멱등성·부가 시그널 상태의 4가지 역할을 한 인스턴스로 처리.
 키 패턴은 `WebSettings` 단일 정의(`src/assessment_engine/config.py`). `ConsumerSettings`는 `WebSettings` 상속 — consumer/web 동일 네임스페이스.
 
 ---
@@ -17,7 +17,7 @@
 | 온라인 TTL | `online:{server_id}` | 300s | consumer가 inventory·metrics 양쪽에서 매번 갱신 |
 | 시계 invariant 경고 쿨다운 | `time_invariant_warned:{agent_id}` | 1h | TTL 만료만 |
 | 직전 agent_started_at | `last_agent_start:{server_id}` | 24h | metrics 처리 시 매번 SET (직전 값과 비교 → 재시작 감지) |
-| 재시작 카운터 (1h 슬라이딩) | `agent_restarts:{server_id}` | 1h | `_track_agent_restart`가 변경 감지 시 INCR + EXPIRE reset (마지막 INCR 후 1h 유지) |
+| 재시작 카운터 | `agent_restarts:{server_id}` | 1h | `_track_agent_restart` 가 변경 감지 시 증가하고 수명을 1h 로 되감는다 |
 
 ### TTL 값 근거
 
@@ -28,7 +28,7 @@
 - `idempotent:{message_id}` 24h — message_id 가 UUID v4 라 24h 동안 unique 가 보장되고, broker 재전송 윈도우를 충분히 덮는다.
 - `time_invariant_warned:{agent_id}` 1h — 시계 invariant warning 쿨다운이다 (같은 호스트가 매 메시지 warning 을 내지 않게). evict 되면 다음 위반에서 1회 더 출력된다.
 - `last_agent_start:{server_id}` 24h — 직전 비교용 캐시다. evict 되면 다음 메시지에서 재시작 감지를 1회 놓치고 그다음 정상 sample 에서 회복한다.
-- `agent_restarts:{server_id}` 1h — 슬라이딩 윈도우다 (마지막 INCR 후 1h). `agent_restart_alert_threshold` 도달 시 warning 로그를 남긴다.
+- `agent_restarts:{server_id}` 1h — 증가할 때마다 수명이 되감기므로 재시작 간격이 1h 보다 짧게 이어지면 카운터가 누적되고, 1h 넘게 조용하면 0 부터 다시 시작한다. `agent_restart_alert_threshold` 도달 시 warning 로그를 남긴다.
 
 원격 작업 명령 전달 자체는 Redis 를 거치지 않는다 — 별도 큐 모델 채택으로 broker 가 메시지를 보유하고, DB `tasks` + broker `agent.tasks.<agent_id>` 큐가 단일 진실. 발행 직전 ZDM 패키지 sha256 조회만 위 캐시를 쓴다.
 
@@ -82,7 +82,7 @@ web 의 `get_latest_metric` 이 cache MISS 후 DB query 를 마쳤지만 SET 을
 
 web 은 `RedisDep` 으로 주입받아 `QueryService` 에 넘긴다 (FastAPI DI). consumer 와 worker 는 DI 컨테이너가 없으므로 `get_redis()` 를 직접 불러 각각 핸들러 팩토리와 job 별 `QueryService` 에 전달한다.
 
-세 프로세스 모두 종료 경로에서 `close_pool()` 을 부른다 — 순서 규약은 CLAUDE.md #F11.
+세 프로세스 모두 종료 경로에서 `close_pool()` 을 부른다 — 순서 규약은 AGENTS.md #F11.
 
 ---
 
@@ -93,7 +93,7 @@ web 은 `RedisDep` 으로 주입받아 `QueryService` 에 넘긴다 (FastAPI DI)
 
 ### Redis 장애 시 동작 — fail-open
 
-정책: CLAUDE.md #C3 · #F6.
+정책: AGENTS.md #C3 · #F6.
 
 `safe_*` helper 카탈로그: `safe_get`/`safe_set`/`safe_set_nx`/`safe_delete`/`safe_mget`/`safe_incr_with_ttl` (`src/assessment_engine/cache/redis.py`). 정확성 보장은 2단 안전망(DB UNIQUE / DB query / `last_seen_at` 컬럼)에 위임한다.
 

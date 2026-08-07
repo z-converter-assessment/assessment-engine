@@ -1,6 +1,6 @@
 # DB DTO 카탈로그
 
-정책: CLAUDE.md #C2. Repository·Service 경계 dataclass — ORM 모델 직접 노출 금지.
+정책: AGENTS.md #C2. Repository·Service 경계 dataclass — ORM 모델 직접 노출 금지.
 
 ## Inbound DTO (`inbound.py`) — Service → Repository
 
@@ -10,7 +10,7 @@
 | `ServerMetricCreate` | metrics 1건 | 시계열 nested 는 entry dataclass 리스트 — 시계열 metric 7테이블 행 매핑이라 컴파일 타임 타입 보장. `boot_time`·`agent_started_at` 은 `server_metrics` 만 |
 | `DiskIoEntry` / `NetIoEntry` / `FilesystemEntry` / `CpuCoreEntry` / `PressureEntry` / `DiskErrorEntry` | 시계열 행 nested | dict 키 오타를 mapper 단계에서 차단. INSERT 는 `vars(entry)` shallow spread |
 | `TaskCreate` | task 발행 | `params` 만 JSONB — task_type 별 스키마가 달라 동적 |
-| `TaskResultUpdate` | task 결과 수신 | 종료 신호(`exit_code`·`signal_no`·`task_policy`) 의미는 CLAUDE.md #B |
+| `TaskResultUpdate` | task 결과 수신 | 종료 신호(`exit_code`·`signal_no`·`task_policy`) 의미는 AGENTS.md #B |
 | `DiagnosticJobCreate` | 보고서 발행 job INSERT | `id`·`created_at`·`status` 는 DB default |
 
 ## Outbound DTO (`outbound.py`) — Repository → Service

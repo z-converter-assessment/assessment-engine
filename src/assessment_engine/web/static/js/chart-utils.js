@@ -1,8 +1,3 @@
-// 차트 템플릿 공통 유틸. 모든 차트 페이지가 import.
-// CLAUDE.md #E1 P4 의무 규약(sequence counter, capture-before-await,
-// Array.isArray 방어, 404 분기, suggestedMax 명명 상수)의 도구 모음.
-
-// -- 시간 범위 / 버킷 매핑 --
 // 14d는 right-sizing 윈도우(right_sizing.WINDOW_DAYS)와 동일 — 보고서·대시보드·차트 일관.
 // 14일 → 6시간 버킷 자동 매핑 (14*24/6 = 56 데이터 포인트, 가독성·표시 부담 균형).
 /** @type {Record<string, string>} */
@@ -13,13 +8,10 @@ const AUTO_BUCKET  = { '15m':'1m', '1h':'5m', '6h':'15m', '24h':'30m', '7d':'3h'
 const BUCKET_LABEL = { '1m':'1분 집계', '5m':'5분 집계', '15m':'15분 집계', '30m':'30분 집계',
                        '1h':'1시간 집계', '3h':'3시간 집계', '6h':'6시간 집계', '12h':'12시간 집계', '1d':'1일 집계' };
 /** @type {Record<string, number>} */
-/** @type {Record<string, number>} */
 const RANGE_MS  = { '15m':9e5, '1h':36e5, '6h':216e5, '24h':864e5, '7d':6048e5, '14d':12096e5, '30d':2592e6 };
-/** @type {Record<string, number>} */
 /** @type {Record<string, number>} */
 const BUCKET_MS = { '1m':6e4, '5m':3e5, '15m':9e5, '30m':18e5, '1h':36e5, '3h':108e5, '6h':216e5, '12h':432e5, '1d':864e5 };
 
-// -- 색상 팔레트 --
 // 테마색1 (base.html :root --color-title) — JS 차트 시리즈가 CSS 변수를 추종.
 // getComputedStyle 실패·빈 값 시 #2563eb fallback (--color-title 현행값과 동일 — 회귀 0 보장).
 function themeColor() {
@@ -30,7 +22,6 @@ function themeColor() {
 }
 const COLORS = [themeColor(),'#f59e0b','#22c55e','#ef4444','#8b5cf6','#06b6d4','#f97316','#ec4899'];
 
-// -- 시간 포매팅 (KST) --
 /** @param {string} isoStr */
 function fmtKst(isoStr) {
   const d = new Date(isoStr);
@@ -53,7 +44,6 @@ function fmtLabel(ts, range) {
   return `${HH}:${mm}`;
 }
 
-// -- 처리량 포매터 (B/s → kB/s → MB/s) --
 /** @param {number | null} v */
 function fmtKbChart(v) {
   if (v == null) return '';
@@ -62,7 +52,6 @@ function fmtKbChart(v) {
   return v.toFixed(0) + ' B/s';
 }
 
-// -- 앵커 datetime 입력 처리 --
 /** @param {string} inputId */
 function getAnchorEnd(inputId) {
   const val = /** @type {HTMLInputElement} */ (document.getElementById(inputId)).value;
@@ -79,7 +68,6 @@ function initAnchor(inputId) {
   input.value = kstNow;
 }
 
-// -- 버킷 그리드 생성 --
 /**
  * @param {string} rangeKey
  * @param {string} bucketKey
@@ -109,10 +97,6 @@ function joinToGrid(grid, rows, bMs) {
   return grid.map(t => map[t] ?? null);
 }
 
-// -- 다중 dimension avg-only 라인 dataset 빌드 --
-// cpu 분류·실행 큐·메모리 구성·종합 추이가 공유. rows: [{collected_at, value, dimension}].
-// metaMap: { dim: {label, color} } — 미정의 dim 은 dim 이름·기본색(#8b5cf6).
-// opts.valueFn: per-point 값 변환(기본 항등). opts.pointRadius: 0(추이)·1(분류).
 /**
  * @param {any[]} rows
  * @param {number} bMs
@@ -141,18 +125,13 @@ function buildDimDatasets(rows, bMs, grid, metaMap = {}, opts = {}) {
   });
 }
 
-// -- 처리량 동적 단위 포매터 (kB/s → MB/s) --
-// 종합·환경 성능 추이(metrics·environment-metrics) Y축 단위 포매터 (B/s 기준 fmtKbChart 와 구분 — 이쪽은 kB 입력).
-// 단위 표기 "kB/s"/"MB/s" 통일 (fmtKbChart 와 동일 관습).
+// 입력 단위는 kB/s이며 fmtKbChart의 B/s 계약과 다르다.
 /** @param {number | null | undefined} kb */
 function fmtThroughput(kb) {
   if (kb == null) return '—';
   return kb >= 1024 ? (kb / 1024).toFixed(1) + ' MB/s' : kb.toFixed(1) + ' kB/s';
 }
 
-// -- 토글 그룹 바인딩 --
-// groupId 가 <select> 면 change 로, .toggle 버튼 그룹이면 click 으로 자동 분기.
-// 호출처는 (groupId, onChange(val)) 동일 — HTML 만 select/button 선택.
 /**
  * @param {string} groupId
  * @param {(val: any) => void} onChange
@@ -173,7 +152,6 @@ function bindToggle(groupId, onChange) {
   });
 }
 
-// -- 페이지 단일 시간축 컨트롤러 (#F10 페이지 단일 윈도우/앵커) --
 // 한 range 토글 + 한 anchor 가 페이지의 모든 차트를 구동 — 차트별 파편 컨트롤 대체. 신호 간 시점 상관
 // 관측(이 호스트를 이 창·이 시점으로). anchor 미입력=live now, 입력=고정(과거 사건 조사). 변경 시 onChange 로 전체 reload.
 /**
@@ -192,10 +170,8 @@ function pageTimeControl(rangeBtnsId, anchorId, defaultRange, onChange) {
   return { getRange: () => range, getAnchor: () => getAnchorEnd(anchorId) };
 }
 
-// -- 30초 polling 자동 갱신 (detail 실시간 메트릭과 일관) --
 // 탭 비활성(document.hidden) 시 tick skip — 다중 탭에서 누적 폴링 요청 차단(서버 부하 감소).
 // 숨겨졌다 다시 보이면 즉시 1회 refresh 해 멈춰있던 화면 보정 (loader 의 seq 가드가 중복 응답 흡수).
-// 폴링은 연결 상태 개념이 없어 상태 DOM 갱신 없음. stamp 는 호출처 loader 가 갱신.
 /**
  * @param {() => void} onRefresh
  * @param {number} [intervalMs]
@@ -204,20 +180,17 @@ function initAutoRefresh(onRefresh, intervalMs = 30_000) {
   const id = setInterval(() => { if (!document.hidden) onRefresh(); }, intervalMs);
   const onVisible = () => { if (!document.hidden) onRefresh(); };
   document.addEventListener('visibilitychange', onVisible);
-  window.addEventListener('pagehide', () => {                    // 좀비 타이머 방지
+  window.addEventListener('pagehide', () => {
     clearInterval(id);
     document.removeEventListener('visibilitychange', onVisible);
   });
   return id;
 }
 
-// -- 응답 안전 변환 --
 /** @param {any} arr */
 function safeArray(arr) { return Array.isArray(arr) ? arr : []; }
 
-// -- Windows 미측정 메트릭 N/A (표시 경계) --
-// Windows 는 cpu iowait/steal·mem buffers/cached 를 측정하지 않아 payload 에서 null 로 온다(구 에이전트는 0).
-// 값이 아니라 os_family==='windows' + 본 키로 판정해 'N/A' 표시 — null·0 어느 쪽이든 "측정값 0"과 구분. 부재 메트릭 카탈로그 단일 진실(JS).
+// Windows 에이전트가 측정하지 않는 축은 값과 무관하게 N/A로 표시한다.
 const WIN_NA_KEYS = new Set(['cpu_iowait', 'cpu_steal', 'cpu_nice', 'mem_buffers', 'mem_cached']);
 /**
  * @param {string | null} osFamily
@@ -228,10 +201,6 @@ function naWindows(osFamily, key, formatted) {
   return osFamily === 'windows' && WIN_NA_KEYS.has(key) ? 'N/A' : formatted;
 }
 
-// "—"(no_data)·"N/A"(not_applicable) 는 둘 다 "실측값 아님" 센티널 — signal-utils.renderSaturation(포화 열)
-// 이 이미 이 원칙으로 sat-val-muted(옅은 회색)를 적용한다. 이용률 열이 plain textContent 로 '—'/N/A 를
-// 꽂으면 실측값과 같은 진하기(sat-val 기본색)로 보여 카드 안에서 진하기가 갈리는 문제가 있었다 — 이용률
-// 열도 동일 센티널이면 동일 클래스를 적용해 실측값과 시각적으로 구분한다.
 const _NOT_MEASURED = new Set(['—', 'N/A']);
 /**
  * @param {HTMLElement | null} el
@@ -253,11 +222,6 @@ function setNaText(el, osFamily, key, formatted) {
   setValText(el, naWindows(osFamily, key, formatted));
 }
 
-// -- avg+max ghost dataset 빌드 (P4 패턴) --
-// avgRows·maxRows: [{collected_at, value, dimension?}]
-// opts: { label?, color?, dashFn?(dim), pointRadius? }
-// single-dim(라벨 1개) 또는 multi-dim(dim별 색·dash) 통합.
-// 결과: [avgDataset, maxGhostDataset]쌍 N개. tooltip filter `datasetIndex % 2 === 0`로 max ghost 숨김.
 /**
  * @param {any[]} avgRows
  * @param {any[]} maxRows
@@ -266,8 +230,7 @@ function setNaText(el, osFamily, key, formatted) {
  * @param {any} [opts]
  */
 function buildAvgMaxDatasets(avgRows, maxRows, bMs, grid, opts = {}) {
-  // 버킷이 최소 단위(1분)면 버킷당 데이터가 1포인트라 max=avg → 음영 무의미.
-  // 15분 구간(1분 버킷)에서 max ghost 비활성화 (음영·tooltip max 제거). environment 단일선과 동일하게 max=[] 처리.
+  // 1분 버킷은 max와 avg가 같아 음영을 만들지 않는다.
   if (bMs <= BUCKET_MS['1m']) maxRows = [];
   const dims = [...new Set([...avgRows, ...maxRows].map(r => r.dimension || ''))];
   const datasets = /** @type {any[]} */ ([]);
@@ -300,8 +263,6 @@ function buildAvgMaxDatasets(avgRows, maxRows, bMs, grid, opts = {}) {
   return datasets;
 }
 
-// -- 짝수 인덱스 avg dataset만 legend 표시 (max ghost 숨김) --
-// opts: { codeLabel?: code 태그 사용, withToggle?: 칩(pill) 토글 — avg/max 짝 함께 hide (P4 허용 — E1 P4 절) }
 /**
  * @param {string} containerId
  * @param {any} chart
@@ -311,7 +272,6 @@ function buildAvgMaxLegend(containerId, chart, opts = {}) {
   const el = document.getElementById(containerId);
   if (!el || !chart) { if (el) el.innerHTML = ''; return; }
   const avgDatasets = /** @type {any[]} */ (chart.data.datasets).filter((_, i) => i % 2 === 0);
-  // withToggle: cpu/memory 와 동일한 칩(pill) 토글 형식. avg/max 쌍을 1칩으로 묶어 함께 show/hide.
   if (opts.withToggle) {
     el.innerHTML = avgDatasets.map((ds, i) => `
       <button type="button" class="legend-chip" data-avg="${i * 2}" aria-pressed="true">
@@ -330,7 +290,6 @@ function buildAvgMaxLegend(containerId, chart, opts = {}) {
     });
     return;
   }
-  // 정적 범례 (performance codeLabel 등) — 선 + 라벨.
   el.innerHTML = avgDatasets.map(ds => {
     const isDash = ds.borderDash && ds.borderDash.length > 0;
     const lineHtml = isDash
@@ -343,8 +302,6 @@ function buildAvgMaxLegend(containerId, chart, opts = {}) {
   }).join('');
 }
 
-// 색 점 + 라벨 칩(pill) 토글 범례 — 클릭 시 dataset show/hide. 모든 차트 페이지 공용.
-// 숨김 상태는 aria-pressed=false (CSS 가 흐리게). label/checkbox 대신 button 이라 키보드 토글 자연 지원.
 /**
  * @param {any} container
  * @param {any} chart

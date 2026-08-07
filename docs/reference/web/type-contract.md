@@ -34,7 +34,7 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 
 ## 규약
 
-`response_model=` 대신 return 어노테이션을 쓴다는 결정과 클라 재계산 금지(P2)는 CLAUDE.md #E6 이 갖는다. 그 결정이
+`response_model=` 대신 return 어노테이션을 쓴다는 결정과 클라 재계산 금지(P2)는 AGENTS.md #E6 이 갖는다. 그 결정이
 성립하는 근거가 FastAPI 쪽에 둘 있다 — stdlib dataclass ViewModel 도 OpenAPI 스키마로 변환되므로 Pydantic 이
 필수가 아니고, return 어노테이션만으로 응답 검증도 함께 붙는다.
 
@@ -52,7 +52,7 @@ ViewModel 필드가 바뀔 때(rename/타입 변경) codegen 이 타입을 갱�
 
 ## 확장 방법
 
-신규 엔드포인트·ViewModel 필드 변경 시 밟는 순서(codegen -> 커밋 -> 소비 JS annotate)는 CLAUDE.md #E6 이
+신규 엔드포인트·ViewModel 필드 변경 시 밟는 순서(codegen -> 커밋 -> 소비 JS annotate)는 AGENTS.md #E6 이
 갖는다. 여기 고유한 것은 신규 JS 파일이다.
 
 - 만들면 곧바로 검사 대상이다(opt-in 표시 없음) -> fetch 경계 annotate + null 가드 -> `pnpm run typecheck` 로

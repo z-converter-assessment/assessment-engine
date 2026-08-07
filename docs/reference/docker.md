@@ -1,6 +1,6 @@
 # Docker 이미지·compose 구성
 
-정책: CLAUDE.md #A. 이미지와 compose 구성이 지금 어떻게 되어 있는지를 다룬다. 기동·반영·디버깅 절차는 `docs/guides/local-dev.md`, 배포는 `docs/guides/deploy.md`, 환경변수 키 카탈로그와 secret 채널은 `docs/reference/contracts/env.md`, broker 자체 운영은 `docs/reference/rabbitmq.md` 가 갖는다.
+정책: AGENTS.md #A. 이미지와 compose 구성이 지금 어떻게 되어 있는지를 다룬다. 기동·반영·디버깅 절차는 `docs/guides/local-dev.md`, 배포는 `docs/guides/deploy.md`, 환경변수 키 카탈로그와 secret 채널은 `docs/reference/contracts/env.md`, broker 자체 운영은 `docs/reference/rabbitmq.md` 가 갖는다.
 
 docker-compose 가 곧 설치 단위다 — web·consumer·worker·migrate·postgres·rabbitmq·redis 7 서비스가 고객사 네트워크 안에서 함께 뜬다. Python 앱 넷은 단일 이미지에 command 로 갈리고, 인프라 셋은 공식 이미지를 쓴다.
 

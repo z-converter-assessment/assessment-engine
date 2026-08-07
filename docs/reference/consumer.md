@@ -1,6 +1,6 @@
 # Consumer
 
-정책: CLAUDE.md #D. aio-pika 기반 순수 비동기 컨슈머, FastAPI와 독립 프로세스.
+정책: AGENTS.md #D. aio-pika 기반 순수 비동기 컨슈머, FastAPI와 독립 프로세스.
 
 책임 축 — `schemas.py`(에이전트 메시지 파싱·검증 계약) / `mappers.py`(Pydantic 스키마 → Inbound DTO) / `handlers/`(routing key 별 처리 흐름 + `_common.py` 공용 helper — 멱등성·DB 재시도·시계 invariant·agent 재시작 추적) / `task_policy.py`(task.result 성공/실패 판정 — 소비자가 handlers 하나라 consumer 소속) / `main.py`(진입점·MQ 토폴로지 선언·Redis 생명주기).
 
@@ -8,7 +8,7 @@
 
 ## schemas.py — 메시지 파싱·검증
 
-`model_validate_json(raw)`로 파싱·타입 검증 동시. Pydantic Input 모델은 `extra=ignore` 유지(CLAUDE.md #B 계약 진화 정책).
+`model_validate_json(raw)`로 파싱·타입 검증 동시. Pydantic Input 모델은 `extra=ignore` 유지(AGENTS.md #B 계약 진화 정책).
 
 메시지 타입·공통 메타·필드 카탈로그·미사용/활용 필드·routing key별 스키마: `docs/reference/contracts/agent-data.md` 단일 진실.
 
@@ -95,7 +95,7 @@ RabbitMQ 전용 비동기 클라이언트(AMQP 0-9-1). 연결은 `connect_robust
 
 ### 멱등성: 2단 방어
 
-정책: CLAUDE.md #D2. 자연키 UNIQUE 카탈로그: `docs/reference/db/models.md` "시계열 자연키 UNIQUE" 표. at-most-once 한계·outbox 대안: `docs/explanation/tradeoffs.md` T1.
+정책: AGENTS.md #D2. 자연키 UNIQUE 카탈로그: `docs/reference/db/models.md` "시계열 자연키 UNIQUE" 표. at-most-once 한계·outbox 대안: `docs/explanation/tradeoffs.md` T1.
 
 ### inventory 수신 시 online 즉시 마킹
 
@@ -111,9 +111,9 @@ handler 본 처리 흐름과 별개로 두 가지 부가 시그널을 발행 (�
    위반 시 warning 로그만 — agent 별 쿨다운 키로 반복 억제 (#F7). DLQ 안 보냄 — 시계 문제는 데이터 reject 의미 없음.
 
 2. `_track_agent_restart(redis, server_id, agent_id, agent_started_at)` — metrics 핸들러 후처리 끝에서 호출.
-   - 직전 `agent_started_at` 과 비교 → 변경 시 슬라이딩 윈도우 카운터 INCR
+   - 직전 `agent_started_at` 과 비교 → 변경 시 재시작 카운터 증가. 카운터 수명 의미는 `docs/reference/redis.md` "TTL 값 근거" 절
    - `agent_restart_alert_threshold` 도달 시 warning (운영자가 crash loop 인지)
-   - 시스템 재부팅도 같은 카운터 — 1h 내 3회 재부팅도 unusual이라 alert 적정
+   - 시스템 재부팅도 수집 연속성에 영향을 주므로 같은 카운터에 포함
    - Redis 장애 시 silent skip (fail-open — 재시작 감지 1회 누락, 다음 sample 회복)
 
 ### Disposability — SIGTERM 흐름 (#F11)
