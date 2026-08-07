@@ -1,7 +1,4 @@
-"""Tasks router — 운영자 task 발행 + 조회 endpoint.
-
-책임: HTTP I/O 만. 비즈니스 로직(DB·broker publish·트랜잭션)은 TaskService / QueryService 에 위임 (F4).
-"""
+"""Tasks router — 운영자 task 발행 + 조회 endpoint. HTTP I/O 만 하고 나머지는 서비스 계층에 위임한다."""
 
 import ipaddress
 import re
@@ -34,7 +31,7 @@ _HOSTNAME_LABEL_RE = re.compile(r"^(?=.{1,63}$)[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0
 def _is_valid_hostname(
     v: str,
 ) -> bool:
-    """RFC 952·1123 hostname/FQDN 검증 — label 1~63자 영숫자+hyphen, 전체 253자 이내."""
+    """RFC 952·1123 hostname/FQDN 검증."""
     if len(v) > 253:
         return False
     # trailing dot 허용 (FQDN canonical) — strip 후 label 검증.
@@ -79,8 +76,7 @@ def _is_valid_host_or_host_port(
 
 class InstallRequest(BaseModel):
     target_public_ids: list[str] = Field(min_length=1, max_length=1000)
-    # ZDM 좌표 — IP / hostname / HTTP(S) URL 모두 허용. RFC 3986 URL 권장 max=2048 cap.
-    # 운영 환경에 따라 ZDM 을 IP·FQDN·HTTP endpoint 어느 형태로도 운영 가능 — 형식 강제 없음.
+    # 허용 값 공간은 docs/reference/contracts/env.md "ZDM 좌표 값 공간". max=2048 은 RFC 3986 권장 URL 상한.
     zdm_ip: str | None = Field(default=None, max_length=2048)
     zdm_user: str | None = Field(
         default=None,
@@ -93,16 +89,9 @@ class InstallRequest(BaseModel):
     def _validate_zdm_ip(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
-        # shell metachar / 공백 / 제어문자 무조건 차단 (#F8 — task params 그대로 task.install body 전파).
+        # task params 는 task.install body 로 그대로 전파된다 — shell metachar·공백·제어문자 무조건 차단.
         if any(c in v for c in " \t\n\r;|&`$<>"):
             raise ValueError(f"invalid character in zdm target: {v!r}")
-        # 허용 형식:
-        #   - IPv4               192.168.3.94
-        #   - IPv4:port          192.168.3.94:8080
-        #   - hostname / FQDN    zdm.example.com / zdm.example.com.
-        #   - hostname:port      zdm.example.com:8000
-        #   - http/https URL     http://zdm.example.com:8443/download/x.tar.gz
-        # IPv6 (raw / bracket) 는 reject — agent download.c 한계.
         if v.lower().startswith(("http://", "https://")):
             return v
         if _is_valid_host_or_host_port(v):

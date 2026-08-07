@@ -1,15 +1,10 @@
-"""install task reaper 루프 — 전용 워커 프로세스(assessment_engine.worker)가 구동.
+"""install task reaper 루프 — deadline_at 경과 pending(install) 을 failure(timeout) 로 전이.
 
-deadline_at 경과 pending(install) task 를 능동적으로 failure(timeout) 로 전이한다. 발행 경로(TaskService)도
-emit 직전 만료분을 정리하지만(`expire_overdue_tasks`), 그건 lazy — 해당 서버에 다음 emit 이 없으면 pending 이
-DB 에 영구 잔류한다. 본 reaper 가 emit 과 무관하게 주기적으로 전역 정리해 "미배달·무회신 pending" 이 terminal
-상태에 도달하게 한다 (오프라인 호스트가 배달 창 안에 안 돌아온 경우 등, F6 관측성).
+발행 경로(TaskService)도 emit 직전 만료분을 정리하지만 그건 lazy 라, 해당 서버에 다음 emit 이 없으면
+pending 이 DB 에 영구 잔류한다. 여기서 emit 과 무관하게 전역으로 훑어 terminal 로 보낸다.
 
-큐 메시지 자체는 broker x-message-ttl(= install_task_deadline_sec) 로 만료되므로, 창을 넘긴 task 는 배달도
-안 되고 여기서 timeout 으로 정리된다 — 두 시점이 같은 창이라 zombie 지연 실행 없음.
-
-graceful(F11): stop_event 로 다음 tick 중단. 진행 중 UPDATE 1건은 짧아 drain 즉시 완료.
-구체 인스턴스는 composition root(worker/main.py)가 구성해 주입.
+큐 메시지 자체는 broker x-message-ttl(= install_task_deadline_sec)로 만료된다 — 두 시점이 같은 창이라
+창을 넘긴 task 는 배달도 안 되고, zombie 지연 실행이 생기지 않는다.
 """
 
 from typing import TYPE_CHECKING
@@ -35,10 +30,11 @@ async def run_task_reaper(
     interval_sec: float,
     stop_event: asyncio.Event,
 ) -> None:
-    """reaper 메인 루프 — interval 마다 deadline 경과 pending 전역 timeout 전이.
+    """reaper 메인 루프 — interval 마다 1 tick.
 
-    session_factory: tick 마다 독립 세션(전이 UPDATE 트랜잭션 분리).
-    stop_event: SIGTERM 시 set — 루프가 다음 점검에서 종료.
+    session_factory 는 tick 마다 새로 열어 전이 UPDATE 트랜잭션을 분리한다.
+    stop_event 가 set 되면 다음 점검에서 루프를 빠져나간다 — 진행 중 UPDATE 1건은 짧아
+    보고서 루프 같은 drain 대기가 없다.
     """
     logger.info("install task reaper started interval={}s", interval_sec)
     while not stop_event.is_set():
@@ -49,8 +45,7 @@ async def run_task_reaper(
                 await session.commit()
             if expired:
                 logger.info("install task reaper expired overdue pending n={}", expired)
-        except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
-            # reaper 격리 — 일시 DB 장애 등이 루프를 죽이면 안 됨(F6 except Exception 예외: reraise 시 reaper 사망).
+        except Exception:  # noqa: BLE001  일시 DB 장애가 reaper 를 죽이면 안 되므로 좁히지 않는다
             logger.exception("install task reaper tick failed")
         await sleep_or_stop(stop_event, interval_sec)
     logger.info("install task reaper stopped")

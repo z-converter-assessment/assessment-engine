@@ -31,23 +31,19 @@ if TYPE_CHECKING:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # log sink 단일 등록 — text(dev) vs json(prod) 분기 (LOG_FORMAT env). 모듈 스코프가 아니라 여기서
-    # 부른다 — import 만으로 설정을 읽으면 값 없이는 import 조차 못 한다(consumer·worker 동일).
+    # 모듈 스코프가 아니라 여기서 부른다 — import 만으로 설정을 읽으면 값 없이는 import 도 못 한다.
     setup_logging(get_web_settings().log_format, get_web_settings().log_level)
-    # schema 관리는 모든 환경에서 Alembic — docker-compose `migrate` 서비스(init-container 패턴)가
-    # postgres healthy 후 `alembic upgrade head` 1회 실행 후 종료. 본 lifespan은 schema 가정만 함.
-    # web을 포함한 모든 앱 서비스는 `depends_on: migrate (service_completed_successfully)`로 그 뒤에 기동.
+    # schema 는 compose `migrate` 서비스가 이미 올려둔 상태를 전제한다 (docs/guides/migrate.md).
     logger.info("app_env={} — schema is Alembic-managed (entrypoint applied upgrade)", get_web_settings().app_env)
-    # dev 한정 정적 자원 캐시 무효화 신호 — 미들웨어가 매 요청 asset_v 재발급(F4: app_env 판정은 lifespan 에서만).
+    # app_env 판정은 여기서만 한다 (#F4) — 미들웨어는 이 플래그만 본다.
     app.state.dev_assets = get_web_settings().app_env == "dev"
 
-    # task.install 발행용 broker connection — consumer 와 동일 인자로 declare 의무 (rabbitmq.md 토폴로지).
-    # exchange type mismatch 시 PRECONDITION_FAILED. DIRECT exchange 컨벤션.
+    # task.install 발행용 broker connection.
     broker_conn = await aio_pika.connect_robust(get_diagnostic_settings().broker_url, timeout=10)
     broker_channel = await broker_conn.channel()
 
-    # 원격 작업 발행용 exchange. 동일 인자 재선언은 idempotent — consumer 가 먼저 declare 해도 안전.
-    # agent.tasks.<agent_id> 머신별 큐는 task.install 발행 시점에 TaskService 가 동적 declare.
+    # consumer 와 같은 인자로 declare 해야 한다 — 재선언 자체는 idempotent 지만 인자가 어긋나면
+    # PRECONDITION_FAILED (토폴로지는 rabbitmq.md). agent.tasks.<agent_id> 큐는 발행 시점에 TaskService 가 만든다.
     await broker_channel.declare_exchange(
         get_diagnostic_settings().rabbitmq_task_exchange,
         aio_pika.ExchangeType.DIRECT,
@@ -61,8 +57,8 @@ async def lifespan(app: FastAPI):
         get_diagnostic_settings().rabbitmq_task_exchange,
     )
 
-    # ZDM 메타 fetch 용 httpx async client — connect 5s, total 120s (44MB GET 가정).
-    # 단일 client 인스턴스를 TCP 재사용 위해 lifespan 에서 생성·shutdown 에서 close.
+    # ZDM 메타 fetch 용 단일 client — lifespan 에 두고 TCP 커넥션을 재사용한다.
+    # read/write 예산은 sha256 산출용 패키지 전량(수십 MB) GET 을 감당해야 해 connect 보다 한참 길다.
     http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(
             connect=get_web_settings().zdm_meta_connect_timeout_sec,
@@ -74,8 +70,7 @@ async def lifespan(app: FastAPI):
     )
     app.state.http_client = http_client
 
-    # 비동기 보고서 생성·install task reaper 는 전용 워커 프로세스(assessment_engine.worker)가 담당 —
-    # web 은 HTTP 요청만 처리(발행은 pending job enqueue 후 즉시 job_id 반환, 생성은 워커가 claim).
+    # 보고서 생성·install reaper 는 전용 워커 프로세스(assessment_engine.worker) 담당 — web 은 HTTP 만.
     yield
 
     await http_client.aclose()
@@ -90,11 +85,9 @@ app = FastAPI(title="ZConverter Assessment Portal", lifespan=lifespan)
 class DisableHtmlCache:
     """SSR(text/html) + dev 한정 static asset 에 `Cache-Control: no-store` 를 얹는 ASGI 미들웨어.
 
-    HTML: 진단 발행 -> 결과 페이지 -> 뒤로가기 시점에 브라우저 HTTP cache·BFCache 로 list 페이지가
-    stale HTML 그대로 복원되는 회귀 회피.
-
-    Static (JS/CSS): dev 환경 한정. hot reload 후 클라이언트가 즉시 새 JS 받게 강제.
-    prod 는 cdn·long-cache 운영을 위해 본 분기 비활성.
+    HTML 은 진단 발행 -> 결과 -> 뒤로가기에서 브라우저 HTTP cache·BFCache 가 stale 한 list 페이지를
+    되살리는 회귀를 막는다. dev 의 JS/CSS 는 hot reload 직후 새 파일을 받게 하는 용도라 prod 에서는
+    cdn·long-cache 를 위해 꺼진다.
 
     `BaseHTTPMiddleware`(@app.middleware) 를 쓰지 않는다 — 그쪽은 응답을 별도 task 로 감싸 스트리밍
     응답과 contextvar 전파에 제약이 생긴다. 헤더 한 줄을 얹는 데 그 비용을 낼 이유가 없다.
@@ -109,7 +102,7 @@ class DisableHtmlCache:
             return
 
         dev = getattr(app.state, "dev_assets", False)
-        # dev — 매 요청 asset_v 재발급: 정적 자원 URL(`?v=`)이 매번 바뀌어 브라우저 disk cache·304 까지 회피.
+        # asset_v 를 매 요청 재발급해 `?v=` 가 바뀐다 — 브라우저 disk cache·304 까지 피한다.
         if dev:
             env_globals["asset_v"] = format(int(time.time() * 1000), "x")
         is_static = scope.get("path", "").startswith("/static/")
@@ -117,8 +110,7 @@ class DisableHtmlCache:
         async def send_with_header(message: Message) -> None:
             if message["type"] == "http.response.start":
                 headers = MutableHeaders(scope=message)
-                # ASGI 규약상 헤더 이름은 소문자로 온다. raw 리스트에 append 하면 Cache-Control 이
-                # 중복으로 나가므로 반드시 대입(replace)으로 얹는다.
+                # raw 리스트에 append 하면 Cache-Control 이 중복으로 나간다 — 대입(replace)으로 얹는다.
                 content_type = headers.get("content-type", "")
                 if content_type.startswith("text/html") or (dev and is_static):
                     headers["Cache-Control"] = "no-store"

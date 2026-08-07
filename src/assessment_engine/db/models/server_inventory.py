@@ -13,9 +13,6 @@ class ServerInventory(Base):
 
     식별 단일 키 = `agent_id` (UUID, UNIQUE, #C1) — 부팅 무관 불변. `composite_id`/`machine_id` 는
     감사·표시 전용, `hostname` 은 display field (UNIQUE X), `public_id` 는 URL 노출용.
-
-    정규화 스토리지/네트워크 그래프는 JSONB pass-through — block_devices(스토리지 트리, swap 노드 포함)·
-    net_interfaces(주소·게이트웨이)·lvm_vgs(Linux VG). mem_total_bytes 는 By 가 canonical.
     """
 
     __tablename__ = "server_inventory"
@@ -32,12 +29,10 @@ class ServerInventory(Base):
         unique=True,
         nullable=False,
     )
-    # 호스트 식별 단일 키 (#C1) — agent 매칭·MQ 라우팅. UUID v4, 부팅 무관 불변 (MAC/machine_id 재발급 무관).
+    # agent 매칭·MQ 라우팅 키 — UUID v4 라 MAC/machine_id 가 재발급돼도 같은 행에 붙는다.
     agent_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    # composite_id — SHA-256(machine_id+MAC). 감사·표시용 강등 (clone collision 진단). 식별·라우팅 미사용, nullable.
-    composite_id: Mapped[str | None] = mapped_column(String(64))
-    # raw machine-id (Linux /etc/machine-id, Windows MachineGuid). 표시 전용 — 식별 미사용.
-    machine_id: Mapped[str | None] = mapped_column(String(64))
+    composite_id: Mapped[str | None] = mapped_column(String(64))  # SHA-256(machine_id+MAC) — clone collision 진단용
+    machine_id: Mapped[str | None] = mapped_column(String(64))  # Linux /etc/machine-id, Windows MachineGuid
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 
@@ -80,8 +75,8 @@ class ServerInventory(Base):
 
     services: Mapped[list[JsonObject] | None] = mapped_column(JSONB)  # [{unit,sub,pid,exe}]
     listen_ports: Mapped[list[JsonObject] | None] = mapped_column(JSONB)  # [{proto,addr,port,uid,pid,comm}]
-    # 서비스 카테고리 집합 (ingest 사전계산, service_classifier.compute_service_categories 단일 진실).
-    # 이름·comm·포트 어느 신호로 식별되든 동일 — 모든 read 경로가 본 저장값 소비(목록·상세·리포트·필터 뱃지 일치).
+    # ingest 사전계산 (service_classifier.compute_service_categories 단일 진실) — read 경로가 재계산하면
+    # 목록·상세·리포트·필터 뱃지가 갈리므로 전부 본 저장값만 쓴다.
     service_categories: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

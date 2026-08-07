@@ -1,4 +1,4 @@
-"""consumer 프로세스 조립 — MQ 토폴로지 declare · 4 핸들러 바인딩 · graceful drain (#F4 · #F11)."""
+"""consumer 프로세스 조립 — MQ 토폴로지 declare · 4 핸들러 바인딩 · graceful drain."""
 
 import asyncio
 import signal
@@ -54,9 +54,8 @@ async def _run_logged(handler: MessageHandler, message: AbstractIncomingMessage)
     """핸들러 예외를 loguru 로 회수한다.
 
     aio-pika 는 콜백을 task 로 띄우고 결과를 아무도 회수하지 않아, 여기서 잡지 않으면 asyncio 기본
-    핸들러가 stdlib logging 으로 평문 traceback 을 낸다 — LOG_FORMAT=json 계약이 깨진다 (F7). ack/nack
-    은 핸들러 안 `message.process` 컨텍스트가 이미 끝냈으므로 삼켜도 배달 처리에 영향이 없다.
-    타입을 좁히지 않는 유일한 자리 — 미리 알 수 없는 예외를 회수하는 것이 이 wrapper 의 목적이다.
+    핸들러가 stdlib logging 으로 평문 traceback 을 낸다 — LOG_FORMAT=json 계약이 깨진다. ack/nack 은
+    핸들러 안 `message.process` 컨텍스트가 이미 끝냈으므로 삼켜도 배달 처리에 영향이 없다.
     """
     try:
         await handler(message)
@@ -87,7 +86,7 @@ def _track_inflight(handler: MessageHandler, inflight: set[asyncio.Task[Any]]) -
 
 
 async def _drain(consumers: list[tuple[AbstractQueue, ConsumerTag]], inflight: set[asyncio.Task[Any]]) -> None:
-    """새 배달을 끊고 진행 중 핸들러가 ack/nack 를 마칠 때까지 예산 안에서 기다린다 (F11).
+    """새 배달을 끊고 진행 중 핸들러가 ack/nack 를 마칠 때까지 예산 안에서 기다린다.
 
     채널 close 는 aiormq 가 진행 중 consumer task 에 CancelledError 를 던지므로, 그전에 기다리지 않으면
     커밋 직전 취소된 메시지가 재전송 시 멱등성 1단(#D2)에 중복으로 걸려 조용히 사라진다. basic.cancel 은
@@ -128,10 +127,8 @@ async def main() -> None:
     )
 
     redis = get_redis()
-    # graceful shutdown (F11) — asyncio.run 은 SIGTERM(docker stop)을 취소로 변환하지 않으므로 asyncio-native
-    # add_signal_handler 로 stop_event 를 set 한다(signal.signal 아님 — 이벤트 루프 안전). stop_event 가 깨면
-    # `_drain` 이 배달을 끊고 in-flight 를 기다린 뒤 `async with conn` unwind 로 채널/커넥션 close,
-    # finally 로 redis close.
+    # asyncio.run 은 SIGTERM(docker stop)을 취소로 변환하지 않으므로 asyncio-native add_signal_handler 로
+    # stop_event 를 set 한다 (signal.signal 은 이벤트 루프와 안전하지 않다).
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -229,7 +226,7 @@ async def main() -> None:
                     b.max_len,
                 )
 
-            await stop_event.wait()  # SIGTERM/SIGINT 까지 소비
+            await stop_event.wait()
             logger.info("consumer stopping (signal received) — draining in-flight={}", len(inflight))
             await _drain(consumers, inflight)
     finally:

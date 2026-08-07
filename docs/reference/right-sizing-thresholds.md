@@ -1,8 +1,7 @@
 # 자원 적정성 평가 임계치와 근거
 
-이 문서는 자원 적정성(right-sizing) 평가에 쓰이는 임계치와 그 근거를, 5개 자원 x USE 3축으로 사람이
-읽기 좋게 정리한 단일 참조다. 구현 명세(어느 함수·컬럼·판정 순서)는 `right-sizing.md` 가 담고, 임계
-수치·근거·robustness 의 인간가독 정본은 본 문서다. 
+자원 적정성(right-sizing) 평가 임계치와 그 근거를 자원 5개 x USE 3축으로 정리한다. 구현 명세(함수·컬럼·
+판정 순서)는 `right-sizing.md` 가 갖는다.
 
 ## 무엇을 어떻게 평가하나
 
@@ -13,7 +12,7 @@
   - Errors 는 사이징에 섞지 않고 health(고장) 신호로 따로 보여준다.
 - 평가 창: 14일(`right_sizing.WINDOW_DAYS`). 대부분의 임계는 그 창의 p95(상위 5% 순간 스파이크를 잘라낸
   값)로 비교한다. 용량 runway 만 가용 이력 전체를 쓴다(누적 신호라 길수록 정확).
-  - AWS Compute Optimizer 기본 lookback 과 같은 값이고, 7일·30일은 라우터 override 로 지원한다.
+  - AWS Compute Optimizer 기본 lookback 과 같은 값이다. 화면·API 는 더 짧거나 긴 창을 override 로 받는다.
   - 일·주 단위 주기성(주중·주말)을 평탄화하기에 충분한 최단 구간이다. 1~3일이면 일시 부하·정기 백업을
     평상 부하로 오인하고, 30일 이상이면 최근 도입된 워크로드 부하 반영이 늦다.
 
@@ -25,8 +24,6 @@
 - 벤더문서: 벤더 문서 기반이나 표현이 근사한 값.
 - 관례: 특정 문서에 딱 박히진 않았지만 업계에서 통상 쓰는 값.
 - 판단: 우리가 의식적으로 정한 재량값(근거는 있으나 벤더 고정값은 아님).
-
-수집은 하지만 판정에 쓰지 않는 신호(대표적으로 PSI)는 "판정에 쓰지 않는 수집 신호" 절에 따로 뒀다.
 
 ---
 
@@ -53,7 +50,6 @@
 - 유휴는 활동 3축이 전부 조용할 때만이다: CPU p95 3% 이하 AND 네트워크 2Mbps 이하 AND 디스크 baseline 5 IOPS
   이하. CPU·네트워크는 측정값이 있어야 유휴가 되고, 디스크 활동은 미측정이면 유휴를 막지 않는다. 그중 CPU peak
   1% 이하 AND 네트워크 1 kB/s 이하는 확실 유휴로 즉시 종료를, 그 외 유휴는 통합·재배치를 권고한다.
-- 스파이크 방어: 사용률·큐 모두 p95(순간 100% burst 무시). 유휴 판정도 p95(순간 스파이크로 유휴 탈락 방지).
 
 ## Memory
 
@@ -73,8 +69,6 @@
 - Linux 하드폴트 신호는 paging_major(디스크에서 페이지를 다시 읽어온 major fault)다. swap 점유량도 swap
   in/out 추이도 압박 신호로 쓰지 않는다(swappiness 유휴 스왑아웃 오탐) -- swap 은 용량만 보고, 압박은 위
   dual-gate 로 판정한다. oom_kill(메모리 부족으로 프로세스가 강제 종료된 사후 증거)은 gate 없이 즉시 under 확정.
-- 스파이크 방어: paging 은 창 전체 delta 로 발생 여부만 보고 버킷 수를 세지 않는다. 마이크로버스트 오탐은
-  dual-gate(이용률 동반)가 막는다.
 
 ## Disk 용량
 
@@ -91,9 +85,9 @@
   inode 를 동적 할당해 free 값 해석이 약하나, 판정은 fstype 을 가르지 않고 보고된 inode 값을 그대로 쓴다.
 - worst-mount 집계에서 빼는 것은 가상 fs(tmpfs·devtmpfs·overlay·squashfs·proc·sysfs 등)와 /boot 접두 마운트뿐이다.
   크기 기준 소형 파티션 배제는 없어서 작은 데이터 파티션이 호스트 판정을 지배할 수 있다.
-- 스파이크 방어: 2점 fill rate 라 삭제·생성 튐에 약하고, 방어는 최소 관측 span 게이트뿐이다 -- span 1.25일
-  미만이면 runway 를 산출하지 않아 정적 가드만 남고, 14일 미만이면 1년 목표 외삽을 억제하고 30일 근시 예측만
-  쓴다. 비단조 추세의 한계는 `docs/explanation/tradeoffs.md` T18.
+- 2점 fill rate 라 삭제·생성 튐에 약하고, 방어는 최소 관측 span 게이트뿐이다 -- span 1.25일 미만이면 runway
+  를 산출하지 않아 정적 가드(used 85%)만 남고, 14일 미만이면 1년 목표 외삽을 억제하고 30일 근시 예측만 쓴다.
+  비단조 추세의 한계는 `docs/explanation/tradeoffs.md` T18.
 
 ## Disk IO
 
@@ -107,13 +101,11 @@
 | Errors | disk_error (mdraid/btrfs/ext4/eventlog) | 창 내 신규 > 0 = health | 벤더확인 (btrfs stats, mdraid) |
 
 - await(요청당 평균 응답시간, ms)를 주 신호로 쓴다. p95 가 20ms 를 넘으면 io_bound. HDD/SSD 차등(SSD 는 10ms)은
-  벤더확인 값이나 임계를 미디어별로 가르지 않아 평면 20ms 다 -- rotational 은 인벤토리에 수집·표시되지만 await
-  임계 분기에는 연결되어 있지 않다.
+  벤더확인 값이나 채택하지 않고 미디어 무관 평면 20ms 다.
 - %util(디스크가 바쁜 시간 비율)은 값 자체로 분류하지 않는다 -- SSD/NVMe 는 병렬 처리라 여유가 있어도 100% 로
   나와 오탐한다. 대신 await 채택 게이트로 쓴다: 사용률 50% 미만 버킷의 await 는 writeback 큐 잔류로 폭증해도
   병목이 아니라 산출에서 뺀다(그래서 저활동 device 는 await 미산출 -> io_ok). Windows 는 IOCTL 응답시간
   (동일 20ms), 구세대 viostor 는 큐 깊이 2 폴백.
-- 스파이크 방어: await p95(순간 지연 max 무시) + 사용률 50% 미만 버킷 제외.
 
 ## Network
 
@@ -134,8 +126,6 @@
   USE 분류도 dropped=saturation / retransmit=errors 로 나눈다. 재전송은 사라지지 않고 health 에서 계속 보인다.
 - Errors 는 전부 신규 발생 > 0 즉시 health 로 노출한다(물리 NIC 의 CRC/프레임 에러는 케이블·SFP 조기신호).
   virtio 게스트는 0 이라 무발화(무해).
-- 스파이크 방어: counter 신호(drop/재전송)는 창 전체 delta 합계로 비율을 내고(버킷 수를 세지 않는다), 순간
-  마이크로버스트(정상 TCP 혼잡제어) 오탐은 위 저트래픽 게이트가 막는다.
 
 ---
 
@@ -147,13 +137,16 @@
 - CPU: 목표 코어 = max(이용률 주도, 포화 주도) 중 큰 쪽.
   - 이용률 주도 = ceil(util_p95 x 현재코어 / 목표%). 예: 4코어에 util 90% -> ceil(90x4/70) = 6코어.
   - 포화 주도 = ceil(실행큐 / (포화선 x 0.7)). 실행큐를 포화선의 0.7배 아래로 떨어뜨릴 코어 수.
-- Memory: 목표 = ceil(현재총량 x near_peak / 목표%). near_peak = 5분 버킷 max 의 p95(관측 피크 대표) — 메모리는 비탄력·OOM 위험이라 이용률 평균/eval-p95(버킷 avg 기반)이 아닌 피크 통계(버킷 max 의 p95)로 역산한다. p99.9 는 ~210 표본에서 절대 max 와 사실상 동일(단발 스파이크 지배)이라 견고하지 못해 p95 로 이상치 제외. 포화(하드폴트/OOM)면 현재총량 x 1.30(30% 상향)도 후보에 넣어 near-peak 기반 목표와 큰 쪽을 택한다. under 인데 현재 총량을 넘는 목표가 안 나오면 같은 1.30 상향값을 안전 하한으로 낸다. near-peak 미측정이면 사이징 통계는 p95 로 폴백한다.
+- Memory: 목표 = ceil(현재총량 x near_peak / 목표%). near_peak = 5분 버킷 max 의 p95 — 메모리는 비탄력·OOM
+  위험이라 이용률 평균이 아니라 피크 통계로 역산한다. 포화(하드폴트/OOM)면 현재총량 x 1.30(30% 상향)도
+  후보에 넣어 큰 쪽을 택하고, under 인데 현재 총량을 넘는 목표가 안 나오면 같은 1.30 상향값을 안전 하한으로
+  낸다. near-peak 미측정이면 사이징 통계는 p95 로 폴백한다.
 - Disk 용량: 현재 성장률로 365일 버티는 총 GB(확장 목표). 이력이 짧으면 30일 예측을 70% 착지시키는 용량.
 - Disk IO / Network: 사이징 숫자 없음 — 증분 불가(IO)·사이징 축 아님(Network)이라 "티어 상향 검토"·"혼잡" 표시만.
 
-통계는 14일 창으로 잡는다: 분류·CPU 사이징은 p95, 메모리 사이징은 near-peak(버킷별 max 의 p95). max·avg 단독은
-안 쓴다. 다운사이즈 구체 처방은 신뢰도가 높고 관측이 충분할 때(창 대비 70% 이상)만 낸다 -- 표본 부족한데
-줄이라고 하지 않는다.
+통계는 14일 창으로 잡는다. 분류·CPU 사이징은 p95, 메모리 사이징은 near-peak(버킷별 max 의 p95)이고 max·avg
+단독은 안 쓴다. 다운사이즈 구체 처방은 신뢰도가 높고(편향 없음 + 정상 추세) 관측이 창 대비 70% 이상일 때만
+낸다 -- 표본 부족한데 줄이라고 하지 않는다. 미충족이면 분류는 over 로 두고 권고만 관찰로 낮춘다.
 
 목표·여유값(조정 가능한 knob):
 
@@ -180,8 +173,16 @@
   nonzero 를 쓰면 과거 1회 이벤트가 영원히 켜져 있는 오탐이 난다. 재부팅/재시작은 counter_agg 가 흡수한다.
 - 오탐 방어는 버킷 수가 아니라 gate 로 한다: 실행 큐·paging 은 이용률 동반(dual-gate)일 때만 포화로 세고,
   재전송·드롭은 창 전체 delta 합계 비율에 저트래픽 게이트를, await 는 device 사용률 게이트를 건다.
-- 표본 충분성: 관측이 30시간 미만이면 신뢰도를 낮추고(하드 컷 아님), 다운사이즈는 창 대비 관측 비율 70%
-  이상일 때만 처방한다. 측정 안 된 축은 "판정 불가"로 두고 없는 값을 지어내지 않는다.
+- 표본 충분성: 관측이 30시간 미만이면 신뢰도를 낮춘다(하드 컷 아님). 측정 안 된 축은 "판정 불가"로 두고
+  없는 값을 지어내지 않는다.
+
+## 표시 전용 임계 (분류 미사용)
+
+보고서의 "부하 변동 큼" 서술은 변동성(peak/p95) 문턱을 넘는 것만으로는 발화하지 않고, peak 가 저부하선을
+함께 넘을 때만 낸다 -- CPU 30% / 메모리 50%(`BURST_PEAK_FLOOR_CPU_PCT`·`BURST_PEAK_FLOOR_MEM_PCT`, 근거 강도
+판단). 저부하 호스트의 미세 지터가 비율만 키워 변동성으로 잡히는 오탐을 막는 게이트다. 분류 임계가 아니다
+-- 다운사이즈(over) 판정은 CPU 사이징 목표가 내고, 이 두 값은 문구 발화 여부만 가른다. 진단 칼럼(CPU·메모리)
+과 정성 요약 불릿(CPU)이 같은 게이트를 쓴다.
 
 ## 판정에 쓰지 않는 수집 신호
 
@@ -189,7 +190,9 @@
 
 - PSI (Pressure Stall Information, Linux 4.20+): "자원이 부족해 태스크가 멈춘 시간"을 직접 재는 신호로 개념상
   포화의 정본이다. 하지만 "stall 몇 %부터 포화"라는 임계가 벤더 문서에 없고, 레거시 커널·Windows 에는 신호
-  자체가 없어 마이그레이션 fleet 커버리지도 낮다. 판정은 위의 고전 신호로만 한다.
+  자체가 없어 마이그레이션 fleet 커버리지도 낮다. 판정은 위의 고전 신호로만 한다. 서버 상세 실시간 포화 신호
+  에는 값이 뜨는데, 그 표시 기준선 stall 10%(`PSI_STALL_DISPLAY_PCT`)는 판정 축이 아니라 표시 계층에서 명명한
+  값이다 -- run_queue·await 처럼 도메인 임계를 재사용하지 않는다.
 - rotational(HDD/SSD): 인벤토리에 수집돼 서버 상세와 assessment API 에 표시되지만 await 임계를 가르지 않는다.
 - LVM 볼륨그룹 미할당 여유(`lvm_vgs`): 서버 상세 스토리지 트리와 assessment API 재현에 표시만 하고, 용량 판정·
   처방에는 반영하지 않는다.
@@ -198,17 +201,15 @@
 
 판정을 고전 신호로만 하므로 PSI 가 없는 Windows·구커널도 같은 축으로 판정된다(커버리지 공백 없음).
 
-```
-AXIS          | LINUX (all)                 | WINDOWS / LEGACY
---------------+-----------------------------+------------------------------------
-CPU sat       | run queue / cores >= 1.0    | Processor Queue Length / cores >= 2.0
-MEM sat       | paging_major + used (AND)   | Pages Input/sec p95 >= 20 + used (AND)
-DISK-IO sat   | await > 20ms                | await (IOCTL), queue >= 2 fallback
-DISK err      | ext4/btrfs/mdraid           | eventlog
-inode         | fstype 무관 (보고된 값)      | NTFS (inode 개념 없음)
-conntrack     | nf_conntrack (로드 시)       | 없음 (WFP 별개)
-PSI (전 자원) | 저장만, 판정 미사용          | 원래 없음
-```
+| 축 | Linux (전 버전) | Windows / 구커널 |
+|----|-----------------|------------------|
+| CPU 포화 | run queue / cores >= 1.0 | Processor Queue Length / cores >= 2.0 |
+| MEM 포화 | paging_major + used (AND) | Pages Input/sec p95 >= 20 + used (AND) |
+| DISK-IO 포화 | await > 20ms | await (IOCTL), 큐 깊이 >= 2 폴백 |
+| DISK 오류 | ext4/btrfs/mdraid | eventlog |
+| inode | fstype 무관 (보고된 값) | NTFS (inode 개념 없음) |
+| conntrack | nf_conntrack (로드 시) | 없음 (WFP 별개) |
+| PSI (전 자원) | 저장만, 판정 미사용 | 원래 없음 |
 
 Windows 임계가 Linux 와 다른 것은 모집단 차이지 임계 불일치가 아니다(각 OS 정본 임계 그대로). steal 은 양 OS
 가상화 게스트에서만 유의하다(베어메탈은 0).

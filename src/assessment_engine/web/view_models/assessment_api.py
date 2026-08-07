@@ -1,14 +1,13 @@
 """`/api/assessment` 응답 계약 스키마 — 외부(재해복구·마이그레이션 자동화) 타입 계약.
 
-라우터가 `responses={200: {"model": AssessmentEnvelope}}` 로 OpenAPI 스키마를 문서화하고 거기서 TS 타입이
-생성된다. 응답 검증·재구성에는 쓰지 않는다(frozen 계약 출력을 바꾸지 않는다) — 문서화 전용이다.
+라우터가 OpenAPI 에 싣고 거기서 TS 타입이 생성된다. 응답 검증·재구성에는 쓰지 않는다 — frozen 계약
+출력을 바꾸지 않는다.
 
-`TypedDict` 인 이유는 매퍼가 만드는 것이 dict 이기 때문이다. 같은 모양을 `BaseModel` 로 적어 두면 매퍼 쪽
-dict 리터럴은 아무 검사도 받지 못하고, 두 선언이 어긋났는지는 테스트가 돌 때에야 드러난다. 여기 선언을
-매퍼 반환 타입으로 달면 키 이름·타입이 컴파일 시점에 맞춰진다.
+`BaseModel` 이 아니라 `TypedDict` 인 이유는 매퍼가 만드는 것이 dict 이기 때문이다 — 모델로 적어 두면
+매퍼의 dict 리터럴은 아무 검사도 받지 못하고 어긋남이 테스트 시점에야 드러난다.
 
-`NotRequired` 는 실제로 생략되는 키에만 붙는다 — 계약 규약은 "값이 없으면 키를 생략하지 않고 null" 이고,
-그 예외(`sizing.axes` 축별 키 집합 차이)는 `docs/reference/contracts/assessment-api.md` 가 명시한다.
+`NotRequired` 는 실제로 생략되는 키에만 붙는다 — 계약은 "값이 없으면 키를 생략하지 않고 null" 이고
+그 예외는 `docs/reference/contracts/assessment-api.md` 가 명시한다.
 """
 
 from typing import Literal, NotRequired, TypedDict
@@ -17,7 +16,7 @@ from pydantic import ConfigDict
 
 from assessment_engine.domain.right_sizing import Recommendation, ResourceStatus
 
-# extra=forbid — 매퍼가 계약 밖 키를 얹으면 검증 테스트가 잡는다. OpenAPI 로는 additionalProperties:false.
+# extra=forbid — 매퍼가 계약 밖 키를 얹으면 검증 테스트가 잡는다.
 _CONTRACT = ConfigDict(extra="forbid")
 
 
@@ -183,7 +182,7 @@ class SizingAxis(TypedDict):
     unit: str
     action: Literal["increase", "decrease", "keep"]
     estimate_quality: Literal["exact", "floor", "uncertain"]
-    # disk 축 전용(cpu/memory 축엔 부재) — Optional 로 흡수.
+    # disk 축 전용 — cpu/memory 축엔 없는 키.
     mountpoint: NotRequired[str | None]
     device_ref: NotRequired[str | None]
     used_pct: NotRequired[float | None]

@@ -1,65 +1,45 @@
 # Alembic 마이그레이션
 
-정책: CLAUDE.md #C4. 본 문서는 Alembic 도구 사용법·절차·트러블슈팅 단일 진실. 모든 환경(dev·prod·테스트) Alembic 마이그레이션 1개 진실로 schema 관리.
+정책: CLAUDE.md #C4. 본 문서는 Alembic 사용법·절차·트러블슈팅 단일 진실.
 
 ## 본 프로젝트의 Alembic
 
-ORM(`Base.metadata`)과 DB schema의 diff를 `src/assessment_engine/migrations/versions/*.py` revision 파일로 기록하고 `alembic upgrade head` 한 줄로 누적 적용한다. DB의 `alembic_version` 테이블이 적용 revision id를 보관 — 환경마다 자기 상태를 알아 누락 revision만 자동 실행.
+ORM(`Base.metadata`)과 DB schema의 diff를 `src/assessment_engine/migrations/versions/*.py` revision 파일로 기록하고 `upgrade head` 한 줄로 누적 적용한다. DB의 `alembic_version` 테이블이 적용 revision id를 보관 — 환경마다 자기 상태를 알아 누락 revision만 자동 실행. revision·head·autogenerate 같은 도구 일반론은 Alembic 공식 문서.
 
-핵심 용어 (본 문서에서 사용)
-
-| 용어 | 의미 |
-|------|------|
-| revision | 한 마이그레이션 파일. `revision`(자기 id) + `down_revision`(이전 id) 변수로 linked list 구성 |
-| head | 최신 revision. `upgrade head` = 끝까지 적용 |
-| autogenerate | ORM vs DB schema diff -> revision 파일 자동 생성. `create_hypertable` 등 확장은 수동 보강 의무 |
-| `alembic_version` 테이블 | DB 자동 생성. 현재 revision id 저장 |
-
-`_alembic.ini` 와 `migrations/` 는 패키지 안에 있어 별도 포장 설정 없이 이미지에 동봉된다. `_alembic.ini` 의 `script_location` 이 자기 위치 기준 상대경로라 두 파일이 같은 디렉토리에 있어야 한다.
-
-설정 경로는 진입점 `assessment_engine.migrate` 가 자기 패키지에서 찾는다. 호스트든 컨테이너든 같은 명령이고, compose 없이 `docker run` 해도 성립한다.
+`_alembic.ini` 와 `migrations/` 는 패키지 안에 있어 별도 포장 설정 없이 이미지에 동봉된다. 설정 경로는 진입점 `assessment_engine.migrate` 가 자기 패키지에서 찾으므로 호출 측이 경로를 주지 않는다 — 호스트든 컨테이너든 같은 명령이고, compose 없이 `docker run` 해도 성립한다. 맨 `alembic` 명령은 cwd 에서 설정을 찾지 못해 실패하니 쓰지 않는다.
 
 ```bash
 python -m assessment_engine.migrate <명령>
 ```
 
-경로를 이미지 `ENV` 로 박지 않는 이유는 그 값에 파이썬 minor 가 들어가 베이스 이미지를 올릴 때마다 손으로 따라가야 하기 때문이다. 심링크로 우회하는 것도 안 된다 — `script_location = %(here)s/migrations` 의 `here` 는 alembic 이 받은 경로의 디렉토리이고 alembic 은 심링크를 풀지 않는다.
-
 ## 자동 적용 — migrate 컨테이너
 
-docker-compose에 `migrate` 서비스가 정의되어 있다. 동작:
+`migrate` 서비스가 postgres 컨테이너 `healthy` 를 기다려 `upgrade head` 를 1회 실행하고 종료한다 (restart 안 함). web·consumer·worker 는 `depends_on: service_completed_successfully` 라 그 종료 뒤에만 기동한다.
 
-1. postgres 컨테이너 `healthy` 대기
-2. `alembic upgrade head` 1회 실행
-3. 종료 (restart 안 함)
-4. web·consumer·worker 가 `migrate` 종료 후에만 기동 (`depends_on: service_completed_successfully`)
-
-즉 `docker compose up` 한 번이면 schema가 항상 최신. 환경 무관 — 같은 컨테이너·같은 절차.
-
-`docker compose run --rm migrate python -m assessment_engine.migrate <명령>` 형태로 일회성 작업도 가능 (current·history·downgrade 등).
+즉 `docker compose up` 한 번이면 schema가 항상 최신. 환경 무관 — 같은 컨테이너·같은 절차. 같은 컨테이너로 일회성 작업도 돈다 ("명령" 절).
 
 ## DB URL 주입
 
 `_alembic.ini`의 `sqlalchemy.url`은 비어있음. `src/assessment_engine/migrations/env.py`가 `WebSettings().database_url`로 런타임 주입 — `.env` / Docker secrets 등 동일 환경변수 정책 활용. migrate 컨테이너는 `POSTGRES_HOST=postgres` 환경변수 자동 주입.
 
-호스트에서 직접 alembic 실행 시 `POSTGRES_HOST` env 명시 필요 (default `postgres`는 docker-compose 서비스명):
+호스트에서 직접 실행할 때는 `POSTGRES_HOST` 를 명시한다 (default `postgres`는 docker-compose 서비스명):
 
 ```bash
-POSTGRES_HOST=localhost .venv/bin/alembic upgrade head
+POSTGRES_HOST=localhost .venv/bin/python -m assessment_engine.migrate upgrade head
 ```
 
 ## 명령
 
-| 작업 | 명령 |
+head 업그레이드는 `make migrate`, 모델 diff 초안 생성은 `make migration M="<설명>"`. 나머지는 `docker compose run --rm migrate python -m assessment_engine.migrate` 뒤에 아래 인자를 붙인다.
+
+| 작업 | 인자 |
 |------|------|
-| 현재 적용 revision 확인 | `docker compose run --rm migrate python -m assessment_engine.migrate current` |
-| 모든 revision 이력 | `docker compose run --rm migrate python -m assessment_engine.migrate history --verbose` |
-| 미적용 revision 미리보기 (offline SQL) | `docker compose run --rm migrate python -m assessment_engine.migrate upgrade head --sql` |
-| head로 업그레이드 | `make migrate` |
-| 한 단계 다운그레이드 | `docker compose run --rm migrate python -m assessment_engine.migrate downgrade -1` |
-| 모델 diff로 신규 revision 생성 | `make migration M="<설명>"` |
-| 빈 revision 생성 (수동 작성) | `docker compose run --rm migrate python -m assessment_engine.migrate revision -m "<설명>"` |
-| 모델 vs schema drift 검출 | `docker compose run --rm migrate python -m assessment_engine.migrate check` |
+| 현재 적용 revision 확인 | `current` |
+| 모든 revision 이력 | `history --verbose` |
+| 미적용 revision 미리보기 (offline SQL) | `upgrade head --sql` |
+| 한 단계 다운그레이드 | `downgrade -1` |
+| 빈 revision 생성 (수동 작성) | `revision -m "<설명>"` |
+| 모델 vs schema drift 검출 | `check` |
 
 ## 신규 마이그레이션 작성 워크플로우
 
@@ -127,17 +107,17 @@ git commit -m "..."
 
 ## 환경별 적용 시점
 
-| 환경 | 적용 시점 | 자동 여부 |
-|------|----------|----------|
-| dev (`docker compose up`) | up 시점에 migrate 컨테이너 자동 실행 | 자동 |
-| prod (compose) | base compose `migrate` init-container 가 앱 서비스(web·consumer·worker) 기동 전 `alembic upgrade head` 실행 (deploy.sh rollout 내재, 이미지 안 `_alembic.ini`+`migrations/`) | 자동 |
-| 테스트 (`pytest`) | testcontainers fixture가 alembic upgrade subprocess 실행 (`tests/conftest.py`) | 자동 |
+셋 다 사람 손을 타지 않는다.
+
+| 환경 | 적용 시점 |
+|------|----------|
+| dev (`docker compose up`) | up 시점에 `migrate` 컨테이너 실행 |
+| prod (compose) | 같은 `migrate` init-container 를 `deploy.sh` rollout 이 그대로 탄다 (이미지 안 `_alembic.ini`+`migrations/`) |
+| 테스트 (`pytest`) | testcontainers fixture 가 upgrade subprocess 실행 (`tests/conftest.py`) |
 
 prod에 큰 변경(데이터 손실 가능 DROP·대량 행 ALTER) 적용 전 — 배포 환경 이미지 컨테이너에서:
 
 ```bash
-# 진입점이 설정 경로를 스스로 찾아 경로 지정이 없다.
-
 # history 확인 — 어디까지 가는지
 docker compose run --rm migrate python -m assessment_engine.migrate history
 
@@ -149,11 +129,9 @@ cat /tmp/migration.sql
 make migrate
 ```
 
-모든 환경이 같은 마이그레이션 파일을 적용하므로 drift 가능성이 코드 단에서 차단된다. `alembic check` 가 PR 마다 그 정합을 본다.
-
 ## Backward compatibility — 무중단 deploy 시 schema 변경 단계 (#C4)
 
-prod rollout 은 init container 패턴이라 스키마가 한 번에 적용되지만, backward compatibility 는 지금도 의무다 — `deploy.sh` 의 rollback 이 이미 마이그레이션된 스키마 위에 직전 이미지를 올리므로 구버전 코드가 새 스키마에서 동작해야 복구가 성립한다. rolling restart·blue-green 을 도입하면 그 위에 동시 실행 구간이 더해진다. CLAUDE.md #C4 정책의 운영 절차.
+prod rollout 은 init container 패턴이라 스키마가 한 번에 적용되지만, backward compatibility 는 지금도 의무다 — `deploy.sh` 의 rollback 이 이미 마이그레이션된 스키마 위에 직전 이미지를 올리므로 구버전 코드가 새 스키마에서 동작해야 복구가 성립한다. rolling restart·blue-green 을 도입하면 그 위에 동시 실행 구간이 더해진다.
 
 ### Column 추가
 
@@ -194,14 +172,12 @@ op.add_column("server_metrics", sa.Column("new_field", sa.Integer(), nullable=Fa
 - 별도 backfill 스크립트(`scripts/backfill_*.py`) — 운영자가 배치(LIMIT + OFFSET 또는 keyset pagination) 처리
 - backfill 완료 후 다음 release에서 NOT NULL 강제 또는 옛 컬럼 drop
 
-본 프로젝트 현재 비-trivial 데이터 변형 사례 없음 — 도입 시 본 절 갱신.
-
 ## 트러블슈팅
 
 | 증상 | 원인 | 대처 |
 |------|------|------|
-| `alembic upgrade head` 후 web이 schema 부재 5xx | migrate 컨테이너가 실패하고 종료 코드 0이 아닐 가능성 | `docker compose logs migrate` 확인 후 원인 fix |
-| `Target database is not up to date` | migrate가 적용 안 된 상태에서 alembic 명령 호출 | `alembic upgrade head` 먼저 |
+| `docker compose up` 이 web·consumer·worker 를 띄우지 않고 dependency failed | migrate 컨테이너가 0 이 아닌 코드로 종료 | `docker compose logs migrate` 확인 후 원인 fix |
+| `Target database is not up to date` | migrate가 적용 안 된 상태에서 alembic 명령 호출 | `make migrate` 먼저 |
 | `Can't locate revision identified by '<id>'` | git pull 후 마이그레이션 파일 누락 | `git pull` 다시, 마이그레이션 디렉토리 확인 |
 | `alembic check` 실패 | 모델 변경 후 마이그레이션 안 만듦 | autogenerate로 revision 생성 후 commit |
 | autogenerate가 hypertable index를 매번 drop 처리 | `{table}_collected_at_idx`는 TimescaleDB 자동 생성 객체 | `src/assessment_engine/migrations/env.py:_include_object`가 이미 필터링 — 본 패턴 외 새로운 자동 생성 객체는 본 함수에 추가 |

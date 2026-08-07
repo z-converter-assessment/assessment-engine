@@ -2,12 +2,12 @@
 
 정본 = `wire.schema.json`(JSON Schema draft 2020-12) + `wire-examples.json`(예시 6종). 본 문서는 그 계약을 사람이 읽는 카탈로그로 서술한다 — 스키마와 어긋나면 스키마가 이긴다. 정책: CLAUDE.md #B.
 
-`schema_version` = 현재 `"1.0"`. 메시지 4종: `metrics` · `inventory` · `task.result` · `error`.
+메시지 4종: `metrics` · `inventory` · `task.result` · `error`.
 
-버전: 에이전트와 주고받는 계약 버전은 엔진 레포 `contract.AGENT_CONTRACT_VERSION`(현 `"1.0"`, major.minor)이다 — wire 4종(agent -> engine)과 task.install(engine -> agent)이 이 값을 공유한다. 결과 보고가 명령과 짝이라 함께 움직인다. 외부 시스템에 나가는 평가 API·export 는 진화 궤도가 달라 별도 상수(`contract.API_CONTRACT_VERSION`)를 쓴다. 에이전트는 4종 메시지를 `"1.0"` 으로 emit 한다. 게이트는 major(점 앞 정수)만 비교. task.install 은 이 버전을 실어 보내 에이전트가 실행 전 major 게이트한다.
+버전: 계약 버전은 엔진 레포 `contract.AGENT_CONTRACT_VERSION`(현 `"1.0"`, major.minor)이고 wire 4종(agent -> engine)과 task.install(engine -> agent)이 이 값을 공유한다 — 결과 보고가 명령과 짝이라 함께 움직인다. 외부 시스템에 나가는 평가 API·export 는 진화 궤도가 달라 별도 상수(`contract.API_CONTRACT_VERSION`)를 쓴다. 게이트는 major(점 앞 정수)만 비교하고, task.install 은 이 버전을 실어 보내 에이전트가 실행 전 게이트한다.
 
 설계 원칙:
-- 2레이어 분리 — Layer 1(wire) = 자원 네임스페이스별 raw counter/gauge 사실만. Layer 2(engine) = USE Method 해석(`right_sizing.py`). USE(이용률·포화·오류 판정)를 wire 에 넣지 않는다.
+- 2레이어 분리 — Layer 1(wire) = 자원 네임스페이스별 raw counter/gauge 사실만. Layer 2(engine) = USE Method 해석(`domain/right_sizing.py`, I절). USE(이용률·포화·오류 판정)를 wire 에 넣지 않는다 — 계약이 그대로여도 해석은 바뀐다.
 - agent = stateless. emit 시점 raw 누적 스냅샷만 싣고, rate·delta·util·await·ratio 파생은 전부 엔진.
 - null 의미론 — 값(0 포함) = 실측 성공. null = 측정불가·미지원(OS 개념 부재 또는 측정 인프라/권한 없음). 추측·대체값 금지. 배열 지표는 측정된 축만 싣는다.
 - counter = monotonic 누적(엔진이 delta 산출). gauge = 순간값(직접 소비).
@@ -19,8 +19,8 @@
 
 ### A1. 두 형태
 
-- `metrics` / `inventory` = envelope(불변 메타) + `system.*` 네임스페이스(datapoint-array) + inventory 배열. USE 재설계 대상.
-- `task.result` / `error` = envelope + 평면 body 필드. `system.*` 재설계 비대상 — 작업/오류 이벤트.
+- `metrics` / `inventory` = envelope(불변 메타) + `system.*` 네임스페이스(datapoint-array) + inventory 배열.
+- `task.result` / `error` = envelope + 평면 body 필드. 작업/오류 이벤트라 `system.*` 를 싣지 않는다.
 
 최상위 required(전 타입 공통) = `schema_version`(`^1\.[0-9]+$`) + `message_type`(enum inventory/metrics/task.result/error).
 
@@ -56,8 +56,6 @@ datapoint = `{ "attr": {<k>:<string|number>}, "value": <number|null> }`. `attr` 
 | composite_id | string \| null | 옵셔널. SHA-256 composite hash. 감사·표시용(식별·라우팅 미사용). "" -> None 정규화 |
 | machine_id | string \| null | 옵셔널. raw machine-id 표시 전용 |
 
-metrics/inventory 필수 = `agent_id, message_id, collected_at, boot_time, agent_started_at, os_family` 6개. `agent_version`·`composite_id`·`machine_id` 는 옵셔널.
-
 호스트 정적 서술자(hostname·os_id 등)는 envelope 아니라 `inventory` 메시지가 싣는다(F절). metrics 는 정적 서술자 없이 `agent_id` 로 서버에 조인된다.
 
 ---
@@ -85,8 +83,6 @@ R=required, opt=optional, nullable=값 null 허용.
 | task_policy | - | - | opt | - |
 | error_code / error_message / failed_component | - | - | - | R |
 | retry_count / first_failed_at / recovered_at | - | - | - | opt |
-
-Windows metrics/inventory 는 추가로 `system.pressure`=null 강제 + `lvm_vgs` 금지(H절).
 
 ---
 
@@ -128,6 +124,7 @@ id + id_type 표현 (inventory vs metrics 이원):
 - inventory: `id`(값) + `id_type`(라벨) 별도 필드. `id` 는 best-effort(nullable).
 - metrics `attr.device`: `"<scheme>:<value>"` prefix 문자열. metric device attr 은 조인 키라 non-null 보장(inventory id 와 보장 수준 다름).
 - metric device prefix scheme 카탈로그: 블록 = `gptid, mbrsig, serial, wwid, by-path, dm, partuuid` / E축 참조(RAID 배열·fs 레벨) = `md, btrfsuuid, fsuuid` / 네트워크 = `mac`. (inventory id_type enum 보다 넓다 — E축 배열 참조 어휘 포함.)
+- 카탈로그 밖 `name:` 도 온다 — 같은 디스크를 inventory 는 `gptid:...` 로, metric 은 `name:PhysicalDrive0` 로 싣는 경우가 실측(win2025)된다. Windows perflib 하위계층이 gptid 에 접근하지 못하면 name 으로 폴백해 두 축이 서로 다른 폴백 사슬을 고르기 때문이다. 엔진은 조인 키를 `{id_type}:{id}` 와 `name:{name}` 둘 다 등록해 흡수하므로, 조인 키를 한쪽으로 통일하면 Windows 호스트의 물리 디스크 필터가 전량 드롭된다.
 - `parent` = 부모 노드의 id. root=null. 복수 부모(stripe 멤버)면 같은 id 로 노드 반복, `parent` 만 다름.
 
 ---
@@ -210,7 +207,7 @@ Windows 확장여력은 디스크크기 - 파티션합(미할당)으로 엔진�
 
 ### F5. services[] (required, 열거 불가면 null) / listen_ports[] (required)
 
-서비스 카테고리 분류(서비스 뱃지·워크로드 역할). USE system.* 재설계 대상 아님 — 서비스 분류 전용.
+서비스 카테고리 분류(서비스 뱃지·워크로드 역할) 전용 — USE 축 입력이 아니다.
 
 - `services[]` = {unit, sub, pid(int\|null), exe(string\|null)}. 열거 불가면 null.
 - `listen_ports[]` = {proto(tcp/tcp6/udp/udp6), addr, port(int), uid(int\|null), pid(int\|null), comm(string\|null)}. 분류 우선순위 name -> comm -> port. uid Windows null / pid null=소켓액티베이션(Linux)·권한부족(Windows) / port 는 raw 값 전달만 (귀속·표시 판정은 엔진 파생).
@@ -251,6 +248,8 @@ type: t=counter, g=gauge.
 | metric | type | unit | attr | Linux | Windows |
 |--------|---|---|---|---|---|
 | paging.operations | t | operations | direction(in/out), type(major/minor) | vmstat pswpin/pswpout, pgmajfault | Pages Input/Output/sec |
+
+Windows 는 direction=in 만 발행하고 type=major 포인트를 내지 않는다. 엔진이 이 비대칭을 어떻게 읽는지는 `docs/reference/right-sizing.md`.
 
 swapless Linux 는 direction=out 상시 0(실측) -> PSI/commit 이 포화 커버.
 
@@ -318,19 +317,18 @@ Windows 는 `system.pressure` 네임스페이스 전체가 null. PSI(`pressure.s
 | message_type=inventory | required block_devices + F1 정적 서술자 |
 | (metrics\|inventory) AND os_family=windows | system.pressure MUST be null + lvm_vgs 금지 |
 
-Windows 비대칭: PSI 전체 null / lvm_vgs 금지 / cpu.blocked null / memory.oom_kill·hardware_corrupted null / filesystem.inodes.usage null / conntrack 미발행 / signal_no 항상 null / cpu.time state=user·system·idle 만.
+Windows 비대칭: PSI 전체 null / lvm_vgs 금지 / cpu.blocked null / memory.oom_kill·hardware_corrupted null / filesystem.inodes.usage null / conntrack 미발행 / paging type=major 미발행 / signal_no 항상 null / cpu.time state=user·system·idle 만.
 구커널(EL6/7·SLES11-12·Debian10): PSI null / memory available 3.14 미만 폴백 / oom_kill 4.13 미만 null. swapless 사각은 PSI 로 보강(폴백 대체 아님).
 
 ---
 
 ## I. USE 해석의 자리
 
-wire 는 raw counter·gauge 사실만 싣는다. 그것을 USE 축(Utilization/Saturation/Errors)으로 읽는 것은 엔진 몫이고
-판정 명세는 `docs/reference/right-sizing.md` 가 갖는다 — 계약이 바뀌지 않아도 해석은 바뀔 수 있다.
+wire 는 raw counter·gauge 사실만 싣고, 그것을 USE 축(Utilization/Saturation/Errors)으로 읽는 판정 명세는 `docs/reference/right-sizing.md` 가 갖는다.
 
 ## J. task.result / error body
 
-v2 envelope + 평면 body. `additionalProperties:false`.
+envelope + 평면 body. `additionalProperties:false`.
 
 ### J1. task.result
 
@@ -349,7 +347,9 @@ v2 envelope + 평면 body. `additionalProperties:false`.
 | signal_no | integer \| null | R |
 | task_policy | boolean \| null | opt |
 | duration_ms | integer >= 0 | R |
-| stdout_tail / stderr_tail | string | R |
+| stdout_tail / stderr_tail | string | R (에이전트 circular buffer 4096B, 엔진 저장 상한 8192B) |
+
+`failure_reason` 값 집합 — 에이전트 발행 12개(`url_not_allowed` · `download_failed` · `sha256_mismatch` · `extract_failed` · `script_not_found` · `script_failed` · `script_timeout` · `insufficient_disk` · `internal_error` · `already_done` · `unsupported_install_type` · `install_unverified`) + 엔진 발행 `timeout`(마감 경과, 에이전트 미발행).
 
 종료 신호(POSIX wait status): 정상종료=exit_code / 시그널종료=signal_no / 미포착=둘 다 null. exit_code·signal_no 상호배타, Windows signal_no 항상 null. `task_policy`(bool\|null)는 exit_code 보다 우선.
 
@@ -369,9 +369,8 @@ v2 envelope + 평면 body. `additionalProperties:false`.
 
 ---
 
-## K. counter reset · 멱등성
+## K. counter reset
 
-- counter reset(재부팅·agent재시작·wraparound)은 값-감소로 나타난다. 게이트 = envelope `boot_time`(재부팅) + `agent_started_at`(agent 재시작) — 시계열 테이블 공통 저장, 변화 시 reset 정밀 식별.
-- 엔진 집계 = TimescaleDB continuous aggregate + timescaledb_toolkit `counter_agg` 가 값-감소 기준 reset 을 일률 처리. hand-rolled LAG + boot_time gate 부활 금지.
+counter reset(재부팅·agent재시작·wraparound)은 값-감소로 나타난다. 발생을 정밀 식별하는 게이트는 envelope `boot_time`(재부팅)·`agent_started_at`(agent 재시작) 두 필드의 변화다 — 엔진이 그 둘을 어느 테이블에 두는지는 `docs/reference/db/models.md`.
 
 routing key(broker 토폴로지)는 `message_type`(body 판별자)과 별개 — `docs/reference/rabbitmq.md`.

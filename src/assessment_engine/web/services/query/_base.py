@@ -1,8 +1,7 @@
 """Query service 공통 mixin — repo/redis 보유 + 다중 도메인 공유 helper.
 
-6 도메인 mixin (server / metric / attention / environment / report / task) 이 본 mixin 을 상속.
-QueryService 가 multiple inheritance 로 결합 시 본 __init__ 한 번만 호출 (repo·redis 공유).
-repo 계층 `query/_base.py` `_BaseQueryMixin` 과 동형.
+도메인 mixin 이 전부 이걸 상속해 `QueryService` 결합 시 `__init__` 이 한 번만 돌고 repo·redis 를 공유한다.
+repo 계층 `db/repositories/query/_base.py` 와 동형.
 """
 
 from dataclasses import replace
@@ -39,16 +38,16 @@ def _net_baseline_fields(net: NetIoBaselineRaw | None) -> dict[str, float | None
 
 
 class _BaseQueryServiceMixin:
-    """`__init__(repo, redis)` + online/net baseline 공통 helper (전 도메인 공유)."""
+    """전 도메인 mixin 이 공유하는 repo·redis 보유부 + online/net baseline helper."""
 
     def __init__(self, repo: QueryRepository, redis: Redis):
         self.repo = repo
         self.redis = redis
 
     async def _online_map(self, server_ids: list[int], details: list[ServerDetail], now: datetime) -> dict[int, bool]:
-        """server_id -> online bool. Redis online flags(safe_mget) 우선, 장애(None) 시 last_seen_at fallback.
+        """server_id -> online bool. Redis 우선, `safe_mget` 이 None(=Redis 장애)이면 last_seen_at fallback.
 
-        get_servers 는 순서 비보존이라 server_ids 기준 dict 매칭으로 순서 의존 제거.
+        `get_servers` 가 순서를 보존하지 않아 details 가 아니라 server_ids 로 매칭한다.
         """
         online_keys = [get_web_settings().redis_key_online.format(sid) for sid in server_ids]
         flags = await safe_mget(self.redis, online_keys)
@@ -60,14 +59,11 @@ class _BaseQueryServiceMixin:
     async def _with_net_baseline(
         self, raws: list[ReportRowRaw], server_ids: list[int], period_days: float, end: datetime
     ) -> list[ReportRowRaw]:
-        """raws(get_report_aggregate)에 net I/O baseline 을 얹은 새 list.
+        """raws 에 net I/O baseline 을 얹은 새 list.
 
-        `assemble_overview`·under_hosts 분류가 `build_resource_stats`(net 반영)를 타려면 raw 에 net
-        baseline 이 채워져 있어야 한다. 미주입(net None) 시 유휴 판정이 구조적으로 빠져
-        get_report(세부행)와 분류가 어긋난다 (#E3 build_resource_stats 단일 진실).
-
-        호출부는 반환값을 반드시 다시 묶는다 — 제자리 수정이 아니라 새 행을 만들므로, 안 묶으면
-        net 이 통째로 빠진 채 조용히 진행된다.
+        net 이 비면 `build_resource_stats` 의 유휴 판정이 구조적으로 빠져 분류가 get_report(세부행)와
+        어긋난다. 호출부는 반환값을 반드시 다시 묶는다 — 제자리 수정이 아니라 새 행을 만들므로,
+        안 묶으면 net 이 통째로 빠진 채 조용히 진행된다.
         """
         # period_days 는 15m 창(=0.0104일)까지 내려가는 float 이고 repo 는 timedelta(days=)로 그대로 받는다.
         net_io = await self.repo.get_report_net_io_baseline(
@@ -79,7 +75,7 @@ class _BaseQueryServiceMixin:
 
 
 def _filter_attention(attention: AttentionSignals, hostnames: set[str]) -> AttentionSignals:
-    """전체 운영 신호를 선택 N대 호스트(link_text=hostname)로 필터 — selection 보고서 os_eol_count 등 N대 정합."""
+    """전체 운영 신호를 선택 N대 호스트로 좁힌다 (신호 행의 link_text 가 hostname)."""
     return AttentionSignals(
         gap_warnings=[w for w in attention.gap_warnings if w.link_text in hostnames],
         os_eol_warnings=[w for w in attention.os_eol_warnings if w.link_text in hostnames],
@@ -88,7 +84,7 @@ def _filter_attention(attention: AttentionSignals, hostnames: set[str]) -> Atten
 
 
 def _empty_overview() -> EnvironmentOverview:
-    """등록 서버 0대 — 빈 환경 요약 (get_dashboard_overview · get_environment_assessment 공유)."""
+    """등록 서버 0대일 때의 환경 요약."""
     return EnvironmentOverview(
         total=0,
         online=0,

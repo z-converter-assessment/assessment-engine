@@ -13,8 +13,8 @@ from redis.exceptions import RedisError
 
 from assessment_engine.config import WebSettings
 
-# db layer는 모든 컴포넌트 공통 — 자체 WebSettings 인스턴스화 (session.py와 동일 패턴).
-# 첫 get_pool 호출에서 만든다 — import 만으로 설정을 요구하지 않는다.
+# 캐시 계층은 모든 컴포넌트 공통이라 자체 WebSettings 를 만든다 (session.py 와 동일).
+# 첫 get_pool 호출 시점에 만든다 — import 만으로 설정을 요구하지 않는다.
 
 
 @cache
@@ -23,10 +23,11 @@ def get_pool() -> ConnectionPool:
     return ConnectionPool.from_url(  # pyright: ignore[reportUnknownMemberType]
         WebSettings().redis_url,  # pyright: ignore[reportCallIssue]
         decode_responses=True,
-        socket_timeout=5,  # F6 — 명령 timeout (fail-open 경계)
+        # 명령 timeout 이 없으면 서버 무응답이 RedisError 로 바뀌지 않아 fail-open 이 걸리지 않는다.
+        socket_timeout=5,
         socket_connect_timeout=3,
-        # 장수 async 풀 정석: idle-cut(방화벽/서버) 로 죽은 소켓을 사용 직전 PING 검사해 spurious
-        # ConnectionResetError -> fail-open 캐시미스(#C3)를 예방. keepalive 로 TCP dead-peer 감지.
+        # 방화벽·서버가 idle 소켓을 끊는다 — 사용 직전 PING 으로 죽은 소켓을 걸러 spurious
+        # ConnectionResetError 가 fail-open 캐시미스로 새는 것을 막는다. keepalive 는 TCP dead-peer 감지.
         health_check_interval=30,
         socket_keepalive=True,
         max_connections=50,  # 소켓 고갈 상한 (기본 무제한)
@@ -43,9 +44,7 @@ async def close_pool() -> None:
         get_pool.cache_clear()
 
 
-# --- fail-open helpers ------------------------------------------------------
-# Redis 장애 시 silent fallback. 정확성은 2단 안전망(DB UNIQUE / DB query)에 위임.
-# 정책 근거: CLAUDE.md #C3 + docs/reference/redis.md "장애 시 동작".
+# 장애 시 동작 매트릭스는 docs/reference/redis.md "장애 시 동작".
 
 
 async def safe_get(redis: Redis, key: str) -> str | None:
@@ -68,9 +67,9 @@ async def safe_set(redis: Redis, key: str, value: str, ex: int | None = None) ->
 
 
 async def safe_set_nx(redis: Redis, key: str, value: str, ex: int) -> bool | None:
-    """원자적 SET NX. True=첫 처리, False=중복, None=Redis 장애(호출자가 fail-open 결정).
+    """원자적 SET NX — True=첫 처리, False=중복, None=Redis 장애.
 
-    멱등성 체크 전용. None 시 호출자가 처리 진행 → DB UNIQUE 제약(2단)이 중복 INSERT를 흡수.
+    None 이면 호출자가 처리를 진행하고 DB UNIQUE 제약(2단)이 중복 INSERT 를 흡수한다.
     """
     try:
         return bool(await redis.set(key, value, ex=ex, nx=True))
@@ -101,11 +100,11 @@ async def safe_mget(redis: Redis, keys: list[str]) -> list[str | None] | None:
 
 
 async def safe_incr_with_ttl(redis: Redis, key: str, ttl: int) -> int | None:
-    """슬라이딩 윈도우 카운터 — INCR + EXPIRE를 MULTI/EXEC 트랜잭션으로 묶어 1 RTT·원자.
+    """슬라이딩 윈도우 카운터 — INCR + EXPIRE 를 MULTI/EXEC 로 묶어 1 RTT·원자.
 
-    EXPIRE를 매번 reset하므로 "마지막 INCR 후 ttl초 내 N회"를 추적 (fixed window 아님).
-    transaction=True 로 INCR/EXPIRE 원자 보장 (동일 1 RTT, 두 명령 사이 크래시로 TTL 없는 키 잔류 방지).
-    실패 시 None — 호출자는 카운터를 못 읽었다고 간주 (alert는 다음 호출 기회에).
+    EXPIRE 를 매번 reset 하므로 "마지막 INCR 후 ttl 초 내 N 회"를 추적한다 (fixed window 아님).
+    원자로 묶는 이유는 두 명령 사이 크래시로 TTL 없는 키가 남는 것을 막기 위해서다.
+    실패 시 None — 0 이 아니라 "카운터를 못 읽었다"는 뜻이라 호출자는 이번 회차 판정을 건너뛴다.
     """
     try:
         async with redis.pipeline(transaction=True) as pipe:

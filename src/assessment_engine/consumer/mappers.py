@@ -1,7 +1,6 @@
 """wire 파싱 — datapoint-array(system.*) + inventory 배열 -> 저장 DTO.
 
-각 metric 의 points 를 attr(device/state/direction/resource/scope/window)로 조회·그룹핑한다.
-null=미측정 보존(0 날조 금지, #B). CPU host 집계는 cpu.time attr.cpu 합산 + per-core 병행 저장.
+null 은 미측정 그대로 보존한다 — 0 으로 날조하면 미수집과 실측 0 을 구분할 수 없다.
 """
 
 from typing import TYPE_CHECKING
@@ -30,8 +29,6 @@ if TYPE_CHECKING:
     )
     from assessment_engine.json_types import JsonObject
 
-# --- datapoint 조회 헬퍼 ---
-
 
 def _points(ns: Namespace | None, metric: str) -> list[Datapoint]:
     m = ns.get(metric) if ns else None
@@ -53,7 +50,7 @@ def _match(pts: list[Datapoint], **attrs: object) -> float | None:
 
 
 def _scalar(ns: Namespace | None, metric: str) -> float | None:
-    """단일 point metric(attr 무관, cpu.logical.count·memory.limit·conntrack 등)의 값."""
+    """attr 없이 단일 point 로 오는 metric 의 값."""
     pts = _points(ns, metric)
     return pts[0].value if pts else None
 
@@ -63,7 +60,7 @@ def _int(v: float | None) -> int | None:
 
 
 def _state_sum(pts: list[Datapoint], state: str) -> float | None:
-    """cpu.time 을 attr.cpu 전 코어 합산(host 집계). 실측 하나라도 있으면 합, 전부 None 이면 None."""
+    """attr.cpu 전 코어 합산 — 실측이 하나라도 있으면 합, 전부 None 이면 None."""
     vals = [p.value for p in pts if _attr_key(p.attr.get("state")) == state and p.value is not None]
     return sum(vals) if vals else None
 
@@ -90,9 +87,6 @@ def _distinct(pts_lists: list[list[Datapoint]], key: str) -> list[str]:
     return list(seen)
 
 
-# --- metrics ---
-
-
 def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
     cpu_ns, mem_ns, disk_ns, net_ns = data.system_cpu, data.system_memory, data.system_disk, data.system_network
     pag_ns, fs_ns, pr_ns = data.system_paging, data.system_filesystem, data.system_pressure
@@ -105,7 +99,6 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         collected_at=data.collected_at,
         boot_time=data.boot_time,
         agent_started_at=data.agent_started_at,
-        # CPU host = cpu.time attr.cpu 합산 per state (s)
         cpu_user_s=_state_sum(cpu_time, "user"),
         cpu_nice_s=_state_sum(cpu_time, "nice"),
         cpu_system_s=_state_sum(cpu_time, "system"),
@@ -118,7 +111,6 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         cpu_run_queue=_scalar(cpu_ns, "cpu.run_queue"),
         cpu_blocked=_scalar(cpu_ns, "cpu.blocked"),
         cpu_mce=_int(_scalar(cpu_ns, "cpu.mce")),
-        # memory (By, state)
         mem_free_bytes=_int(_match(mem_usage, state="free")),
         mem_cached_bytes=_int(_match(mem_usage, state="cached")),
         mem_buffered_bytes=_int(_match(mem_usage, state="buffered")),
@@ -129,15 +121,13 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         mem_commit_limit_bytes=_int(_scalar(mem_ns, "memory.commit.limit")),
         mem_hardware_corrupted_bytes=_int(_scalar(mem_ns, "memory.hardware_corrupted")),
         mem_oom_kill=_int(_scalar(mem_ns, "memory.oom_kill")),
-        # paging (in=direction:in·type 부재 / major=direction:in·type:major / out=direction:out)
+        # major 는 direction:in + type:major, 일반 in/out 은 type 키 자체가 없다.
         paging_in=_int(_match(paging, direction="in", type=None)),
         paging_out=_int(_match(paging, direction="out", type=None)),
         paging_major=_int(_match(paging, direction="in", type="major")),
-        # network host-wide
         net_tcp_retransmits=_int(_scalar(net_ns, "network.tcp.retransmits")),
         net_conntrack_usage=_int(_scalar(net_ns, "network.conntrack.usage")),
         net_conntrack_limit=_int(_scalar(net_ns, "network.conntrack.limit")),
-        # nested 시계열
         disk_io=_build_disk_io(disk_ns),
         net_io=_build_net_io(net_ns),
         filesystems=_build_filesystems(fs_ns),
@@ -174,7 +164,8 @@ def _build_disk_errors(disk_ns: Namespace | None) -> list[DiskErrorEntry]:
         kind = _attr_key(p.attr.get("kind"))
         if kind is None:
             continue
-        # class 는 kind 별 선택 attr(Windows eventlog 는 부재). NK 컬럼이라 NULL 대신 "" (member 정규화는 repo).
+        # class 는 kind 별 선택 attr(Windows eventlog 엔 없다) — 자연키 컬럼이라 NULL 대신 "".
+        # member 만 None 을 그대로 넘긴다 — repo 가 INSERT 직전에 "" 로 정규화한다.
         out.append(
             DiskErrorEntry(
                 device_id=_attr_key(p.attr.get("device")) or "",
@@ -269,9 +260,6 @@ def _build_pressure(pr_ns: Namespace | None) -> list[PressureEntry]:
     ]
 
 
-# --- inventory ---
-
-
 def _service_dicts(data: InventoryInput) -> list[JsonObject] | None:
     if data.services is None:
         return None
@@ -286,12 +274,11 @@ def _listen_port_dicts(data: InventoryInput) -> list[JsonObject]:
 
 
 def _sparse(d: JsonObject) -> JsonObject:
-    """None 값 키 제거 — 레이아웃 상세는 자연 노드에만 채워지므로 sparse 저장(JSONB 경량, agent 미emit 시 빈 dict)."""
+    """None 값 키 제거 — 레이아웃 상세는 자연 노드에만 채워져 sparse 로 저장한다."""
     return {k: v for k, v in d.items() if v is not None}
 
 
 def _block_device_layout(b: BlockDeviceInfo) -> JsonObject:
-    """block_device 레이아웃 상세 (reproduction) — non-None 키만. assessment_api 가 read 시 d.get 으로 소비."""
     return _sparse(
         {
             "partition_table": b.partition_table,
@@ -325,7 +312,6 @@ def _block_device_layout(b: BlockDeviceInfo) -> JsonObject:
 
 
 def _net_interface_layout(n: NetInterfaceInfo) -> JsonObject:
-    """net_interface 레이아웃 상세 (reproduction) — non-None 키만. routes 는 dict 로 평탄화."""
     return _sparse(
         {
             "mtu": n.mtu,
@@ -338,7 +324,6 @@ def _net_interface_layout(n: NetInterfaceInfo) -> JsonObject:
 
 
 def _lvm_vg_layout(v: LvmVgInfo) -> JsonObject:
-    """lvm_vg 레이아웃 상세 (reproduction) — non-None 키만."""
     return _sparse({"vg_uuid": v.vg_uuid, "extent_size_bytes": v.extent_size_bytes, "pv_ids": v.pv_ids})
 
 
@@ -450,9 +435,9 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
 
 
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
-    """metrics 선도착 시 최소 placeholder — 정적 정보는 None/빈 배열. 다음 진짜 inventory 가 upsert 로 덮음.
+    """metrics 선도착 시 최소 placeholder — 다음 진짜 inventory 가 upsert 로 덮는다.
 
-    metrics 메시지는 hostname 을 싣지 않는다 -> agent_id 를 표시명 placeholder 로.
+    metrics 메시지는 hostname 을 싣지 않아 agent_id 를 표시명 자리에 넣는다.
     """
     return ServerInventoryCreate(
         agent_id=str(data.agent_id),

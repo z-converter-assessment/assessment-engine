@@ -8,8 +8,6 @@
 
 vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도메인 시스템과 나눠 쓸 때만 추가 vhost 도입. AMQP URL은 `amqp://user:pass@host:port/assessment` 형식 — 이름에 `/`가 없어 인코딩 무영향(config.py 가 슬래시 포함 vhost 를 `%2F`로 자동 인코딩하는 방어 로직은 유지).
 
-권한 모델: RabbitMQ 는 `(user, vhost)` 쌍에 configure/write/read 3비트를 정규식 패턴으로 부여한다. 이 저장소가 실제로 두는 user 는 3절.
-
 도구 일반론(vhost·권한 비트 의미)은 RabbitMQ 공식 문서.
 
 ---
@@ -46,11 +44,10 @@ vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도�
 `server.metrics` 정책 근거:
 - 72h TTL: 1분 주기 발행 + consumer/DB 단기 장애(최대 3일) 내 회복 시 누적 메시지 정상 처리.
 - 1M 메시지 상한: 약 3KB X 1M = 약 3GB 디스크/메모리 -> broker 폭주 방어.
-- 초과 시 oldest 메시지부터 DLX(`server.metrics.dead`)로 routing.
 
 `server.error` 300s TTL: 알림용 노이즈 방지. DB 저장 없어 짧은 TTL로 충분.
 
-`server.inventory` TTL/상한 없음: one-shot 메시지가 소실되면 다음 1시간 주기 재발행으로 자동 회복(CLAUDE.md #B).
+`server.inventory` TTL/상한 없음: one-shot 메시지가 소실돼도 원격 호스트의 1시간 주기 재발행이 다음 창에서 채운다.
 
 `worker.result` 정책 근거:
 - 24h TTL: 운영자가 install 결과를 하루 안에 확인. 누적 적재 방지.
@@ -94,4 +91,4 @@ dev 와 prod 는 같은 토폴로지를 쓴다 — vhost·exchange·DLX·durable
 - `docs/reference/contracts/agent-data.md` — 에이전트 측 publish 동작 / publisher confirm / retry
 - `docs/reference/docker.md` — RabbitMQ 컨테이너 정의 / 포트 / 볼륨
 - `docs/reference/contracts/env.md` — `RABBITMQ_*` 환경변수 키 목록
-- `docs/explanation/tradeoffs.md` T7 — 에이전트 broker 자동 재연결 (이미 구현됨)
+- `docs/explanation/tradeoffs.md` T7 — 에이전트 broker 자동 재연결

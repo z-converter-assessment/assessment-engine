@@ -33,7 +33,7 @@
 
 ## PR 에서 도는 것이 base 에 따라 갈린다
 
-develop PR 은 5개, main PR 은 그 5개에 `wheel build`·`pytest (integration)` 이 붙고 `codeql` 이 따로 돈다. 무거운 것을 승격 직전에만 돌린다 — 통합 테스트는 testcontainers 로 DB·broker 를 띄우고, CodeQL 은 `security-extended` 쿼리라 오래 걸린다.
+develop PR 은 5개, main PR 은 그 5개에 `wheel build`·`pytest (integration)` 이 붙고 `codeql` 이 따로 돈다. 무거운 것을 승격 직전에만 돌린다 — 통합 테스트는 testcontainers 로 TimescaleDB 컨테이너를 띄우고, CodeQL 은 `security-extended` 쿼리라 오래 걸린다.
 
 `paths` 조건은 어느 워크플로에도 없다. 이유는 `docs/guides/ci-setup.md` 3.4.
 
@@ -58,10 +58,3 @@ schedule 워크플로는 기본 브랜치에서만 발화한다. `main` 에 올�
 GitHub 은 public repo 에 60일간 활동이 없으면 schedule 워크플로를 자동 비활성화한다. 버전 고정 정책은 저장소가 조용한 상태를 전제하므로, 이 채널은 가장 필요한 국면에서 조용히 멈출 수 있다. 릴리즈 간격이 두 달을 넘기면 Actions 탭에서 마지막 `image-scan` 실행 시각을 확인한다.
 
 실패해도 신호가 없다. trivy DB 를 못 받아 job 이 죽으면 SARIF 를 안 올리고 기존 alert 이 그대로 남는데, 화면상으로는 "새 취약점 없음" 과 구분되지 않는다. 위 실행 시각 확인이 이 경우도 함께 덮는다.
-
-## 관련 문서
-
-- 워크플로가 무엇을 검증하나: 루트 `README.md` "워크플로" 절
-- required status check 등록 목록: `docs/guides/ci-setup.md` 3.4
-- 플랫폼 기능 토글 값과 근거: `docs/guides/ci-setup.md` 4.2·4.3
-- 취약점 신호 채널 분담: `docs/guides/dependencies.md` 5절

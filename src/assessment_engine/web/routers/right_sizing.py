@@ -1,8 +1,6 @@
 """Right-sizing API router — 외부/자동화 소비용 자원 적정성 판정.
 
-화면(보고서·자원 평가)과 동일 산식(get_report_aggregate -> rollup_host) — 값 정합(재계산 0). 자원 3축
-(CPU·메모리·디스크) 사이징 + 네트워크 품질(별도 플래그). 분류·근본원인·근거·신뢰도·권고를 파싱 쉬운
-JSON 으로 노출해 "이렇게 프로비저닝하면 된다"를 받는 쪽이 바로 소비하게 한다.
+화면(보고서·자원 평가)과 동일 산식(get_report_aggregate -> rollup_host)이라 값이 정합한다 — 재계산 0.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -22,8 +20,9 @@ from assessment_engine.web.view_models.right_sizing_api import RightSizingRespon
 right_sizing_router = APIRouter(prefix="/api/right-sizing", tags=["right-sizing"])
 
 
-# responses= (response_model 아님) — OpenAPI 스키마만 문서화(생성 TS 타입 원천). frozen 계약 출력은 매퍼
-# dict 그대로, 재구성/검증 0. 매퍼-스키마 drift 는 test_right_sizing_api 골든 검증이 잡음.
+# responses= 를 response_model= 로 바꾸면 FastAPI 가 매퍼 dict 를 재구성해 배포된 frozen 계약 출력이 바뀐다
+# — schema-only 패턴 근거는 `docs/reference/web/type-contract.md`. 검증을 안 걸치는 대신 매퍼 출력과 선언
+# 스키마의 drift 는 test_right_sizing_api 골든 검증이 잡는다.
 @right_sizing_router.get("", responses={200: {"model": RightSizingResponse}})
 async def get_right_sizing(
     service: QueryServiceDep,

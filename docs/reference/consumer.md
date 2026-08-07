@@ -44,7 +44,7 @@ online 마킹 + 메트릭 캐시 무효화 + `_track_agent_restart` 호출 (동�
 
 ### task.result 후처리
 1. 성공 보정 — `consumer/task_policy.py` 의 `effective_task_result` 가 status/failure_reason 을 보정한다. 정책 키·기본값은 `docs/reference/contracts/env.md` `TASK_INSTALL_SUCCESS_EXIT_CODES` 단일 진실. `exit_code` 는 raw 로 보존한다(감사용).
-2. DB UPDATE — `complete_task(TaskResultUpdate)`. 저장 필드는 `db/dtos/inbound.py` `TaskResultUpdate` 단일 진실. task_id 미존재 시 silent ack (운영자가 task 삭제했을 가능성 — DLQ 부적합).
+2. DB UPDATE — `complete_task(TaskResultUpdate)`. 저장 필드는 `db/dtos/inbound.py` `TaskResultUpdate` 단일 진실. 매칭 불가 task_id 는 silent ack — 미존재(운영자가 task 삭제)와 비 UUID(wire 계약상 free string 이나 `tasks.public_id` 는 uuid 컬럼) 둘 다 DLQ 부적합이다.
 3. 보정이 일어난 경우 remapped INFO 로그를 남긴다.
 
 `boot_time` / `agent_started_at` 은 본 메시지에서 항상 null 이라 `_log_time_invariants` 호출 생략.
@@ -52,15 +52,13 @@ online 마킹 + 메트릭 캐시 무효화 + `_track_agent_restart` 호출 (동�
 ### 미등록 서버 metrics — auto-register
 metrics 핸들러는 `repo.ensure_server_id(agent_id, placeholder)`로 한 번에 처리 — find 실패 시 fallback placeholder 사용. `(server_id, auto_registered)` 튜플 반환으로 handler가 auto-register 시점만 운영 로그를 남김. 식별자는 `agent_id` 단일 키 (#C1) — agent 가 첫 실행 시 생성·영구저장한 불변 UUID 라 재부팅·MAC 재발급·machine_id 중복과 무관.
 
-placeholder는 `mappers.build_placeholder_inventory`가 생성. metrics envelope 이 싣고 오는 값(agent_id·composite_id·machine_id·agent_version·os_family·collected_at·boot_time·agent_started_at)만 실값이고, metrics 메시지에 hostname 필드가 없어 hostname 은 agent_id 로 채운다. 나머지 정적 정보(OS 상세·CPU·메모리·디스크·네트워크·서비스)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (`agent_id` UNIQUE 제약).
+placeholder는 `mappers.build_placeholder_inventory`가 생성. metrics envelope 이 싣고 오는 값만 실값이고 나머지 정적 정보는 None/빈 배열이며, metrics 메시지에 hostname 필드가 없어 hostname 은 agent_id 로 채운다. 다음 진짜 inventory 도착 시 `agent_id` UNIQUE 를 타고 ON CONFLICT DO UPDATE 로 풀 정보를 덮는다.
 
-metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 metric 7개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 `server_metrics` 만 보유(자식 시계열은 동일 `(server_id, collected_at)` 로 참조) → server_metrics 는 공용 도메인 helper `assessment_engine.domain.boot_time.is_counter_reset` 이 두 시점 boot_time 비교(측정 지터 허용치 안이면 동일 부팅)로 재부팅 시 delta 건너뛰기, 자식은 `GREATEST(delta,0)` 로 흡수 (CLAUDE.md B1). 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
-
-→ metrics drop 0. inventory one-shot 정책으로 인한 영구 미등록 시나리오 해소. 에이전트 변경 없이 엔진 단독 안전망.
+metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 metric 7개 시계열 테이블 INSERT를 facade로 묶어 처리. 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
 
 ### 팩토리 함수 + 클로저
 
-`make_*_handler`는 핸들러 함수를 반환하는 팩토리. 인자로 받은 의존성을 내부 처리 함수가 클로저로 캡처한다. 클래스 없이 의존성을 함수 수준에서 바인딩하는 패턴.
+`make_*_handler`는 인자로 받은 의존성을 내부 처리 함수가 클로저로 캡처하는 팩토리다 — 클래스 없이 함수 수준에서 의존성을 바인딩한다.
 
 파싱과 ack/nack 경계는 팩토리가 직접 열지 않고 `_common._in_message_context(model, label, handle)` 가 만든다 — 4 핸들러가 같은 블록을 복제하면 정제 문구나 컨텍스트 진입 하나가 어긋나도 드러나지 않는다. 팩토리는 파싱된 모델을 받는 처리 함수만 쓰고, 그 함수 안에서 모든 await 를 마친다(#F11). 핸들러 시그니처 별칭 `MessageHandler` 는 `handlers/_types.py` 단일 진실 — `handlers/__init__.py` 에 두면 4 핸들러 모듈과 순환이다.
 
@@ -70,7 +68,9 @@ aio-pika async context manager. 블록 정상 종료 → ack, 예외 발생 → 
 
 ### DB 재시도 정책
 
-3회 시도, `2 ** attempt` full jitter 백오프. 1 실패 → [0,2s] sleep → 2, 2 실패 → [0,4s] sleep → 3, 3 실패 → 즉시 raise(sleep 없음). 마지막 시도는 루프 밖에 있어 "재시도 소진" 분기가 코드에 없다. 재시도 대상은 일시 장애 — `_is_retryable_db_failure` 가 예외 타입(`OperationalError`·`InterfaceError`)과 SQLSTATE 두 축 중 하나만 걸려도 재시도로 판정한다. SQLSTATE 축은 class `08`(connection exception) 전 코드 + `40001` serialization_failure + `40P01` deadlock_detected + `57P01`·`57P02`·`57P03`(서버 종료·크래시 복구·기동 중). 타입만으로 가르지 못하는 이유는 asyncpg dialect 의 예외 번역표에 sqlalchemy `OperationalError` 로 가는 항목이 없어 커넥션 유실·서버 재기동·deadlock 이 base `DBAPIError` 로만 래핑되기 때문. asyncpg 의 connect·command timeout 은 `asyncio.TimeoutError` 로 올라와 `DBAPIError` 에 감싸이지 않으므로 별도 분기가 같은 백오프를 탄다. deadlock 은 동시 신규서버 insert 시 hypertable chunk 생성 레이스로 발생하며 victim rollback 후 재시도가 흡수한다. `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6). full jitter 는 동시 재연결 쏠림(thundering herd) 방지. 재시도 창은 큐 TTL 안에 들어가 단기 DB 장애 회복을 커버한다(값은 `docs/reference/rabbitmq.md` 큐 정책 표). error 핸들러는 DB 접근이 없어 해당 큐 TTL 과 무관.
+3회 시도, `2 ** attempt` full jitter 백오프. 1 실패 → [0,2s] sleep → 2, 2 실패 → [0,4s] sleep → 3, 3 실패 → 즉시 raise(sleep 없음). full jitter 는 동시 재연결 쏠림(thundering herd)을 막고, 최악 6초인 재시도 창은 큐 TTL 안에 들어가 단기 DB 장애 회복을 커버한다(값은 `docs/reference/rabbitmq.md` 큐 정책 표).
+
+재시도 대상은 일시 장애다. `_is_retryable_db_failure` 가 예외 타입(`OperationalError`·`InterfaceError`)과 SQLSTATE 두 축 중 하나만 걸려도 재시도로 판정한다 — asyncpg dialect 가 커넥션 유실·서버 재기동·deadlock 을 base `DBAPIError` 로만 래핑해 타입 축 하나로는 갈리지 않기 때문이다. SQLSTATE 축은 class `08`(connection exception) 전 코드 + `40001` serialization_failure + `40P01` deadlock_detected + `57P01`·`57P02`·`57P03`(서버 종료·크래시 복구·기동 중). asyncpg 의 connect·command timeout 은 `DBAPIError` 가 아니라 `asyncio.TimeoutError` 로 올라오므로 별도 분기가 같은 백오프를 탄다. deadlock 은 동시 신규서버 insert 가 hypertable chunk 생성에서 경합해 발생하고, victim rollback 후 재시도가 흡수한다. `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6).
 
 ---
 
@@ -87,21 +87,7 @@ aio-pika async context manager. 블록 정상 종료 → ack, 예외 발생 → 
 
 ### aio-pika
 
-RabbitMQ 전용 비동기 클라이언트. AMQP 0-9-1 프로토콜만 지원.
-
-`connect_robust`: 연결 끊김 시 자동 재연결. 재연결 중 채널·큐·컨슈머가 내부적으로 복구된다.
-
-내부 동작:
-1. TCP 소켓 생성 + AMQP 커넥션 수립 (버전 확인·인증·vhost 접속)
-2. 소켓 fd를 `loop.add_reader`로 이벤트 루프에 등록 → epoll 감시 시작
-3. `channel()` — 기존 TCP 위에 AMQP 채널 오픈. 새 소켓 없이 channel_id로 트래픽 구분
-4. `declare_exchange/queue/bind` — 각각 요청-응답 왕복 (브로커 승인 프레임 수신 후 진행)
-5. `queue.consume(handler)` — AMQP `Basic.Consume`. 이후 브로커가 메시지를 push로 전송
-6. `await stop_event.wait()` — SIGTERM/SIGINT 까지 이벤트 루프 유지. CPU는 루프로 반환, 이후 "epoll 신호 → aio-pika 콜백 → handler 코루틴 재개" 사이클
-
-### Redis 생명주기
-
-획득(`get_redis`)과 해제(`close_pool`)를 `main()` 같은 스코프에 두어 생명주기를 명확히 한다.
+RabbitMQ 전용 비동기 클라이언트(AMQP 0-9-1). 연결은 `connect_robust` 로 열어 끊김 시 자동 재연결하고, 재연결 중 채널·큐·컨슈머는 내부적으로 복구된다. declare·bind 는 각각 브로커 승인 프레임을 기다리는 왕복이고, `queue.consume` 이후에는 브로커가 메시지를 push 한다. `main()` 은 `stop_event` 를 기다리며 이벤트 루프를 유지한다.
 
 ---
 
@@ -113,7 +99,7 @@ RabbitMQ 전용 비동기 클라이언트. AMQP 0-9-1 프로토콜만 지원.
 
 ### inventory 수신 시 online 즉시 마킹
 
-upsert 성공 후 online 플래그를 즉시 SET 한다 (키·TTL 은 `docs/reference/redis.md` 단일 진실). 첫 메트릭 수신 전까지 온라인 표시가 "등록됐다"는 의미로 오해될 수 있다. inventory를 발행한 에이전트는 직후 60초 안에 metrics를 발행하므로 오표시 구간이 짧고, 등록 즉시 피드백을 주는 것이 UX상 낫다.
+upsert 성공 후 online 플래그를 즉시 SET 한다 (키·TTL 은 `docs/reference/redis.md` 단일 진실). 첫 메트릭 수신 전까지는 온라인 표시가 "등록됐다"는 의미에 가깝지만, inventory 를 발행한 에이전트가 직후 60초 안에 metrics 를 발행해 그 구간이 짧고 등록 즉시 피드백이 UX 상 낫다.
 
 ### 부가 시그널 — 운영 가시성
 

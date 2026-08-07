@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import MetricGapWarningRaw, ReportRowRaw
     from assessment_engine.db.repositories.query import QueryRepository
 
-# 운영신호(attention) 카탈로그 항목 한도 + gap 윈도우 — 단건 get_attention_signals 와 대시보드 묶음 공유.
 _ATTENTION_LIMIT_EACH = 5
 _GAP_MINUTES = 5
 _GAP_RECENT_HOURS = 24
@@ -30,10 +29,7 @@ def _assemble_attention(
     now: datetime,
     limit_each: int | None,
 ) -> AttentionSignals:
-    """gap/os_eol/agent_unstable 3 카탈로그 조립 — raws_period(get_report_aggregate) 재사용.
-
-    agent_unstable: 1h 윈도우 재시작 임계 초과(server_inventory_history agent_started_at DISTINCT-1).
-    """
+    """gap/os_eol/agent_unstable 3 카탈로그 조립 — raws_period(get_report_aggregate) 재사용."""
     os_eol_warnings: list[AttentionRow] = []
     for raw in raws_period:
         eol = to_os_eol_warning_item(raw, now)
@@ -64,24 +60,15 @@ async def attention_signals(
     end: datetime | None = None,
     raws: list[ReportRowRaw] | None = None,
 ) -> AttentionSignals:
-    """list 화면 운영 신호 카드 — USE Method 외 시스템 운영 이상 3 카탈로그.
+    """운영 신호 3 카탈로그 — gap(5분+ 끊김) · os_eol · agent_unstable(1h 창 재시작 임계 초과).
 
-    - gap_warnings: 5분+ 끊김 (24h 안 발생)
-    - os_eol_warnings: OS EOL 임박/지남 (정적 매핑)
-    - agent_unstable: 1h 윈도우 안 재시작 임계 초과
-
-    디스크(capacity·IO)는 USE Method classify 통합 — 본 catalog 에서 제외 (중복 회피).
-    조립은 _assemble_attention 단일 진실. 실시간 현황 페이지·보고서가 본 메서드 공유.
-
-    raws 재사용(B2): 보고서 경로가 이미 산출한 get_report_aggregate raws 를 넘기면 내부 재조회를 생략한다.
-    os_eol(os_id/version/kernel)·agent_unstable(public_id/hostname)만 읽어 창 독립이므로 어느 윈도우
-    raws 든 정합 — 넘기면 환경 보고서의 aggregate 2회가 1회로. 미전달(None)이면 14일 창 자체 조회.
+    디스크(capacity·IO)는 USE Method classify 가 이미 다뤄 본 카탈로그에서 뺀다(중복 회피).
+    raws 를 넘기면 내부 재조회를 생략한다 — os_eol·agent_unstable 은 창 독립이라 어느 윈도우 raws 든
+    정합하다(환경 보고서의 aggregate 2회가 1회로). None 이면 WINDOW_DAYS 창을 자체 조회.
     """
-    # end=보고서 anchor(없으면 현재). os_eol 임박/경과 판정이 이 시각 기준 — 보고서 다른 지표(end_dt)와 정합.
-    # gap/agent_unstable 은 보고서 미표시(C1)라 anchor 영향 없음.
+    # end = 보고서 anchor(없으면 현재) — os_eol 경과 판정을 보고서 다른 지표와 같은 시각에 맞춘다.
     ref = end if end is not None else datetime.now(UTC)
-    # limit_each=None 이면 gap 도 전수(LIMIT NULL) — 운영신호 카드 3 카탈로그 모두 전수 출력.
-    # 보고서는 gap 미표시(C1)라 전수여도 결과만 버려질 뿐(소량, 무해).
+    # limit_each=None 이면 gap 도 전수 — 보고서는 gap 미표시(C1)라 결과만 버려진다(소량, 무해).
     gap_raws = await repo.get_metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
     if raws is None:
         server_ids = await repo.list_server_ids()
@@ -121,10 +108,7 @@ class AttentionQueryMixin(_BaseQueryServiceMixin):
         )
 
     async def get_selection_attention(self, server_ids: list[int], end: datetime) -> AttentionSignals:
-        """선택 N대 한정 운영 신호 — 실시간 현황(/environment/realtime?ids=) selection 범위 필터.
-
-        전체 attention 을 선택 호스트 hostname 으로 필터 (get_selection_report 와 동일 _filter_attention 채널).
-        """
+        """선택 N대 한정 운영 신호 — 전체 attention 을 선택 호스트 hostname 으로 필터."""
         details = await self.repo.get_servers(server_ids)
         hostnames = {d.hostname for d in details}
         return _filter_attention(await self.get_attention_signals(end=end, limit_each=None), hostnames)

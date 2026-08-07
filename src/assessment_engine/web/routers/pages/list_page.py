@@ -1,7 +1,6 @@
 """SSR 페이지 — 환경 개요(`/`) · 서버 목록(`/servers`) · 환경 단위(`/environment/*`).
 
-URL 명사 분리: 환경 단위(개요·자원평가·실시간·성능·토폴로지)는 `/` 와 `/environment/*`, 서버 단위는
-`/servers/*`(server_detail).
+URL 을 명사로 가른다 — 환경 단위(개요·자원평가·실시간·성능·토폴로지)와 서버 단위(`/servers/*`).
 """
 
 from datetime import UTC, datetime
@@ -25,12 +24,11 @@ from assessment_engine.web.services.query import QueryService
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.templating import templates
 
-# 환경 개요(/) · 서버 목록(/servers) · 환경 단위(/environment/*) 3 라우터 — URL 명사 분리.
 overview_router = APIRouter()
 servers_list_router = APIRouter(prefix="/servers")
 environment_router = APIRouter(prefix="/environment")
 
-# 서버 목록 전체 로드 한도 — 기본 20행 표시(client clip), 필터는 client-side hide/show. E2 page 의식적 예외.
+# 전체를 한 번에 받아 client 가 clip·필터한다 — E2 page 페이지네이션 정책의 의식적 예외.
 _LIST_FETCH_LIMIT = 10_000
 
 
@@ -41,12 +39,11 @@ async def environment_metrics(
     back: BackUrl = None,
     ids: Annotated[str | None, Query(description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경.")] = None,
 ):
-    """환경 성능 추이 (live) — 전체 환경 차트 10종. ids 면 선택 N대 한정. 환경 단위 `/environment` 그룹."""
+    """환경 성능 추이 (live) — 전체 환경 차트 10종. ids 면 선택 N대 한정."""
     valid_pids = await _resolve_selection_pids(service, ids)
     selection_ids = ",".join(valid_pids)
-    # 판정 crossing 서버 수 차트(cpu.saturation_hosts·mem.paging_pressure_hosts) Y축 고정 상한 — 전체 서버 수
-    # (선택 N대 진입이어도 fleet 전체 규모 기준, "이론상 최대치"를 보여주는 게 목적이라 selection 과 무관).
-    # get_fleet_status 재사용(상단 바와 동일 total_count 산식, #F4 서비스 경유 — repo 직접 호출 금지).
+    # 판정 crossing 서버 수 차트의 Y축 고정 상한 — 선택 N대로 들어와도 fleet 전체 규모를 쓴다("이론상 최대치").
+    # 상단 바와 같은 total_count 산식이어야 해 get_fleet_status 를 재사용한다.
     total_hosts = (await service.get_fleet_status()).total_count
     return templates.TemplateResponse(
         request=request,
@@ -72,9 +69,9 @@ async def environment_realtime(
     fragment: RealtimeFragment = None,
     ids: Annotated[str | None, Query(description="public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경.")] = None,
 ):
-    """실시간 메트릭 (live 현황 모니터링) — 현재 평균 활용률 + 현재 부하 상위. ids 면 선택 N대 한정.
+    """실시간 현황 — 현재 평균 활용률 + 서버별 부하. ids 면 선택 N대 한정.
 
-    fragment=realtime: 실시간 메트릭 partial 만 재렌더 (JS 30초 폴링이 mount innerHTML 교체).
+    fragment=realtime: 메트릭 partial 만 재렌더 (JS 폴링이 mount innerHTML 교체).
     """
     now = datetime.now(UTC)
     valid_pids = await _resolve_selection_pids(service, ids)
@@ -86,7 +83,7 @@ async def environment_realtime(
     realtime = await service.get_environment_realtime(server_ids)
     self_back = self_back_of("/environment/realtime", f"ids={selection_ids}" if selection_ids else "")
     if fragment == "realtime":
-        # 현황 메트릭 fragment 만 — 운영 신호는 느린 신호라 full-page 에만 정적 렌더(fragment 재조회에 불포함).
+        # 운영 신호는 느린 신호라 full-page 에만 정적 렌더한다 — 폴링 재조회에 넣지 않는다.
         return templates.TemplateResponse(
             request=request,
             name="servers/_environment_realtime.html",
@@ -125,10 +122,7 @@ async def topology(
     service: QueryServiceDep,
     back: BackUrl = None,
 ):
-    """네트워크 토폴로지 전용 — L3 subnet 공동소속 그래프. 환경 단위 `/environment` 그룹.
-
-    현재 전체 인벤토리 그래프 — 대규모 범위 좁히기(subnet/host 필터)는 후속.
-    """
+    """네트워크 토폴로지 — L3 subnet 공동소속 그래프 (전체 인벤토리, 범위 필터 없음)."""
     topo = await service.get_topology()
     return templates.TemplateResponse(
         request=request,
@@ -152,10 +146,9 @@ async def assessment(
     fragment: ResultFragment = None,
     back: BackUrl = None,
 ):
-    """환경 자원 평가 — 14일 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
+    """환경 자원 평가 — 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
 
-    분류 창은 서버 목록·보고서·환경 개요 카드와 같은 14일(#F10 #E3 정합). 기본값 `DIAGNOSTIC_DEFAULT_TIME_RANGE`.
-    환경 단위 `/environment` 그룹. fragment=result: 결과 partial 만 재렌더 (JS swap, 풀 reload 회피).
+    분류 창은 서버 목록·보고서·환경 개요 카드와 같다(#E3 정합). fragment=result: 결과 partial 만 재렌더.
     """
     result = await service.get_environment_assessment(time_range, anchor_at)
     qs = f"time_range={time_range}" + (f"&anchor_at={quote(anchor_at.isoformat(), safe='')}" if anchor_at else "")
@@ -178,17 +171,12 @@ async def overview(
     request: Request,
     service: QueryServiceDep,
 ):
-    """환경 개요 (홈, `/`) — 집계 위젯(환경 요약·주요 워크로드·자원 적정성·자원 이용·포화 7도넛·운영 이벤트/에러).
-
-    서버 목록은 `/servers`, 환경 단위 분석은 `/environment/*` 로 분리. 집계형 위젯만 본 페이지에 남는다.
-    운영 신호는 실시간 현황(`/environment/realtime`)으로 분리. 자동 갱신 없음 — 정적 집계라 진입 시 1회 렌더.
-    """
+    """환경 개요 (홈) — 집계 위젯만. 자동 갱신 없음(정적 집계라 진입 시 1회 렌더)."""
     overview = await service.get_dashboard_overview()
     ctx: dict[str, Any] = {
         "overview": overview,
-        # 페이지 렌더(새로고침) 시각 — 우측 상단 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
         "generated_at": datetime.now(UTC),
-        # 자원 적정성·이용·포화 도넛 공통 창 라벨 — WINDOW_DAYS 파생(14일). 분류·이용률·포화 한 창(#E3 정합).
+        # 도넛 3종 공통 창 라벨 — 분류·이용률·포화가 한 창이라는 표시(#E3 정합).
         "classification_window_label": f"{right_sizing.WINDOW_DAYS}일",
         "active_nav": "overview",
         "self_back": self_back_of("/"),
@@ -210,10 +198,10 @@ async def servers_list(
     os_eol: str | None = None,
     fragment: RowsFragment = None,
 ):
-    """서버 목록 (`/servers`) — 검색·필터 + 선택 N대 액션(보고서·install·export).
+    """서버 목록 — 검색·필터 + 선택 N대 액션(보고서·install·export).
 
-    fragment=rows: 서버목록 행 partial 만 재렌더.
-    현재 전체 로드 후 client clip — page/limit Query 는 서버사이드 페이지네이션 도입 시 사용 (E2 page 정책).
+    page/limit 은 지금 쓰이지 않는다(전체 로드 후 client clip) — 서버사이드 페이지네이션 도입 시 진입점.
+    fragment=rows: 행 partial 만 재렌더.
     """
     if fragment == "rows":
         rows = await service.list_servers(
@@ -244,15 +232,14 @@ async def servers_list(
                 "ip": get_web_settings().zdm_default_ip,
                 "user": get_web_settings().zdm_default_user,
             },
-            # OS 필터 옵션 — endoflife 카탈로그 distro 전체(수집 무관, 지원 distro 노출).
-            # single source: os_eol.DISTRO_FILTER_OPTIONS.
+            # OS 옵션은 수집 결과가 아니라 endoflife 카탈로그 전체 — 지원 distro 를 다 노출한다.
             "filter_options": {
                 "service_categories": SERVICE_CATEGORIES,
                 "distro_options": DISTRO_FILTER_OPTIONS,
                 "classifications": PROVISIONING_CLASS_OPTIONS,
             },
             "active_nav": "list",
-            # 자식 link (detail / 진단 이력 등) 의 back chain — 본 page URL (filter 상태 보존).
+            # 자식 link 의 back chain — 쿼리스트링째 담아 filter 상태를 보존한다.
             "self_back": self_back(request),
         },
     )

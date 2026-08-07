@@ -1,7 +1,4 @@
-"""Consumer 핸들러 공통 helper — DB 재시도 / 멱등성 / 시계 invariant / agent 재시작 추적.
-
-4 routing key 핸들러 (inventory · metrics · task_result · error) 가 본 모듈을 sibling import.
-"""
+"""Consumer 핸들러 공통 helper — DB 재시도 / 멱등성 / 시계 invariant / agent 재시작 추적."""
 
 import asyncio
 import random
@@ -27,18 +24,15 @@ if TYPE_CHECKING:
     from assessment_engine.consumer.schemas import AgentMessageBase, MessageBase
     from assessment_engine.db.repositories.collect import CollectRepository
 
-# 일시 장애만 retry. 영구 장애(IntegrityError·ProgrammingError·DataError 등)는 즉시 raise -> nack -> DLQ (F6).
-# IntegrityError(= UNIQUE/FK 위반)도 DBAPIError 상속이라 먼저 별도 캐치.
 # asyncpg dialect 의 예외 번역표에는 sqlalchemy OperationalError 로 가는 항목이 없다 — 커넥션 유실·서버
 # 재기동·deadlock 은 base DBAPIError 로만 래핑돼 타입으로 안 갈린다. 그래서 SQLSTATE 를 함께 본다.
 _RETRYABLE_DB_EXC = (OperationalError, InterfaceError)
-# class 08 = connection exception (커넥션 유실 — 전 코드 일시).
+# class 08 = connection exception — 하위 코드가 전부 일시(커넥션 유실)라 prefix 로 묶는다.
 _RETRYABLE_SQLSTATE_PREFIX = "08"
 # 40001 serialization_failure · 40P01 deadlock_detected — victim rollback 후 재시도하면 경합이 풀린다.
 # 57P01 admin_shutdown · 57P02 crash_shutdown · 57P03 cannot_connect_now — 서버 재기동 중.
 _RETRYABLE_SQLSTATES = frozenset({"40001", "40P01", "57P01", "57P02", "57P03"})
 
-# exponential backoff + full jitter — thundering herd 방지 + 메시지 처리 블로킹 최소화.
 # base 2 — 한 메시지가 재시도에 붙잡히는 시간을 최악 6s 로 묶어 prefetch 슬롯 점유를 짧게 유지한다.
 _RETRY_MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_BASE_SEC = 2
@@ -50,7 +44,7 @@ _VALIDATION_LOC_MAX = 48
 
 
 def _format_db_error(e: DBAPIError) -> str:
-    """DB 예외에서 SQL·param·connection string 제외한 진단 메타만 추출 (F8)."""
+    """DB 예외에서 SQL·param·connection string 을 뺀 진단 메타만 추출 (F8)."""
     sa_cls = type(e).__name__
     orig = getattr(e, "orig", None)
     if orig is None:
@@ -63,7 +57,7 @@ def _format_db_error(e: DBAPIError) -> str:
 
 
 def _sanitize_log_text(value: str, limit: int) -> str:
-    """에이전트가 정한 문자열을 로그 안전하게. 인쇄 가능 문자만 남기고 길이를 자른다.
+    """에이전트가 정한 문자열을 로그에 안전하게 싣는다.
 
     개행이 섞이면 로그 줄이 위조되고, 길이 상한이 없는 필드는 레코드 하나를 임의 크기로 부풀린다.
     """
@@ -72,15 +66,13 @@ def _sanitize_log_text(value: str, limit: int) -> str:
 
 
 def _sanitize_loc_part(part: object) -> str:
-    """검증 오류 경로 한 조각 — metric 명·device id 처럼 에이전트가 정한 dict 키가 실린다."""
     return _sanitize_log_text(str(part), _VALIDATION_LOC_MAX)
 
 
 def _format_validation_error(e: ValidationError, limit: int = _VALIDATION_ERROR_LIMIT) -> str:
     """검증 오류에서 필드 경로와 오류 종류만 추출 (F8).
 
-    `msg` 는 입력값 조각을 싣는 경우가 있어(uuid_parsing 은 실패 문자를 노출) 제외한다. 필드가 많은
-    inventory 는 한 메시지에 오류가 수십 건 나올 수 있어 상위 limit 건만 남긴다 (F7).
+    `msg` 는 입력값 조각을 싣는 경우가 있어(uuid_parsing 은 실패 문자를 노출) 제외한다.
     """
     errors = e.errors(include_url=False, include_context=False, include_input=False)
     head = " ".join(".".join(_sanitize_loc_part(p) for p in it["loc"]) + "=" + it["type"] for it in errors[:limit])
@@ -98,7 +90,6 @@ def _hide_bound_params(e: DBAPIError) -> None:
 
 
 def _is_retryable_db_failure(e: DBAPIError) -> bool:
-    """일시 DB 장애 판정 — 예외 타입 또는 SQLSTATE 둘 중 하나라도 걸리면 재시도."""
     if isinstance(e, _RETRYABLE_DB_EXC):
         return True
     sqlstate = getattr(getattr(e, "orig", None), "sqlstate", None)
@@ -123,6 +114,7 @@ def _is_permanent_db_failure(e: DBAPIError | TimeoutError) -> bool:
     if not isinstance(e, DBAPIError):
         return False
     _hide_bound_params(e)
+    # IntegrityError(UNIQUE·FK 위반)도 DBAPIError 하위라 같은 except 로 들어온다 — 재시도 판정 전에 갈라낸다.
     if isinstance(e, IntegrityError):
         logger.error("db integrity error (non-retryable) {}", _format_db_error(e))
         return True
@@ -138,7 +130,7 @@ async def _db_attempt[T](
     repo_factory: Callable[[AsyncSession], CollectRepository],
     fn: Callable[[CollectRepository], Coroutine[Any, Any, T]],
 ) -> T:
-    """세션 1회 — 열고, 실행하고, 커밋한다. 트랜잭션 경계가 곧 이 함수의 범위다."""
+    """세션 1회 — 이 함수 범위가 곧 트랜잭션 경계다."""
     async with session_factory() as session:
         result = await fn(repo_factory(session))
         await session.commit()
@@ -167,8 +159,8 @@ async def _db_retry[T](
         # full jitter: [0, base^attempt] 균등 — 동시 재연결 쏠림 방지.
         await sleep(random.uniform(0, _RETRY_BACKOFF_BASE_SEC**attempt))  # noqa: S311
 
-    # 마지막 시도는 루프 밖이다 — 성공하면 반환, 실패하면 그대로 나간다. 루프가 소진될 수 없다는 것을
-    # 타입 검사기에 증명할 필요가 없어져 도달 불가 분기가 사라진다.
+    # 마지막 시도를 루프 밖에 둔다 — 루프가 소진될 수 없음을 타입 검사기에 증명하지 않아도 되고,
+    # 도달 불가 분기가 사라진다.
     try:
         return await _db_attempt(session_factory, repo_factory, fn)
     except (DBAPIError, TimeoutError) as e:
@@ -199,8 +191,7 @@ def _in_message_context[T: MessageBase](
 ) -> MessageHandler:
     """파싱과 처리를 `message.process` 안에 넣어 ack/nack 경계를 한 곳에서 만든다.
 
-    4 핸들러가 같은 블록을 글자 단위로 복제하면 정제 문구나 컨텍스트 진입 하나가 어긋나도
-    아무도 모른다. 컨텍스트 안에서 모든 await 를 마치는 것이 #F11 의 요구다.
+    컨텍스트 안에서 모든 await 를 마치는 것이 #F11 의 요구다.
     """
 
     async def _handle(message: AbstractIncomingMessage) -> None:
@@ -211,10 +202,9 @@ def _in_message_context[T: MessageBase](
 
 
 async def _check_idempotent(redis: Redis, message_id: UUID) -> bool:
-    """SET NX 멱등성 체크. 첫 처리면 True, 중복이면 False.
+    """SET NX 멱등성 체크 — 첫 처리면 True, 중복이면 False.
 
-    Redis 장애 시 fail-open (True 반환) — 처리 진행. DB UNIQUE 제약(2단)이 중복 INSERT를 흡수.
-    CLAUDE.md #D2 (멱등성 2단 방어) 참조.
+    Redis 장애 시 fail-open(True) — DB UNIQUE 가 중복 INSERT 를 흡수한다 (#D2 2단 방어).
     """
     key = get_consumer_settings().redis_key_idempotent.format(message_id.hex)
     result = await safe_set_nx(redis, key, "1", get_consumer_settings().redis_ttl_idempotent)
@@ -229,22 +219,19 @@ async def _time_warn_allowed(redis: Redis, agent_id: UUID) -> bool:
 
 
 async def _log_time_invariants(redis: Redis, data: AgentMessageBase) -> None:
-    """시계·systemd 시작 순서 invariant 검증. warning 로그만, 처리는 그대로 진행.
+    """시계·systemd 시작 순서 invariant 검증 — warning 로그만 남기고 처리는 그대로 진행한다.
 
-    - boot_time > agent_started_at: systemd 시작 순서 비정상 또는 시계 동기화 문제
-    - agent_started_at > collected_at: VM 시계 동기화 문제 (VM resume 직후 흔함)
-    DLQ 미전송 — 시계 문제는 reject 의미 없고 운영자 인지가 목적.
-
-    F7: 같은 서버 지속 시 매 메시지 warning 방지 위해 1h 쿨다운. Redis 장애 시 fail-open (매번 출력).
-    boot_time·agent_started_at 은 판독 불가 시 null (계약 값 의미론) — null 축은 해당 순서 검증을 건너뛴다.
+    위반은 systemd 시작 순서 이상이거나 VM 시계 동기화 문제(resume 직후 흔함)라 reject 할 대상이
+    아니다. 같은 서버가 매 메시지 warning 을 내지 않게 agent 별 쿨다운을 둔다 (#F7).
+    boot_time·agent_started_at 은 판독 불가 시 null 이라 그 축의 순서 검증을 건너뛴다.
     """
     if data.agent_started_at is None:
-        return  # 발행 기동시각 미상 — 순서 검증 불가 (task.result 등)
+        return  # 발행 기동시각 미상(task.result 등) — 순서 검증 불가
     boot_ok = data.boot_time is None or data.boot_time <= data.agent_started_at
     if boot_ok and data.agent_started_at <= data.collected_at:
         return
     if not await _time_warn_allowed(redis, data.agent_id):
-        return  # 쿨다운 윈도우 안
+        return
     if data.boot_time is not None and data.boot_time > data.agent_started_at:
         logger.warning(
             "time invariant violated boot_time>agent_started_at agent_id={} boot_time={} agent_started_at={}",
@@ -262,12 +249,11 @@ async def _log_time_invariants(redis: Redis, data: AgentMessageBase) -> None:
 
 
 async def _track_agent_restart(redis: Redis, server_id: int, agent_id: str, agent_started_at: datetime | None) -> None:
-    """직전 agent_started_at 과 비교 -> 변경 시 1h 슬라이딩 윈도우 카운터 INCR.
+    """직전 agent_started_at 과 비교해 바뀌었으면 1h 슬라이딩 윈도우 카운터를 INCR 한다.
 
-    threshold 도달 시 warning (agent crash loop 인지). 시스템 재부팅도 agent_started_at 변경이라
-    같은 카운터 포함 (1h 내 3회면 그것도 alert 적정).
-
-    agent_started_at None(발행 기동시각 미상)이면 skip. fail-open — Redis 장애 시 silent skip.
+    임계 도달 시 warning (agent crash loop 인지). 시스템 재부팅도 agent_started_at 을 바꿔 같은
+    카운터에 들어간다 — 그 빈도도 알릴 값이라 거르지 않는다. agent_started_at null 이면 skip,
+    Redis 장애 시 fail-open(silent skip).
     """
     if agent_started_at is None:
         return
