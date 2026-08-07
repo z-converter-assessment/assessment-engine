@@ -1,9 +1,8 @@
 """Right-sizing API 매퍼 — 자동화/외부 소비용 per-server 프로비저닝 판정 dict.
 
-화면 표시(ViewModel)와 별개 채널이나 분류·근거·신뢰도·권고는 전부 도메인 단일 진실(rollup_host·
-recommendation 처방) 재사용 — 화면(보고서·자원평가)과 값 정합(재계산 0). 포화 신호는 표시 문자열이 아니라
-stats 원자료·임계 상수로 numeric(파싱 계약).
-자원 3축(CPU/메모리/디스크) 사이징 + 네트워크는 별도 품질 플래그(사이징 아님).
+화면 표시(ViewModel)와 별개 채널이지만 분류·근거·신뢰도·권고는 전부 도메인 단일 진실(`rollup_host`·
+recommendation 처방) 재사용 — 보고서·자원평가 화면과 값이 어긋나지 않게 여기서 재계산하지 않는다.
+포화 신호는 표시 문자열이 아니라 stats 원자료·임계 상수로 numeric(파싱 계약).
 """
 
 from typing import TYPE_CHECKING
@@ -25,7 +24,7 @@ if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
     from assessment_engine.web.view_models.right_sizing_api import RsAction, RsNetSignal, RsRecommendation
 
-# ResourceStatus(도메인 enum) -> 외부 노출 한국어 라벨. 프로젝트 통일 어휘(자원 적정성 화면과 동일 개념).
+# ResourceStatus(도메인 enum) -> 외부 노출 한국어 라벨. 자원 적정성 화면과 통일 어휘.
 _STATUS_LABEL_KO: dict[str, str] = {
     "under": "부족",
     "optimal": "적정",
@@ -42,15 +41,12 @@ _STATUS_LABEL_KO: dict[str, str] = {
 
 
 def _evidence_labels(triggers: list[right_sizing.TriggerKind]) -> list[str]:
-    """trigger key -> 통일 한국어 근거 라벨. _CAUSE_LABEL_BY_TRIGGER(자원부족 축) 우선, 미커버 키는
-
-    도메인 TRIGGER_LABEL_KO 폴백 — mem_oom·net_retrans/drop/conntrack 이 raw enum 으로 누출되지 않게.
-    """
+    """자원부족 축 라벨 우선, 미커버 키는 도메인 폴백 — mem_oom·net_* 이 raw enum 으로 누출되지 않게."""
     return [_CAUSE_LABEL_BY_TRIGGER.get(t) or right_sizing.TRIGGER_LABEL_KO.get(t, t) for t in triggers]
 
 
 def _sizeable_recommendation(kind: right_sizing.ResourceKind, ra: right_sizing.ResourceAssessment) -> str | None:
-    """자원 1개 사이징 권고 문구 — under/over(사이징 관련 상태)에만. 도메인 resource_prescription 단일 진실."""
+    """사이징 관련 상태에만 권고 문구 — 문구 자체는 도메인 resource_prescription 단일 진실."""
     if ra.status in ("under", "over", "io_bound", "filling") or ra.sizing_target is not None:
         text = right_sizing.resource_prescription(kind, ra)
         return text or None
@@ -58,9 +54,9 @@ def _sizeable_recommendation(kind: right_sizing.ResourceKind, ra: right_sizing.R
 
 
 def _net_signal(value: float | None, threshold: float, *, inclusive: bool = False) -> RsNetSignal:
-    """네트워크 품질 신호 1개 — 값·임계·초과여부·측정여부. resource saturation 블록과 대칭.
+    """네트워크 품질 신호 1개 — resource saturation 블록과 대칭.
 
-    inclusive = conntrack(>= 임계) 여부. retrans/drop 은 > 임계. 미측정(value None)이면 exceeded=None.
+    inclusive = conntrack(임계 이상) 여부. retrans/drop 은 임계 초과. 미측정(value None)이면 exceeded=None.
     """
     if value is None:
         return {"value": None, "threshold": threshold, "exceeded": None, "measured": False}
@@ -79,7 +75,7 @@ def _cpu_resource(
         "saturation": saturation_block("cpu", stats),
         "evidence": _evidence_labels(ra.triggers),
         "confidence_notes": resource_confidence_notes(ra.confidence),
-        "current_cores": stats.cpu_cores,  # 현재 배정 — target 과 짝(현재 vs 목표)
+        "current_cores": stats.cpu_cores,
         "sizing_target_cores": ra.sizing_target,
         "recommendation": _sizeable_recommendation("cpu", ra),
         "detail": ra.detail or None,
@@ -97,7 +93,7 @@ def _memory_resource(
         "saturation": saturation_block("memory", stats),
         "evidence": _evidence_labels(ra.triggers),
         "confidence_notes": resource_confidence_notes(ra.confidence),
-        "current_mb": stats.mem_total_mb,  # 현재 배정 RAM — target 과 짝
+        "current_mb": stats.mem_total_mb,
         "sizing_target_mb": ra.sizing_target,
         "recommendation": _sizeable_recommendation("memory", ra),
         "detail": ra.detail or None,
@@ -109,7 +105,6 @@ def _disk_resource(
 ) -> JsonObject:
     cap = host.resources["disk_capacity"]
     io = host.resources["disk_io"]
-    # 현재 배정 디스크 총량 — block_devices type=disk size_bytes 합(disk_total_bytes 단일 산식, 양 OS).
     _dbytes = disk_total_bytes(raw.block_devices or [])
     _dgb = bytes_to_gb(_dbytes) if _dbytes else None
     return {
@@ -125,7 +120,7 @@ def _disk_resource(
             ),
             "evidence": _evidence_labels(cap.triggers),
             "confidence_notes": resource_confidence_notes(cap.confidence),
-            "current_gb": int(_dgb) if _dgb is not None else None,  # 현재 배정 — target 과 짝
+            "current_gb": int(_dgb) if _dgb is not None else None,
             "sizing_target_gb": cap.sizing_target,
             "recommendation": _sizeable_recommendation("disk_capacity", cap),
             "detail": cap.detail or None,
@@ -142,7 +137,7 @@ def _disk_resource(
 
 
 def _action(kind: right_sizing.ResourceKind, ra: right_sizing.ResourceAssessment, op: str) -> RsAction:
-    """조치 1건 — 자원·연산·목표 표시. 목표 수치는 자원 종류별 키(target_cores/_mb/_gb)로 직접 파싱 가능.
+    """조치 1건. 목표 수치는 자원 종류별 키(target_cores/_mb/_gb)로 직접 파싱 가능.
 
     사이징 축이 아닌 자원(network·disk_io)과 목표 미상은 그 키 자체가 없다 — 계약이 명시한 생략이다.
     자원별로 분기해 쓰는 이유는 변수 키 대입(`a[key] = v`)을 타입 검사기가 검증하지 못하기 때문이다.
@@ -169,20 +164,19 @@ def _recommendation(
 ) -> RsRecommendation:
     """종합 권고 구조 (파싱용 견고 포맷) — 이 하나만 보고 조치를 결정한다.
 
-    actions = 관측된 under 자원 전부(자원별 독립, 인과에 의한 억제 없음 — assessment API sizing.axes 와 동일
-    정책). suppressed 는 항상 빈 배열 — 기존 소비자가 키 존재를 가정할 수 있어 제거하지 않고 둔다. 인과 근거는 summary/root_cause 필드
-    (root_cause_display, "왜")가 전달 — actions 자체(무엇을)는 자원마다 독립 판정.
-    per-resource sizing_target 은 자원별 독립 목표 — actions 목록과 정합(둘 다 같은 독립 판정 소스).
+    actions = 관측된 under 자원 전부로 자원마다 독립 판정이고, 인과에 의한 억제를 하지 않는다(assessment API
+    sizing.axes 와 동일 정책). 인과 근거는 summary/root_cause 가 따로 전달한다.
+    suppressed 는 항상 빈 배열 — 기존 소비자가 키 존재를 가정할 수 있어 제거하지 않고 둔다.
     """
-    # disk_io io_bound = 크기로 안 풀리는 tier advisory — under/over 분류와 무관하게 orthogonal 노출
-    # (network congested 대칭, io_bound 는 사이징 축 아님). host 를 under 로 승격하지 않으므로 여기서 별도 append.
+    # disk_io io_bound 는 크기로 안 풀리는 tier advisory 라 host 를 under 로 승격하지 않는다(network congested
+    # 대칭) — 분류와 무관하게 orthogonal 노출해야 해서 여기서 별도 append.
     io_advisory = (
         [_action("disk_io", host.resources["disk_io"], "tier_up")]
         if host.resources["disk_io"].status == "io_bound"
         else []
     )
     if rec == "under_provisioned":
-        kinds = right_sizing.prescribed_under_kinds(host)  # 관측된 under 자원 전부(사이징 축만) — 억제 없음.
+        kinds = right_sizing.prescribed_under_kinds(host)
         actions = [_action(k, host.resources[k], "increase") for k in kinds] + io_advisory
         return {
             "summary": right_sizing.under_prescription(host),
@@ -198,7 +192,7 @@ def _recommendation(
             and right_sizing.downsize_prescribable(host.resources[k], stats)
             and host.resources[k].sizing_target is not None
         ]
-        # 다운사이즈 게이트 미충족이면 actions=[](분류는 과다지만 구체 처방 보류). io_bound advisory 는 별개로 붙임.
+        # 다운사이즈 게이트 미충족이면 actions=[] — 분류는 과다지만 구체 처방은 보류한다.
         return {
             "summary": right_sizing.recommend_action(rec, stats),
             "kind": "downsize",
@@ -217,8 +211,8 @@ def _recommendation(
 def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool = False) -> JsonObject:
     """ReportRowRaw + is_online -> right-sizing 판정 dict (자원 3축 사이징 + 네트워크 품질).
 
-    분류·근본원인·신뢰도·권고 전부 rollup_host 종합에서 파생 — 보고서/자원평가 화면과 값 정합(재계산 0).
-    hostname_ambiguous = 이 hostname 이 환경 내 2대+ 공유(안전 신호) — 소비 측이 hostname 단독 대신 public_id/순서쌍 사용 판단.
+    hostname_ambiguous = 이 hostname 을 환경 내 2대+ 가 공유한다는 안전 신호 — 소비 측이 hostname 단독 대신
+    public_id/순서쌍을 쓸지 판단하는 근거.
     """
     # 계약 API 는 net baseline 만 주입받는다 — disk 활동 축은 미관측(보고서 경로 전용).
     stats = build_resource_stats(raw, disk_baseline=None)
@@ -227,7 +221,7 @@ def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambigu
     net = host.resources["network"]
     return {
         "hostname": raw.hostname,
-        "hostname_ambiguous": hostname_ambiguous,  # 환경 내 동명 2대+ (안전 신호). true 면 public_id/순서쌍 권장.
+        "hostname_ambiguous": hostname_ambiguous,
         "public_id": raw.public_id,
         "primary_ip": primary_ip(raw),
         "os_family": raw.os_family,
@@ -235,7 +229,6 @@ def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambigu
         "classification": rec,
         "classification_label": right_sizing.RECOMMENDATION_LABEL_KO[rec],
         "root_cause": right_sizing.root_cause_display(host) or None,
-        # 종합 권고 — 견고한 구조(파싱 대상). actions=관측된 under 자원 전부(독립). per-resource 타겟과 정합.
         "recommendation": _recommendation(host, stats, rec),
         "confidence_notes": build_host_confidence_notes(host),
         "resources": {
@@ -247,7 +240,7 @@ def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambigu
             "status": net.status,
             "status_label": _STATUS_LABEL_KO.get(net.status, net.status),
             "congested": host.network_congested,
-            # 품질 신호 3종(사이징 아닌 별도 축) — 값·임계·초과. 하나라도 초과면 congested. monitoring 표준 임계.
+            # 사이징 아닌 별도 품질 축 — 셋 중 하나라도 임계를 넘으면 congested.
             "signals": {
                 "retransmit_pct": _net_signal(raw.net_retrans_pct, right_sizing.NET_RETRANS_PCT),
                 "drop_pct": _net_signal(raw.net_drop_pct, right_sizing.NET_DROP_PCT),

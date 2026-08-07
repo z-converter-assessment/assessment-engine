@@ -1,6 +1,5 @@
-"""환경 보고서 mapper — ReportSummary + 기존 helper 결과를 EnvironmentReportSummary 로 합성 (P2).
+"""환경 보고서 mapper — ReportSummary + helper 결과를 EnvironmentReportSummary 로 합성.
 
-server scope 보고서와 분리된 high-level 양식 — 분류 분포·OS 분포·top risk·view 별 요약.
 색·라벨 단일 진실: `assessment_engine.domain.right_sizing`.
 """
 
@@ -45,10 +44,9 @@ if TYPE_CHECKING:
     )
     from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
 
-# `_PROVISIONING_SEGMENT_DEFS` 단일 진실 = mappers/constants.py (#E8).
-# 본 모듈은 import alias 만 — 환경 보고서·대시보드 도넛·보고서 row 색 통일 (T13).
+# _PROVISIONING_SEGMENT_DEFS 를 alias 로만 두는 이유 = 환경 보고서·대시보드 도넛·보고서 row 색 통일 (T13).
 
-# view 별 Top N — customer/engineer 모두 전수 노출 (운영 검토 list, N 잘림 없음).
+# 둘 다 None — 운영 검토 list 라 상위 N 잘림 없이 전수 노출.
 _TOP_RISK_N_BY_VIEW: dict[str, int | None] = {
     "customer": None,
     "engineer": None,
@@ -56,20 +54,15 @@ _TOP_RISK_N_BY_VIEW: dict[str, int | None] = {
 
 
 def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCount]:
-    """rows.recommendation 카운트 → 자원 적정성 5 상태 ClassificationCount list (정석 1:1).
-
-    label·color 는 _PROVISIONING_SEGMENT_DEFS — 대시보드 도넛과 시각·의미 정합 (T13).
-    """
     counts = Counter(r.recommendation for r in rows)
     return [
         ClassificationCount(
             key=key,
-            # 표시 라벨 = right-sizing 한국어 분류명 단일 진실(RECOMMENDATION_LABEL_KO). 영어 enum 노출 금지·평행 어휘 금지.
             label=right_sizing.RECOMMENDATION_LABEL_KO[key],
             count=counts.get(key, 0),
-            # 색 = 게이지 테마 단색 통일 (분류 막대 — 라벨이 의미 전달). _PROVISIONING_SEGMENT_DEFS 다색 미사용.
+            # 분류 막대는 라벨이 의미를 전달 — 색은 게이지 단색 통일(segment 다색 미사용).
             color=UTIL_GAUGE_COLOR,
-            # desc = 조치 방향만 (label 분류명과 어휘 중복 회피). 조치 단일 진실 = right_sizing 도메인.
+            # segment 의 설명("자원 부족 — 사양 상향 검토")을 쓰지 않는다 — 앞 label 분류명과 어휘가 겹친다.
             description=right_sizing.RECOMMENDATION_ACTION_KO[key],
         )
         for key, _color, _description in _PROVISIONING_SEGMENT_DEFS
@@ -80,10 +73,7 @@ def _to_distribution_bars(
     counts: dict[str, int],
     label_map: dict[str, str] | None = None,
 ) -> list[DistributionBar]:
-    """카테고리 카운트 dict -> 구성 분포 list (count DESC, label ASC tie-break).
-
-    pct = 최대 count 대비 비율 — 표시는 label+대수만 쓰나 스냅샷 복원 호환 위해 필드 유지.
-    """
+    """pct(최대 count 대비 비율)는 표시에 안 쓰나 스냅샷 복원 호환 위해 채운다."""
     if not counts:
         return []
     items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
@@ -101,12 +91,12 @@ def _to_distribution_bars(
 def build_metric_trend(
     cpu_series: list[MetricSeries], mem_series: list[MetricSeries], disk_series: list[MetricSeries]
 ) -> list[JsonObject]:
-    """환경 CPU·메모리·디스크 시계열(MetricSeries) 세 개를 버킷 시각 기준 merge -> 차트 JS inline plain dict (P2).
+    """CPU·메모리·디스크 시계열을 버킷 시각 기준 merge -> 차트 JS plain dict.
 
-    at 은 isoformat str (tojson·JS Date 파싱). 표본 없는 축은 None (차트 gap).
+    at 은 isoformat str. 표본 없는 축은 None (차트 gap).
     """
 
-    # SQL avg 는 numeric(Decimal) 반환 — JSON 직렬화(tojson) 위해 float 변환 + 소수 1자리.
+    # SQL avg 가 Decimal 을 돌려준다 — tojson 이 직렬화하지 못한다.
     def _f(v: float | Decimal | None) -> float | None:
         return round(float(v), 1) if v is not None else None
 
@@ -122,12 +112,10 @@ def build_metric_trend(
 def build_saturation_trend(
     cpu_series: list[MetricSeries], mem_series: list[MetricSeries], disk_series: list[MetricSeries]
 ) -> list[JsonObject]:
-    """CPU 실행 큐·메모리 페이징·디스크 I/O 포화 이진(0/1) 시계열 세 개를 버킷 시각 기준 merge -> 차트 JS
+    """포화 이진(0/1) 시계열 세 개를 버킷 시각 기준 merge -> 차트 JS plain dict.
 
-    inline plain dict (P2). cpu.saturation/mem.paging_pressure/disk.saturation SQL 이 이미 0.0/1.0 로 판정 —
-    mapper 는 병합만(재계산 0).
-
-    at 은 isoformat str. 표본 없는 축은 None(차트 gap — 판정 불가와 미포화 구분).
+    포화 판정은 SQL(cpu.saturation·mem.paging_pressure·disk.saturation)이 이미 0.0/1.0 로 내린다 — 여기선 병합만.
+    at 은 isoformat str. 표본 없는 축은 None (판정 불가와 미포화 구분).
     """
     cpu_by = {s.collected_at: (float(s.value) if s.value is not None else None) for s in cpu_series}
     mem_by = {s.collected_at: (float(s.value) if s.value is not None else None) for s in mem_series}
@@ -140,31 +128,23 @@ def build_saturation_trend(
 
 
 def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalogGroup]:
-    """base.rows 를 카테고리 기준 집계 — 카테고리별 특징 서비스명·등장 서버 수 (P2).
+    """카테고리별 특징 서비스명·등장 서버 수 집계.
 
-    시그니처 워크로드만(SIGNATURE_CATEGORIES) — 서버 목록 뱃지·환경 개요 주요 워크로드 도넛과 동일 기준
-    (mappers/server.py `to_server_list_item` 참고). file·mail·infra·remote 등 유틸/관리 카테고리는 서버 성격
-    신호가 약해 제외 — "서비스 구성" 섹션이 "주요 워크로드"라는 같은 개념을 화면마다 다른 카테고리 집합으로
-    보여주는 화면 간 불일치를 방지.
-
-    카운트 소스 단일화 (환경 개요 뱃지·total_count·breakdown 전부 workload_category_counter 기준):
-    - total_count = 카테고리 등장 호스트 distinct (baseline OS·systemd 노이즈 제외, workload_categories).
-    - breakdown(services) = workload_services(baseline·unknown·systemd 제외, classify 일관) 서비스명별 호스트 수.
-    - listen-only(포트로만 탐지, 이름 미상 T15) 호스트는 "(포트 탐지)" 항목으로 별도 합산 -> total 과 정합.
-    single_instance(container 등, E7)은 런타임 스택을 호스트당 1로 병합. 전 카테고리 노출(count 0 포함, #E9).
+    시그니처 워크로드만 센다 — file·mail·infra 등 유틸 카테고리를 섞으면 "주요 워크로드"라는 같은 개념이
+    화면마다 다른 카테고리 집합이 된다(서버 목록 뱃지·환경 개요 도넛과 동일 기준).
     """
     multi: dict[str, dict[str, list[ServiceHost]]] = {}
     single_names: dict[str, set[str]] = {}
     single_hosts: dict[str, list[ServiceHost]] = {}
-    cat_hosts: dict[str, set[str]] = {}  # total_count 소스 (카테고리 등장 호스트 distinct)
-    named_hosts: dict[str, set[str]] = {}  # 이름 있는 특징 서비스를 가진 호스트 (listen-only 산출용)
+    cat_hosts: dict[str, set[str]] = {}
+    named_hosts: dict[str, set[str]] = {}
     for r in rows:
         host = ServiceHost(hostname=r.hostname, public_id=r.public_id)
         for cat in r.workload_categories:
             if cat not in SIGNATURE_CATEGORIES:
                 continue
             cat_hosts.setdefault(cat, set()).add(r.public_id)
-        # breakdown 은 workload_services(total 과 동일 소스) — workload_groups(baseline 포함) 대신 사용해 노이즈 제거.
+        # workload_groups 는 baseline OS·systemd 를 포함해 노이즈가 섞인다 — total 과 같은 소스로 센다.
         for cat, names in r.workload_services.items():
             if cat not in SIGNATURE_CATEGORIES or not names:
                 continue
@@ -182,7 +162,7 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
     for cat, hosts in single_hosts.items():
         label = ", ".join(sorted(single_names.get(cat, set()))) or cat
         groups[cat] = [ServiceNameCount(name=label, count=len(hosts), hosts=hosts)]
-    # listen-only 보충 — 카테고리엔 있으나(total) 이름 있는 서비스는 없는 호스트를 "(포트 탐지)"로 합산해 total 정합.
+    # 포트로만 탐지돼 이름을 모르는 호스트(T15)를 별도 항목으로 합산 — breakdown 합이 total 과 맞는다.
     for cat, all_hosts in cat_hosts.items():
         listen_only = len(all_hosts - named_hosts.get(cat, set()))
         if listen_only:
@@ -194,10 +174,9 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
 
 
 def _count_os(details: list[ServerDetail]) -> list[OsCount]:
-    """ServerDetail 를 family(Linux/Windows) / distro(os_id) / version(os_version) 3단 그룹 카운트.
+    """family/distro/version 3단 그룹 카운트 — 커널 버전은 그룹 키에서 빼고 distinct 값만 부기.
 
-    정렬 = family -> distro -> version (계층 묶임 — 같은 배포판 버전이 인접). 미상은 distro "unknown"·version "—".
-    커널 버전은 그룹을 더 쪼개지 않고(패치레벨 차이로 행이 과도히 분열되는 것 방지) distinct 값을 부기(콤마 조인).
+    커널까지 키에 넣으면 패치레벨 차이로 행이 과도히 분열된다.
     """
     counts: Counter[tuple[str, str, str]] = Counter()
     kernels: dict[tuple[str, str, str], set[str]] = {}
@@ -224,12 +203,12 @@ def _count_os(details: list[ServerDetail]) -> list[OsCount]:
 
 
 def _build_env_metrics(overview: EnvironmentOverview) -> list[JsonObject]:
-    """환경 현황 메트릭 6축 (P2) — 이용률 3 + 포화 3(CPU·메모리·디스크 I/O). 대시보드 '자원 이용·포화' 도넛의 부분집합(대시보드는 포화 4로 네트워크 혼잡 포함, 보고서는 앞 3축만 — 네트워크는 rate 기준선 없어 제외).
+    """환경 현황 메트릭 6축 — 이용률 3 + 포화 3(CPU·메모리·디스크 I/O).
 
-    이용률(CPU/메모리/디스크) = get_environment_utilization capacity-weighted avg(+p95). 포화(CPU 포화·메모리 압박·
-    디스크 I/O 포화) = 자원 적정성 창 포화 호스트 수 / 표본(overview.saturation_donuts, 대시보드와 동일 판정).
-    절대 처리량 총량(네트워크·디스크 I/O rate)은 기준선 없어 건강 판단 어려워 제외 — 활용·포화가 환경 건강 정석.
-    plain dict list — 스냅샷 직렬화 시 trend 와 동일하게 복원 불요. 값 부재는 "—" placeholder (#E9).
+    네트워크·디스크 I/O 의 절대 rate 는 뺀다 — 기준선이 없어 값만으로 건강을 판단할 수 없다
+    (대시보드 포화 도넛은 네트워크 혼잡까지 4축).
+
+    값이 이미 표시 문자열인 plain dict 라 스냅샷 역직렬화가 되돌릴 것이 없다.
     """
     util = {b.label: b.pct for b in overview.utilization}
     util_p95 = {b.label: b.pct for b in overview.utilization_p95}
@@ -255,13 +234,6 @@ def _build_env_metrics(overview: EnvironmentOverview) -> list[JsonObject]:
 
 
 def _select_top_risks(rows: list[ReportRowItem], view: ReportView) -> list[ReportRowItem]:
-    """view 별 위험 list 선정.
-
-    customer: 위험(risk_level='high')만 필터 (정상·주의 제외). 즉시 액션 필요한 호스트 자체.
-    engineer: 전체를 위험도 우선순위 정렬 → 상위 10 (운영 액션 list).
-    동일 우선순위는 cpu_p95 DESC tie-break.
-    """
-
     def _key(r: ReportRowItem) -> tuple[int, float]:
         return (
             RISK_LEVEL_ORDER.get(r.risk_level, 99),
@@ -282,12 +254,7 @@ def _extract_attention_hosts(
     attention: AttentionSignals,
     rows: list[ReportRowItem],
 ) -> list[AttentionHostItem]:
-    """운영 신호 3 카테고리 (gap / os_eol / agent_unstable) 를 호스트 기준 unified 합성.
-
-    동일 호스트가 여러 신호 발화 가능 — hostname 기준 merge.
-    rows 는 os_display 보충용 (AttentionRow 에 os_display 없음 — 별도 매칭).
-    """
-    # hostname → os_display 매핑 (rows 에서 1회 build, AttentionRow 에 OS 없어 보충)
+    # AttentionRow 에 OS 가 없어 rows 에서 보충한다.
     os_by_host: dict[str, str] = {r.hostname: r.os_display for r in rows}
 
     by_host: dict[str, JsonObject] = {}
@@ -334,13 +301,12 @@ def _extract_attention_hosts(
                 active_count=active,
             )
         )
-    # 활성 신호 많은 순 → hostname
     out.sort(key=lambda h: (-h.active_count, h.hostname))
     return out
 
 
 def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImminentItem]:
-    """디스크 capacity 임박 호스트 추출 — 분류(assess_disk_capacity)와 동일 구동 마운트 runway < 30일 (engineer 보고서)."""
+    """디스크 capacity 임박 호스트 — 분류(assess_disk_capacity)와 같은 구동 마운트 runway 기준."""
     out: list[CapacityImminentItem] = []
     for r in rows:
         if r.disk_capacity_runway_days is None:
@@ -358,21 +324,20 @@ def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImmine
                 used_pct=r.worst_mount_used_pct,
             )
         )
-    # 임박 (작은 days) 우선
     out.sort(key=lambda h: (h.days_until_full, h.hostname))
     return out
 
 
-# 자원 부족 원인 표시 순서 — constants._CAUSE_LABEL_BY_TRIGGER 삽입순 파생(단일 진실, 병렬 리터럴 목록 제거).
+# 표시 순서 = _CAUSE_LABEL_BY_TRIGGER 삽입순 파생 — 병렬 리터럴 목록을 두면 둘이 갈라진다.
 _UNDER_CAUSE_ORDER = tuple(_CAUSE_LABEL_BY_TRIGGER.values())
 
 
 def _under_cause_summary(under_hosts: list[CapacityWarningItem]) -> str:
-    """자원 부족 호스트들의 발화 원인을 집계 -> "메모리 포화 2대 · CPU 이용률 1대".
+    """발화 원인 집계 라벨 — "메모리 포화 2대 · CPU 이용률 1대".
 
-    원인 라벨은 CapacityWarningItem.active_causes(os-neutral 축 이름, attention._CAUSE_LABEL_BY_TRIGGER 단일 진실)
-    재사용 — Windows paging/run queue 포화도 Linux swap/load 로 오라벨 없이 정확히 집계(P2). 한 호스트가 복수
-    원인이면 각 원인에 1대씩 누적 — 합이 자원 부족 대수보다 클 수 있음(원인 가시화 목적).
+    라벨은 active_causes 를 그대로 센다 — 여기서 다시 만들면 Windows 의 paging·run queue 포화가
+    Linux swap·load 이름으로 나간다.
+    한 호스트가 복수 원인이면 각 원인에 1대씩 누적한다 — 합이 자원 부족 대수보다 클 수 있다.
     """
     counts: dict[str, int] = {}
     for h in under_hosts:
@@ -395,8 +360,7 @@ def _env_summary_bullets(
     optimal = classified.get("optimal", 0)
     insufficient = classified.get("insufficient_data", 0)
 
-    # 분류 어휘 RECOMMENDATION_LABEL_KO 단일 진실(분포 막대·표와 동일 어휘). 운영 신호는 OS 지원 종료만(C1) —
-    # gap/agent_unstable 전역 신호는 window 의미 불일치로 보고서·요약 미표시.
+    # 운영 신호는 OS 지원 종료만 — gap·agent_unstable 은 전역 신호라 보고서 윈도우와 의미가 어긋난다.
     ko = right_sizing.RECOMMENDATION_LABEL_KO
     resource = (
         f"vCPU {overview.total_vcpus} | 메모리 {overview.total_memory_gb:.1f} GB | 디스크 {overview.total_disk_gb} GB"
@@ -412,7 +376,7 @@ def _env_summary_bullets(
         f"온라인 {overview.online}대 | 오프라인 {overview.offline}대",
         dist_line,
     ]
-    # 주요 현상 강조 — 조치 지시 없이 현상·진단만 (분류명 그대로).
+    # 현상·진단만 — 조치 지시는 넣지 않는다.
     efficiency = over + idle
     if under:
         cause = _under_cause_summary(under_hosts)
@@ -441,39 +405,30 @@ def to_environment_report(
     action: ActionTargets,
     trend: list[JsonObject] | None = None,
 ) -> EnvironmentReportSummary:
-    """ReportSummary + EnvironmentOverview + AttentionSignals → EnvironmentReportSummary 합성.
-
-    under_provisioned_hosts: 자원 부족 호스트의 trigger 뱃지 5종 list (caller 가 raw 에서 추출).
-    None 이면 EnvironmentOverview.under_provisioned_hosts 재사용.
-    """
+    """ReportSummary + EnvironmentOverview + AttentionSignals -> EnvironmentReportSummary 합성."""
     classification_dist = _count_classifications(base.rows)
-    # P3 회피 precompute — segment 별 pct (mapper 단일 산식).
+    # 템플릿은 비율을 계산하지 못한다(P3) — 파생값은 여기서 채운다.
     classified_total = sum(c.count for c in classification_dist)
     for c in classification_dist:
         c.pct = round((c.count / classified_total * 100), 1) if classified_total else 0.0
     os_dist = _count_os(details)
-    # 구성 계층 (P-A) — overview 가 이미 집계한 OS family·워크로드 분포를 막대 ViewModel 로 precompute.
     os_family_dist = _to_distribution_bars(overview.os_distribution, OS_FAMILY_LABEL_KO)
-    # Linux/Windows 는 0대여도 항상 노출 (#E9 발화 — "윈도우 0대" 표기). count DESC 뒤에 0대 보강.
+    # Linux/Windows 는 0대여도 노출 — 없는 축을 숨기면 화면만으로 기능 범위를 알 수 없다(#E9).
     _os_present = {b.label for b in os_family_dist}
     for _key in ("linux", "windows"):
         if OS_FAMILY_LABEL_KO[_key] not in _os_present:
             os_family_dist.append(DistributionBar(label=OS_FAMILY_LABEL_KO[_key], count=0, pct=0.0))
-    # OS 지원 종료 OS별 집계 (customer 나열) — os_eol_warnings.meta_text="{os} · EOL {date}" 에서 os 추출, 대수 DESC.
+    # meta_text 는 "{os} · EOL {date}" 형식 — 앞 segment 가 OS 이름이다.
     _eol_os = Counter(w.meta_text.split(" · ", 1)[0] for w in attention.os_eol_warnings)
     os_eol_breakdown_label = " · ".join(f"{os} {n}대" for os, n in _eol_os.most_common())
     top_risks = _select_top_risks(base.rows, view)
     env_metrics = _build_env_metrics(overview)
-    # 자원 부족 원인 집계 bullet 은 통합 표에서 under 분류 행만 필터.
     under_hosts = [h for h in action.hosts if h.classification == "under_provisioned"]
     summary = _env_summary_bullets(overview, attention, classification_dist, under_hosts)
-    # engineer 보고서 전용 — 운영 신호 호스트 통합 / capacity 임박 / 표본 부족.
-    # customer 도 동일 헬퍼 호출 (로직 단일, 미사용 필드는 template 분기로 노출 안 함).
+    # engineer 전용 필드지만 customer 도 같은 헬퍼를 탄다 — view 분기는 템플릿이 갖는다.
     attention_hosts = _extract_attention_hosts(attention, base.rows)
     capacity_imminent = _extract_capacity_imminent(base.rows)
-    # 에이전트 버전 목록 (중복 제거·정렬, 미상 포함) — 관리 현황. 어느 호스트인지는 미표시.
     agent_versions_label = ", ".join(sorted({(d.agent_version or "미상") for d in details}))
-    # 네트워크 토폴로지 — 발행 시점 정적 스냅샷 (대시보드와 동일 mapper 단일 진실).
     topology = build_network_topology(details)
     return EnvironmentReportSummary(
         view=view,
@@ -494,7 +449,6 @@ def to_environment_report(
         service_catalog=_aggregate_service_catalog(base.rows),
         attention_hosts=attention_hosts,
         capacity_imminent=capacity_imminent,
-        # 템플릿 P3 회피 — 카운트 mapper precompute (#E1 P3).
         top_risks_count=len(top_risks),
         attention_hosts_count=len(attention_hosts),
         capacity_imminent_count=len(capacity_imminent),

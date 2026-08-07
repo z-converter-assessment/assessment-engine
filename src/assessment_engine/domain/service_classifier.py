@@ -1,17 +1,8 @@
-"""서비스 카테고리 분류·포트 매핑 — 단일 카탈로그 (E7).
+"""서비스 카테고리 분류·포트 매핑 — `SERVICE_CATALOG` 단일 카탈로그.
 
-consumer(ingest 사전계산)와 web(표시·필터)이 같은 카탈로그를 쓰고, web 역의존이 0 이라야 한다.
-
-`SERVICE_CATALOG` 가 카테고리별 분류 규약의 단일 진실. 분류·포트·드롭다운·뱃지 CSS 가
-모두 본 카탈로그에서 파생 (import 시점 1회). 서비스 추가 = 카탈로그 1곳만 수정.
-
-분류는 다중 신호 — unit 이름 / 프로세스 comm / listen 포트. 우선순위는 정밀도 순
-(name -> comm -> port): 소프트웨어 정체성(name/comm)이 프로토콜(port)보다 카테고리
-정밀도가 높다 (예: haproxy 가 5432 를 프록시해도 web 이지 db 가 아님). port 는
-name/comm 이 무정보일 때(특히 Windows SCM 이름 변형) 의 fallback.
-
-Windows SCM 이름은 정규화 없이 들어와(MSSQLSERVER / MSSQL$INSTANCE / W3SVC 등) 이름
-변형이 크다 -> name_keywords 에 SCM 이름·exe basename substring 을 함께 등록해 흡수.
+consumer(ingest 사전계산)와 web(표시·필터)이 같은 카탈로그를 쓰므로 web 역의존이 0 이라야 한다.
+서비스 추가는 카탈로그 1곳만 고친다 — 분류·포트·드롭다운·뱃지 CSS 가 전부 여기서 파생한다.
+다중 신호 우선순위·카테고리 경계 규약은 docs/reference/web/services.md.
 """
 
 from dataclasses import dataclass
@@ -23,11 +14,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class MatchedPort:
-    """서비스 유닛에 매핑된 listen 포트 1개. `matched_ports`/`detect_listen_categories` 결과 단위.
-
-    분류 도메인 개념이라 본 모듈(domain)에 정의 — web view_model(`ServiceItem.ports`)이 re-export 소비.
-    consumer(ingest)·web 양쪽이 web 역의존 없이 분류 단일 진실을 import (right_sizing.py 도메인 패턴 정합).
-    """
+    """서비스 유닛에 매핑된 listen 포트 1개."""
 
     proto: str
     port: int
@@ -37,23 +24,21 @@ class MatchedPort:
 class CategoryDef:
     """서비스 카테고리 1개의 분류 규약.
 
-    name_keywords: unit 이름·프로세스 comm 양쪽에 적용하는 substring 키워드.
-                   (Linux unit + Windows SCM 이름 + exe basename 통합)
-    port_names: normalized 서비스명 -> well-known 포트. comm 부재(비루트 agent) 시
-                포트 표시(`matched_ports`)·port 신호 분류의 폴백.
-    badge_class: 표시 CSS 클래스 (templating filter 가 파생 import).
+    name_keywords 는 unit 이름과 프로세스 comm 양쪽에 적용한다 (Linux unit·Windows SCM 이름·exe basename 통합).
+    Windows SCM 이름은 정규화 없이 들어와(MSSQLSERVER / MSSQL$INSTANCE / W3SVC) 변형이 커서, SCM 이름과 exe
+    basename 을 함께 등록해 흡수한다.
+    port_names 는 comm 이 없는(비루트 agent) 구간의 폴백 — 키는 normalized 서비스명(소문자·`.service` 제거)이라
+    형태가 다른 키는 조회에 걸리지 않는다.
     """
 
     key: str
     name_keywords: tuple[str, ...]
     port_names: dict[str, tuple[int, ...]]
     badge_class: str
-    # 참고자료 표시용 한국어 — 카테고리 뜻(label_ko) + 대표 제품·범위(desc_ko). 분류 로직과 무관, 표시 전용.
-    # desc_ko 의 제품명은 큐레이션된 대표 예시(읽기용)일 뿐 매칭 진실은 name_keywords (exhaustive) 단일.
+    # 표시 전용(분류 무관). desc_ko 제품명은 큐레이션된 예시일 뿐 매칭 진실은 name_keywords 단독.
     label_ko: str
     desc_ko: str
-    # 런타임 스택 카테고리 — 구성 요소가 여러 서비스로 떠도(docker+containerd, kubelet+containerd)
-    # 1개 워크로드다. 카운트를 인스턴스 합이 아니라 호스트당 1로 집계 (뱃지·role·환경분포 일관).
+    # 런타임 스택(docker+containerd 등)은 여러 서비스로 떠도 1 워크로드 — 인스턴스 합이 아니라 호스트당 1로 집계.
     single_instance: bool = False
 
 
@@ -71,11 +56,11 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "haproxy",
             "w3svc",  # IIS (Windows SCM 서비스명)
             "iis",
-            "openresty",  # nginx 기반 LuaJIT 플랫폼
-            "tomcat",  # Java 서블릿 컨테이너
+            "openresty",
+            "tomcat",
             "jetty",
-            "php-fpm",  # PHP FastCGI Process Manager
-            "gunicorn",  # Python WSGI
+            "php-fpm",
+            "gunicorn",
             "uwsgi",
         ),
         port_names={
@@ -96,7 +81,7 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
         key="db",
         name_keywords=(
             "postgresql",
-            "postgres",  # comm basename (PostgreSQL 프로세스명)
+            "postgres",  # comm basename
             "mariadb",
             "mysqld",
             "mysql",
@@ -106,11 +91,11 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "influxdb",
             "sqlservr",  # SQL Server exe basename (Windows)
             "mssql",  # SQL Server SCM 서비스명 (MSSQLSERVER / MSSQL$INSTANCE)
-            "oracle",  # Oracle Database (tnslsnr/ora_*)
-            "elasticsearch",  # 검색·분석 데이터 저장소
-            "opensearch",  # Elasticsearch fork
-            "clickhouse",  # 컬럼 지향 OLAP
-            "db2",  # IBM Db2
+            "oracle",
+            "elasticsearch",
+            "opensearch",
+            "clickhouse",
+            "db2",
         ),
         port_names={
             "postgresql": (5432,),
@@ -139,9 +124,9 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "redis",
             "memcached",
             "varnish",
-            "valkey",  # Redis fork (Linux Foundation)
-            "keydb",  # 멀티스레드 Redis fork
-            "dragonfly",  # Redis 호환 in-memory store
+            "valkey",
+            "keydb",
+            "dragonfly",
         ),
         port_names={
             "redis-server": (6379,),
@@ -163,11 +148,11 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "kafka",
             "activemq",
             "nats",
-            "mosquitto",  # MQTT broker (가장 가벼운 mq — EPEL 표준 패키지)
-            "pulsar",  # Apache Pulsar
-            "redpanda",  # Kafka 호환 (9092 — kafka 포트 공유)
-            "emqx",  # MQTT broker (1883 — mosquitto 포트 공유)
-            "artemis",  # ActiveMQ Artemis (61616 공유)
+            "mosquitto",
+            "pulsar",
+            "redpanda",  # kafka 와 9092 공유
+            "emqx",
+            "artemis",  # activemq 와 61616 공유
         ),
         port_names={
             "rabbitmq-server": (5672, 15672),
@@ -189,16 +174,16 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "docker",
             "containerd",
             "kubelet",
-            "podman",  # rootless OCI 런타임
-            "crio",  # CRI-O (Kubernetes 런타임)
-            "k3s",  # 경량 Kubernetes
+            "podman",
+            "crio",
+            "k3s",
             "k0s",
         ),
         port_names={},  # 외부 listen 포트 표준 없음 — 이름 신호로만 식별
         badge_class="badge-cat-container",
         label_ko="컨테이너 런타임",
         desc_ko="Docker·containerd·Kubernetes(kubelet/k3s)·Podman 등 컨테이너 런타임 스택 (호스트당 1로 집계)",
-        single_instance=True,  # docker+containerd 등은 1 런타임 스택 — 호스트당 1로 카운트
+        single_instance=True,
     ),
     CategoryDef(
         key="monitor",
@@ -208,15 +193,15 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "datadog",
             "node_exporter",
             "zabbix",
-            "telegraf",  # InfluxData 메트릭 agent
+            "telegraf",
             "collectd",
-            "fluentd",  # 로그 수집
+            "fluentd",
             "fluent-bit",
-            "filebeat",  # Elastic Beats
+            "filebeat",
             "victoriametrics",
-            "loki",  # Grafana 로그 집계
+            "loki",
             "netdata",
-            "alertmanager",  # Prometheus Alertmanager
+            "alertmanager",
         ),
         port_names={
             "prometheus": (9090,),
@@ -237,14 +222,14 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "sshd",
             "ssh",
             "openssh",
-            "rdp",  # Windows 원격 데스크톱
-            "termservice",  # Windows Terminal Services (RDP SCM 서비스명)
+            "rdp",
+            "termservice",  # RDP SCM 서비스명 (Windows Terminal Services)
             "umrdpservice",
-            "winrm",  # Windows 원격 관리 (WS-Management)
+            "winrm",
             "wsmprovhost",
             "tigervnc",
             "x11vnc",
-            "vino",  # GNOME VNC
+            "vino",
             "vncserver",
             "teamviewer",
             "anydesk",
@@ -278,7 +263,7 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "pure-ftpd",
             "glusterd",
             "ceph-osd",
-            "minio",  # 오브젝트 스토리지
+            "minio",
             "iscsid",
             "tgtd",  # iSCSI 타깃
         ),
@@ -370,11 +355,10 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
 # (keyword, category) 순서 = 카탈로그 등장 순 = 첫 매칭 우선.
 _NAME_INDEX: tuple[tuple[str, str], ...] = tuple((kw, d.key) for d in SERVICE_CATALOG for kw in d.name_keywords)
 
-# normalized 서비스명 -> well-known 포트.
 _NAME_PORTS: dict[str, tuple[int, ...]] = {name: ports for d in SERVICE_CATALOG for name, ports in d.port_names.items()}
 
 
-# port -> category (port 신호 분류). cross-category 충돌 시 카탈로그 순서 우선.
+# cross-category 포트 충돌은 카탈로그 순서가 이긴다.
 def _build_port_index() -> dict[int, str]:
     index: dict[int, str] = {}
     for d in SERVICE_CATALOG:
@@ -386,18 +370,13 @@ def _build_port_index() -> dict[int, str]:
 
 _PORT_INDEX: dict[int, str] = _build_port_index()
 
-# list 페이지 dropdown option.
 SERVICE_CATEGORIES: tuple[str, ...] = tuple(d.key for d in SERVICE_CATALOG)
 
-# 시그니처 워크로드 — 환경 성격(아키텍처)을 규정하는 티어. file·mail·infra(chronyd/sssd)·remote(sshd)는
-# 어디에나 있는 유틸/관리 서비스라 "이 환경이 어떤 느낌인가" 신호가 약해 제외. 환경 개요 "주요 워크로드"
-# 표시 필터 전용 — 목록·상세·필터·보고서는 전체 워크로드(비 baseline) 유지.
+# 시그니처 워크로드 — 환경 성격을 규정하는 티어만. 어디에나 있는 유틸/관리(file·mail·infra·remote)는 구별력이 0.
 SIGNATURE_CATEGORIES: tuple[str, ...] = ("web", "db", "cache", "mq", "container", "monitor")
 
-# 런타임 스택 카테고리 — 카운트를 호스트당 1로 (인스턴스 합 금지). 현재 container 만.
 SINGLE_INSTANCE_CATEGORIES: frozenset[str] = frozenset(d.key for d in SERVICE_CATALOG if d.single_instance)
 
-# 뱃지 CSS — templating.filters 가 파생 import (unknown 포함).
 BADGE_CLASS_BY_CATEGORY: dict[str, str] = {d.key: d.badge_class for d in SERVICE_CATALOG}
 BADGE_CLASS_BY_CATEGORY["unknown"] = "badge-cat-unknown"
 
@@ -406,7 +385,6 @@ BADGE_CLASS_BY_CATEGORY["unknown"] = "badge-cat-unknown"
 
 
 def _match_keyword(text: str) -> str | None:
-    """name/comm substring 을 카탈로그 키워드와 매칭 — 첫 매칭 카테고리 또는 None."""
     if not text:
         return None
     for keyword, category in _NAME_INDEX:
@@ -416,16 +394,12 @@ def _match_keyword(text: str) -> str | None:
 
 
 def _attributed_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = None) -> list[JsonObject]:
-    """unit 에 귀속된 listen_port dict 목록.
+    """unit 에 귀속된 listen_port dict 목록 — pid 로 정확 join, pid 부재 시 comm~name -> well-known 포트 폴백.
 
-    pid 제공 시(agent 가 services 에 pid 발행) 동일 pid 소켓을 정확 join — services<->listen_ports 확정 귀속.
-    pid 부재(비-systemd EL6·Windows NT5·소켓 액티베이션)면 comm~name substring -> name well-known 포트 순 fallback.
-    동일 (proto, port) 중복 제거. comm/port 신호 분류·`matched_ports` 공용 진입점.
-
-    comm=="systemd" 제외: 소켓 액티베이션 리스너(pid null)의 보유자는 systemd 매니저라 comm="systemd" 인데,
-    generic "systemd" 가 양방향 substring 으로 모든 systemd-*.socket 유닛명에 오매칭돼 매니저가 든 22(ssh) 등
-    타 소켓을 흡입 -> 최저 well-known 포트로 오분류(예: 전 systemd 소켓 remote)되는 누출을 차단. 매니저 placeholder
-    는 특정 유닛 소유 증거가 아니므로 귀속 대상 아님. systemd-resolved 등 자기 comm 데몬은 정상 매칭(영향 0).
+    comm=="systemd" 는 귀속에서 뺀다. 소켓 액티베이션 리스너(pid null)의 보유자는 systemd 매니저라 comm 이
+    "systemd" 인데, 이 generic 이름이 양방향 substring 으로 모든 systemd-*.socket 유닛명에 오매칭돼 매니저가 든
+    22(ssh) 등 타 소켓까지 흡입한다(최저 well-known 포트로 오분류). 매니저 placeholder 는 특정 유닛 소유 증거가
+    아니다. systemd-resolved 등 자기 comm 을 가진 데몬은 정상 매칭된다.
     """
     result: list[JsonObject] = []
     seen: set[tuple[str, int]] = set()
@@ -450,7 +424,6 @@ def _attributed_ports(unit: str, listen_ports: list[JsonObject], pid: int | None
         if key in seen:
             continue
         comm = (p.get("comm") or "").lower()
-        # comm=="systemd"(소켓 액티베이션 매니저 placeholder)는 귀속 제외 — substring 오매칭 누출 차단(docstring).
         comm_match = bool(comm) and comm != "systemd" and (name in comm or comm in name)
         if comm_match or port in well_known:
             result.append(p)
@@ -460,25 +433,24 @@ def _attributed_ports(unit: str, listen_ports: list[JsonObject], pid: int | None
 
 
 def classify_service(unit: str, listen_ports: list[JsonObject] | None = None, pid: int | None = None) -> str:
-    """서비스 unit -> 카테고리. 다중 신호 (name -> comm -> port), 미매칭 시 "unknown".
+    """서비스 unit -> 카테고리. 다중 신호(name -> comm -> port), 미매칭 시 "unknown".
 
-    listen_ports 미제공(목록 화면 등 경량 SELECT) 시 name 신호만 사용. pid 제공 시 services<->listen_ports
-    정확 join 으로 comm/port 신호 귀속 (pid 부재면 comm~name 휴리스틱).
+    순서는 정밀도 순이다 — 소프트웨어 정체성(name/comm)이 프로토콜(port)보다 정밀해서, haproxy 가 5432 를
+    프록시해도 db 가 아니라 web 이다.
+
+    listen_ports 미제공(목록 화면 등 경량 SELECT) 시 name 신호만 쓴다.
     """
     name = unit.lower().removesuffix(".service")
-    # 1. unit 이름 키워드 (최고 정밀 — 소프트웨어 정체성)
     cat = _match_keyword(name)
     if cat is not None:
         return cat
 
     if listen_ports:
         attributed = _attributed_ports(unit, listen_ports, pid)
-        # 2. comm 키워드 (이름 미스매치 흡수 — Windows SCM 이름과 exe basename 불일치 등)
         for p in attributed:
             cat = _match_keyword((p.get("comm") or "").lower())
             if cat is not None:
                 return cat
-        # 3. port (프로토콜 사실관계 — 1433 -> db)
         for p in attributed:
             cat = _PORT_INDEX.get(p.get("port", 0))
             if cat is not None:
@@ -488,15 +460,12 @@ def classify_service(unit: str, listen_ports: list[JsonObject] | None = None, pi
 
 
 def matched_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = None) -> list[MatchedPort]:
-    """서비스 유닛에 연관된 listen 포트 — 단일 규칙(전 화면 공유).
+    """서비스 유닛에 연관된 listen 포트 — 전 화면 공유 단일 규칙.
 
-    포트 귀속 규칙:
-    - 포트에 소유 pid 가 있으면 그 pid 유닛에만 귀속(정확). 다른 유닛엔 안 붙임 — .service/.socket·동일 comm 유닛
-      간 이중 귀속 차단(예: 22 는 ssh.service(pid) 만, sshd-unix-local.socket/sshd-vsock.socket 엔 미귀속).
-    - 포트에 pid 가 없으면(소켓 액티베이션 pid null·비-systemd) 소유 프로세스 부재라, 유닛 카테고리(classify)로
-      매핑되는 포트(_PORT_INDEX 동일 카테고리)만 fallback 귀속 — ssh.socket(remote)->22, systemd-resolved(infra)->53.
-      카테고리 없는(unknown) 유닛엔 미귀속(68 DHCP 등 OS 내부 포트 노이즈 제거).
-    동일 포트라도 proto(tcp/tcp6/udp) 다르면 별도 항목.
+    포트에 소유 pid 가 있으면 그 pid 유닛에만 귀속한다 — .service/.socket·동일 comm 유닛 간 이중 귀속 차단
+    (22 는 ssh.service 에만, sshd-unix-local.socket 엔 안 붙는다). pid 가 없는 포트(소켓 액티베이션·비-systemd)는
+    소유 프로세스가 없으므로 유닛 카테고리(classify)와 같은 카테고리의 포트만 폴백 귀속하고, 카테고리 없는
+    (unknown) 유닛엔 안 붙인다 — 68 DHCP 등 OS 내부 포트 노이즈 제거. 동일 포트라도 proto 가 다르면 별도 항목.
     """
     seen: set[tuple[str, int]] = set()
     result: list[MatchedPort] = []
@@ -507,12 +476,10 @@ def matched_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = N
         if key in seen:
             continue
         if p_pid is not None:
-            # 소유 프로세스 있는 포트 — 그 pid 유닛에만
             if pid is not None and p_pid == pid:
                 result.append(MatchedPort(proto=proto, port=port))
                 seen.add(key)
             continue
-        # pid 없는 포트(소유 프로세스 부재) — 카테고리-일관 fallback
         if cat is None:
             cat = classify_service(unit, listen_ports)
         if cat != "unknown" and _PORT_INDEX.get(port) == cat:
@@ -522,14 +489,10 @@ def matched_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = N
 
 
 def detect_listen_categories(listen_ports: list[JsonObject]) -> dict[str, list[MatchedPort]]:
-    """listen 소켓을 카테고리로 직접 분류 — services unit 과 무관 (T15 보완).
+    """listen 소켓을 services unit 과 무관하게 직접 분류 — 카테고리 -> 근거가 된 포트 목록.
 
-    per-unit 분류(`classify_service`)가 pid join 으로 정확해진 뒤에도, 어떤 service unit 에도 속하지 않는
-    listen 소켓(비-service 프로세스)은 여전히 이 경로가 comm(exe basename)·port 로 직접 잡는다 —
-    "이 호스트가 무슨 워크로드를 listen 하나"의 host union 보완.
-
-    소켓별 우선순위: comm 키워드 -> port 인덱스. 카테고리 -> 그 근거가 된 포트 목록 반환.
-    동일 (proto, port) 중복 제거. 워크로드 카테고리(카탈로그 등재 comm·port)만 잡힘 — ssh 등 제외.
+    어떤 service unit 에도 속하지 않는 소켓(비-service 프로세스)을 comm(exe basename) -> port 순으로 잡아
+    호스트 워크로드 union 을 보완한다 (tradeoffs T15). 카탈로그에 등재된 comm·port 만 잡힌다.
     """
     out: dict[str, list[MatchedPort]] = {}
     seen: set[tuple[str, int]] = set()
@@ -549,9 +512,8 @@ def detect_listen_categories(listen_ports: list[JsonObject]) -> dict[str, list[M
 
 
 # --- baseline(OS 기본·관리) 서비스 — 특징 워크로드 아님 (목록·환경분포 제외) --------------
-# 원격 접속(전 호스트 관리 표면) + OS 기본 인프라 클라이언트(NTP·DNS resolver·RPC·auth 클라이언트)는 거의 모든
-# 호스트에 있어 구별력이 0 — 인식(상세 live classify)은 유지하되 "이 서버의 특징" 신호로는 안 친다.
-# compute_service_categories(저장값 = 목록·환경분포·필터 소스)·workload_category_counter 에서 제외.
+# 원격 접속·OS 기본 인프라 클라이언트는 거의 모든 호스트에 있어 구별력이 0. 인식(상세 live classify)은 유지하고
+# "이 서버의 특징" 집계에서만 뺀다.
 _BASELINE_KEYWORDS: frozenset[str] = frozenset(
     {
         "sshd",
@@ -576,8 +538,8 @@ _BASELINE_KEYWORDS: frozenset[str] = frozenset(
         "gssproxy",
         "sssd",
         "winbind",
-        # systemd 자체 유닛(journald·coredump·udevd·networkd 등)은 OS 제공물 — 특징 워크로드 아님. 포트 문맥
-        # classify 가 이들을 remote/file/infra 로 오귀속하는 노이즈 차단(워크로드 유닛엔 "systemd-" 접두 없음).
+        # systemd 자체 유닛 — 포트 문맥 classify 가 remote/file/infra 로 오귀속하는 노이즈 차단
+        # (워크로드 유닛엔 "systemd-" 접두가 없다).
         "systemd-",
     }
 )
@@ -585,22 +547,21 @@ _BASELINE_PORTS: frozenset[int] = frozenset({22, 23, 3389, 5985, 5986, 5900, 590
 
 
 def is_baseline_service(name: str | None) -> bool:
-    """OS 기본·관리 서비스(원격 접속·NTP·RPC·auth 클라이언트) 여부 — 특징 워크로드 필터. 상세는 미적용(전부 인식)."""
+    """OS 기본·관리 서비스(원격 접속·NTP·RPC·auth 클라이언트) 여부 — 특징 워크로드 필터."""
     t = (name or "").lower()
     return any(kw in t for kw in _BASELINE_KEYWORDS)
 
 
 def is_baseline_socket(p: JsonObject) -> bool:
-    """listen 소켓이 baseline(관리·OS 기본) 인가 — comm 또는 port 기준. 특징 워크로드 필터."""
+    """listen 소켓이 baseline 인가 — comm 또는 port 기준."""
     return is_baseline_service(p.get("comm")) or p.get("port", 0) in _BASELINE_PORTS
 
 
 def compute_service_categories(services: list[JsonObject] | None, listen_ports: list[JsonObject] | None) -> list[str]:
-    """ingest 사전계산 — 호스트 "특징 워크로드" 카테고리 키 집합 (정렬·dedup, "unknown"·baseline 제외).
+    """ingest 사전계산 — 호스트 특징 워크로드 카테고리 키 집합 (정렬·dedup, "unknown"·baseline 제외).
 
-    services unit 이름 분류(`classify_service`: name->comm->port)와 listen 소켓 직접 분류(`detect_listen_categories`).
-    baseline(OS 기본·관리 — SSH·NTP·RPC 등)은 제외 — 거의 전 호스트에 있어 특징 신호 아님(상세 live classify 는 유지).
-    inventory upsert 시 1회 계산해 `server_inventory.service_categories` 저장 -> 목록·환경분포·필터 소비(화면 간 일치).
+    inventory upsert 시 1회 계산해 `server_inventory.service_categories` 에 저장한다 — 목록·환경분포·필터가
+    같은 저장값을 읽어야 화면 간 카테고리 집합이 어긋나지 않는다.
     """
     non_baseline_ports = [p for p in (listen_ports or []) if not is_baseline_socket(p)]
     cats: set[str] = set()

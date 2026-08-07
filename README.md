@@ -2,9 +2,9 @@
 
 고객사 내부 네트워크의 호스트 인벤토리·시계열 메트릭을 수집·저장하고, 규칙 기반으로 호스트별 자원 적정성(right-sizing)과 운영 신호(OS 지원종료·용량 부족 등)를 진단해 자원 재배치·용량 의사결정을 보조하는 B2B 내부 포털.
 
-고객사 네트워크 내에 엔진이 설치되고, 각 호스트의 C 기반 에이전트가 인벤토리·메트릭을 수집해 MQ에 직접 발행한다. Consumer가 메시지를 소비해 DB에 저장하고, web 이 수집 데이터를 규칙 기반으로 분석해 호스트별 자원 적정성(right-sizing, USE Method)과 운영 신호를 진단하고 보고서·대시보드로 제공한다. 운영자는 web UI 의 모니터링 화면·보고서·JSON Export·원격 설치 task 를 활용해 자원 재배치·용량 의사결정을 진행한다.
+고객사 네트워크 안에 엔진이 설치되고, 각 호스트의 C 기반 에이전트가 인벤토리·메트릭을 수집해 MQ 에 직접 발행한다. Consumer 가 메시지를 소비해 DB 에 저장하고, web 이 그 데이터를 USE Method 규칙으로 분석해 보고서·대시보드로 낸다.
 
-본 repo 는 엔진 애플리케이션, docker compose 배포(prod base · dev override 핫리로드), 배포 대상 VM 에서 실행하는 운영 스크립트 3종(`bootstrap.sh` 1회성 구성 · `deploy.sh` rollout · `rotate-secret.sh` 비밀번호 교체)으로 구성된다.
+본 repo 는 엔진 애플리케이션, docker compose 배포 파일, 배포 대상 VM 에서 실행하는 운영 스크립트 3종(`bootstrap.sh`·`deploy.sh`·`rotate-secret.sh`)으로 구성된다.
 
 ---
 
@@ -87,7 +87,7 @@
 | `README.md` · `CONTRIBUTING.md` | 제품 소개 · 개발 참여 진입점 | GitHub 이 루트에서 렌더하고 PR 화면에 링크 |
 | `.gitignore` · `.dockerignore` · `.claudeignore` | 각 도구의 제외 목록 | 도구가 컨텍스트 루트에서 읽음 |
 
-프론트엔드 설정이 섞여 보이지만 별도 프로젝트가 아니다. 번들러도 빌드 산출물도 없고, FastAPI 가 내보내는 OpenAPI 에서 TS 타입을 생성해 `tsc --checkJs` 로 클라이언트 JS 를 검사하는 용도다. 서빙되는 JS 는 빌드를 거치지 않고 `src/assessment_engine/web/static/` 에서 그대로 나간다.
+프론트엔드 설정이 섞여 보이지만 별도 프로젝트가 아니다. 번들러도 빌드 산출물도 없고, 서빙되는 JS 는 빌드를 거치지 않고 `src/assessment_engine/web/static/` 에서 그대로 나간다.
 
 각 파일의 상세는 `docs/reference/docker.md`(compose·Dockerfile), `docs/guides/deploy.md`(배포 스크립트), `docs/reference/contracts/env.md`(환경변수), `docs/reference/web/type-contract.md`(타입 계약)가 갖는다.
 
@@ -102,7 +102,7 @@
 | Schema 관리 | Alembic 단일 진실 |
 | 진단 | 규칙 기반 right-sizing (USE Method, 도메인 모듈 `domain/right_sizing.py` — web·repository 공용) |
 | 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
-| 패키징 | uv (빌드 백엔드 `uv_build`). 릴리즈 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
+| 패키징 | uv (빌드 백엔드 `uv_build`) |
 | 정적 자원 | Chart.js · Cytoscape.js (네트워크 토폴로지) — 둘 다 vendored (`static/js/vendor/`, 내부망 offline) · 외부 `.js` + `defer` |
 
 ---
@@ -118,12 +118,10 @@
 | `ci.yml` | lint(ruff+pyright+hadolint) · 단위 테스트 · 프론트 타입 계약 · wheel build · 통합 테스트 |
 | `alembic-check.yml` | ORM 모델과 migrations 의 drift (`alembic upgrade head` 후 `alembic check`) |
 | `codeql.yml` | CodeQL SAST (Security 탭 alert) |
-| `release.yml` | `main` push 시 멀티아치 엔진 이미지 빌드 → GHCR push + cosign 서명 + SBOM(SPDX) + SLSA provenance |
+| `release.yml` | `main` push 시 멀티아치 엔진 이미지 빌드 → GHCR 발행 (산출물은 아래 "배포 산출물") |
 | `image-scan.yml` | 주 1회 발행 이미지의 OS 패키지 CVE 점검 (Security 탭 alert) |
 
 무엇이 언제 발화하는지는 `docs/reference/automation.md` 가 한 표로 갖는다 — 워크플로와 GitHub 플랫폼 기능(Dependabot alerts·secret scanning·ruleset)을 함께 본다.
-
-검증 워크플로는 GitHub Actions 가 PR 마다 돌리고, 이미지 발행은 `main` push 시 릴리즈 워크플로(`release.yml`)가 한다. 배포(rollout)는 GitHub Actions가 아니라 배포 대상 VM에서 `deploy.sh vX.Y.Z` 를 실행한다 — 내부망 outbound-only VM이라 밖에서 push하지 않고 VM이 이미지를 pull한다(아래 배포 절).
 
 ---
 
@@ -135,7 +133,7 @@
 
 ## 환경변수와 비밀번호
 
-설정은 `.env` 하나로 들어간다. 어느 템플릿을 복사했는지가 환경을 정한다 — `.env.dev.example` 이면 dev(핫리로드), `.env.example` 이면 배포용이고, 그 안의 `COMPOSE_FILE` 이 어떤 compose 파일을 합칠지도 함께 정한다.
+설정은 `.env` 하나로 들어간다. 어느 템플릿을 복사했는지가 환경을 정한다 — `.env.dev.example` 이면 dev(핫리로드), `.env.example` 이면 배포용이고, 붙는 compose 조합도 그 템플릿이 정한다.
 
 비밀번호에는 기본값이 없다. 미설정·뻔한 값·채널 중복은 환경과 무관하게 기동 시점에 거부된다.
 
@@ -171,7 +169,7 @@ make help      # 명령 목록
 
 ## 배포 (prod)
 
-배포 대상은 내부망 운영 VM 한 대다. 빈 VM 을 `bootstrap.sh` 로 1회 구성하면 docker·cosign 이 설치되고 나머지 운영 스크립트도 함께 배치된다. 이후 배포는 버전을 올려 `main` 에 머지하고 VM 에서 `deploy.sh vX.Y.Z` 를 실행하는 두 단계를 반복한다.
+배포 대상은 내부망 운영 VM 한 대다. outbound 만 열려 있어 밖에서 push 하지 않고 VM 이 GHCR 에서 이미지를 pull 한다. 빈 VM 을 `bootstrap.sh` 로 1회 구성하면 docker·cosign 이 설치되고 나머지 운영 스크립트도 함께 배치된다. 이후 배포는 버전을 올려 `main` 에 머지하고 VM 에서 `deploy.sh vX.Y.Z` 를 실행하는 두 단계를 반복한다.
 
 `deploy.sh` 는 공급망 검증부터 health gate 까지를 한 번에 수행하고 실패하면 직전 정상 이미지로 되돌린다. 되돌리기도 이전 버전으로 같은 명령을 실행하면 된다. 단계별 상세는 `docs/guides/deploy.md` 3절.
 

@@ -8,11 +8,7 @@ from assessment_engine.domain.right_sizing import Recommendation
 
 @dataclass
 class AttentionRow:
-    """주의 신호 카드 안 1행 — 운영신호 3 카테고리(gap/os_eol/agent_unstable) 공용 표현.
-
-    P2 단일 진실 — 모든 표시 string은 mapper가 결정. template은 attribute access만.
-    meta_at: KST 변환은 template 필터만 (#F2).
-    """
+    """주의 신호 카드 안 1행 — 운영신호 3 카테고리(gap/os_eol/agent_unstable) 공용 표현."""
 
     badge_class: str
     badge_text: str
@@ -21,52 +17,41 @@ class AttentionRow:
     mount_path: str | None = None
     meta_text: str = ""
     meta_at: datetime | None = None
-    # OS EOL 전용 — 지원 종료 경과일(양수=지남, 마이그레이션 시급도). 다른 신호(gap/agent)는 None.
+    # 지원 종료 경과일 — 양수가 지난 날수. os_eol 행에만 채워진다.
     eol_days_over: int | None = None
 
 
 @dataclass
 class CapacityWarningItem:
-    """7일 평균 자원 부족 서버 — 마이그레이션 capacity 산정 시 instance type 상향 검토.
+    """조치 대상 호스트 1행 — 분류·근본원인·권고·신뢰도를 한 행에.
 
-    active_causes: 발화한 trigger 의 os-neutral 원인 라벨 목록 (assess.triggers 파생, 고정 순서). 환경 요약
-      "자원 부족(메모리 포화 2대 · CPU 이용률 1대)" 원인 집계(environment_report._under_cause_summary)의 단일
-      소스. OS 무관 축 이름이라 Windows paging/run queue 포화도 정확히 집계(Linux swap/load 로 오라벨 안 함).
-    services: 호스트 워크로드 카테고리 카운트 {category: n} — workload_category_counter 단일 진실.
+    services 는 서비스 목록이 아니라 워크로드 카테고리별 인스턴스 수다.
     """
 
     public_id: str
     hostname: str
-    # 분류 — 통합 조치 대상 표에서 under/over/idle 한 표에 섞이므로 행별 분류 노출 (classify_host 파생).
-    classification: Recommendation = "under_provisioned"  # 분류 enum 키
-    classification_label: str = "자원 부족"  # 표시 라벨 (RECOMMENDATION_LABEL_KO)
-    badge_class: str = "rec-under_provisioned"  # 뱃지 CSS (BADGE_CLASS)
-    classification_rank: int = 0  # 분류 칼럼 정렬값 (ACTION_PRIORITY — 자원 부족 0 > 과다 1 > 유휴 2)
+    # under/over/idle 이 한 표에 섞이므로 분류를 행마다 싣는다.
+    classification: Recommendation = "under_provisioned"
+    classification_label: str = "자원 부족"
+    badge_class: str = "rec-under_provisioned"
+    # 정렬값 = right_sizing.CLASSIFICATION_ORDER. 0(자원 부족)은 표의 빨강 강조 기준이다.
+    classification_rank: int = 0
     active_causes: list[str] = field(default_factory=list[str])
     services: dict[str, int] = field(default_factory=dict[str, int])
-    # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (assessment_display.build_host_confidence_notes,
-    # 원칙2). 보고서 행과 동일 채널 — 카드가 list 렌더(P3). 발화 trigger(빨강)와 시각 구분.
     confidence_notes: list[str] = field(default_factory=list[str])
-    # 증설 권고 — 자원별 독립 처방(right_sizing.under_prescription 단일 진실). 자원 부족 표 권고 칼럼.
+    # 처방과 진단 근거는 별개 축이다 — root_cause 가 인과로 좁혀도 권고는 관측된 부족 자원 전부를 싣는다.
     recommendation_action: str = ""
-    # 근본원인 — right_sizing.root_cause_display 단일 진실. 단일 부족=자원명 / 인과 결합="메모리 (CPU 유발)" /
-    # 복수 독립="CPU·디스크 I/O" 나열. 부족 없으면 빈 문자열(표시 "—"). 처방을 거르지 않는 진단 근거 표시 축.
     root_cause_label: str = ""
-    # 상위 N 절단 정렬용 심각도 점수 (mapper precompute) — swap(paging) 최우선 > 위반 자원 수 >
-    # 최고 활용률 max(CPU/메모리/디스크 p95·used). build_overview 가 DESC 정렬 후 hostname tie-break.
+    # 상위 N 절단용 정렬 점수.
     severity_score: float = 0.0
-    # 네트워크 품질(정상/혼잡/미측정) — 사이징 분류 비관여(orthogonal flag, host_status 미구동) 전용 필드.
+    # 네트워크·디스크 I/O 는 분류를 구동하지 않는 orthogonal flag 라 분류 필드와 별도 축이다.
     net_status_label: str = ""
     net_status_color: str = ""
-    # 디스크 I/O 품질(I/O 정상/I/O 병목/미측정) — network 와 동형 orthogonal flag(host_status 미구동, 크기로
-    # 안 풀리는 advisory/tier hint). root_cause_label 은 이미 under_provisioned 로 분류된 호스트의 인과
-    # 기여분만 노출해 CPU·메모리는 정상인데 디스크만 io_bound 인 호스트는 안 드러남 — network 와 동일하게
-    # 전용 필드로 분리해 분류 무관 항상 노출(환경 자원 평가 compact 표 "디스크 I/O 상태" 칼럼 전용 소스).
+    # root_cause_label 은 under_provisioned 호스트의 인과 기여분만 노출해 CPU·메모리는 정상인데
+    # 디스크만 io_bound 인 호스트가 안 드러난다 — 그래서 분류 무관 전용 필드로 뺀다.
     disk_io_status_label: str = ""
     disk_io_status_color: str = ""
-    # 정적 배정 사양 한 줄("4코어 · 8.00GB · 100GB") — 서버 목록 `ServerListItem.spec_display` 와 동일 산식.
-    # 환경 자원 평가(compact 표)에서 호스트 옆에 노출해 권고(recommendation_action, 예: "CPU: 11코어")와
-    # 현재 배정을 한눈에 비교 — 사용률 아닌 배정량(P1 raw 스냅샷과 무관, inventory 사양).
+    # 배정 사양("4코어 · 8.00GB · 100GB") — 권고와 현재 배정을 같은 행에서 비교하려고 싣는다.
     spec_display: str = ""
 
 
@@ -74,21 +59,20 @@ class CapacityWarningItem:
 class AttentionCatalogEntry:
     """주의 신호 카드 상단 범례 1개 — 운영신호 3 카탈로그(통신끊김/OS 지원종료/에이전트 재시작) 중 1개.
 
-    active: count > 0 — 시각 강조 분기 (P3 — 템플릿 분기 금지).
+    active 는 count > 0 을 mapper 가 미리 계산한 값이다 — 템플릿이 비교하지 않게.
     """
 
     label: str
     count: int
     active: bool
-    description: str = ""  # 임계 근거 한국어 보조 (">= 85%" 등)
+    description: str = ""  # 임계 근거 보조 문구 (">= 85%" 등)
 
 
 @dataclass
 class AttentionSignals:
     """list 화면 운영 신호 카드 — 모니터링·시스템 운영 이상 3 카테고리 (USE Method 와 완전 분리).
 
-    USE Method(자원 평가)에서 다루지 못하는 인프라 이상만 표시.
-    디스크(capacity·IO)는 USE Method classify 에 통합 — 본 catalog 에서 제외 (중복 회피).
+    디스크(capacity·IO)는 USE Method 분류가 이미 다루므로 본 카탈로그에 없다.
     """
 
     gap_warnings: list[AttentionRow]
@@ -97,7 +81,7 @@ class AttentionSignals:
 
     @property
     def catalog(self) -> list[AttentionCatalogEntry]:
-        """3 카탈로그 범례 — 발화 0건 카테고리도 포함 (#E9)."""
+        """발화 0건 카테고리도 포함한다 (#E9)."""
         return [
             AttentionCatalogEntry("통신 끊김", len(self.gap_warnings), bool(self.gap_warnings)),
             AttentionCatalogEntry("OS 지원종료", len(self.os_eol_warnings), bool(self.os_eol_warnings)),
@@ -113,11 +97,10 @@ class AttentionSignals:
 class UtilizationBar:
     """환경 평균 자원 활용률 도넛 1개 — list 화면 상단.
 
-    pct None이면 표본 부재 ("—" 표시). bar_color·dash_length 는 P3 회피 mapper precompute
-    (dash_length = SVG stroke-dasharray, 원주 2*pi*42 에 pct 0~100 비례).
+    pct None 은 표본 부재. dash_length 는 SVG stroke-dasharray 값(원주에 pct 비례).
     """
 
-    label: str  # "CPU" / "메모리" / "디스크"
+    label: str
     pct: float | None
     bar_color: str
     dash_length: float
@@ -127,7 +110,8 @@ class UtilizationBar:
 class RiskDonutSegment:
     """USE Method 분포 도넛 1 segment — 자원 적정성 5 상태 1:1.
 
-    dash_length·dash_offset: SVG stroke-dasharray + stroke-dashoffset (다중 segment 누적) — mapper precompute (P3).
+    dash_length·dash_offset 은 SVG stroke-dasharray·stroke-dashoffset 값. offset 은 시계방향
+    시작 위치라 이전 segment 누적의 음수다.
     """
 
     key: str
@@ -135,17 +119,17 @@ class RiskDonutSegment:
     color: str
     count: int
     dash_length: float
-    dash_offset: float  # 시계방향 시작 위치 (이전 segments 누적 음수)
-    description: str = ""  # 한국어 보조 설명
-    pct: float = 0.0  # 분류 막대 너비 (%) — mapper precompute (P3)
+    dash_offset: float
+    description: str = ""
+    pct: float = 0.0  # 분류 막대 너비 %
 
 
 @dataclass
 class EnvironmentOverview:
     """list 화면 상단 환경 요약 — 총 N대·온라인/오프라인·자원 합계·역할 분포·평균 활용률.
 
-    total_memory_gb: float — 소수 1자리 (작은 환경에서 정수로 묶이면 정보 손실 — 예: 2.5 GB → 2 GB).
-    total_disk_gb: int — TB·PB 스케일에서 소수점 의미 적음.
+    메모리 합계만 소수 1자리다 — 작은 환경에서 정수로 묶으면 2.5 GB 가 2 GB 로 뭉갠다.
+    디스크는 TB·PB 스케일이라 소수점이 의미 없어 정수로 둔다.
     """
 
     total: int
@@ -154,52 +138,48 @@ class EnvironmentOverview:
     total_vcpus: int
     total_memory_gb: float
     total_disk_gb: int
-    # os_family(windows/linux/unknown) 별 서버 수. count DESC.
-    os_distribution: dict[str, int] = field(default_factory=dict[str, int])
-    # 주요 워크로드 분포 — 카테고리별 환경 전체 인스턴스 개수(호스트 dedup 아님, 모든 카테고리 0 포함, #E7 E9).
+    os_distribution: dict[str, int] = field(default_factory=dict[str, int])  # count DESC
+    # 카테고리별 인스턴스 수 — 호스트 dedup 아님. 0 인 카테고리도 남긴다 (#E9).
     role_distribution: dict[str, int] = field(default_factory=dict[str, int])
-    # 주요 워크로드 원형차트 세그먼트(RiskDonutSegment 재사용 — color·count·dash precompute) + 총 인스턴스.
     workload_donut: list[RiskDonutSegment] = field(default_factory=list[RiskDonutSegment])
     workload_total: int = 0
-    role_unknown_count: int = 0  # 특징 워크로드 0 호스트 수 (보고서 workload_unknown_count 용)
+    role_unknown_count: int = 0  # 특징 워크로드가 하나도 안 잡힌 호스트 수
     utilization: list[UtilizationBar] = field(default_factory=list[UtilizationBar])
-    # 평균과 동일 capacity-weighted 환경 분포 기반(per_ts 95퍼센타일).
+    # 평균과 같은 capacity-weighted 환경 분포 기반 (per_ts 95퍼센타일).
     utilization_p95: list[UtilizationBar] = field(default_factory=list[UtilizationBar])
     util_sample_size: int = 0
-    # 포화 4축 도넛 (CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡) — 자원 적정성 창(14일) 기준 호스트 카운트/표본.
-    # 실시간현황 7도넛(이용률 3 + 신호 4)과 동일 시각·게이지색, 다만 스냅샷 아닌 윈도우 기준(#E3 화면 간 정합).
+    # 실시간 현황과 같은 도넛이지만 순간 스냅샷이 아니라 평가 윈도우 기준이다.
     saturation_donuts: list[SaturationDonut] = field(default_factory=list["SaturationDonut"])
-    # 에러축 fleet 표시자 (MCE·OOM·EDAC·디스크·NIC) — 창내 발생 호스트 수/표본. 정상=0 발화(E9). 대시보드 전용.
     error_fleet: list[FleetErrorItem] = field(default_factory=list["FleetErrorItem"])
-    # OS 지원(EOL) 4상태 종합 — 서버 목록 칼럼(os_eol_status)과 동일 판정(lookup_os_eol). os_id 있는 서버만 집계.
-    os_eol_passed: int = 0  # 무상 보안 패치 종료 (paid_only·ended 합산 — 유상 계약 여부는 수집 불가)
-    os_eol_security_only: int = 0  # 보안 패치만 (기능 업데이트 종료)
-    os_eol_unknown: int = 0  # 미상(카탈로그 미수록·미매칭 — 판정 불가)
-    os_eol_supported: int = 0  # 기능 업데이트 + 보안 패치
+    # os_id 가 있는 서버만 집계 — 4상태 합이 total 과 어긋날 수 있다.
+    os_eol_passed: int = 0  # paid_only·ended 합산 — 유상 계약 여부는 수집할 수 없다
+    os_eol_security_only: int = 0
+    os_eol_unknown: int = 0  # 카탈로그 미수록·미매칭 — 판정 불가
+    os_eol_supported: int = 0
     risk_donut: list[RiskDonutSegment] = field(default_factory=list[RiskDonutSegment])
-    risk_donut_total: int = 0  # 도넛 중심 표시 (분류된 서버 수)
-    risk_high_count: int = 0  # 도넛 중심 강조 — "위험 N대"
+    risk_donut_total: int = 0
+    risk_high_count: int = 0
     under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list[CapacityWarningItem])
-    under_provisioned_hosts_count: int = 0  # 전체 자원 부족 호스트 수 — P3 회피 mapper precompute
-    under_provisioned_hosts_shown: int = 0  # 표시 호스트 수(상위 N) — "shown/total" 표기 (P3 회피)
+    # 표는 상위 N 만 렌더하므로 전체 수와 표시 수를 나눠 싣는다 ("shown/total" 표기).
+    under_provisioned_hosts_count: int = 0
+    under_provisioned_hosts_shown: int = 0
 
 
 @dataclass
 class ActionTargets:
-    """통합 조치 대상 표 데이터 — 자원 부족/과다 할당/유휴 호스트를 한 표에 (build_action_targets 단일 진실).
+    """통합 조치 대상 표 데이터 — 자원 부족/과다 할당/유휴 호스트를 한 표에.
 
-    hosts: CapacityWarningItem(근본원인·권고·신뢰도 + 분류)을 조치 대상 전체에. 최초 정렬 =
-      분류 우선순위(자원 부족>과다>유휴) 후 심각도.
-    under_count/efficiency_*: 캡션용 카운트·점유 자원 합.
+    최초 정렬은 분류 우선순위(자원 부족 > 과다 > 유휴) 후 심각도.
+    efficiency_* 는 과다·유휴 호스트가 점유한 자원 합 (캡션용).
     """
 
     hosts: list[CapacityWarningItem] = field(default_factory=list[CapacityWarningItem])
-    total: int = 0  # 표 총 행수 = len(hosts) (전 서버, P3 회피 precompute)
+    total: int = 0  # len(hosts) — 템플릿이 세지 않게 (P3)
     under_count: int = 0
     efficiency_count: int = 0
     efficiency_vcpus: int = 0
     efficiency_memory_gb: float = 0.0
-    efficiency_disk_gb: int = 0  # 과다·유휴 호스트 점유 스토리지 합 (효율화 검토 — CPU·메모리와 함께 3자원)
+    efficiency_disk_gb: int = 0
 
 
 @dataclass
@@ -212,9 +192,9 @@ class EnvironmentAssessment:
 
 @dataclass
 class RealtimeLoadCell:
-    """실시간 부하 표 셀 — 정렬용 raw + 표시 문자열. value=None 은 미측정("—", 정렬 시 맨 뒤, P2 precompute).
+    """실시간 부하 표 셀 — 정렬용 raw + 표시 문자열.
 
-    color: 강조색(P2 precompute, P3 템플릿은 적용만) — 판정 있는 축(네트워크 혼잡 등) 전용, 빈 문자열은 무강조.
+    value None 은 미측정("—", 정렬 시 맨 뒤). color 빈 문자열은 무강조 — 판정이 있는 축만 채운다.
     """
 
     value: float | None
@@ -224,9 +204,9 @@ class RealtimeLoadCell:
 
 @dataclass
 class RealtimeLoadRow:
-    """서버별 실시간 부하 표 1행 — 호스트당 7축 전체 노출(top-N 절단 없음, 서버 목록과 동일 sortable-table 관례).
+    """서버별 실시간 부하 표 1행 — 호스트당 7축 전체 노출.
 
-    칼럼 클릭 정렬로 특정 축 부하 순 랭킹을 볼 수 있게 — 7개 분리 top-N 리스트 대신 한 표로 통합.
+    축별 top-N 리스트 7개 대신 한 표로 묶어 칼럼 클릭 정렬로 축별 랭킹을 얻는다.
     """
 
     hostname: str
@@ -235,55 +215,53 @@ class RealtimeLoadRow:
     mem: RealtimeLoadCell
     run_queue: RealtimeLoadCell
     paging: RealtimeLoadCell
-    disk_util: RealtimeLoadCell  # 디스크 I/O 이용률 % (Utilization 축, worst device busy%)
-    disk_io: RealtimeLoadCell  # 디스크 응답지연 (Saturation 축, await 지수)
-    network: RealtimeLoadCell  # 네트워크 혼잡 판정(정상/혼잡) — net_signal_active, 처리량 아님(판정 대상과 표시값 일치)
+    disk_util: RealtimeLoadCell  # Utilization 축 — worst device busy %
+    disk_io: RealtimeLoadCell  # Saturation 축 — 응답지연(await) 지수
+    network: RealtimeLoadCell  # 혼잡 판정(정상/혼잡) — 처리량이 아니다
 
 
 @dataclass
 class SaturationDonut:
-    """실시간 포화 비율 도넛 1개 — 포화/압박 호스트 수 / 표본. 채움 = count/total 비율(제대로 된 비율 도넛).
+    """실시간 포화 비율 도넛 1개 — 채움 = 포화 호스트 수 / 표본.
 
-    처리량(IOPS·MB/s) 절대 총량은 기준점 없어 폐기 — 포화 비율은 "지금 몇 대가 굶고 있나"라 실시간 유의미.
-    dash_length·color 는 mapper precompute (P3).
+    처리량(IOPS·MB/s) 절대 총량은 비교 기준점이 없어 쓰지 않는다 — 포화 비율은 "지금 몇 대가
+    굶고 있나"로 읽혀 실시간 화면에서 의미가 선다.
     """
 
-    label: str  # "CPU 포화" / "디스크 I/O 포화" / "메모리 압박"
-    count: int  # 포화·압박 호스트 수 (분자)
-    total: int  # 신선 표본 (분모)
-    dash_length: float  # (count/total) * 원주 — SVG 채움 (precompute)
-    color: str  # count>0 강조(빨강) / 0 회색
+    label: str
+    count: int  # 포화·압박 호스트 수
+    total: int  # 신선 표본
+    dash_length: float
+    color: str
 
 
 @dataclass
 class FleetErrorItem:
-    """환경 fleet 에러 표시자 1개 — 에러축(MCE·OOM·EDAC·디스크·NIC) 창내 발생 호스트 수 / 표본. 정상=0 발화(E9).
+    """환경 fleet 에러 표시자 1개 — 에러축 창내 발생 호스트 수 / 표본.
 
-    에러는 카운트형(대부분 0)이라 도넛 아닌 표시자 — affected=0 이면 '이상 없음', >0 이면 'N대 영향'.
+    에러는 대부분 0 인 카운트형이라 도넛이 아니라 표시자다. 0 이어도 노출한다 (#E9).
     """
 
     key: str  # cpu_mce | mem_oom | mem_corrupted | disk_errors | net_errors | os_eol
-    label: str  # 표시 라벨 ("머신체크(MCE)" 등)
-    affected: int  # 발생 호스트 수 (분자)
-    total: int  # 표본 (분모)
-    detail: str | None = None  # 신호 의미(hover)
-    tone: str = "danger"  # "danger"(빨강, 하드웨어/런타임 에러) | "warn"(앰버, OS EOL 등 정적 리스크)
+    label: str
+    affected: int
+    total: int
+    detail: str | None = None  # hover 보조 문구
+    tone: str = "danger"  # "danger" 하드웨어·런타임 에러 | "warn" OS EOL 등 정적 리스크
 
 
 @dataclass
 class EnvironmentRealtime:
-    """list 화면 '환경 실시간 메트릭' 카드 — 현황 모니터링(최신 스냅샷). right-sizing(14일 통계)과 별개 용도.
+    """list 화면 '환경 실시간 메트릭' 카드 — 최신 스냅샷 현황. right-sizing 윈도우 통계와 별개 용도.
 
-    sample_size: 평균 표본 = 최신 스냅샷이 신선(now-TTL 이내)한 서버 수 (stale 제외, 'sample_size/total' 표기).
-    online/offline: 스냅샷 신선도만으로 판단 (데이터 유무가 곧 온라인 — Redis online flag 이중 게이트 없음).
+    online/offline 은 스냅샷 신선도만으로 가른다 — Redis online flag 이중 게이트를 두지 않는다.
     """
 
     total: int
     online: int
     offline: int
-    sample_size: int  # 평균 표본 = 최신 스냅샷 신선(now-TTL 이내) 서버 수 (avg 분자)
+    sample_size: int  # 평균 표본 = 스냅샷이 now-TTL 이내로 신선한 서버 수 (stale 제외)
     utilization: list[UtilizationBar] = field(default_factory=list[UtilizationBar])
     last_collected_at: datetime | None = None
     load_rows: list[RealtimeLoadRow] = field(default_factory=list[RealtimeLoadRow])
-    # 포화 비율 도넛 (CPU 포화·디스크 I/O 포화·메모리 압박 = 포화 호스트 수/표본).
     saturation_donuts: list[SaturationDonut] = field(default_factory=list[SaturationDonut])

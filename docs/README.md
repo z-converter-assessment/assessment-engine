@@ -4,8 +4,6 @@
 
 문서는 목적 넷으로 가른다 — 사람이 문서를 찾는 이유가 넷이라서: 지금 어떻게 도나(reference) / 어떻게 하나(guides) / 왜 이렇게 설계했나(explanation) / 왜 바꿨나(decisions).
 
-명령은 문서가 아니라 `Makefile` 이 갖는다 (`make help`). 문서에는 왜 그 명령을 쓰는지와 옵션·변형·맥락만 둔다. 저장소에서 작업하는 순서는 루트 `CONTRIBUTING.md` 가 진입점이다.
-
 ## 4원칙
 
 1. 사실 하나 = 문서 하나. 같은 사실을 두 곳에 쓰지 않는다. 다른 문서에 이미 있으면 그 문서를 가리키고(pointer) 재서술하지 않는다.
@@ -17,39 +15,39 @@
 
 | 계층 | 역할 | 성격 |
 |------|------|------|
-| `Makefile` | 개발 명령 카탈로그. 이름과 실행만, 설명은 한 줄 | 명령 단일 진실 |
-| `CONTRIBUTING.md` | 작업 순서와 각 단계의 문서 위치. 내용은 갖지 않고 가리킨다 | 개발 진입점 |
-| `.claude/CLAUDE.md` | AI 에이전트 운영 규칙 — 불변식·금지·지도. 안 깨려면 알아야 할 것만 | 얇게·매 세션 로드 |
+| `Makefile` | 개발 명령 카탈로그 — 이름과 실행만, 설명은 한 줄 (`make help`) | 명령 단일 진실 |
+| `CONTRIBUTING.md` | 작업 순서와 각 단계의 문서 위치 — 내용은 갖지 않고 가리킨다 | 개발 진입점 |
+| `.claude/CLAUDE.md` | AI 에이전트 운영 규칙 — 불변식·금지·지도, 안 깨려면 알아야 할 것만 | 얇게·매 세션 로드 |
 | `docs/reference/` | 지금 어떻게 도나 — subsystem 동작 + `contracts/` 얼어붙은 계약 | 현재 상태 선언 |
 | `docs/guides/` | 어떻게 하나 — 작업 절차 | 현재 상태 선언 |
 | `docs/explanation/` | 왜 이렇게 설계했나 — 설계 한계·산출물 존재 의의 | 현재 상태 선언 |
 | `docs/decisions/` | 왜 바꿨나 — `adr/`(결정)·`rfc/`(제안) append-only 이력 | 불변 아카이브 |
 
-CLAUDE.md는 결정·금지를, reference는 구현 방식을 담는다 — 둘이 같은 것을 두 번 쓰지 않는다.
+CLAUDE.md는 결정·금지를, reference는 구현 방식을 담는다 — 둘이 같은 것을 두 번 쓰지 않는다. 문서는 명령을 복제하지 않고 왜 그 명령을 쓰는지와 옵션·변형·맥락만 담는다.
 
 ## 지도
 
-reference/ (지금 어떻게 도나):
+reference/:
 - `contracts/agent-data.md` — 에이전트 메시지 wire 계약의 사람용 카탈로그 (envelope + system.* datapoint-array + inventory, 필드 카탈로그·값 의미론·OS별 차이). 기계검증 정본 JSON Schema 는 같은 디렉토리. 얼어붙은 외부 인터페이스.
 - `contracts/env.md` — 환경변수 계약 (키 카탈로그·secret 채널·기동 검증).
 - `contracts/assessment-api.md` — 프로비저닝 어세스먼트 API 계약 (engine -> 재해복구/마이그레이션 소비자). GET /api/assessment + POST /api/exports/inventory 응답 구조·필드 의미·단위·불변식·버전 규약 + 복잡 스토리지 VM 워크드 예시(9절). 얼어붙은 외부 인터페이스.
 - `docker.md` — 이미지·compose 구성 사양 (단일 이미지 command 분기·빌드 캐시·3파일 배치·base 서비스/포트/볼륨/기동 순서·dev override).
 - `automation.md` — 워크플로·플랫폼 기능이 각각 언제 발화하나 (트리거 한눈에 + 막는 것/알리는 것 구분). 무엇을 검증하나는 루트 `README.md`, required 등록은 `guides/ci-setup.md` 3.4.
-- `consumer.md` · `rabbitmq.md` · `redis.md` · `right-sizing.md` · `observability.md` — subsystem 동작 + 각자 "한계" 절.
+- `consumer.md` · `rabbitmq.md` · `redis.md` · `right-sizing.md` · `observability.md` — subsystem 동작 + 각자 "한계" 절. 설계 트레이드오프 자체는 `explanation/tradeoffs.md`.
 - `right-sizing-thresholds.md` — 자원 적정성 임계치·근거 인간가독 정본 (5자원 x USE 3축, 신호·임계·basis·robustness). `right-sizing.md` 는 판정 명세, 본 문서는 임계 수치·근거.
 - `db/` — models · dtos · repositories · timescaledb.
 - `web/` — layering · routers · services · view-models · static-assets · type-contract.
 
-guides/ (어떻게 하나):
+guides/:
 - `deploy.md` · `migrate.md` · `release.md` — 배포·스키마 마이그레이션·릴리즈 절차.
 - `local-dev.md` · `testing.md` · `ci-setup.md` — 로컬 개발·테스트·CI 활성.
 - `pre-pr-checklist.md` · `conventions.md` · `dependencies.md` — PR 발행 전 체크리스트·코드 규약·의존성 관리.
 
-explanation/ (왜):
+explanation/:
 - `tradeoffs.md` — 의식적 설계 한계.
 - `products/` — 산출물 존재 의의 (dashboard · environment-report · server-report · json-export · install-task).
 
-decisions/ (왜 바꿨나 — 라이브 문서 무의존):
+decisions/ (라이브 문서 무의존):
 - `adr/` — 결정 기록 (append-only). 쓰는 기준과 Status 어휘는 `adr/README.md` 가 갖는다.
 - `rfc/` — 제안·탐색 문서 (결정 전).
 

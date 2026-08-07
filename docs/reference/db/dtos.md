@@ -4,25 +4,25 @@
 
 ## Inbound DTO (`inbound.py`) — Service → Repository
 
-| DTO | 용도 | 필드 정책 |
-|-----|------|-----------|
-| `ServerInventoryCreate` | inventory upsert | 정규화 스토리지·네트워크 그래프는 JSONB pass-through — JSONB 필드 목록은 아래 "Inbound DTO 타입 정책" 표 |
-| `ServerMetricCreate` | metrics 1건 | nested `list[DiskIoEntry]`/`list[NetIoEntry]`/`list[FilesystemEntry]`/`list[CpuCoreEntry]`/`list[PressureEntry]`/`list[DiskErrorEntry]` — 시계열 metric 7테이블 행 매핑이라 컴파일 타임 타입 보장. boot_time/agent_started_at 은 server_metrics 만 |
-| `DiskIoEntry` / `NetIoEntry` / `FilesystemEntry` / `CpuCoreEntry` / `PressureEntry` / `DiskErrorEntry` | 시계열 행 nested | dict 키 오타 방지 — mapper 단계에서 차단. INSERT 시 `vars(entry)` shallow spread로 풀어쓰기 |
-| `TaskCreate` | task 발행 | target_server_id / target_agent_id / task_type / params (JSONB) / deadline_at |
-| `TaskResultUpdate` | task 결과 수신 | public_id / status / failure_reason / exit_code / signal_no / task_policy / duration_ms / stdout_tail / stderr_tail / completed_at |
-| `DiagnosticJobCreate` | 보고서 발행 job INSERT | scope / input_params / input_hash / job_type / requested_by — id·created_at·status 는 DB default |
+| DTO | 용도 | 컬렉션 필드 정책 |
+|-----|------|-----------------|
+| `ServerInventoryCreate` | inventory upsert | 정규화 스토리지·네트워크 그래프는 `list[dict]`·`dict` pass-through — JSONB 컬럼 직렬화 |
+| `ServerMetricCreate` | metrics 1건 | 시계열 nested 는 entry dataclass 리스트 — 시계열 metric 7테이블 행 매핑이라 컴파일 타임 타입 보장. `boot_time`·`agent_started_at` 은 `server_metrics` 만 |
+| `DiskIoEntry` / `NetIoEntry` / `FilesystemEntry` / `CpuCoreEntry` / `PressureEntry` / `DiskErrorEntry` | 시계열 행 nested | dict 키 오타를 mapper 단계에서 차단. INSERT 는 `vars(entry)` shallow spread |
+| `TaskCreate` | task 발행 | `params` 만 JSONB — task_type 별 스키마가 달라 동적 |
+| `TaskResultUpdate` | task 결과 수신 | 종료 신호(`exit_code`·`signal_no`·`task_policy`) 의미는 CLAUDE.md #B |
+| `DiagnosticJobCreate` | 보고서 발행 job INSERT | `id`·`created_at`·`status` 는 DB default |
 
 ## Outbound DTO (`outbound.py`) — Repository → Service
 
 모두 raw 단위 (P1) — canonical 은 시간 s(Float)·크기 By(int) 그대로. 변환은 service.
 
-전부 `frozen=True, slots=True` 다. 필드가 77개라 오타 대입이 조용히 새 속성을 만드는 실패 모드가 실재했고,
-slots 가 그것을 런타임에, pyright 가 컴파일 시점에 막는다. 값을 얹을 때는 `dataclasses.replace` 로 새 행을
+전부 `frozen=True, slots=True` 다. 필드가 많은 raw 행(`ReportRowRaw`)에서 오타 대입이 조용히 새 속성을 만드는
+것을 slots 가 런타임에, pyright 가 컴파일 시점에 막는다. 값을 얹을 때는 `dataclasses.replace` 로 새 행을
 만든다 — 제자리 수정이 없으니 호출부가 결과를 다시 묶지 않으면 반영이 통째로 빠져 즉시 드러난다.
 
 Inbound entry dataclass 는 이 규칙 밖이다 — `collect_sql` 의 `vars(entry)` shallow spread 가 `__dict__` 를
-전제한다(위 Inbound 절). slots 를 붙이면 인제스트가 첫 메트릭 메시지에서 죽는다.
+전제한다. slots 를 붙이면 인제스트가 첫 메트릭 메시지에서 죽는다.
 
 ### 서버 표시 raw
 
@@ -43,9 +43,9 @@ Inbound entry dataclass 는 이 규칙 밖이다 — `collect_sql` 의 `vars(ent
 | `MetricPairRaw` | server_metrics 단일 행 (CPU 초 counter / 메모리 By / run_queue·blocked gauge + boot_time·agent_started_at) |
 | `CpuCoreRaw` | per-core CPU 시간 원자료 (Linux 전용 — 단일스레드 병목 실시간 표시) |
 | `DiskIoRaw` / `NetIoRaw` | per dimension 단일 행 (누적 카운터 + boot_time/agent_started_at) |
-| `MountUsageRaw` | per mount 최신 1행 (gauge 시점값 — used/free By·inode + device_id·fstype) |
-| `MetricSeries` | 차트 시계열 단일 포인트 (`collected_at`/`value`/`dimension`) |
-| `SaturationRaw` | server별 실시간 포화 원자료 (run_queue·await·큐·paging·retrans). 미존재 server 는 빈 인스턴스(전 필드 None) sentinel |
+| `MountUsageRaw` | per mount 최신 1행 (gauge 시점값) |
+| `MetricSeries` | 차트 시계열 단일 포인트 |
+| `SaturationRaw` | server별 실시간 포화 원자료. 미존재 server 는 빈 인스턴스(전 필드 None) sentinel |
 | `ErrorFleetRaw` | 창내 하드웨어·디스크·네트워크 에러 카운트 (Errors 축, 정상 0). 표본 없음은 `measured=False` 로 no_data 구분 |
 | `FleetErrorRaw` | 함대 에러축 영향 호스트 수 (환경 개요 표시자) |
 | `EnvironmentUtilizationRaw` | 환경(또는 선택 N대) capacity-weighted 평균 활용률 (sum(used) / sum(total)) |
@@ -55,18 +55,9 @@ Inbound entry dataclass 는 이 규칙 밖이다 — `collect_sql` 의 `vars(ent
 | DTO | 용도 |
 |-----|------|
 | `ReportRowRaw` | 보고서 한 행 raw stats — service mapper(`to_report_row_item`)가 `ReportRowItem` ViewModel로 변환 |
-| `DiskIoBaselineRaw` / `NetIoBaselineRaw` | server별 I/O baseline + p95/peak (`get_report_disk_io_baseline`/`get_report_net_io_baseline` 반환, service 가 baseline 을 합성해 새 raw 를 만든다 — outbound DTO 는 frozen 이라 제자리 수정이 없다) |
+| `DiskIoBaselineRaw` / `NetIoBaselineRaw` | server별 I/O baseline + p95/peak — service 가 baseline 을 합성해 새 raw 를 만든다 |
 | `RebootEvent` | server_inventory_history에서 boot_time/agent_started_at 변경 시점 (`kind`: reboot/restart) |
-| `MountCapacityRaw` | 마운트별 용량 사이징 입력 (`get_report_mount_capacity_batch` 반환) — total/target bytes·runway·used%·inode. assessment API disk 축(per-mount) 산출 |
+| `MountCapacityRaw` | 마운트별 용량 사이징 입력 — assessment API disk 축(per-mount) 산출 |
 | `MemoryBreakdownRaw` / `CpuBreakdownRaw` | 개별 보고서 구성 윈도우 평균 — 메모리 used/available/cached/buffers, CPU user/system/iowait |
-| `MetricGapWarningRaw` | metric 발행 갭 운영신호 후보 (public_id·hostname·last_metric_at) |
+| `MetricGapWarningRaw` | metric 발행 갭 운영신호 후보 |
 | `DiagnosticJobRecord` | 보고서 발행 job 단건 — 라우터 조회 응답·발행 이력 표현. status 에 따라 `result` 또는 `error_message` 한쪽만 채움 |
-
-## Inbound DTO 타입 정책
-
-| DTO | 컬렉션 필드 | 형태 | 이유 |
-|-----|----------|------|------|
-| `ServerInventoryCreate` | `block_devices`/`net_interfaces`/`lvm_vgs`/`services`/`listen_ports`/`nonblock_mounts` | `list[dict]` | JSONB 컬럼 직렬화 |
-| `ServerInventoryCreate` | `boot` | `dict` | JSONB 단일 객체 컬럼 |
-| `ServerMetricCreate` | `disk_io`/`net_io`/`filesystems`/`cpu_per_core`/`pressure`/`disk_errors` | `list[DiskIoEntry]` 등 nested dataclass | 시계열 metric 7테이블 행 매핑 — 컴파일 타임 타입 보장 |
-| `TaskCreate.params` | `dict \| None` | JSONB | task_type별 스키마가 다름 — 동적 |

@@ -1,8 +1,6 @@
 """Assessment API router — /api/assessment 통합 프로비저닝 어세스먼트.
 
-계약 단일 진실: docs/reference/contracts/assessment-api.md. 재해복구/마이그레이션 에이전트가 타겟 VM 을 재현(소스
-레이아웃 그대로) 또는 수정 사이징(관측 부하 맞춤)으로 생성하는 데 필요한 것(identity/reproduction/sizing/
-assessment/diagnostics)을 한 응답으로. 매칭(hostname/ip/public_id/pair)/윈도우/안전경고는 right-sizing 과 동일.
+계약 단일 진실은 docs/reference/contracts/assessment-api.md.
 """
 
 from datetime import UTC, datetime, timedelta
@@ -23,8 +21,8 @@ from assessment_engine.web.view_models.assessment_api import AssessmentEnvelope
 assessment_router = APIRouter(prefix="/api/assessment", tags=["assessment"])
 
 
-# responses= (response_model 아님) — OpenAPI 스키마만 문서화(생성 TS 타입 원천). frozen 계약 출력은
-# 매퍼 dict 그대로, 재구성/검증 안 함. 매퍼-스키마 drift 는 test_assessment_api_schema 가 골든으로 잡음.
+# responses= 는 스키마만 문서화한다(response_model 아님) — 매퍼 dict 가 재구성·검증 없이 그대로 나가고,
+# 매퍼-스키마 drift 는 test_assessment_api_schema 골든이 잡는다.
 @assessment_router.get("", responses={200: {"model": AssessmentEnvelope}})
 async def get_assessment(
     service: QueryServiceDep,

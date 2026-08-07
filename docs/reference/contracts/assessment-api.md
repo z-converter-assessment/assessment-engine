@@ -2,7 +2,7 @@
 
 소스 서버를 관측해 재해복구/마이그레이션 대상 VM을 만드는 데 필요한 정보를 한 응답으로 제공하는 계약이다. 소비자(재해복구/마이그레이션 에이전트)는 이 응답을 보고 타겟 VM을 재현(소스 레이아웃 그대로 복제)하거나 수정 사이징(관측 부하에 맞춰 조정)해서 생성한다.
 
-이 문서는 소비자가 코드를 작성하는 기준이 되는 계약의 단일 진실이다. 엔드포인트, 요청, 응답 구조, 필드 의미, 단위, 불변식, 엣지 동작, 버전 규약을 담는다.
+이 문서는 소비자가 코드를 작성하는 기준이 되는 계약의 단일 진실이다.
 
 ## 1. 설계 원칙
 
@@ -79,8 +79,6 @@ GET /api/assessment
   "servers": [ /* 4.2 */ ]
 }
 ```
-
-매칭 서버가 없으면 `count: 0`, `servers: []`를 반환한다(404 아님).
 
 타임스탬프(generated_at, window.start/end)는 ISO 8601 UTC 형식이다 - 실제 출력은 `+00:00` 오프셋에 소수초를 포함할 수 있다(예 `2026-07-10T05:00:00.123456+00:00`). 예시의 `...Z`/무소수초 표기는 가독성 축약이니, 소비자는 `Z`만 가정하지 말고 표준 ISO 8601 파서를 쓴다.
 
@@ -201,7 +199,7 @@ identity:
 
 트리 조인 규약: block_devices는 평면 목록이고 부모-자식은 `parent`가 부모의 `id`를 참조해 표현한다. `name`(vda, dm-0 등)은 표시용이고 유일하지 않으므로 조인은 반드시 `id`로 한다. 한 디바이스가 부모가 여럿이면(스트라이프 등) `(id, parent)` 쌍으로 여러 항목이 나올 수 있으며, 이때 `size_bytes`는 `id`당 한 번만 계산한다.
 
-레이아웃 정확 복제: 이 목록만으로 소스 스토리지 계층 구조를 그대로 재구성할 수 있다. 디스크(파티션 테이블, 섹터 크기) -> 파티션(번호, 시작 오프셋, 타입 GUID, 플래그) -> LVM/RAID/crypt 조립(VG extent, LV 세그먼트, 스트라이프, RAID 레벨/청크, LUKS 타입) -> 파일시스템(타입, UUID, 레이블, 블록 크기) -> 마운트(경로, 옵션, fstab 필드) 순으로 트리를 따라 내려가며 복원한다. 필드가 `null`이면 그 세부는 미수집(6절 채움 상태)이며, 소비자는 해당 항목을 기본값으로 처리하거나 블록 레벨 복제로 폴백한다. block_devices에 없는 마운트(tmpfs, nfs, cifs, bind, 9p 등)는 `mounts[]`에 별도로 담아 fstab 재생성에 쓴다.
+레이아웃 정확 복제: 디스크(파티션 테이블, 섹터 크기) -> 파티션(번호, 시작 오프셋, 타입 GUID, 플래그) -> LVM/RAID/crypt 조립(VG extent, LV 세그먼트, 스트라이프, RAID 레벨/청크, LUKS 타입) -> 파일시스템(타입, UUID, 레이블, 블록 크기) -> 마운트(경로, 옵션, fstab 필드) 순으로 트리를 따라 내려가며 복원한다. 필드가 `null`이면 그 세부는 미수집(6절 채움 상태)이며, 소비자는 해당 항목을 기본값으로 처리하거나 블록 레벨 복제로 폴백한다. block_devices에 없는 마운트(tmpfs, nfs, cifs, bind, 9p 등)는 `mounts[]`에 별도로 담아 fstab 재생성에 쓴다.
 
 fstab 재생성 범위: 엔진은 마운트 팩트(경로, fstype, 옵션, UUID, dump/passno)를 제공한다. 이 팩트로 fstab을 재생성하는 것은 소비자 몫이다 - 엔진이 완성된 fstab 파일을 내지는 않는다.
 
@@ -279,8 +277,8 @@ action과 estimate_quality 유효 조합:
   "resources": [{
     "axis": "cpu",                         // cpu | memory | disk | disk_io | network
     "status": "under",                     // 축별 부분집합(아래)
-    "utilization": { "eval_pct": 78.0, "sizing_pct": 78.0 },   // eval=판정 p95, sizing=사이징 통계(4.6 주석)
-    "saturation": { "signal": "run queue/core", "value": 1.2, "threshold": 1.0, "unit": "per_core", "measured": true, "saturated": true },
+    "utilization": { "eval_pct": 78.0, "sizing_pct": 78.0 },   // 아래 필드 설명 참조
+    "saturation": { "signal": "run queue (procs_running)/core", "value": 1.2, "threshold": 1.0, "unit": "per_core", "measured": true, "saturated": true },
     "confidence_notes": ["표본 부족"]
   }],
   "advisory": {
@@ -303,13 +301,11 @@ action과 estimate_quality 유효 조합:
 
 ## 5. 사이징 모델 (안전 우선)
 
-권고 수치를 도출하는 방식이다. 계약 표면은 필드/단위/불변식이고, 아래의 통계 선택과 임계 튜닝 값(목표%/포화선/runway 일수/await 기준)은 엔진 내부 파라미터다 - 튜닝 값은 계약 버전을 올리지 않고 바뀔 수 있으니, 소비자는 수치 자체가 아니라 불변식(4.4/6/7절)에 의존한다. 아래는 산출 방식을 이해시키기 위한 설명이다.
+권고 수치를 도출하는 방식이다. 계약 표면은 필드/단위/불변식이고, 아래의 통계 선택과 임계 튜닝 값(목표%/포화선/runway 일수/await 기준)은 엔진 내부 파라미터다 - 튜닝 값은 계약 버전을 올리지 않고 바뀔 수 있으니, 소비자는 수치 자체가 아니라 불변식(4.4/6/7절)에 의존한다.
 
 통계는 자원의 물리 특성에 맞춘다(fit-for-purpose):
-- 판정(under/over 분류)과 CPU 사이징은 p95를 쓴다. CPU는 탄력적이라 순간 초과를 실행큐 큐잉으로 흡수한다 - working set처럼 물리적으로 딱 맞아야 하는 자원이 아니다. 목표 이용률 착지 + run queue 포화 headroom 중 큰 쪽을 목표로 한다.
+- 판정(under/over 분류)과 CPU 사이징은 p95를 쓴다. CPU는 탄력적이라 순간 초과를 실행큐 큐잉으로 흡수한다 - working set처럼 물리적으로 딱 맞아야 하는 자원이 아니다.
 - 메모리 사이징은 near-peak(관측 피크 대표 통계)를 쓴다. 메모리는 초과하면 즉시 OOM이라 큐잉으로 못 버틴다 - working set이 물리적으로 맞아야 한다. 관측 피크 위에 여유를 두고 착지시킨다.
-
-이 CPU(p95, 탄력)와 메모리(near-peak, 비탄력)의 비대칭이 fit-for-purpose 원칙 그 자체다 - 자원마다 초과의 결과가 다르므로(CPU=큐잉 지연, 메모리=OOM) 사이징 통계도 다르다. 데이터 해상도(5분 버킷)상 못 잡는 짧은 스파이크가 있으면 해당 축을 `floor`로 표기한다.
 
 CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom 중 큰 쪽이다. 이용률만으로 못 잡는 포화(실행큐 적체)를 별도 축으로 보정한다. per-core 이용률이 높으면 다운사이즈를 보류한다(단일 스레드 보호).
 
@@ -318,7 +314,7 @@ CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom �
 - 메모리 이용률 미측정 + OOM 발생: 현재 위에 안전 여유를 얹은 크기, `estimate_quality: floor`(이용률 없이 신호만으로는 정확 목표 불가). 이용률 없이 paging 신호만 있으면 정상 하드폴트와 구분되지 않아 under로 채택하지 않는다(축은 `keep` + `uncertain`). 이용률이 측정된 상태에서 paging/OOM이면 현재를 초과하는 목표를 산정한다(`estimate_quality: exact`).
 - 크기로 안 풀리는 축은 floor를 강제하지 않는다. inode 소진은 볼륨 용량(GB) 확장으로 해결되지 않으므로(mkfs 시 고정) 사이징 축이 아니라 진단 advisory로 노출한다. 디스크 I/O 병목도 마찬가지로 크기가 아닌 티어 문제라 advisory다.
 
-인과 억제 없음: 관측된 모든 under 축을 독립적으로 사이징한다. 근본원인 분석(메모리발 CPU 등)은 diagnostics.root_cause에 설명으로만 담고 사이징 수치를 게이팅하지 않는다. 일회성 마이그레이션은 "근본원인 고치고 재평가" 루프가 없으므로, 관측된 부족은 모두 안전하게 반영한다(어느 축도 미달로 만들지 않음). 절감이 목표가 아니라 이 방향의 과다 사이징은 허용 오차다.
+인과 억제 없음: 관측된 모든 under 축을 독립적으로 사이징한다. 근본원인 분석(메모리발 CPU 등)은 diagnostics.root_cause에 설명으로만 담고 사이징 수치를 게이팅하지 않는다. 일회성 마이그레이션은 "근본원인 고치고 재평가" 루프가 없으므로, 관측된 부족은 모두 안전하게 반영한다(어느 축도 미달로 만들지 않음).
 
 디스크 용량(마운트별): 소진 임박을 가용 이력 전체 span의 2점(시작/종료 여유 공간) 선형 fill-rate 외삽으로 판정하고 목표 수명 크기를 산정한다. 마운트별 `recommended = max(current, ceil(목표_바이트 / 2^30))`으로 절대 현재보다 작아지지 않는다. current와 recommended가 같은 파일시스템 기준이라 단위 불일치로 인한 오축소가 없다. 디스크 축은 가상 파일시스템(tmpfs/overlay/proc/sysfs 등)과 `/boot*` 마운트를 뺀 나머지 마운트 전부를 담는다. 원격 마운트(NFS/CIFS/9p/FUSE)를 별도로 제외하지 않으므로, 소비자는 `device_ref`가 null인 disk 축을 로컬 볼륨으로 프로비저닝하지 말고 reproduction.mounts와 대조해 원격 여부를 판별한다.
 
@@ -326,14 +322,14 @@ CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom �
 
 ## 6. 필드별 값 제공 현황
 
-계약 필드 집합은 수집 에이전트와 합의된 것이고, 구조(키 존재)는 고정이다(2절 additive). 문서화된 모든 키는 항상 존재하며 값이 없으면 `null` 이다 - 소비자는 어느 필드든 `null` 을 처리한다. 아래는 각 필드가 현재 값을 담는지, 담지 않으면 왜 `null` 인지다.
+계약 필드 집합은 수집 에이전트와 합의된 것이고, 구조(키 존재)는 2절 additive 규약으로 고정이다. 아래는 각 필드가 현재 값을 담는지, 담지 않으면 왜 `null` 인지다.
 
 값이 채워짐 (인벤토리/메트릭에서 확보 - 이미지/부트 기반 정확 재현 가능):
 - identity 전체
 - reproduction.os{family, id, version, codename, kernel, arch, bits, boot_firmware, timezone}
 - reproduction.boot{kernel_cmdline, root_ref_type}
 - reproduction.network{id, name, kind, addresses, gateway, mtu, dns, routes}
-- reproduction.storage.block_devices 전 레이아웃 상세: 디스크(size_bytes, partition_table, sector_size, serial, wwn, rotational), 파티션(part_number, part_start_bytes, part_type, part_name, part_flags), 파일시스템(fstype, fs_uuid, fs_label, block_size, mountpoint, mount_options, fs_freq, fs_passno), LVM(lvm_vg, lvm_lv, lvm_segtype, lvm_stripes, lvm_stripe_size_kib), RAID(raid_level, raid_chunk_kib, raid_metadata, raid_uuid), crypt(crypt_type)
+- reproduction.storage.block_devices 레이아웃 상세 전부 (4.3 의 disk·part·파일시스템·LVM·RAID·crypt 필드)
 - reproduction.storage.lvm_vgs{name, vg_uuid, extent_size_bytes}
 - reproduction.mounts[] (비블록 마운트: source, target, fstype, options, fs_freq, fs_passno)
 - sizing.axes의 current 전 축, assessment 전체, diagnostics 전체
@@ -347,7 +343,7 @@ CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom �
 현 에이전트가 아직 값을 안 실어 `null` (성격이 갈림):
 - reproduction.network.addresses[].origin (static/dhcp): getifaddrs 에 origin 정보 자체가 없다. 채우려면 netlink IFA_FLAGS 나 설정/리스 파싱 등 다른 경로가 필요한 구조적 한계.
 - reproduction.storage.lvm_vgs{size_bytes, free_bytes, pv_ids}: 엔진은 에이전트 발행값을 그대로 통과시키므로 안 실은 에이전트에서는 null(9절 예시 호스트가 그렇다). 필드별 발행 여부의 정본은 `docs/reference/contracts/agent-data.md` F4 절이다.
-- reproduction.boot.grub_install_target: 부트로더 설치 디스크 식별 미구현(항상 null). ESP 파티션의 부모 디스크 귀속으로 채울 수 있음.
+- reproduction.boot.grub_install_target: 부트로더 설치 디스크 식별 미구현(항상 null).
 
 소비자 규약: 위 `null` 필드가 있어도 소비자는 추측하지 않고 그대로 처리한다. 예로 lvm_vgs 여유 용량이 null 이면 확장 여력 판단을 보류한다.
 
@@ -358,8 +354,8 @@ CPU 두 축: 사이징 목표는 이용률 목표와 run queue 포화 headroom �
 - Windows 포화 축 미측정(perflib 미발행): 측정된 축으로 판정을 완결하고, 미측정 축만 `data_quality.notes`에 "포화 수치 미관측"으로 표기한다. cpu/memory가 미측정이면 해당 sizing 축이 `uncertain`.
 - 부팅 크리티컬 필드 null(arch, boot_firmware): 정상 리눅스 호스트에선 채워지나(6절), 인벤토리 결손 등으로 예외적으로 null 이면 소비자는 추측하지 않는다. arch가 null이면 ISA를 x86_64로 가정하지 말고 재현을 보류하며 경고를 노출한다. boot_firmware가 null이면 파티션 플래그(ESP 존재 등)로 추정하되 불확실하면 보류한다. 안전 우선 원칙을 재현 축에도 적용한다.
 - LVM/RAID/멀티패스 호스트: storage.block_devices가 계층을 트리로 표현한다. sizing.axes의 disk current 총량은 멀티패스 중복과 RAID 멤버 이중계산을 배제한 실 프로비저닝 크기다.
-- 바인드/다중 마운트 이중계상: sizing.axes의 disk 축은 마운트별 하나라, 서로 다른 마운트포인트가 같은 backing device를 공유(bind mount, 같은 볼륨 다중 마운트)하면 별개 축으로 이중 계상될 수 있다. 파일시스템 device_id가 발행되면(에이전트 수집 확장) `(server_id, device_id)`로 dedup 가능 - 현재는 device_id 부재라 마운트포인트 기준이며 소비자는 device_ref 트리 조인으로 같은 backing 여부를 식별한다.
-- 인벤토리 결손으로 base 수량(cpu 코어 수, 총 RAM)이 미상인 축: 그 축은 sizing.axes에서 생략된다(null 원소를 만들지 않아 4.4의 `max(current, recommended)` 불변식 유지). 소비자는 축 부재를 사이징 신호 없음으로 보고 reproduction/기존 인벤토리로 폴백한다. 이때의 classification 판정은 4.5절을 따른다.
+- 바인드/다중 마운트 이중계상: sizing.axes의 disk 축은 마운트별 하나라, 서로 다른 마운트포인트가 같은 backing device를 공유(bind mount, 같은 볼륨 다중 마운트)하면 별개 축으로 이중 계상될 수 있다. 용량 집계가 마운트포인트 단위라 backing 단위로 접지 않으므로, 소비자는 `device_ref` 트리 조인으로 같은 backing 여부를 식별한다.
+- 인벤토리 결손으로 base 수량(cpu 코어 수, 총 RAM)이 미상인 축: 4.4 불변식대로 그 축을 sizing.axes에서 생략한다. 소비자는 축 부재를 사이징 신호 없음으로 보고 reproduction/기존 인벤토리로 폴백한다.
 
 ## 8. export 엔드포인트 (파일 다운로드)
 
@@ -381,9 +377,9 @@ POST /api/exports/inventory
 스토리지 레이아웃 (JSON 은 아래):
 
 ```
-vda (30G)  Ubuntu 부트 디스크
+vda (30G)  Ubuntu boot disk
  |- vda1  29G ext4  /
- |- vda14  4M (bios_grub 예약)
+ |- vda14  4M (bios_grub reserved)
  |- vda15 106M vfat /boot/efi (part_type=ESP GUID)
  `- vda16 913M ext4 /boot
 vdb (10G) + vdc (10G)  -> mdadm RAID1 = md0 (raid_level 1) -> LVM PV -> VG "datavg"
@@ -506,7 +502,6 @@ md0 은 부모(PV member)가 vdb·vdc 둘이라 `(id, parent)` 쌍으로 노드�
       "resources": [
         { "axis": "cpu", "status": "optimal", "utilization": { "eval_pct": 0.8, "sizing_pct": 0.8 },
           "saturation": { "signal": "run queue (procs_running)/core", "value": 1.45, "threshold": 1.0, "unit": "per_core", "measured": true, "saturated": false }, "confidence_notes": ["표본 부족"] },
-          // run queue 1.45/core 지만 이용률 0.8% 라 미포화 - idle 호스트를 실행큐 노이즈로 오증설하지 않음(dual-gate).
         { "axis": "memory", "status": "over", "utilization": { "eval_pct": 16.8, "sizing_pct": 17.2 },
           "saturation": { "signal": "swap page-out", "value": null, "threshold": null, "unit": "event", "measured": true, "saturated": false }, "confidence_notes": ["표본 부족"] },
         { "axis": "disk", "status": "capacity_ok", "utilization": { "eval_pct": null, "sizing_pct": null },
@@ -523,16 +518,14 @@ md0 은 부모(PV member)가 vdb·vdc 둘이라 `(id, parent)` 쌍으로 노드�
 ```
 
 읽는 법:
-- 스토리지: `mountpoint` 있는 노드가 실제 마운트(`/`·`/boot`·`/boot/efi`·`/data`·`/var/log/svc`·`/secure`). 트리는 `id` 로만 조인(`name`=dm-0/md0 등은 표시용·비유일). md0 은 다중 부모라 (id,parent) 쌍으로 2회. 총 프로비저닝 용량은 `type=disk` 노드(vda 30G + vdb 10G + vdc 10G + vdd 8G)의 `size_bytes` 합 - RAID 멤버·LVM LV·crypt 매핑 중복 배제. 레이아웃 상세(partition_table·part_type·raid_level·lvm_segtype·crypt_type·fs_uuid·mount_options 등)가 채워져 파티션/파일시스템/RAID/LVM/LUKS 조립을 그대로 복원할 수 있다.
-- 재현 완전성: os arch(x86_64)·boot_firmware(uefi)·kernel_cmdline·root_ref_type 이 채워져 이미지/부트 기반 재현이 가능하다. 아직 null 인 값들: secure_boot·rtc_utc(이 호스트에 efivars SecureBoot·/etc/adjtime 부재라 정상 null), addresses[].origin(getifaddrs 에 static/dhcp 정보 없음 - 구조적), lvm_vgs size_bytes/free_bytes/pv_ids(이 호스트 agent 미발행), grub_install_target(agent 미구현). 소비자는 항상 null 을 처리한다.
+- 스토리지: `mountpoint` 있는 노드가 실제 마운트(`/`·`/boot`·`/boot/efi`·`/data`·`/var/log/svc`·`/secure`). 트리는 `id` 로만 조인(`name`=dm-0/md0 등은 표시용·비유일). md0 은 다중 부모라 (id,parent) 쌍으로 2회. 총 프로비저닝 용량은 `type=disk` 노드(vda 30G + vdb 10G + vdc 10G + vdd 8G)의 `size_bytes` 합 - RAID 멤버·LVM LV·crypt 매핑 중복 배제.
+- 재현 완전성: os arch(x86_64)·boot_firmware(uefi)·kernel_cmdline·root_ref_type 이 채워져 이미지/부트 기반 재현이 가능하다. 이 호스트에서 null 인 값(secure_boot·rtc_utc·addresses[].origin·lvm_vgs size_bytes/free_bytes/pv_ids·grub_install_target)은 JSON 에 주석으로 표시했고 사유 분류는 6절이다. 소비자는 항상 null 을 처리한다.
 - sizing/assessment: 방금 뜬 idle 호스트라 전 축 keep, classification idle, confidence medium(표본 부족 - 이력<30h). cpu 는 실행큐가 코어당 1.45 여도 이용률 0.8% 라 미포화로 처리(idle 을 실행큐 노이즈로 오증설하지 않는 dual-gate). 부하가 쌓이면 이용률·await 등이 채워지고 confidence 가 오른다. 마운트별 disk 축은 소진 추세가 없어 전부 keep, swap/`/boot`/`/boot/efi` 는 disk 사이징 축이 아니다.
 
 ## 10. 운영 계약
 
-릴리스 계약으로서 운영 항목을 명시한다.
-
 - 인증/인가: 현재 무인증(내부 관리망 전용 전제). 외부 노출 시 별도 인증 게이트웨이를 앞단에 둔다 - 본 API는 자체 토큰/인증을 요구하지 않는다.
-- 에러 응답: 파라미터 검증 실패 = HTTP 422(FastAPI 표준 `{"detail": [{"loc","msg","type"}, ...]}`). 서버 내부 오류 = HTTP 500. 매칭 0건은 오류가 아니라 200 + `count: 0`(404 없음).
+- 에러 응답: 서버 내부 오류 = HTTP 500. 파라미터 검증 실패(422)와 매칭 0건 동작은 3절.
 - rate limit: 없음. 대량 호출은 호출 측이 조절한다.
 - pagination: 없음. 매칭 전량을 한 응답으로 반환한다(외부 자동화가 fleet를 한 번에 소비하는 목적). 대규모 인벤토리는 hostname/ip/public_id/pair 필터로 스코프해 응답 크기와 비용을 줄인다.
 - export(POST /api/exports/inventory)도 동일 운영 계약을 따른다.

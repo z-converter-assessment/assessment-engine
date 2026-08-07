@@ -1,14 +1,7 @@
 """보고서 생성 디스패치 — 비동기 워커·발행 경로 공유 단일 진실.
 
-parent job(diagnostic_jobs, pending)을 받아 scope/input_params 분기로 보고서 ViewModel 을 생성하고
-발행 시점 정적 스냅샷 result dict 를 돌려준다. 워커(`report_loop`)가 claim 한 job 을 본 함수로
-생성 -> `mark_succeeded(result)`, 예외 시 `mark_failed`.
-
-발행 시점 고정(C1 정적 스냅샷): anchor 는 emit 라우터가 enqueue 시점에 확정해 input_params 에
-저장 -> 워커가 그 값을 그대로 사용(워커 실행이 늦어도 발행 시점 윈도우 재현).
-
-N대 selection 은 child 단일 보고서 N건(개별 이력 link)을 먼저 emit 한 뒤 selection 본문을 parent
-result 에 담는다 — parent 가 단일 처리 단위라 child 전부 성공 후에만 parent succeeded(부분 누락 차단).
+parent job 을 받아 발행 시점 정적 스냅샷 result dict 를 돌려준다. 워커는 성공이면
+`mark_succeeded(result)`, 예외면 `mark_failed` 로 전이한다.
 """
 
 from datetime import datetime
@@ -65,14 +58,11 @@ async def build_report_result_for_job(
     diag_service: DiagnosticService,
     record: DiagnosticJobRecord,
 ) -> JsonObject:
-    """parent job -> 발행 시점 정적 스냅샷 result dict. child(N대)는 내부 emit. 생성 불가 시 ReportGenerationError.
-
-    반환 dict 는 워커가 `mark_succeeded(record.id, <dict>)` 로 저장 — GET `?job={id}` 정적 렌더가 그대로 읽음.
-    """
+    """parent job -> 발행 시점 정적 스냅샷 result dict. child(N대)는 내부 emit. 생성 불가 시 ReportGenerationError."""
     p = record.input_params
     view = p["view"]
     time_range = p.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE)
-    # anchor 는 emit 시점에 normalize_anchor 로 확정·저장된 값 — 워커는 재정규화 없이 그대로 사용(발행 윈도우 고정).
+    # anchor 는 emit 시점에 확정·저장된 값 — 재정규화하면 워커 지연만큼 발행 윈도우가 밀린다.
     anchor = datetime.fromisoformat(p["anchor_at"])
 
     if record.scope == "environment":
@@ -81,7 +71,6 @@ async def build_report_result_for_job(
             raise ReportGenerationError("no registered servers")
         return build_report_result(kind=REPORT_KIND_ENV, snapshot=env_report_to_dict(summary), view=view, aux=None)
 
-    # server scope — 1대(단일 양식) 또는 N대(selection + child fan-out).
     ids = p["server_public_ids"]
     sid_map = await query_service.resolve_server_ids(ids)
     valid = [pid for pid in ids if pid in sid_map]
@@ -99,10 +88,8 @@ async def build_report_result_for_job(
         aux = {"attention_for_host": attention_for_host(hostname, attention)}
         return build_report_result(kind=REPORT_KIND_ENV, snapshot=env_report_to_dict(summary), view=view, aux=aux)
 
-    # N대 — child 단일 보고서 N건(개별 이력 link) emit 후 selection 본문을 parent result 에.
-    # child 생성 중 예외는 함수 밖으로 전파 -> 워커가 parent 를 failed 로 전이(부분 succeeded parent 차단).
-    # A5: child N대 공통 데이터(raws·details·breakdown)를 배치 1회 조회 후 서버별 조립(prefetch 주입) — 생성
-    # 전부 끝난 뒤 emit 하므로 생성 실패 시 emit 0(orphan child 없음). trend·online 만 서버별 잔존.
+    # child 생성 중 예외는 그대로 전파한다 — 워커가 parent 를 failed 로 전이해 부분 성공 parent 를 막는다.
+    # 생성이 전부 끝난 뒤 emit 하므로 중간 실패 시 orphan child 가 남지 않는다.
     child_jobs: dict[str, str] = {}
     children = await query_service.build_child_prefetched_reports(valid, sid_map, view, time_range, anchor, attention)
     for pid, child in children:

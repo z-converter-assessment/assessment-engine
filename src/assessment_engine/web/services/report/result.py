@@ -14,8 +14,6 @@ result JSONB 구조 (job_type customer_report/engineer_report 공통):
     "view": "customer" | "engineer",
     "aux": {...},           # ViewModel 밖 부가 (운영신호 등 정적 보관)
   }
-
-input_hash/anchor helper — 라우터 발행 시 anchor 정규화·같은 분 더블클릭 dedup.
 """
 
 import hashlib
@@ -45,9 +43,9 @@ def compute_hash(scope: str, input_params: JsonObject) -> str:
 
 
 def normalize_anchor(at: datetime | None) -> datetime:
-    """anchor 분 단위 truncate — 같은 분 발행은 같은 input_hash (더블클릭 dedup).
+    """anchor 분 단위 truncate — 같은 분 발행이 같은 input_hash 를 내야 더블클릭이 dedup 된다.
 
-    None이면 now() UTC 분 단위. 명시 시 timezone-aware 후 UTC 변환 + 분 단위.
+    None 이면 now(). naive 입력은 UTC 로 간주.
     """
     if at is None:
         at = datetime.now(UTC)

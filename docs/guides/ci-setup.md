@@ -70,9 +70,7 @@ Branch protection rules 가 아니라 ruleset 을 쓴다 — 여러 패턴을 �
 | Restrict creations | 비활성 | 사유는 3.5 |
 | Bypass list | 비움 | |
 
-tag 는 `release.yml` 이 `pyproject.toml` 의 version 에서 파생 생성하며, 사람이 붙이지 않는 것은 규약으로 지킨다 (`docs/guides/release.md` 2절).
-
-`v*` tag 는 릴리즈 완료 마커다 — `resolve-version` job 이 tag 존재 여부로 릴리즈 여부를 판정한다. 손으로 만든 tag 는 이 마커를 위조해 해당 버전의 릴리즈를 건너뛰게 만든다. 그 경우 `workflow_dispatch` 로 재발행한다 (dispatch 는 tag 존재 판정을 건너뛰고, tag push 단계는 이미 있으면 그대로 종료한다).
+tag 는 `release.yml` 이 `pyproject.toml` 의 version 에서 파생 생성하며, 사람이 붙이지 않는 것은 규약으로 지킨다 (`docs/guides/release.md` 2절). `v*` tag 가 릴리즈 완료 마커라(`docs/reference/automation.md`) 손으로 만든 tag 는 해당 버전의 릴리즈를 건너뛰게 만든다. 그 경우 `workflow_dispatch` 로 재발행한다.
 
 ### 3.4. Required status checks
 
@@ -112,14 +110,7 @@ gh api repos/<owner>/<repo>/rulesets/<id> \
 
 따라서 creation 은 켜지 않는다. 켜면 릴리즈가 tag push 에서 멈춘다. 조직 레벨 ruleset 으로 옮기면 Actions 를 bypass 로 넣을 수 있으나, 그 경우 조직의 다른 저장소도 함께 규율 대상이 된다.
 
-현재 tag ruleset 은 `deletion` 과 `non_fast_forward` 만 건다. tag 가 다른 커밋으로 옮겨가거나 지워지는 것을 막으면 `deploy.sh` 가 태그 ref 에서 받는 compose 의 무결성 전제가 성립하므로, creation 없이도 목적은 달성된다.
-
-설정 조회·변경은 UI 없이 API 로 가능하다.
-
-```bash
-gh api repos/<owner>/<repo>/rulesets --jq '.[] | "\(.id) \(.name) \(.target)"'
-gh api repos/<owner>/<repo>/rulesets/<id> --jq '[.rules[].type]'
-```
+tag ruleset 은 `deletion` 과 `non_fast_forward` 만 건다. tag 가 다른 커밋으로 옮겨가거나 지워지는 것을 막으면 `deploy.sh` 가 태그 ref 에서 받는 compose 의 무결성 전제가 성립하므로, creation 없이도 목적은 달성된다.
 
 ## 4. Repository Settings
 
@@ -140,9 +131,7 @@ gh api repos/<owner>/<repo>/rulesets/<id> --jq '[.rules[].type]'
 
 위치: Settings -> Code security -> Dependabot
 
-Dependabot 은 워크플로가 아니라 플랫폼 기능이다. 러너에서 돌지 않고 GitHub 이 저장소의 의존성 선언과 lockfile 을 자기 인프라에서 스캔한다. 분류로는 SCA — 우리가 가져다 쓰는 패키지의 알려진 취약점을 본다.
-
-Security 탭에는 서로 다른 네 도구의 결과가 모인다. 우리 코드는 CodeQL(SAST, `codeql.yml`), 의존성은 Dependabot alerts, 베이스 이미지 안 OS 패키지는 trivy(`image-scan.yml`), 커밋된 토큰은 secret scanning(4.3) — 넷이 보는 대상이 겹치지 않는다. CodeQL 과 trivy 는 러너에서 도는 워크플로라 파일로 관리하고, Dependabot 과 secret scanning 은 GitHub 이 자기 인프라에서 굴리는 플랫폼 기능이라 설정 토글이다. 채널 분담 근거는 `docs/guides/dependencies.md` 5절.
+Dependabot 은 워크플로가 아니라 플랫폼 기능이다. 러너에서 돌지 않고 GitHub 이 저장소의 의존성 선언과 lockfile 을 자기 인프라에서 스캔한다. 그래서 파일이 아니라 여기 토글로 관리한다.
 
 | 항목 | 값 | 동작 |
 |------|----|------|
@@ -150,9 +139,8 @@ Security 탭에는 서로 다른 네 도구의 결과가 모인다. 우리 코�
 | Dependabot security updates | 비활성 | 켜면 취약점 건에 자동 수정 PR |
 | Dependabot version updates | 비활성 | 켜면 취약점과 무관한 정기 버전 올림 PR |
 
-자동 PR 을 여는 두 항목을 끈다 — 버전 고정 정책(`docs/guides/dependencies.md` 5절). alerts 만 남겨 "문제가
-생겼다"는 신호를 받고, 올릴지는 사람이 판단한다. `.github/dependabot.yml` 은 두지 않으므로 version updates 는
-토글과 무관하게 발화하지 않는다.
+자동 PR 을 여는 두 항목을 끄고 alerts 만 남긴다 — 버전 고정 정책과 채널 분담 근거는 `docs/guides/dependencies.md`
+5절. `.github/dependabot.yml` 은 두지 않으므로 version updates 는 토글과 무관하게 발화하지 않는다.
 
 상태 조회는 API 로 한다.
 
@@ -200,6 +188,5 @@ gh api -i repos/<owner>/<repo>/secret-scanning/alerts   # 200 = 활성, 404 = �
 
 ## 7. 관련 문서
 
-- 워크플로 책임 카탈로그: 루트 `README.md` "워크플로" 절 (발화 조건·required check 는 본 문서 3.4 소유)
+- 워크플로가 무엇을 검증하나: 루트 `README.md` "워크플로" 절
 - 릴리즈 artifact·절차: `docs/guides/release.md`
-- 배포(rollout): `docs/guides/deploy.md`

@@ -1,6 +1,6 @@
 # 환경변수 관리 (Environment Variables)
 
-본 문서는 운영 env 관리 단일 진실 — 정책·secret 채널·주입 흐름·전체 키 카탈로그·운영 체크리스트. 외부 인프라가 본 엔진을 prod 운영할 때 충족해야 할 contract 와 dev 분기 매트릭스 한 곳.
+env 관리 단일 진실 — 정책·secret 채널·주입 흐름·키 카탈로그·운영 체크리스트. 외부 인프라가 본 엔진을 prod 운영할 때 충족해야 할 contract 다.
 
 정책 출처: CLAUDE.md #A0 (외부 인프라 책임 분리) · #F8 (secret·PII 노출 금지). 본 repo 는 결과만 검증하고 secret 주입 채널 자체는 외부 인프라 자유.
 
@@ -88,8 +88,6 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 | 코드 마운트 (bind mount) | OK override.yml 의 `./src` bind mount, 빠른 반복 | NG base 는 bind mount 없음 — 이미지·wheel 불변성 |
 | 영속 볼륨 | named volume(`postgres_data`·`rabbitmq_data`) | `PGDATA_HOST`·`MQ_DATA_HOST` 로 외부 디스크 bind(Cinder 등) |
 | Password 주입 | `.env`(.env.dev.example 복사) 평문 | file-secret 단일(`docker-compose.prod.yml` + `./secrets/*` 644) — `/run/secrets/*` 마운트, env 노출 회피 |
-| Schema 관리 | 동일 — base compose `migrate` init-container 가 앱 기동 전 적용 (`docs/guides/migrate.md`) | 동일 |
-| Fail-fast 검증 | 동일 — 미설정·빈값·`_WEAK_VALUES` 는 어느 환경에서도 `Settings()` 생성 시점 `ValueError` | 동일 |
 | Logging | `LOG_FORMAT=text` (colorized·grep 친화) · `LOG_LEVEL=DEBUG` | `LOG_FORMAT=json` 권장 (외부 log aggregator indexing) · `LOG_LEVEL=INFO` |
 | web 노출 | plain HTTP port 8000 | HTTPS 외부 ingress (nginx·envoy 등) 종단, 앱은 plain |
 
@@ -106,6 +104,8 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 | `config.py` `_reject_env_shadowing_secret` | secret 파일과 같은 이름의 환경변수가 함께 있으면 거부 | 위와 같음 |
 
 세 번째 검사는 채널 충돌을 잡는다. 우선순위가 `OS env > .env > secrets_dir` 이라 secret 파일을 두고도 같은 이름의 환경변수가 있으면 파일이 조용히 무시되고, 노출을 피하려던 값이 컨테이너 env 에 그대로 뜬다. 실패도 경고도 없어 운영자가 알 방법이 없으므로 기동을 막는다. 컨테이너는 compose `env_file` 이 값을 환경변수로 주입하므로 이 검사에 걸린다.
+
+검사의 사각 하나 — 호스트에서 pydantic 이 `.env` 를 직접 읽는 경로는 값이 환경변수를 거치지 않아 걸리지 않는다.
 
 발동 위치 (컴포넌트별):
 - web: `WebSettings` + `DiagnosticSettings` → POSTGRES·RABBITMQ password 검증
@@ -129,10 +129,7 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 | SOPS/age + git | git 에 암호화 커밋, 운영 시 복호화 후 env 또는 file 주입 | GitOps |
 | Vault / AWS Secrets Manager / k8s External Secrets | 외부 secret manager → env 또는 file 주입 | 다중 환경·동적 회전 |
 
-본 repo 책임 한계:
-- pydantic-settings 가 OS env·`secrets_dir` 둘 다 지원 — 외부 인프라 채널 선택 자유
-- 검증은 결과만 본다 — 채널 자체는 본 repo 무관
-- compose 배포는 file-secret 채널 단일 — `docker-compose.prod.yml` + `./secrets/*`. `.env.example` 에 평문 password 없고 `COMPOSE_FILE` 이 base+prod.yml 자동 머지. 단일 호스트 non-swarm 에서 env 노출 회피가 핵심 이득(호스트 디스크 평문은 `secrets/` 디렉토리 권한 0700(root 소유)으로 보호(파일 자체는 postgres non-root 유저 호환 위해 644)). 엔진은 env·secrets_dir 어느 채널도 읽으나(위 표) 배포 매체는 compose file-secret 단일.
+본 repo 책임 한계 — 엔진은 위 표 어느 채널로 들어온 값이든 읽고 결과만 검증한다. 채널 선택은 외부 인프라 자유다. 다만 compose 배포 매체는 file-secret 단일이다 — 단일 호스트 non-swarm 에서 env 노출 회피가 핵심 이득이고, 호스트 디스크 평문은 `secrets/` 디렉토리 권한 0700(root 소유)으로 보호한다(파일 자체는 postgres non-root 유저 호환 위해 644).
 
 ---
 
@@ -152,8 +149,7 @@ compose 는 공통 base(`docker-compose.yml`) + dev override(`docker-compose.ove
 
 (1) compose `env_file` 이 컨테이너 환경변수로 주입한다. `environment:` 블록이 일부 키를 강제로 덮어쓴다.
 
-(2) `config.py` 의 `BaseSettings` 가 Python 인스턴스 필드를 채운다. 우선순위는 env > `.env` > `secrets_dir` >
-기본값이고, `.env` 의 기준 경로는 cwd(`/app/.env`) 다.
+(2) `config.py` 의 `BaseSettings` 가 Python 인스턴스 필드를 채운다 (우선순위는 3절).
 
 (3) 외부 인프라가 `/etc/assessment-agent.env` 를 구성해 agent 프로세스에 전달한다 — `RABBITMQ_HOST` 등 broker
 좌표가 여기 들어간다.
@@ -239,7 +235,7 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 | `RABBITMQ_MANAGEMENT_PUBLISH_PORT` | `15672` | compose base | RabbitMQ 관리 UI 퍼블리시 포트 |
 | `POSTGRES_PUBLISH_PORT` | `5432` | compose base | psql 직접 접속용 퍼블리시 포트 |
 | `REDIS_PUBLISH_PORT` | `6379` | compose base | redis-cli 직접 접속용 퍼블리시 포트 |
-| `SECRETS_DIR` | `/run/secrets` | config.py | secret 파일 디렉토리. 파일명은 pydantic 필드명과 일치하고 디렉토리가 있을 때만 활성 (3절). BaseSettings 필드가 아니라 모듈 로드 시점 `os.environ` 으로 읽는다 — 컨테이너는 `env_file` 이 `.env` 를 환경변수로 올려 통하지만, 호스트 직접 기동은 환경변수로 줘야 한다 |
+| `SECRETS_DIR` | `/run/secrets` | config.py | secret 파일 디렉토리 (3절). BaseSettings 필드가 아니라 모듈 로드 시점 `os.environ` 으로 읽는다 — 컨테이너는 `env_file` 이 `.env` 를 환경변수로 올려 통하지만, 호스트 직접 기동은 환경변수로 줘야 한다 |
 | `POSTGRES_HOST` | `postgres` | config.py / compose base(서비스명 고정) | PostgreSQL 호스트. compose 배포에서는 base 의 `environment:` 가 서비스명으로 고정해 `.env` 값이 무시되고, compose 밖에서 기동할 때만 `.env` 값이 쓰인다 |
 | `POSTGRES_PORT` | `5432` | config.py | 컨테이너가 접속할 서버 포트 — 호스트 퍼블리시 포트는 `POSTGRES_PUBLISH_PORT` |
 | `POSTGRES_DB` | `assessment` | config.py / compose base | |
@@ -259,7 +255,7 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 | `RABBITMQ_TASK_INSTALL_KEY_PREFIX` | `task.install` | config.py | task.install 호스트별 routing key prefix. full = `<prefix>.<agent_id>` (`task_install_routing_key()`) |
 | `RABBITMQ_ROUTING_KEY_TASK_RESULT` | `task.result` | config.py | worker.result 큐 바인딩 routing key (원격 호스트 결과 보고 수신). agent `WORKER_TASK_RESULT_KEY` 와 일치 의무 |
 | `RABBITMQ_QUEUE_WORKER_RESULT` | `worker.result` | config.py | 엔진이 task.result 를 소비하는 단일 결과 큐 이름 |
-| `TASK_INSTALL_SUCCESS_EXIT_CODES` | `{"windows":[2],"rocky:9":[3],"almalinux:9":[3],"ol:9":[3],"centos:9":[3]}` | config.py | task.result 성공 보정 정책 (`task_policy.effective_task_result`). 키 -> 성공으로 취급할 추가 exit code. 키 규약(os_family 분기): Windows = family-level `"windows"`(빌드번호 아님) / Linux = `"os_id:major"`(예 `"rocky:9"`). 기본값 근거: Windows installer 는 설치 성공에도 exit 2, EL9(rocky/almalinux/ol/centos major 9)는 systemd start-limit 로 exit 3 이나 설치·ZDM 등록 성공 -> 보정. `status=failure`+`failure_reason=script_failed`+키 일치+exit_code 포함일 때만. JSON override 예: `{"windows":[2],"rocky:9":[3]}` |
+| `TASK_INSTALL_SUCCESS_EXIT_CODES` | `{"windows":[2],"rocky:9":[3],"almalinux:9":[3],"ol:9":[3],"centos:9":[3]}` | config.py | task.result 성공 보정 정책 (`task_policy.effective_task_result`). 키 -> 성공으로 취급할 추가 exit code. 상세는 아래 "TASK_INSTALL_SUCCESS_EXIT_CODES 운영 규칙" |
 | `RABBITMQ_WORKER_USER` | `assessment` | agent env (repo 밖) | 원격 호스트 worker 가 사용할 AMQP user. 비어 있으면 worker 자동 비활성 (collector 만 동작) |
 | `RABBITMQ_WORKER_PASSWORD` | `assessment` | agent env (repo 밖) | `RABBITMQ_WORKER_USER` 의 암호. heredoc 안에서 `RABBITMQ_WORKER_PASS` 매핑 |
 | `WORKER_TASK_EXCHANGE` | `assessment.tasks` | agent env (repo 밖) | task.install/task.result 전용 exchange. collector exchange 와 분리. 엔진 `RABBITMQ_TASK_EXCHANGE` 와 값 일치 의무 |
@@ -273,13 +269,39 @@ compose 예약 변수 — compose CLI 가 이름을 알고 읽는다. compose �
 | `WEB_PORT` | `8000` | config.py / compose base | 컨테이너 안 uvicorn listen 포트 + web healthcheck 대상. 호스트 접속 포트는 `WEB_PUBLISH_PORT` |
 | `WEB_RELOAD` | `false` | config.py / dev compose | uvicorn auto-reload. dev hot-reload 전용 (dev override 가 `true` 주입, 패키지 bind mount 와 짝). prod 미설정 → false (코드 변경 감시 프로세스 불필요·bind mount 없는 wheel/image 배포에 무의미) |
 | `INSTALL_TIMEOUT_SEC` | `600` | config.py | install.sh wall-clock timeout (픽업 후 스크립트 실행 예산). 원격 host worker 가 SIGTERM/SIGKILL |
-| `INSTALL_TASK_DEADLINE_SEC` | `3600` | config.py | install task 배달/마감 창(초). engine `tasks.deadline_at` + broker `agent.tasks.<agent_id>` 큐 `x-message-ttl` 동일 창(오프라인 호스트 store-and-forward 유예). `INSTALL_TIMEOUT_SEC`(600) 와 별개 개념 |
-| `ZDM_DEFAULT_IP` | `""` (빈값) | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. 운영자가 real ZDM 좌표 주입. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어 |
+| `INSTALL_TASK_DEADLINE_SEC` | `3600` | config.py | install task 배달/마감 창(초). engine `tasks.deadline_at` + broker `agent.tasks.<agent_id>` 큐 `x-message-ttl` 동일 창(오프라인 호스트 store-and-forward 유예). `INSTALL_TIMEOUT_SEC`(600) 와 별개 개념. 값을 바꾸면 이미 선언된 큐의 TTL 과 어긋나 큐 재선언이 `PRECONDITION_FAILED` 로 깨진다 — broker 의 기존 `agent.tasks.*` 큐를 수동 삭제해야 한다 |
+| `ZDM_DEFAULT_IP` | `""` (빈값) | config.py | ZDM 서버 기본 좌표. install 모달 default. POST `/tasks/install` 의 `zdm_ip` 누락 시 fallback. install.sh 의 `-s` 인자 + agent download.url host. 운영자가 real ZDM 좌표 주입. startup 거부 없음 — 잘못된 ZDM 발행은 런타임 503 + agent host whitelist 가 방어. 허용 형식은 아래 "ZDM 좌표 값 공간" |
 | `ZDM_DEFAULT_USER` | `admin@zconverter.com` | config.py | ZDM 관리자 계정 기본값. POST body `zdm_user` 누락 시 fallback. install.sh 의 `-u` 인자. startup 거부 없음 (secret 아님) |
 | `ZDM_META_CONNECT_TIMEOUT_SEC` | `5.0` | config.py | ZDM 메타 조회 HTTP connect timeout |
 | `ZDM_META_TOTAL_TIMEOUT_SEC` | `120.0` | config.py | ZDM 메타 조회 HTTP total timeout (HEAD + GET full). 44MB 가정, 동일 LAN 1~2s |
 | `REDIS_TTL_ZDM_PACKAGE_SHA256` | `21600` (6h) | config.py | ETag 기반 sha256 cache TTL |
 | `SQLALCHEMY_ECHO` | `false` | config.py | SQLAlchemy 엔진 SQL 로깅. dev 디버깅 시 true (운영 환경은 false 유지 — 로그 폭증·secret 노출 위험) |
+
+### ZDM 좌표 값 공간
+
+`ZDM_DEFAULT_IP` 와 POST `/api/tasks/install` 의 `zdm_ip` 는 같은 값 공간을 쓴다. 운영 환경마다 ZDM 이 IP·FQDN·HTTP endpoint 어느 형태로도 떠서 하나로 강제하지 않고 아래를 모두 받는다.
+
+| 형식 | 예 |
+|------|-----|
+| IPv4 | `192.168.3.94` |
+| IPv4:port | `192.168.3.94:8080` |
+| hostname·FQDN (trailing dot 허용) | `zdm.example.com` |
+| hostname:port | `zdm.example.com:8000` |
+| http·https URL | `http://zdm.example.com:8443/download/x.tar.gz` |
+
+최대 길이는 2048 (RFC 3986 권장 URL 상한). 공백·제어문자와 shell metachar(`;` `|` `&` `` ` `` `$` `<` `>`)는 거부한다 — task params 가 task.install body 로 그대로 전파되기 때문이다.
+
+IPv6 는 받지 않는다 — raw(`::1`)도 bracket(`[::1]:8000`)도 거부다. agent 의 `download_url_extract_host`(download.c)가 `:` 를 host 종료 문자로 처리해 bracket 표기를 파싱하지 못한다. IPv6 ZDM 좌표를 쓰려면 agent 변경이 선행돼야 한다.
+
+### TASK_INSTALL_SUCCESS_EXIT_CODES 운영 규칙
+
+키 규약은 os_family 로 갈린다 — Windows 는 family-level `"windows"` 한 키, Linux 는 `"os_id:major"`(예 `"rocky:9"`). Windows 를 빌드번호별 키(예 2008R2=7601)로 두면 누락에 취약해 family 로 묶는다.
+
+보정은 `status=failure` + `failure_reason=script_failed` + 키 일치 + exit_code 포함일 때만 걸린다. JSON override 예: `{"windows":[2],"rocky:9":[3]}`.
+
+기본값 근거 — Windows installer 는 설치에 성공해도 exit 2 로 끝나고, EL9(rocky·almalinux·ol·centos major 9)는 systemd start-limit 로 exit 3 을 낸다. 두 경우 모두 설치·ZDM 등록은 성공했고, 해당 호스트 services 에 `ZConCloudAgent`(RUNNING)가 등장하는 것으로 확인했다. 같은 EL9 계열이라도 rhel9 는 미해당이라 목록에서 빼고, centos-stream8 은 os_id 가 centos8 과 구분되지 않아 보류한다.
+
+이 allowlist 는 `task_policy` 미보고(null) task 의 폴백 전용이다. 신규 OS 대응을 allowlist 확장으로 처리하지 않는다 — 에이전트가 `task_policy` 를 발행하게 하는 것이 정공이다.
 
 ### 표에 두지 않는 내부 튜닝 키
 

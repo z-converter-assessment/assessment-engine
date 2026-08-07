@@ -1,25 +1,23 @@
 """boot_time 동일 부팅 판정 — 측정 jitter 흡수 단일 진실 (web·consumer 공용 도메인 모듈).
 
 에이전트가 boot_time 을 /proc/stat btime(정적) 대신 now - uptime(동적)으로 산출해 매 수집마다 +/-1초
-흔들린다(실측 확인). 정확 비교(!=)는 이 jitter를 재부팅/변경으로 오판 -> CPU/IO delta 간헐 NULL(부하 상위·
-차트 출렁임) + inventory_history 가짜 행 적재. 두 시점 boot_time 차이가 허용치 이내면 동일 부팅으로 본다.
-
-읽기 시점 정규화(P1 raw-first): DB 에는 agent raw boot_time 을 그대로 저장하고, "동일 부팅인가" 판정만
-본 모듈 단일 헬퍼/상수 경유. SQL(db.repositories.query.metric·report 가 types.BOOT_JITTER_SEC 공유)도
-BOOT_TIME_JITTER_TOLERANCE 에서 파생한 초 단위 값을 bound parameter 로 사용해 단일 진실 유지.
+흔들린다(실측 확인). 정확 비교(!=)는 이 jitter 를 재부팅으로 오판해 CPU/IO delta 를 간헐 NULL 로 만들고
+inventory_history 에 가짜 행을 쌓는다. DB 에는 agent raw boot_time 을 그대로 저장하고 흡수는 읽기 시점
+판정에서만 한다 — SQL(`db.repositories.query.types.BOOT_JITTER_SEC`)도 여기서 파생한 초 단위 값을 bound
+parameter 로 써 단일 진실을 유지한다.
 """
 
 from datetime import datetime, timedelta
 
-# 측정 jitter 허용치 — 이 이내 차이는 동일 부팅. 실측 jitter는 +/-1초, 실제 재부팅은 분 단위 점프라 안전하게 구분.
+# 실측 jitter(+/-1초)와 실제 재부팅(분 단위 점프) 사이에 여유 있게 둔 값.
 BOOT_TIME_JITTER_TOLERANCE = timedelta(seconds=5)
 
 
 def is_counter_reset(cur_boot: datetime | None, prev_boot: datetime | None) -> bool:
     """재부팅(counter reset) 확정 판정 — 보수적.
 
-    두 시점 boot_time 차이가 허용치를 넘으면 재부팅 -> /proc 누적 카운터 0 리셋 -> delta 무의미(None).
-    한쪽이라도 NULL(옛 데이터·미발행)이면 단정 못 해 False -> 호출자는 d<0 휴리스틱 fallback.
+    재부팅이면 /proc 누적 카운터가 0 으로 리셋돼 그 구간 delta 가 무의미해진다(호출자는 None 처리).
+    한쪽이라도 NULL(옛 데이터·미발행)이면 단정 못 해 False — 호출자는 d<0 휴리스틱으로 폴백한다.
     """
     if cur_boot is None or prev_boot is None:
         return False
@@ -29,8 +27,7 @@ def is_counter_reset(cur_boot: datetime | None, prev_boot: datetime | None) -> b
 def boot_time_changed(prev_boot: datetime | None, new_boot: datetime | None) -> bool:
     """boot_time 변경 감지 — 적극적 (inventory_history append 트리거).
 
-    허용치를 넘는 차이만 변경으로 본다(jitter 흡수). 값<->부재(NULL) 전환은 의미있는 변경(True).
-    둘 다 NULL 이면 동일(False).
+    값<->NULL 전환은 의미있는 변경(True), 둘 다 NULL 이면 동일(False).
     """
     if prev_boot is None and new_boot is None:
         return False

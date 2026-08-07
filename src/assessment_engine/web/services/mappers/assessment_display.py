@@ -18,11 +18,9 @@ if TYPE_CHECKING:
 
 @dataclass
 class SaturationAxisDisplay:
-    """os-aware 포화 축 표시 원자 — single_report 포화 축 카드·attention capacity 지표 공용 (P2 표현 단일 소스).
+    """os-aware 포화 축 표시 원자 — 포맷·라벨·임계 문자열을 한 곳에서 결정해 카드/표 간 표기 drift 를 막는다.
 
-    axis: os-neutral 축 이름(CPU 포화/메모리 포화/디스크 I/O). signal: 해당 OS 측정 신호 이름. value: 형식화
-    값('N/A'=미측정). threshold: 임계 표기. measured: 실측 여부. 포화 여부(bool)는 right_sizing helper 별도 —
-    본 원자는 표시값만(포맷·라벨·임계 문자열을 한 곳에서 결정해 카드/표 간 표기 drift 차단).
+    표시값만 담는다 — 포화 여부(bool) 판정은 right_sizing helper 몫이다. value 는 미측정이면 'N/A'.
     """
 
     axis: str
@@ -30,17 +28,12 @@ class SaturationAxisDisplay:
     value: str
     threshold: str
     measured: bool
-    # 단일 게이트 crossing — 이 raw 신호값이 자기 임계를 넘었는가(값·임계와 같은 자리 산출, 단일 진실). 종합
-    # 판정(dual-gate: 이용률 AND 포화)은 cpu_saturated 등 별도 — 축 표시는 신호 자체가 임계 넘었는지(비정상)를 보임.
+    # 단일 게이트 — 이 신호값이 자기 임계를 넘었는가. dual-gate 종합 판정(이용률 AND 포화)은 cpu_saturated 등 별도.
     crossed: bool = False
 
 
 def saturation_axis_displays(stats: right_sizing.ResourceStats) -> list[SaturationAxisDisplay]:
-    """포화 3축(CPU·메모리·디스크 I/O) os-aware 표시값 — [cpu, mem, disk] 순 (report·attention 단일 진실, P2).
-
-    OS별 측정 신호·형식화·임계 표기를 한 곳에서 결정 — 판정(saturated bool)은 cpu_saturated/mem_saturated/
-    disk_io_saturated helper 몫(임계 재계산 없음). 값 스케일은 stats(=build_resource_stats) raw 그대로.
-    """
+    """포화 3축 os-aware 표시값 — [cpu, mem, disk] 순 (호출부가 위치로 인덱싱한다)."""
     rec = right_sizing
     cores = stats.cpu_cores
     await_ms = stats.disk_await_p95_ms
@@ -54,7 +47,7 @@ def saturation_axis_displays(stats: right_sizing.ResourceStats) -> list[Saturati
                 "Processor Queue Length / core",
                 f"W {rq:.2f}"
                 if rq is not None
-                else "N/A",  # W 태그 — Linux(실행큐)와 의미·임계 달라 값만으론 구분 불가
+                else "N/A",  # W/L 태그 — 두 OS 신호가 의미·임계가 달라 값만으론 구분이 안 된다
                 f">= {rec.CPU_RUN_QUEUE_PER_CORE_SATURATION:g}",
                 rq is not None,
                 crossed=rq is not None and rq >= rec.CPU_RUN_QUEUE_PER_CORE_SATURATION,
@@ -81,7 +74,7 @@ def saturation_axis_displays(stats: right_sizing.ResourceStats) -> list[Saturati
         SaturationAxisDisplay(
             "CPU 포화",
             "run queue (procs_running) / core",
-            f"L {rq:.2f}" if rq is not None else "N/A",  # L 태그 — Windows(Processor Queue)와 의미·임계 달라 구분
+            f"L {rq:.2f}" if rq is not None else "N/A",
             f">= {rec.PROCS_RUNNING_PER_CORE_SATURATION:g}",
             rq is not None,
             crossed=rq is not None and rq >= rec.PROCS_RUNNING_PER_CORE_SATURATION,
@@ -106,14 +99,11 @@ def saturation_axis_displays(stats: right_sizing.ResourceStats) -> list[Saturati
 
 
 def build_host_confidence_notes(host: right_sizing.HostAssessment) -> list[str]:
-    """호스트 confidence 단서 라벨 (rollup_host 기반) — 자원별 ConfidenceNote 를 호스트 단위 OR 종합.
+    """호스트 confidence 단서 라벨 — 자원별 ConfidenceNote 를 호스트 단위로 OR 종합.
 
-    coverage_gap(포화 축 미관측)·low_precision(이력<30h·버스티)를 호스트 단위로 노출한다. biased(virtio 구조
-    편향)는 disk_io 가 상시 True 라 표시 노이즈여서 노트에서 빼고 다운사이즈 게이트 안에서만 쓴다.
-    report·attention 공용.
-
-    '창 대비 관측 부족'은 30h 절대 바닥(low_precision)과 별개 축 — 선택 창을 다 못 덮으면(예: 14일 창에
-    2일 데이터) sample_sufficiency 가 낮아 발화. 짧은 창으로 판정 시 저커버리지를 정직하게 노출.
+    biased(virtio 구조 편향)는 disk_io 가 상시 True 라 노트에서 빼고 다운사이즈 게이트 안에서만 쓴다.
+    '창 대비 관측 부족'은 절대 관측량 바닥(low_precision)과 별개 축이다 — 선택 창을 다 못 덮으면
+    (예: 14일 창에 2일 데이터) sample_sufficiency 가 낮아 발화한다.
     """
     notes: list[str] = []
     if right_sizing.host_saturation_unmeasured(host):  # 포화 축(cpu·mem·disk_io) 한정 — 용량·네트워크 제외
@@ -126,7 +116,7 @@ def build_host_confidence_notes(host: right_sizing.HostAssessment) -> list[str]:
 
 
 def resource_confidence_notes(c: right_sizing.ConfidenceNote) -> list[str]:
-    """자원별 신뢰도 하향 사유 — biased(virtio 구조 편향)는 상시라 노이즈로 제외. right-sizing/assessment API 공용."""
+    """자원별 신뢰도 하향 사유 — biased 제외 기준은 build_host_confidence_notes 와 같다."""
     notes: list[str] = []
     if c.low_precision:
         notes.append("표본 부족")
@@ -152,7 +142,7 @@ def _saturation_dict(
 
 
 def saturation_block(kind: str, stats: right_sizing.ResourceStats) -> JsonObject:
-    """자원별 포화 신호 — os-aware raw 수치(계약용 numeric). right-sizing/assessment API 공용(P2 단일 진실)."""
+    """자원별 포화 신호 — os-aware raw 수치 (계약용 numeric)."""
     win = stats.os_family == "windows"
     if kind == "cpu":
         rq = stats.cpu_run_queue_p95 if win else stats.procs_running_p95

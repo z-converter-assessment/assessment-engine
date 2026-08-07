@@ -11,11 +11,11 @@ from typing import Literal
 
 from assessment_engine.domain.boot_time import BOOT_TIME_JITTER_TOLERANCE
 
-# boot_time 지터 허용치(초) — get_reboot_events(server_inventory_history) 의 재부팅 판정 게이트.
-# child 시계열(disk_io/net_io)은 boot_time 미보유 -> rate 차트 reset 은 GREATEST(delta,0) 로 흡수(아래).
+# boot_time 지터 허용치(초) — get_reboot_events 의 재부팅 판정 게이트.
+# child 시계열(disk_io/net_io)은 boot_time 을 갖지 않아 이 게이트를 못 쓴다 — rate 차트의 counter reset 은
+# GREATEST(delta,0) 가 흡수한다.
 BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
 
-# --- chart metric 카탈로그 (router Literal whitelist) ---
 type MetricType = Literal[
     "cpu.usage_percent",
     "cpu.user_percent",
@@ -48,12 +48,11 @@ type MetricType = Literal[
     "net.drop_percent",
     "net.congested",
 ]
-# 환경 차트는 여러 호스트를 한 선에 묶으므로 표현 단위가 셋으로 갈린다 — capacity-weighted 비율(cpu·mem·fs),
-# 활동 합산(net bytes), 판정 crossing 서버 수(`*_hosts`).
-# 이기종 장치의 절대치(IOPS·kbps·PPS)와 Windows 미발행 신호(PSI)는 여기서 제외한다 — 전자는 비교 기준선이
-# 없어 높다/낮다를 못 읽고, 후자는 Linux 만의 값이 "환경 전체"로 읽힌다. 서버 상세는 단일 호스트라 혼합
-# 문제가 없어 `MetricType` 전체를 쓴다.
-# 축 선정 근거·화면별 표현 차이 단일 진실 = `docs/reference/web/services.md` "환경 성능 추이" 절.
+# 환경 차트는 여러 호스트를 한 선에 묶으므로 표현이 셋으로 갈린다 — capacity-weighted 비율(cpu·mem·fs),
+# 활동 합산(net bytes), 판정 crossing 호스트 수(`*_hosts`). 이기종 장치의 절대치(IOPS·kbps·PPS)와 Windows
+# 미발행 신호(PSI)는 그래서 빠진다 — 전자는 비교 기준선이 없고, 후자는 Linux 값이 "환경 전체"로 읽힌다.
+# 서버 상세는 단일 호스트라 혼합 문제가 없어 `MetricType` 전체를 쓴다. 축 선정 근거·화면별 표현 차이
+# 단일 진실은 `docs/reference/web/services.md` "환경 성능 추이" 절.
 type EnvironmentMetricType = Literal[
     "cpu.usage_percent",
     "cpu.saturation_hosts",
@@ -69,8 +68,7 @@ type TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 type BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
 type AggFunc = Literal["avg", "max", "p95"]
 
-# TimeRange → timedelta. get_metric_chart·get_reboot_events 양쪽 사용 (service·repo 중복 방지).
-# 14d는 right-sizing 윈도우(right_sizing.WINDOW_DAYS)와 동일 — 보고서·대시보드·차트 일관.
+# 14d 는 right-sizing 윈도우(right_sizing.WINDOW_DAYS)와 같은 값이어야 한다 — 보고서·대시보드·차트 일관.
 TIME_RANGE_TD: dict[str, timedelta] = {
     "15m": timedelta(minutes=15),
     "1h": timedelta(hours=1),
@@ -81,13 +79,12 @@ TIME_RANGE_TD: dict[str, timedelta] = {
     "30d": timedelta(days=30),
 }
 
-# TimeRange → 평가 윈도우(일, float). SQL interval 은 fraction 지원(0.25 days = 6h). TIME_RANGE_TD 단일 소스 파생.
+# 평가 윈도우(일). 소수가 나와도 SQL interval 이 fraction 을 받는다 (0.25 days = 6h).
 DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {r: td.total_seconds() / 86400 for r, td in TIME_RANGE_TD.items()}
 
-# 진단 발행·분류 기본 윈도우 — service default·UI 기본값 단일 진실 (#F10). right_sizing.WINDOW_DAYS(14d)와 정합.
+# 진단 발행·분류 기본 윈도우 — service default·UI 기본값 단일 진실. right_sizing.WINDOW_DAYS(14d)와 정합.
 DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
 
-# (SQL interval 문자열, Python timedelta) — bucket 단위를 SQL과 Python 양쪽에서 사용.
 _BUCKET_INFO: dict[BucketSize, tuple[str, timedelta]] = {
     "1m": ("1 minute", timedelta(minutes=1)),
     "5m": ("5 minutes", timedelta(minutes=5)),
@@ -100,8 +97,7 @@ _BUCKET_INFO: dict[BucketSize, tuple[str, timedelta]] = {
     "1d": ("1 day", timedelta(days=1)),
 }
 
-# TimeRange → 자동 BucketSize — 범위별 적정 분해력. SSR 정적 차트(환경 부하 추이)·동적 fetch 차트 공통.
-# chart-utils.js `AUTO_BUCKET` 과 값 동기화 의무 (#F10 TimeRange/BucketSize 단일 진실).
+# chart-utils.js `AUTO_BUCKET` 과 값 동기화 의무 — 어긋나면 같은 range 가 SSR 차트와 fetch 차트에서 다른 bucket.
 AUTO_BUCKET: dict[str, str] = {
     "15m": "1m",
     "1h": "5m",
@@ -118,12 +114,11 @@ _AGG: dict[AggFunc, str] = {
     "p95": "percentile_cont(0.95) WITHIN GROUP (ORDER BY v)",
 }
 
-# --- chart dispatch 매핑 (router Literal로 whitelist된 metric_type만 도달) ---
+# 아래 dispatch 상수는 router Literal 로 whitelist 된 metric_type 만 도달 — SQL f-string 조립이 안전한 근거.
 
-# CPU 누적 시간(seconds). delta로 % 계산 (LAG 기반). 성분 COALESCE — Windows 는 nice/iowait/irq/softirq/steal
-# 이 null(OS 개념 부재)이라 raw 합이 X+NULL=NULL 로 전파되면 delta null -> 전량 제외돼 Windows CPU 추이 차트가
-# 빈다(cagg·compute_cpu 동일). per-component(user/system/iowait) 분자는 bare 유지 — Windows iowait 는 null
-# 이라 d_num null 로 자연 제외(N/A), COALESCE 하면 측정 0(iowait 여유)으로 오인.
+# 분모 성분 COALESCE — Windows 는 nice/iowait/irq/softirq/steal 이 null(OS 개념 부재)이라 raw 합이
+# X+NULL=NULL 로 전파되면 delta 가 null 이 돼 Windows CPU 추이 차트가 빈다(cagg·compute_cpu 동일).
+# 분자 중 per-component(user/system/iowait)는 bare 유지 — COALESCE 하면 Windows iowait 미측정이 0(여유)으로 읽힌다.
 _CPU_TOTAL_EXPR = (
     "COALESCE(cpu_user_s,0)+COALESCE(cpu_nice_s,0)+COALESCE(cpu_system_s,0)+COALESCE(cpu_idle_s,0)"
     "+COALESCE(cpu_iowait_s,0)+COALESCE(cpu_irq_s,0)+COALESCE(cpu_softirq_s,0)+COALESCE(cpu_steal_s,0)"
@@ -139,12 +134,10 @@ _CPU_NUMERATOR: dict[MetricType | EnvironmentMetricType, str] = {
     "cpu.nice_percent": "cpu_nice_s",  # Linux 전용(Windows null -> 분자 null, 자연 제외)
 }
 
-# (dim_col, value_col) — disk/net rate per dimension. table 명은 metric.py 에서 결합
-# (types.py 는 ORM import 안 함 — circular 회피).
+# (dim_col, value_col). 테이블명은 호출 측이 결합한다 — 본 모듈이 ORM 을 import 하면 순환.
 _RATE_PER_DIM_DEFS: dict[MetricType | EnvironmentMetricType, tuple[str, str]] = {
     "disk.read_iops": ("device_id", "ops_read"),
     "disk.write_iops": ("device_id", "ops_write"),
-    # 처리량 — io_*_bytes 는 By 단위 -> KB 는 /1024.
     "disk.read_kbps": ("device_id", "io_read_bytes / 1024.0"),
     "disk.write_kbps": ("device_id", "io_write_bytes / 1024.0"),
     "net.rx_bytes_per_sec": ("iface_id", "rx_bytes"),
@@ -153,22 +146,20 @@ _RATE_PER_DIM_DEFS: dict[MetricType | EnvironmentMetricType, tuple[str, str]] = 
     "net.tx_packets_per_sec": ("iface_id", "tx_packets"),
 }
 
-# 데이터 볼륨 술어 — 가상 fs(tmpfs/overlay 등)와 /boot 를 fstype/mountpoint 로 제외.
-# fstype null(미상)은 데이터로 포함(안전). 사용자 입력이 닿지 않는 정적 상수라 f-string 조립이 안전하다.
+# fstype null(미상)은 제외하지 않고 데이터 볼륨으로 포함한다 — 미상을 버리면 실사용 마운트가 조용히 빠진다.
 _VIRTUAL_FSTYPES = (
     "'tmpfs','devtmpfs','overlay','squashfs','proc','sysfs','cgroup','cgroup2','mqueue','debugfs',"
     "'tracefs','securityfs','pstore','bpf','configfs','ramfs','autofs','hugetlbfs','fusectl','nsfs',"
     "'efivarfs','binfmt_misc'"
 )
 _DATA_VOLUME_SQL_FILTER = f"(fstype IS NULL OR fstype NOT IN ({_VIRTUAL_FSTYPES})) AND mountpoint NOT LIKE '/boot%'"
-# cagg(server_filesystem_5m) 변형 — fstype 대표값은 fstype_any 컬럼.
+# cagg(server_filesystem_5m) 는 fstype 대표값을 fstype_any 컬럼으로 갖는다.
 _DATA_VOLUME_CAGG_FILTER = (
     f"(fstype_any IS NULL OR fstype_any NOT IN ({_VIRTUAL_FSTYPES})) AND mountpoint NOT LIKE '/boot%'"
 )
 
-# 환경 시점값 capacity-weighted (시점별 sum(numerator)/sum(denominator) * 100). server_metrics 컬럼(단위 By).
-# guard = 분자 성분이 실측된 행만 집계(미측정 성분 null 을 0 으로 삼키지 않음). Windows 는 mem_cached/buffered
-# 가 null(OS 미측정)이라 IS NOT NULL 가드로 gap 표시.
+# (numerator, denominator, guard) — 단위 By. guard 는 분자 성분이 실측된 행만 남긴다: Windows 는
+# mem_cached/buffered 가 null(OS 미측정)이라 가드 없이 집계하면 미측정이 0 으로 삼켜진다.
 _ENV_SCALAR_WEIGHTED: dict[MetricType | EnvironmentMetricType, tuple[str, str, str]] = {
     "mem.usage_percent": (
         "mem_limit_bytes - mem_available_bytes",
@@ -192,12 +183,10 @@ _ENV_SCALAR_WEIGHTED: dict[MetricType | EnvironmentMetricType, tuple[str, str, s
     ),
 }
 
-# 물리 disk/iface 필터 — 무필터 SUM 이 물리 disk I/O 에 그 위 LVM/RAID/crypt LV I/O 를 더해 이중집계된다.
-# 판정 규약(fail-closed EXISTS·`id_type:id` 우선·Windows `name:` 폴백)과 그 근거는
+# 무필터 SUM 은 물리 disk I/O 에 그 위 LVM/RAID/crypt LV I/O 를 더해 이중집계된다. 판정 규약과 근거는
 # `docs/reference/db/repositories.md` "집계 필터 단일 진실" 절.
-#
-# 상관 서브쿼리로 쓴 것은 SQL 형태 제약이다 — bare server_id/device_id/iface_id 참조라야 raw hypertable 과
-# cagg 양쪽 컬럼 스코프에서 그대로 동작한다.
+# 상관 서브쿼리 형태는 제약이다 — bare server_id/device_id/iface_id 참조라야 raw hypertable 과 cagg
+# 양쪽 컬럼 스코프에서 그대로 동작한다.
 _PHYS_DISK_SQL_FILTER = (
     "EXISTS (SELECT 1 FROM server_inventory si_pf "
     "CROSS JOIN LATERAL jsonb_array_elements(si_pf.block_devices) bd_pf "

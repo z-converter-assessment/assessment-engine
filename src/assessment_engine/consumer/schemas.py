@@ -1,7 +1,6 @@
 """인바운드 wire Pydantic 스키마 — 계약 = docs/reference/contracts/agent-data.md + wire.schema.json.
 
-metrics/inventory = envelope + system.* datapoint-array + inventory 배열. task.result/error = envelope + 평면 body.
-검증은 진입점 1회 (#F3). `extra=ignore` 로 계약 내부 forward-compat.
+검증은 이 진입점 1회 — 이후 계층은 재검증하지 않는다.
 """
 
 from datetime import datetime
@@ -17,21 +16,18 @@ _CONTRACT_MAJOR = AGENT_CONTRACT_VERSION.split(".", 1)[0]
 
 
 class MessageBase(BaseModel):
-    # 계약 진화 (#B) — extra=ignore 로 agent 신규 필드 통과·무시. 자식 상속.
+    # extra=ignore — agent 가 실은 새 필드를 통과·무시한다. 비대칭 배포에서 reject 로 엔진이 죽지 않게.
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
-    # 에이전트 계약 버전(contract.AGENT_CONTRACT_VERSION). 형식 major.minor.
     schema_version: str = Field(pattern=r"^\d+\.\d+$")
     message_id: UUID
     collected_at: AwareDatetime
-    # composite_id — SHA-256 감사·표시용(식별 미사용). "" -> None 정규화.
+    # 감사·표시용 SHA-256 — 호스트 식별에 쓰지 않는다. "" 는 아래 validator 가 None 으로 정규화.
     composite_id: str | None = Field(default=None, max_length=64)
     machine_id: str | None = Field(default=None, max_length=64)
     agent_version: str | None = Field(default=None, min_length=1, max_length=32)
-    # boot_time — 부팅 시각(판독 불가 시 null). counter reset 게이트.
-    boot_time: AwareDatetime | None = None
-    # agent_started_at — 발행 프로세스 기동 시각. task.result 만 항상 null.
-    agent_started_at: AwareDatetime | None = None
+    boot_time: AwareDatetime | None = None  # 판독 불가 시 null. counter reset 게이트
+    agent_started_at: AwareDatetime | None = None  # task.result 는 worker 컨텍스트라 항상 null
     os_family: Literal["linux", "windows"]
 
     @field_validator("schema_version")
@@ -51,25 +47,18 @@ class MessageBase(BaseModel):
 class AgentMessageBase(MessageBase):
     """agent 프로세스가 직접 발행해 agent_id 가 반드시 실리는 메시지.
 
-    task.result 는 worker 컨텍스트라 agent_id 가 없어 본 클래스를 상속하지 않는다 — 상속으로 nullable
-    override 를 하면 기반 클래스의 `UUID` 선언이 거짓이 된다.
+    task.result 는 worker 컨텍스트라 agent_id 가 없고, 상속으로 nullable override 를 하면 여기 `UUID` 선언이
+    거짓이 되므로 본 클래스를 상속하지 않는다.
     """
 
-    # agent_id — 호스트 식별 단일 키(불변 UUID). DB UNIQUE·MQ 라우팅.
-    agent_id: UUID
-
-
-# ---------------------------------------------------------------------------
-# system.* datapoint-array (metrics)
-# ---------------------------------------------------------------------------
+    agent_id: UUID  # 호스트 식별 단일 키(불변 UUID) — DB UNIQUE·MQ 라우팅
 
 
 class Datapoint(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    # attr — 차원 구분(device/state/direction/resource/scope/window/source/cpu/kind/class). 생략=단일 스칼라.
+    # 차원 구분(device/state/direction/resource/scope/window/source/cpu/kind/class). 생략 = 단일 스칼라.
     attr: dict[str, str | int] = Field(default_factory=dict[str, str | int])
-    # value — number 또는 null(측정불가, 0 과 구분).
-    value: float | None = None
+    value: float | None = None  # null = 측정 불가 (0 과 구분)
 
 
 class Metric(BaseModel):
@@ -79,13 +68,8 @@ class Metric(BaseModel):
     points: list[Datapoint] = Field(default_factory=list[Datapoint])
 
 
-# 네임스페이스 = {metric명: Metric}. metric명(cpu.time 등)은 dict 키라 dot 무관.
+# metric 명(cpu.time 등)은 dict 키라 dot 이 필드명 제약을 받지 않는다.
 type Namespace = dict[str, Metric]
-
-
-# ---------------------------------------------------------------------------
-# metrics
-# ---------------------------------------------------------------------------
 
 
 class MetricsInput(AgentMessageBase):
@@ -103,13 +87,8 @@ class MetricsInput(AgentMessageBase):
     system_cgroup: Namespace | None = Field(default=None, alias="system.cgroup")
 
 
-# ---------------------------------------------------------------------------
-# inventory
-# ---------------------------------------------------------------------------
-
-
 class BlockDeviceInfo(BaseModel):
-    """정규화 평면 DAG 노드. parent=부모 id(root=null), id/id_type=안정키(E절). 복수 부모면 노드 반복."""
+    """정규화 평면 DAG 노드. parent=부모 id(root=null), id/id_type=안정키. 복수 부모면 노드 반복."""
 
     model_config = ConfigDict(extra="ignore")
     name: str = Field(max_length=128)
@@ -120,7 +99,7 @@ class BlockDeviceInfo(BaseModel):
     parent: str | None = Field(default=None, max_length=128)
     id: str | None = Field(default=None, max_length=128)
     id_type: str | None = Field(default=None, max_length=16)
-    # 레이아웃 상세 (reproduction, agent 확장 — 자연 노드타입에만 emit, 미해당은 부재). 엔진 read 시 정규화(raid_level).
+    # 레이아웃 상세 — 자연 노드타입에만 emit, 미해당은 부재.
     partition_table: str | None = Field(default=None, max_length=8)  # gpt|mbr
     sector_size: int | None = Field(default=None, ge=0)
     serial: str | None = Field(default=None, max_length=128)
@@ -154,12 +133,12 @@ class NetAddressInfo(BaseModel):
     address: str = Field(min_length=1, max_length=64)
     prefix: int | None = Field(default=None, ge=0, le=128)
     family: Literal["ipv4", "ipv6"]
-    origin: str | None = Field(default=None, max_length=16)  # static|dhcp (reproduction, agent 확장)
+    origin: str | None = Field(default=None, max_length=16)  # static|dhcp
 
     @field_validator("address", mode="before")
     @classmethod
     def _validate_address(cls, v: object) -> object:
-        ip_address(str(v))  # bare IP 형식 검증
+        ip_address(str(v))  # bare IP 형식 검증 — 반환값은 버린다
         return v
 
 
@@ -180,11 +159,10 @@ class NetInterfaceInfo(BaseModel):
     speed_mbps: int | None = Field(default=None, ge=0)
     addresses: list[NetAddressInfo] = Field(default_factory=list[NetAddressInfo])
     gateway: str | None = Field(default=None, max_length=64)
-    # 레이아웃 상세 (reproduction, agent 확장). bond_mode raw(엔진 정규화).
     mtu: int | None = Field(default=None, ge=0)
     dns: list[str] | None = None
     routes: list[RouteInfo] | None = None
-    bond_mode: str | None = Field(default=None, max_length=32)
+    bond_mode: str | None = Field(default=None, max_length=32)  # raw — 엔진 read 시 정규화
     vlan_id: int | None = Field(default=None, ge=0)
 
     @field_validator("gateway", mode="before")
@@ -203,10 +181,9 @@ class LvmVgInfo(BaseModel):
     free_bytes: int | None = Field(default=None, ge=0)  # 확장 여력(3계층째)
     data_percent: float | None = Field(default=None, ge=0)
     metadata_percent: float | None = Field(default=None, ge=0)
-    # 레이아웃 상세 (reproduction, agent 확장). pv_ids = 구성 PV 의 block_device id.
     vg_uuid: str | None = Field(default=None, max_length=64)
     extent_size_bytes: int | None = Field(default=None, ge=0)
-    pv_ids: list[str] | None = None
+    pv_ids: list[str] | None = None  # 구성 PV 의 block_device id
 
 
 class InventoryServiceInfo(BaseModel):
@@ -221,8 +198,7 @@ class InventoryListenPortInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
     proto: Literal["tcp", "tcp6", "udp", "udp6"]
     addr: str = Field(max_length=64)
-    # wire minimum:0 permissive superset 유지(#B).
-    port: int = Field(ge=0, le=65535)
+    port: int = Field(ge=0, le=65535)  # wire minimum:0 permissive superset 유지
     uid: int | None = Field(default=None, ge=0)  # Windows null
     pid: int | None = None
     comm: str | None = Field(default=None, max_length=64)
@@ -262,13 +238,13 @@ class InventoryInput(AgentMessageBase):
     mem_total_bytes: int | None = Field(default=None, ge=0)  # 단위 By(bytes)
     ip_external: list[str] | None = None
 
-    # OS 재현 서술자 (flat 최상위) — reproduction OUTPUT 계약. agent 발행(collect_inventory), timezone 은 IANA 원문.
+    # OS 재현 서술자 (flat 최상위) — reproduction OUTPUT 계약.
     arch: str | None = Field(default=None, max_length=32)  # uname machine (x86_64/aarch64)
     bits: int | None = Field(default=None, ge=0)  # 32|64
     boot_firmware: str | None = Field(default=None, max_length=8)  # uefi|bios
     secure_boot: bool | None = None
     edition: str | None = Field(default=None, max_length=64)  # Windows EditionID (Linux null)
-    # CurrentVersion ProductName 원문(Windows only, Linux null, agent 버퍼 128B) — 교정 없이 실측 그대로.
+    # Windows only — CurrentVersion ProductName 원문(agent 버퍼 128B), 교정 없이 실측 그대로.
     product_name: str | None = Field(default=None, max_length=128)
     timezone: str | None = Field(default=None, max_length=64)  # IANA
     rtc_utc: bool | None = None
@@ -298,29 +274,19 @@ class InventoryInput(AgentMessageBase):
         return original
 
 
-# ---------------------------------------------------------------------------
-# error
-# ---------------------------------------------------------------------------
-
-
 class ErrorInput(AgentMessageBase):
     message_type: Literal["error"]
     error_code: str = Field(min_length=1, max_length=64)
     error_message: str
-    # 자유 문자열 수용(wire permissive, Literal 로 좁히면 유효 메시지 DLQ). 로깅 전용.
+    # 자유 문자열 수용 — Literal 로 좁히면 유효 메시지가 DLQ 로 간다. 로깅 전용.
     failed_component: str = Field(min_length=1, max_length=32)
     retry_count: int | None = Field(default=None, ge=0)
     first_failed_at: datetime | None = None
     recovered_at: datetime | None = None
 
 
-# ---------------------------------------------------------------------------
-# task.result
-# ---------------------------------------------------------------------------
-
-
 class TaskResultInput(MessageBase):
-    """작업 결과. worker 발행 — composite_id 미발행, boot_time/agent_started_at 항상 null. task_id 매칭."""
+    """작업 결과. worker 발행 — composite_id 미발행, boot_time/agent_started_at 항상 null. task_id 로 매칭."""
 
     message_type: Literal["task.result"]
     agent_id: UUID | None = None  # 매칭은 task_id — agent_id 부재로 결과 reject 안 함
@@ -330,15 +296,14 @@ class TaskResultInput(MessageBase):
     os_version: str | None = Field(default=None, max_length=64)
     os_codename: str | None = Field(default=None, max_length=64)
 
-    # task_id — wire 계약상 free string(예 "task-abc123"). agent_id(불변 UUID)와 달리 UUID 강제 안 함.
+    # wire 계약상 free string(예 "task-abc123") — agent_id 와 달리 UUID 강제 안 함.
     task_id: str = Field(min_length=1, max_length=128)
-    # free string(minLength 1) — 새 status 값 silent pass.
-    status: str = Field(min_length=1, max_length=32)
+    status: str = Field(min_length=1, max_length=32)  # free string — 새 status 값 silent pass
     failure_reason: str | None = Field(default=None, max_length=32)
     # exit_code/signal_no POSIX wait status 상호배타. signal_no Windows 항상 null.
     exit_code: int | None = None
     signal_no: int | None = None
-    # 실제 설치 신호 — 데몬 기동+ZDM 등록 점검 결과. exit_code 보다 우선(True->success/False->failure). 미발행 시 None.
+    # 실제 설치 신호(데몬 기동+ZDM 등록 점검) — exit_code 보다 우선(True->success/False->failure). 미발행 시 None.
     task_policy: bool | None = None
     duration_ms: int = Field(ge=0)
     stdout_tail: str = Field(max_length=8192)

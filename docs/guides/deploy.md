@@ -1,8 +1,6 @@
 # 배포 가이드 — bootstrap + rollout
 
-본 문서는 내부망 VM 1 대(단일 prod)에 엔진을 docker compose 매체로 배포·rollout 하는 단계별 가이드.
-
-배포 매체는 docker compose 단일. 엔진 rollout 은 배포 대상 VM 에서 `deploy.sh` 를 실행해 수행한다(시퀀스는 3절). 내부망 outbound-only VM 이라 밖에서 push 하지 않고 VM 이 outbound 로 이미지·compose 를 pull 한다. VM 생성·OS 설정은 별도 준비된 VM 전제 — docker·cosign 설치와 운영 스크립트 배치는 1회성 `bootstrap.sh`.
+내부망 VM 1 대(단일 prod)에 엔진을 올린다. 배포 매체는 docker compose 단일이고, VM 이 outbound 로 이미지·compose 를 pull 한다 — 밖에서 push 하지 않는다.
 
 관련: artifact(이미지)는 `docs/guides/release.md`. 환경변수·secret contract 는 `docs/reference/contracts/env.md`.
 
@@ -16,11 +14,9 @@
 
 전제: 배포 대상 VM 은 GitHub·GHCR·Sigstore 로 outbound HTTPS 만 가능하면 된다 (inbound·SSH·runner 불요) — VM 이 스스로 이미지를 pull.
 
-왜 GitHub Actions runner 를 안 쓰나: 내부망 VM 은 GitHub-hosted runner 가 도달 못 하고(inbound 없음), self-hosted runner 는 public repo 에서 fork PR 이 runner(=prod VM)에서 코드를 실행할 수 있어 GitHub 이 권고하지 않는다. 그래서 밖에서 push 하는 대신 VM 이 pull 하고, 배포는 사람이 VM 에서 `deploy.sh` 를 실행한다(= 배포 게이트).
-
 ## 2. VM 1회 부트스트랩
 
-`bootstrap.sh` 가 (1) docker engine + compose plugin + cosign (2) 배포 디렉토리·secret 스캐폴딩·`.env` 템플릿 (3) 운영 스크립트(`deploy.sh`·`rotate-secret.sh`) 배치를 멱등 수행한다. public repo 라 raw 에서 받아 실행 — clone 불요, `.env` 템플릿과 두 운영 스크립트는 스크립트가 자체 fetch:
+`bootstrap.sh` 가 (1) docker engine + compose plugin + cosign (2) 배포 디렉토리·secret 스캐폴딩·`.env` 템플릿 (3) 운영 스크립트(`deploy.sh`·`rotate-secret.sh`) 배치를 멱등 수행한다. 패키지 설치는 apt 라 대상 OS 는 Debian/Ubuntu 다. public repo 라 raw 에서 받아 실행 — clone 불요, `.env` 템플릿과 두 운영 스크립트는 스크립트가 자체 fetch:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/z-converter-assessment/assessment-engine/main/bootstrap.sh -o bootstrap.sh

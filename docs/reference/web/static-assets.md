@@ -1,10 +1,12 @@
 # Web 정적 자원 — JS·차트 UI·표준 컴포넌트
 
-정책: CLAUDE.md #E6 (JS·CSS 외부화 의무) · #E8 (차트·도넛 UI, P4) · #F5 (외부화 강제 채널). 본 문서는 정적 자원 배치·`ChartUtils` API·P4 5 의무 규약·차트 UI·인쇄 CSS·표준 컴포넌트 카탈로그·네비게이션 규약 단일 진실.
+정책: CLAUDE.md #E6 (JS·CSS 외부화 의무) · #E8 (차트·도넛 UI, P4) · #F5 (외부화 강제 채널). 정적 자원 배치·`ChartUtils` API·P4 5 의무 규약·차트 UI·인쇄 CSS·표준 컴포넌트 카탈로그·표기 규약·네비게이션 규약 단일 진실.
 
-`static/css/app.css` = 전역 스타일 단일 진실. base.html `<head>` 가 script 태그들보다 앞에서 `<link rel="stylesheet">` 로 건다. 페이지 로컬 `<style>` 블록(용지 방향·페이지별 override)과 inline `style=` 속성은 그대로 둔다 — 전역 규칙만 외부화 대상이다.
+`static/css/app.css` = 전역 스타일 단일 진실. `:root` 테마 변수부터 컴포넌트 클래스·`@media print` 까지 전부 여기 있고, base.html 에는 `<style>` 블록이 없다. base.html `<head>` 가 script 태그들보다 앞에서 `<link rel="stylesheet">` 로 건다. 페이지 로컬 `<style>` 블록(용지 방향·페이지별 override)과 inline `style=` 속성은 그대로 둔다 — 전역 규칙만 외부화 대상이다.
 
-`/static/*` 응답에 `Cache-Control` 을 붙이지 않는다. 외부화해도 페이지마다 조건부 요청(304 왕복)이 생기고 "재전송 0" 이 되지는 않는다 — `max-age`·`immutable` 부착은 별건이다.
+캐시 헤더는 `DisableHtmlCache` ASGI 미들웨어가 정한다 — SSR 응답(`text/html`)에는 항상 `Cache-Control: no-store`, `/static/*` 에는 dev 에서만 얹는다. HTML 을 막는 이유는 발행 -> 결과 -> 뒤로가기에서 브라우저 HTTP cache·BFCache 가 stale 한 목록 페이지를 되살리기 때문이고, dev static 을 막는 이유는 hot reload 직후 새 파일을 받게 하기 위해서다. prod static 에는 얹지 않아 CDN·long-cache 여지를 남긴다.
+
+정적 자원 캐시 무효화는 URL 의 `?v={{ asset_v }}` 토큰이 맡는다. prod 는 프로세스 기동 시각 hex 고정값이라 재시작이 곧 무효화이고, dev 는 위 미들웨어가 매 요청 재발급해 hot reload 를 즉시 반영한다.
 
 `static/js/` 배치 규칙 (파일 목록은 `ls` 단일 진실):
 - 루트 = 공용 유틸 ESM 모듈(`chart-utils`·`toast-utils`·`emit-utils`·`table-utils`·`signal-utils`·`task-modal`) 또는 전 페이지 공통 위젯(사이드바·상단바·네비 진행바). 전자는 base.html `importmap` 에 등재되고 페이지가 `import` 로 부른다.
@@ -27,7 +29,7 @@
 | `themeColor()` | 차트 시리즈 주색 — 아래 "색 테마" 절 단일 진실 |
 | `fmtKst(iso)` | KST 시각 포맷 (`YYYY-MM-DD HH:MM:SS`) — server `kst` 필터와 동일, "시간 표기" 절 단일 진실 |
 | `fmtLabel(iso, range)` | 차트 X축 라벨 (range 별 `MM/DD HH:MM` / `HH:MM`) — 표시 시각과 별개 컨텍스트 |
-| `fmtKbChart(v)` | bytes/sec → kB/MB/s |
+| `fmtKbChart(v)` | bytes/sec -> kB/MB/s |
 | `getAnchorEnd(inputId)` / `initAnchor(inputId)` | datetime input 처리 |
 | `makeBucketGrid(range, bucket, anchor)` / `joinToGrid(grid, rows, bMs)` | 버킷 그리드 + 응답 join |
 | `bindToggle(groupId, onChange)` | range/agg 컨트롤 바인딩 — element 가 `<select>`면 change, `.toggle` 버튼이면 click 자동 분기 (호출처 동일) |
@@ -38,34 +40,35 @@
 | `fmtThroughput(kb)` | kB/s -> B/s·kB/s·MB/s 표시 단위 자동 결정 (P4) |
 | `naWindows(osFamily, key, formatted)` / `setValText(el, text)` / `setNaText(el, osFamily, key, formatted)` | os-aware N/A 텍스트 — Windows 미측정 축은 대체 표기, 그 외 formatted 값 (서버 상세 실시간 카드) |
 | `renderChipLegend(container, chart)` | 색점+라벨 칩(pill) 토글 범례 — dataset 1개당 1칩, 클릭 시 show/hide. comp/load 계열 (cpu·memory) |
-| `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글 — storage io·network·metrics 통일), `codeLabel`=정적 선+code 라벨(현재 미사용) |
+| `buildAvgMaxDatasets` / `buildAvgMaxLegend(id, chart, opts)` | avg+max ghost dataset·범례. `withToggle`=칩(avg/max 쌍 1칩 함께 토글 — storage io·network·metrics 통일) |
 
 ## 페이지별 .js 패턴
 
-| 페이지 | 차트 인스턴스 패턴 |
-|--------|-------------------|
-| `metrics.js` | `chartInstances` 객체 + 통합 `loadAllCharts()` — 페이지 전역 range/anchor 를 한 번 캡처해 모든 loader 에 같은 인자로 전달(#F10 단일 시간축) |
-| `environment-metrics.js` | `metrics.js` 와 동일 패턴 — 환경 스코프 차트 묶음을 `loadAllCharts()` 가 구동 |
-| `cpu/memory/network/storage.js` | 차트 인스턴스 개별 변수 + 페이지 단일 시간축(`pageTimeControl`) — 한 range/anchor 가 페이지 전 차트 구동, `reloadAllCharts()` 로 일괄 갱신(#F10). 스냅샷 카드 포화 신호는 `SignalUtils.renderSaturation` |
-| `list-table.js` | 모달 (Install / JSON Export / 보고서) + 검색·필터·더보기/접기. 차트 없음 — 체크박스 + bulk action |
+차트 페이지는 시간축 소유 방식으로 둘로 갈리고, 어느 쪽이든 페이지 안 전 차트가 같은 range/anchor 를 공유한다 (#F10).
+
+- 성능 추이(`metrics.js`·`environment-metrics.js`) — `chartInstances` 객체 + 통합 `loadAllCharts()`. 페이지 전역 range/anchor 를 한 번 캡처해 모든 loader 에 같은 인자로 전달한다.
+- 자원별 상세 탭(`cpu`·`memory`·`network`·`storage.js`) — 차트 인스턴스 개별 변수 + `pageTimeControl` 이 소유한 단일 시간축. `reloadAllCharts()` 로 일괄 갱신한다.
+
+신규 차트 페이지는 위 둘 중 하나를 고르고 새 패턴을 만들지 않는다.
 
 ## P4 차트 JS 5 의무 규약 (loader 표준)
 
 | 규약 | 내용 |
 |------|------|
 | (a) sequence counter | `let xxxSeq=0; const seq=++xxxSeq; ... if (seq !== xxxSeq) return;` — stale 응답 폐기 |
-| (b) capture-before-await | range·anchor를 `await` 직전 로컬 캡처 → 인자로 전달 |
+| (b) capture-before-await | range·anchor를 `await` 직전 로컬 캡처 -> 인자로 전달 |
 | (c) Array.isArray | 5xx가 JSON object 반환 가능 — `safeArray()` 사용 |
 | (d) 404 분기 | `/metrics/latest` 등 데이터 부재는 `res.status === 404` 분기 |
 | (e) suggestedMax 명명 상수 | `PERF_DISK_KBPS_SUGGESTED_MAX = 10 * 1024` 형식 — Y축 상한 매직넘버 금지 |
 
-모든 차트 페이지가 (a)~(e) 적용. `metrics.js`(서버 상세 성능 탭)는 9개 차트 loader 를 `loadAllCharts` 가 `(range, anchor)` 시그니처로 호출 — seq(sequence counter)는 각 loader 내부에서 생성(capture-before-await).
+모든 차트 페이지가 (a)~(e) 적용. 페이지 전역 컨트롤을 쓰는 페이지는 `loadAllCharts` 가 각 loader 를 `(range, anchor)` 시그니처로 호출하고, seq(sequence counter)는 각 loader 내부에서 생성한다(capture-before-await).
 
 ## 차트 UI 디테일
 
 ### Y축 정책
 - 추이 차트 (자원별 상세 탭): 분해력 우선 — idle 환경의 작은 값도 보이게 `suggestedMax` 낮게 (`STORAGE_KBPS_SUGGESTED_MAX`)
 - 성능 추이 (metrics 페이지): 절대 기준 — 디스크 처리량 `PERF_DISK_KBPS_SUGGESTED_MAX`(10MB/s)
+- 판정 crossing 서버 수 차트 (`cpu.saturation_hosts`·`mem.paging_pressure_hosts`·`disk.saturation_hosts`·`net.congested_hosts`): fleet 전체 서버 수로 상한 고정. `suggestedMax`(floor, 자동 확장)가 아니라 `max`(hard) 라 구간·새로고침이 바뀌어도 축이 흔들리지 않는다. `/environment/metrics?ids=` 로 선택 N대에 들어와도 selection 크기가 아니라 전체 규모를 쓴다 — 이 차트가 보여주려는 것이 "이론상 최대치 대비 몇 대가 임계를 넘었나"라서 분모가 selection 에 따라 흔들리면 같은 데이터가 진입 경로마다 다르게 읽힌다. 값은 SSR 이 `get_fleet_status` 로 산출해 body data 속성으로 내린다
 - 네트워크 I/O 는 양쪽 모두 고정 상한 없음 (`beginAtZero` 만) — 이기종 fleet 트래픽 규모 차이로 고정 상한을 두면 저트래픽 구간 추이선이 바닥에 눌림
 
 ### X축 정책 (예외 0)
@@ -79,7 +82,7 @@
 - 구간/집계 = `<select class="chart-select">` 드롭다운 (너비 절약). `bindToggle` 이 select/button 자동 분기라 JS 호출 동일.
 - 앵커 = `<input type="datetime-local" class="chart-anchor">`. select·anchor 높이 통일(`box-sizing`).
 - 서버 상세 자원 탭(cpu/memory/network/storage)은 페이지 단일 시간축 컨트롤(`pageTimeControl`, 카드 밖 상단 range+anchor 하나)이 그 페이지 전 차트를 같은 창·시점으로 구동(#F10, 신호 간 시점 상관). 차트별 개별 range/anchor 없음.
-- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷 라벨 + 구간 select + 앵커 input — 구간·앵커 둘 다 change 즉시 반영, 적용 버튼 없음)이 모든 차트 동기. 두 페이지 모두 자원별(CPU/메모리/스토리지/네트워크) 카드를 `.perf-stack`(세로 flex)으로 나열하고, 카드 내부도 동일하게 `.perf-grid`/`.perf-item`(화면 2열 auto-fit, 인쇄는 페이지 로컬 스코프가 2열 portrait 로 재정의, 아래 인쇄 CSS 절) — 서버 상세·환경 두 페이지 레이아웃 단일 진실 공유. 서버 상세는 CPU(2)·메모리(3)·스토리지(2)·네트워크(2) 9차트, 환경은 자원당 2개 8차트 — 디스크 read+write·네트워크 RX+TX 각각 통합 1 차트.
+- 성능 추이(metrics — 서버 상세 `/{id}/metrics` + 환경 `/environment/metrics`)는 예외 — 차트별 `.chart-head` 대신 페이지 전역 단일 컨트롤(카드 밖 좌상단, 버킷 라벨 + 구간 select + 앵커 input — 구간·앵커 둘 다 change 즉시 반영, 적용 버튼 없음)이 모든 차트 동기. 두 페이지 모두 자원별(CPU/메모리/스토리지/네트워크) 카드를 `.perf-stack`(세로 flex)으로 나열하고, 카드 내부도 동일하게 `.perf-grid`/`.perf-item`(화면 2열 auto-fit, 인쇄는 페이지 로컬 스코프가 2열 portrait 로 재정의, 아래 인쇄 CSS 절) — 서버 상세·환경 두 페이지 레이아웃 단일 진실 공유. 디스크 read+write·네트워크 RX+TX 는 각각 통합 1 차트.
 
 ### 범례 (칩 토글)
 - `.legend-chip` (pill 버튼 + `.legend-dot` 색점): 클릭 시 dataset show/hide, 숨김은 `aria-pressed=false`로 흐려짐. `button`+`aria-pressed`라 키보드 토글 지원.
@@ -91,13 +94,13 @@
 ### 추세선 · 면적 음영 정책 (예외 0)
 - 추이 차트의 면적 음영은 avg+max ghost(`buildAvgMaxDatasets`, avg dataset `fill:'+1'`)만 — avg~max 사이를 채워 burst(순간 최대-평균 차)를 시각화. 이것이 "음영"의 유일한 의미.
 - 선 아래 zero 까지 채우는 area fill(`fill:true`) 금지 — 추이 차트는 추세선만(`fill:false`). area fill 은 burst 음영과 혼동되고 값 밀집 시 가독성을 떨어뜨림.
-- 15분 구간(1분 버킷)은 버킷당 데이터 1포인트라 max=avg → ghost 음영 0. `buildAvgMaxDatasets` 가 `bMs <= BUCKET_MS['1m']` 일 때 maxRows 를 비워 전 차트 일괄 자동 비활성.
+- 15분 구간(1분 버킷)은 버킷당 데이터 1포인트라 max=avg -> ghost 음영 0. `buildAvgMaxDatasets` 가 `bMs <= BUCKET_MS['1m']` 일 때 maxRows 를 비워 전 차트 일괄 자동 비활성.
 - 실행 큐 차트(`cpu.run_queue`, os-aware — Linux procs_running / Windows Processor Queue Length)는 backend 가 이미 실행큐 합/코어 합(코어당 값, 포화선은 OS 별)으로 반환 — 클라는 값 그대로 표시. 서버 상세는 연속값 단일선(`cpu.js`), 환경 성능 추이는 같은 임계 판정을 SQL 로 이식한 crossing 서버 수(`cpu.saturation_hosts`, count) 단일선 — 스코프별 표현 단위 차이는 `services.md` "서버 상세 성능 추이" 절.
 
 ## 색 테마 — `:root` 변수 + 주색 단일 진실 (예외 0)
 - 테마 변수 = `app.css :root` 단일 선언. `--color-title`(#2563eb) = 주색 — `.btn-primary` 채움·`.toggle.active`·정렬 칼럼 강조·`.list-filter` 테두리·네비 진행바·스토리지 막대. 사이드바 계열은 `--sidebar-*` 변수군(바탕·글씨·hover·active). `--color-table-head`(#e5e7eb) = 전 테이블 제목행 하단 경계선. 색 변경 시 `app.css :root` 만 수정.
 - JS 차트 시리즈 주색도 본 변수 추종 — `chart-utils.js` `ChartUtils.themeColor()`(getComputedStyle 로 `--color-title` 읽기, 실패 시 #2563eb fallback). 페이지 차트 JS(cpu/metrics/memory/environment-metrics/environment-trend/detail/network-topology)가 hex 직박 대신 본 helper 참조. SVG 게이지는 presentation attribute 가 var 미지원이라 inline `style="stroke: ..."` 로 적용.
-- 데이터 시각화 주색도 동일 변수 — 환경 평균 활용률 도넛 게이지(`_UTIL_COLOR_GAUGE`, mappers/attention.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, mappers/constants.py) · 파일시스템 usage 막대(`_MOUNT_BAR_COLOR`, mappers/server.py) 모두 hex 대신 `var(--color-title)` 을 담아 테마 변경에 자동 추종.
+- 데이터 시각화 주색도 동일 변수 — 활용률·포화 도넛 게이지(`UTIL_GAUGE_COLOR`, mappers/constants.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, 같은 모듈) · 파일시스템 usage 막대(`_MOUNT_BAR_COLOR`, mappers/server.py) 모두 hex 대신 `var(--color-title)` 을 담아 테마 변경에 자동 추종.
 - under_provisioned = `#ef4444` (red-500) 대비 유지. 과다프로비저닝(여유)과 활용률 게이지가 같은 파랑 — 같은 화면 두 의미지만 테마 단색화를 위한 의식적 통일.
 - 네비게이션 = 좌측 사이드바(`--sidebar-*` 다크 슬레이트 바탕 + 밝은 글씨, `_sidebar.html` + `nav_groups` 글로벌). active 항목은 `--sidebar-active` 채움 + 우측 강조 테두리. 본문 링크(`a`)는 무채 #666666(밑줄 #b0b0b0).
 - 버튼 3종(`app.css`): `.btn-primary`(주색 채움, 모달 발행 등) / `.btn-select`(흰 바탕·표준 크기, 서버 선택 발행 버튼 — 회색 글씨·테두리(600), 비활성(`:disabled`)은 옅은 회색) / `.btn-action`(흰 톤·표준 크기·회색 글씨, 보조 액션 — 환경보고서 발행·실시간 메트릭·성능 추이·전체보기). 선택 N대 실시간 메트릭·성능 추이 버튼은 `.btn-select`(미선택 시 `:disabled`) — public_id navigate(`?ids=`).
@@ -112,8 +115,7 @@
 - 작은 창에서 카드 무파손. 다열 영역은 `grid-template-columns:repeat(auto-fit, minmax(min(100%, Npx), 1fr))` — 폭 부족 시 자동 1열, 한쪽 칼럼 찌그러짐 0.
 - 고정 다열(`kpi-grid-2/3/4` · `metric-grid-2/3`)은 `@media (max-width:640px)` 에서 1열 (`app.css`).
 - 2칼럼 카드(`env-dual` · `env-pair`)는 `align-items:start`로 칼럼 독립, 같은 행 항목은 grid 정렬로 높이 일치.
-- 언더 프로비저닝 상세(`action_targets_table`, 환경 자원 평가·환경 보고서(engineer) 공유 — 두 화면 칼럼 동일) = 호스트·CPU·메모리·디스크(`spec_display`, 서버 목록과 동일 정적 배정 사양 — 권고 칼럼의 사이징 목표와 나란히 비교)·분류(근본원인 병합)·권고·네트워크 상태·디스크 I/O 상태·신뢰도 sortable-table — host_status 를 구동한 원시 수치(5축)는 표시 안 함(서버 상세 자원별 탭에서 확인). 심각도 상위 정렬(`severity_score` = swap(paging) > 위반 자원 수 > max(CPU/메모리/디스크 util)).
-- 환경 개요(`/`) 영역 = 환경 요약 / 주요 워크로드 / 자원 적정성 / 자원 이용·포화 / 시스템 에러 — 집계 위젯 카드만(자동 갱신 없음, 등록 서버 0이면 안내 카드 단일). 환경 부하 추이 + 네트워크 토폴로지 2열(`env-dual`)은 환경 보고서 본문.
+- 페이지별 카드 구성·표 칼럼 카탈로그는 여기 두지 않는다 — 화면은 `docs/explanation/products/dashboard.md`, 보고서 본문 표는 `docs/explanation/products/environment-report.md`.
 
 ## 인쇄 CSS
 
@@ -129,13 +131,13 @@
 |------|------|
 | Chart.js (`vendor/chart.umd.min.js`) | 차트 페이지·보고서 템플릿이 defer 로드 |
 | cytoscape (`vendor/cytoscape.min.js`) | 네트워크 토폴로지 페이지·선택 N대 보고서(engineer)가 defer 로드 |
-| 공용 유틸 모듈 | base.html `importmap` 등재 → 페이지가 `import` |
+| 공용 유틸 모듈 | base.html `importmap` 등재 -> 페이지가 `import` |
 
 번들 도구 미도입 — 브라우저 네이티브 ESM (`docs/explanation/tradeoffs.md` T9).
 
-## 표준 컴포넌트 카탈로그 (base.html)
+## 표준 컴포넌트 카탈로그 (`app.css`)
 
-원칙: 새 페이지 추가 시 아래 카탈로그의 클래스 먼저 적용. 같은 패턴을 inline 으로 재구현 금지 — 표준에 없으면 base.html 에 새 표준 추가 후 사용. P2 (mapper 단일 진실)·P3 (템플릿 순수 렌더링) 와 동급의 표시 계층 규약.
+원칙: 새 페이지 추가 시 아래 카탈로그의 클래스 먼저 적용. 같은 패턴을 inline 으로 재구현 금지 — 표준에 없으면 `app.css` 에 새 표준 추가 후 사용. P2 (mapper 단일 진실)·P3 (템플릿 순수 렌더링) 와 동급의 표시 계층 규약.
 
 ### 보조 컴포넌트 폰트 (h1/h2/h3 외)
 
@@ -160,7 +162,7 @@
 | .text-md / .text-sm / .text-xs | 13 / 12 / 11px (size-only) | 보조 텍스트 size 유틸 — 색 유틸(`.text-*`)과 조합. 위계 제목·값 컴포넌트(`.stat-*`/`.metric-*`/`.kpi-*`)는 각자 size 보유라 미적용 |
 | .btn-action-sm | 12px / padding 4px 11px | `.btn-action` 축소 변형 — 상세 페이지 그룹헤더 보조 '상세 ->' 링크 (함께 사용: `class="btn-action btn-action-sm"`) |
 
-금지: 9px·10px·32px 등 카탈로그 외 값, 그리고 inline `font-size`/`font-weight`/`color` 를 박지 않음 — 크기는 위계/컴포넌트 클래스 또는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`, 색 유틸과 조합), 굵기는 위계/컴포넌트, 색은 색 유틸(`.text-meta` 등)로. 새 위계가 필요하면 base.html 에 명명 클래스 추가 후 사용. 8/9/10px 은 `.status-on/off` 배지와 `@media print` 에만 허용. SVG `<text>`·modal 내부는 별도(인라인 허용).
+금지: 9px·10px·32px 등 카탈로그 외 값, 그리고 inline `font-size`/`font-weight`/`color` 를 박지 않음 — 크기는 위계/컴포넌트 클래스 또는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`, 색 유틸과 조합), 굵기는 위계/컴포넌트, 색은 색 유틸(`.text-meta` 등)로. 새 위계가 필요하면 `app.css` 에 명명 클래스 추가 후 사용. 8/9/10px 은 `.status-on/off` 배지와 `@media print` 에만 허용. SVG `<text>`·modal 내부는 별도(인라인 허용).
 
 ### 박스 컴포넌트 (대형부터)
 
@@ -175,11 +177,13 @@
 | `.empty-state` | 발화 가능하나 비어있는 슬롯 placeholder (#E9 discoverability) | 박스 없음 / 회색 텍스트 #94a3b8 |
 | `.stree` (+ `.stree-row`/`.stree-kind`/`.stree-usage` 등) | 스토리지 레이아웃 트리 (중첩 ul, `servers/_storage_tree.html` `storage_tree()` 매크로) — 스토리지 상세·서버 보고서 공용 | 좌측 가이드선 #e2e8f0 |
 
+`.stree` 게이지 정렬은 CSS 와 mapper 상수가 묶여 있다. 게이지가 트리 깊이와 무관하게 같은 x 에서 시작하도록 mapper 가 depth 를 상쇄한 폭(`gauge_info_width_px`)을 precompute 하는데(P3), 그 계산에 쓰는 depth 당 들여쓰기 상수 `_STREE_INDENT_PX`(`mappers/server.py`)가 `.stree ul` 의 `margin-left + border-left + padding-left` 합과 같아야 한다. CSS 쪽 세 값 중 하나라도 바꾸면 mapper 상수를 함께 갱신한다 — 어긋나도 렌더는 되고 게이지 x 만 계단처럼 밀린다.
+
 금지: `<div style="border:1px solid #e2e8f0; border-radius:6px; padding:14px;">` 같은 inline 박스 재구현. 위 클래스로 치환. (P3 직접 위반 — 박스 모양을 한 곳에서 바꿀 수 있어야 한다.)
 
 ### 공통 매크로 (`_shared.html`)
 
-base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 간 재사용 매크로. 라우터·페이지 템플릿은 `{% from "_shared.html" import empty_state, window_meta %}` 로 가져와 사용.
+`app.css` 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 간 재사용 매크로. 페이지 템플릿은 `{% from "_shared.html" import ... %}` 로 가져와 사용한다. 아래는 정책이 붙은 둘이고, 전체 목록은 파일이 갖는다.
 
 | 매크로 | 용도 | 정책 |
 |--------|------|------|
@@ -196,7 +200,7 @@ base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 �
 | `.rec-{under_provisioned,over_provisioned,optimal,idle,insufficient_data,swap}` (분류·rec-swap 메모리부족 1차신호) + `.rec-{success,failure,pending,unknown}` (Task status) | 분류 결과 · Task status |
 | `.attn-active` | 운영 신호 발화 |
 
-금지: inline `style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:4px;"` 같은 직접 색·padding 으로 badge 재현. 새 색·새 의미가 필요하면 base.html `.rec-*` 또는 `.badge-*` 변형 추가 후 사용.
+금지: inline `style="background:#fef3c7; color:#92400e; padding:2px 8px; border-radius:4px;"` 같은 직접 색·padding 으로 badge 재현. 새 색·새 의미가 필요하면 `app.css` 에 `.rec-*` 또는 `.badge-*` 변형 추가 후 사용.
 
 ### Label 컴포넌트
 
@@ -208,7 +212,7 @@ base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 �
 
 ## 폰트 위계 — 단일 진실 (예외 0 의무)
 
-base.html `<style>` 정의 — 모든 page 가 같은 위계 사용. inline `style="font-size:...; font-weight:..."` 로 override 금지.
+`app.css` 정의 — 모든 page 가 같은 위계 사용. inline `style="font-size:...; font-weight:..."` 로 override 금지.
 
 | 위계 | 정의 | 용도 |
 |------|------|------|
@@ -219,14 +223,14 @@ base.html `<style>` 정의 — 모든 page 가 같은 위계 사용. inline `sty
 | `.section-meta` | 12px / 400 / #94a3b8 / margin-left 8px | h2 옆 sub-text (예: 윈도우 / 부가 설명) |
 
 금지:
-- `<h2 style="font-size:14px; color:#475569;">` 같은 inline style override — base 단일 진실 위반.
+- `<h2 style="font-size:14px; color:#475569;">` 같은 inline style override — `app.css` 단일 진실 위반.
 - `<h3 style="margin:0 0 10px; font-size:14px;">` — h3 가 h2 size 와 같으면 위계 깨짐.
 - h1/h2/h3 외 임의 `<div style="font-size:18px; font-weight:700;">` 같은 의사-제목 — h1/h2/h3 사용 의무.
 - modal 안 제목은 별개 (`#title-id style="..."` 인라인 허용 — modal 컴포넌트 별도 위계).
 
 ## 폰트 체 — sans-serif 단일 + monospace 선택 적용
 
-base.html `<body>` 가 system-ui sans-serif 기본. 모든 텍스트 동일 family. 별도 폰트 (serif / display) 안 씀.
+`app.css` 의 `body` 가 system-ui sans-serif 기본. 모든 텍스트 동일 family. 별도 폰트 (serif / display) 안 씀.
 
 monospace 는 "식별자라는 이유"로 자동 적용하지 않는다. 표시 설계상 등폭 표기가 의미 전달에 기여하거나
 일반 텍스트와의 구분이 유용하다고 판단되는 경우에만 선택 적용 (의무 아님 — UI 판단):
@@ -234,7 +238,7 @@ monospace 는 "식별자라는 이유"로 자동 적용하지 않는다. 표시 
 - 그 외 등폭 구분이 가독성·식별에 실익이 있다고 판단되는 특정 케이스
 
 class:
-- `<code>...</code>` — 위 용도의 inline code (background + padding + monospace, base 단일 진실)
+- `<code>...</code>` — 위 용도의 inline code (background + padding + monospace)
 - `.identifier` — code element 아닌 곳에 monospace 만 (background 없음). 동일 판단 기준 적용
 
 금지:
@@ -242,29 +246,34 @@ class:
   (등폭 구분이 유용하다 판단되면 위 선택 기준으로 case-by-case 결정)
 - 일반 텍스트 (제목 / 본문 / 라벨) 에 monospace — 가독성 저하.
 - 숫자 (vCPU / GB / %) 에 monospace — sans-serif weight 700 으로 정렬·강조 충분.
-- inline `style="font-family:monospace"` — base `.identifier` 또는 `<code>` 사용 의무.
+- inline `style="font-family:monospace"` — `.identifier` 또는 `<code>` 사용 의무.
 
 ## P3 정공 예외 — 1회 fetch vs polling 흐름
 
 P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, server fragment endpoint + JS DOM 교체.
 
-흐름 유형 3종 — 앞 2종은 fragment endpoint 정공, 고빈도 polling 만 예외(fragment fetch overhead 큼):
+흐름 유형 3종 — 앞 2종은 fragment endpoint 정공, 고빈도 polling 만 예외(fragment fetch overhead 큼). 신규 dynamic UI 는 이 셋 중 하나로 분류한 뒤 그 행의 방식을 따른다.
 
 | case | 정공 / 예외 | 이유 |
 |------|-------------|------|
 | 1회 fetch + render (예: task-modal body, 자원 평가 `?fragment=result`, 발행 이력 `?fragment=1`) | 정공 — fragment endpoint (`/api/tasks/{id}/detail` 등) + JS `innerHTML = await fetch().text()` | overhead 0, P3 완전 정공 |
-| 저빈도 polling + 파생 많은 SSR 영역 (예: 실시간 현황 자동갱신) | 정공 — fragment endpoint (`/environment/realtime?fragment=realtime`) HTML 반환 + JS `#rt-mount` innerHTML 교체 | 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
-| polling 흐름 (예: detail page metrics/latest polling / storage snapshot) | 예외 — JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼. JSON polling + JS render 가 정공 |
+| 저빈도 polling(수십초) + 파생 많은 SSR 영역 (예: 실시간 현황 자동갱신) | 정공 — fragment endpoint (`/environment/realtime?fragment=realtime`) HTML 반환 + JS `#rt-mount` innerHTML 교체 | 저빈도라 HTML fragment fetch overhead 무시 가능. mapper 파생 많아 JSON+JS render 시 P2 복제 — fragment 가 단일 진실 유지 |
+| 고빈도 polling 흐름 (예: detail page metrics/latest polling / storage snapshot) | 예외 — JSON polling + JS template literal 허용 (P4 와 같은 dynamic 인터랙션 도메인) | polling 마다 HTML fragment fetch 시 overhead 큼 |
+
+fragment 교체 시 — 체크박스 선택·client 필터·직접 바인딩 이벤트가 있는 영역은 행만 교체한 뒤 체크 상태·필터·이벤트를 복원하고, 정적 요소는 교체 대상에서 보존한다. task-cell 모달처럼 event delegation 핸들러는 복원이 필요 없다.
 
 폴링 흐름 JS render 의무:
-- inline `style="color:#xxx"` 금지 — base.html 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`/`.text-unknown`(판정 불가 전용 보라 — 경고 `.text-warn`과 다른 범주), 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·값 컴포넌트(`.stat-*`/`.metric-*`/`.kpi-*`/`.pre-output`) 우선, 그 외 보조 텍스트는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`)을 색 유틸과 조합.
+- inline `style="color:#xxx"` 금지 — `app.css` 색 전용 유틸 (중립 톤 `.text-strong`/`.text-label`/`.text-muted`/`.text-meta`/`.text-faint` + 의미색 `.text-danger`/`.text-ok`/`.text-warn`/`.text-attn`/`.text-unknown`(판정 불가 전용 보라 — 경고 `.text-warn`과 다른 범주), 모두 color-only · size 는 부모 상속) 사용. font-size 는 위계 제목·값 컴포넌트(`.stat-*`/`.metric-*`/`.kpi-*`/`.pre-output`) 우선, 그 외 보조 텍스트는 size 유틸(`.text-md`/`.text-sm`/`.text-xs`)을 색 유틸과 조합.
 - layout 관련 inline style (display:flex / grid / table 등) 허용 — 모듈별 부수 정렬, utility class 화 강제 X.
 - 동일 데이터의 SSR template 이 있으면 그쪽이 우선 (server 단일 진실 정공).
 
-신규 dynamic UI 추가 시 흐름 판단:
-- 1회 fetch → fragment endpoint
-- 저빈도 polling(수십초) + 파생 많은 SSR 영역 → fragment endpoint(HTML) 교체 (P2 단일 진실 유지). 체크박스 선택·client 필터·직접 바인딩 이벤트가 있는 영역은 행만 교체 후 체크 상태·필터·이벤트를 복원 (정적 요소는 교체 대상에서 보존). task-cell 모달처럼 event delegation 핸들러는 복원 불필요
-- 고빈도 polling → JSON + JS render (예외)
+## 포화 축 표기 — OS 접두 태그 (예외 0 의무)
+
+포화 축 표시값에는 OS 접두를 붙인다 — Windows 값은 `W`, Linux 값은 `L`. 같은 축이라도 OS별 신호원과 임계가 달라(`docs/reference/right-sizing.md`) 숫자만으로는 어느 쪽인지 구분되지 않는다.
+
+- 적용 대상 = OS 별로 신호가 갈리는 축(CPU 포화·메모리 포화). 디스크 I/O await 처럼 양 OS 가 같은 신호를 쓰는 축은 접두 없이 값만.
+- 생산 지점은 `mappers/assessment_display.py` `saturation_axis_displays` 단일 — 표시 문자열 조립이 여기 모여 있어 카드·표 사이 표기 drift 가 생기지 않는다 (P2).
+- 임계 수치와 OS 별 신호 선택 근거는 `docs/reference/right-sizing-thresholds.md`. 본 절은 표기만 정한다.
 
 ## 시간 표기 — 단일 진실 (예외 0 의무)
 
@@ -288,63 +297,26 @@ P3 (Jinja2 template 단일 진실) 의 1차 정공 = JS HTML 합성 폐기, serv
 
 ## 네비게이션 규약 — 새창 금지 + 뒤로가기 보존 (예외 0 의무)
 
-원칙: 모든 페이지 (대시보드 외) 가 동일 back chain 규약 적용. 보고서·진단·이력·detail·tab 페이지 사이 이동은 모두 현재 탭. 새 탭 (`target="_blank"`) 금지. 모든 결과 페이지의 "← 이전" link 는 referrer 를 `back` query 로 명시 보존 → 어떤 진입 경로에서든 정확히 직전 페이지로 복귀.
+원칙: 모든 페이지 (대시보드 외) 가 동일 back chain 규약 적용. 보고서·진단·이력·detail·tab 페이지 사이 이동은 모두 현재 탭. 새 탭 (`target="_blank"`) 금지. 모든 결과 페이지의 "← 이전" link 는 referrer 를 `back` query 로 명시 보존 -> 어떤 진입 경로에서든 정확히 직전 페이지로 복귀.
 
 새 페이지·새 link 추가 시 3 위치 동시 적용 의무:
-1. router endpoint signature 에 `back: BackUrl = None` + sanitize 후 `back_url` 산출(아래 "라우터의 결과 페이지 표준") + context 전달.
-2. 자식 진입 link (template / JS) 에 `?back={{ self_back }}` (또는 JS `back=pathname+search`) 박음. `self_back = quote(f"{request.url.path}?{request.url.query}", safe="")` 산출.
+1. router endpoint signature 에 `back: BackUrl = None` 선언 후 `safe_back(back, fallback)` 으로 `back_url` 을 산출해 context 로 전달. sanitize 는 `BackUrl` 타입이 시그니처에서 강제한다 (`routers/_back.py`).
+2. 자식 진입 link (template / JS) 에 `?back={{ self_back }}` (또는 JS `back=pathname+search`) 박음. `self_back` 은 부모 라우터가 자기 경로+쿼리를 URL-encode 해 만든다.
 3. 페이지 `.back` 버튼 = `<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>` (hardcoded 부모 URL 금지).
 
-위 3 위치 중 어느 하나 누락 시 back chain 깨짐 → fallback (대시보드 등) 으로 점프. 새 페이지 추가 PR 의 review 항목.
+위 3 위치 중 어느 하나 누락 시 back chain 이 끊겨 fallback 으로 점프한다. 새 페이지 추가 PR 의 review 항목.
 
 ### 발행·전환 시 현재 탭 이동
 
-JS publish 함수 표준:
-```js
-const params = new URLSearchParams();
-params.set('view', currentView);
-params.set('time_range', rangeSel.value);
-params.set('back', location.pathname);  // referrer 보존
-window.location.href = `/reports/servers?${params.toString()}`;
-```
+JS 발행 함수는 새 창을 열지 않고 `location.href` 로 현재 탭을 옮기며, 이동 직전 `back` 파라미터에 `location.pathname` 을 실어 referrer 를 보존한다.
 
-라우터의 결과 페이지 표준:
-```python
-back: BackUrl = None  # 시그니처에서 검증 강제 (routers/_back.py)
-back_url = safe_back(back, "/")  # 걸러진 값에 기본 목적지만 씌운다
-```
+### 결과 페이지 -> 자식 detail link 의 back chain
 
-템플릿 ← 이전 link:
-```html
-<a class="back no-print" href="{{ back_url }}">&larr; 이전</a>
-```
+다중 N대 보고서 (`/reports/servers?ids=...`) 의 hostname 클릭으로 단일 detail (`/servers/{id}/report`) 에 진입할 때, 자식 detail 의 "이전" link 는 목록이 아니라 부모 보고서로 복귀해야 한다. 부모 라우터가 자기 경로+쿼리를 URL-encode 한 `self_back` 을 합성해 컨텍스트로 내리고, 템플릿이 자식 link 에 `&back={{ self_back }}` 을 붙인다.
 
-### 결과 페이지 → 자식 detail link 의 back chain
+### 적용 범위 (예외 0)
 
-다중 N대 보고서 (`/reports/servers?ids=...`) 의 hostname 클릭 → 단일 detail (`/servers/{id}/report`) 진입 시, 자식 detail 페이지의 ← 이전 link 가 부모 보고서로 복귀해야 함. 부모 라우터에서 `self_back` 합성:
-```python
-from urllib.parse import quote
-
-self_back = quote(f"{request.url.path}?{request.url.query}", safe="")
-```
-템플릿에서 자식 link 에 `&back={{ self_back }}` 추가.
-
-### 표 적용 위치 (모든 페이지 — 예외 0)
-
-| 라우터 | back 사용 여부 | back fallback |
-|--------|----------------|----------------|
-| `/` (환경 개요) | X (root 진입점) | — |
-| `/servers` (목록) | X (root 진입점) | — |
-| `/servers/{id}` (detail) | O | `/` |
-| `/servers/{id}/{cpu,memory,services,metrics,storage,network}` (tab) | O | `/servers/{id}` |
-| `/environment/{assessment,realtime,metrics,topology}` | O | `/` |
-| `/reports/servers` (선택 N대) | O | `/` |
-| `/servers/{id}/report` (단일) | O | `/servers/{id}` |
-| `/reports/environment` | O | `/` |
-| `/reports/history` | O | `/` |
-| `/reference` (참고) | O | `/` |
-
-환경 개요(`/`)만 root 진입점이라 back 안 받음 — 다른 페이지에서 그쪽으로 가는 link 도 back 불필요. 다만 개요 자체는 `self_back` 산출 의무 (자식 link 에 박기 위해).
+back 을 받지 않는 페이지는 root 진입점 둘 — 환경 개요(`/`)와 서버 목록(`/servers`)이다. 그 외 SSR 페이지는 전부 `back` 을 받고 `safe_back(back, fallback)` 으로 fallback 을 씌운다. fallback 은 그 페이지의 논리적 부모다 — 서버 한 대에 매달린 페이지(자원 탭·단일 서버 보고서)는 `/servers/{id}`, 나머지는 `/`. root 진입점도 `self_back` 산출은 의무다 (자식 link 에 박기 위해).
 
 ### 에러 표시 — toast 단일 진실
 
@@ -359,16 +331,16 @@ statusEl 은 이전 상태 복원 — 에러 흔적 본문에 잔존 금지.
 - 발행 publish 함수에서 `window.open(url, '_blank')` — 사용자 의도 (현재 탭 일관) 위반.
 - ← 이전 link 에 `javascript:history.back()` 단독 사용 (back chain 끊김 시 이상한 곳으로 복귀) — 명시 `back_url` 항상 같이.
 - back query 인자 sanitize 누락 (open-redirect — 외부 URL 로 점프 가능).
-- `.back` 버튼에 hardcoded URL (`/servers/{id}` / `/` 등) 박음 — back_url context 활용 의무. fallback 산출은 라우터 책임(`safe_back`). sanitize 는 `BackUrl` 타입이 시그니처에서 강제한다.
+- `.back` 버튼에 hardcoded URL (`/servers/{id}` / `/` 등) 박음 — `back_url` context 활용 의무. fallback 산출은 라우터 책임이다.
 - 자식 진입 link 에 `?back=` 박지 않음 — 진입한 자식 페이지가 fallback 으로 점프하는 결과.
 
 ## 링크 포맷 — 단일 진실 (예외 0)
 
-모든 link 일관 — base.html 의 `a`/`a:hover` 가 단일 진실 (색·밑줄 값은 위 "색 테마" 절).
+모든 link 일관 — `app.css` 의 `a`/`a:hover` 가 단일 진실 (색·밑줄 값은 위 "색 테마" 절).
 
-별도 class (예: `.row-link` / `.task-cell` / `.attention-link`) 는 base 스타일 그대로 상속. 부수 affordance (layout flex / font-weight 강조 등) 만 정의. text-decoration 중복 정의 금지.
+별도 class (예: `.row-link` / `.task-cell` / `.attention-link`) 는 `a` 스타일 그대로 상속. 부수 affordance (layout flex / font-weight 강조 등) 만 정의. text-decoration 중복 정의 금지.
 
 금지:
 - 일부 link 에 `text-decoration: none` 또는 hover-only underline — 일관성 깨짐.
-- 별도 class 가 base 스타일 override (예: `.row-link { text-decoration: ...}` 중복) — base 단일 진실.
+- 별도 class 가 `a` 스타일 override (예: `.row-link { text-decoration: ...}` 중복) — 단일 진실 위반.
 - inline style `style="text-decoration:none"` — 버튼류 (`btn-action` 등) 에서 의도된 경우 외 금지.

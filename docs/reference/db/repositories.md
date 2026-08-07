@@ -22,7 +22,7 @@
 
 - `upsert_server`: `pg_insert ... on_conflict_do_update`. values·set_ dict는 한 번 만들어 재사용 (컬럼 추가 시 한 곳만 수정). `agent_id` UNIQUE 키는 set_ 제외 (composite_id·machine_id 는 set_ 포함 — 최신 감사값 표시). `service_categories`(ingest 사전계산)도 set_ 포함. agent_id 가 부팅 무관 불변이라 별도 호스트 재연결 로직 없이 동일 agent_id 가 같은 행을 잡는다.
 - `ensure_server_id`: `_insert_placeholder_server`는 `ON CONFLICT DO NOTHING` (placeholder가 진짜 inventory 덮어쓰는 race 방지)
-- `record_metrics`: 7테이블 모두 `pg_insert(...).on_conflict_do_nothing()` — 자연키 UNIQUE 가 충돌을 흡수한다 (D2 2단 방어). `index_elements=` 를 명시하는 곳은 host 집계(`server_metrics`)·history·placeholder INSERT 뿐이고 자식 6테이블은 bare 형태다.
+- `record_metrics`: 7테이블 모두 `pg_insert(...).on_conflict_do_nothing(index_elements=...)` — 자연키 UNIQUE 가 충돌을 흡수한다 (#D2 2단 방어, 자연키 카탈로그는 `docs/reference/db/models.md` "시계열 자연키 UNIQUE" 표). 자식 6테이블의 `index_elements` 는 `_natural_key()` 가 모델 선언의 `UniqueConstraint` 에서 import 시점에 뽑는다. UNIQUE 가 둘 이상인 모델은 충돌 대상을 특정할 수 없어 기동 자체를 거부한다 — 자연키를 빠뜨린 모델이 첫 메트릭 메시지가 아니라 기동에서 드러난다.
 - `create_task`: `IntegrityError` 가능 (부분 UNIQUE `uq_tasks_pending_per_server_type`) — service가 catch
 
 ## Query 계층 — `QueryRepository` (Web)
@@ -80,6 +80,16 @@
 
 집계 필터 단일 진실(`db/repositories/query/types.py`): `_DATA_VOLUME_SQL_FILTER`(가상 fstype 제외 + `/boot%` 마운트 제외, raw 테이블용) · cagg 조회는 `fstype_any` 를 보는 `_DATA_VOLUME_CAGG_FILTER` · `_PHYS_DISK_SQL_FILTER`/`_PHYS_IFACE_SQL_FILTER`(fail-closed EXISTS 서브쿼리, 위 표) — 모두 agent kind/type 태그의 SQL 투영, `device_filters` 와 동기화. 모든 그룹 partition pruning(#C5) 하한 술어 의무 — delta 를 내는 그룹은 한 버킷 앞선 `collected_at >= :window_start`, gauge·판정 그룹은 `collected_at >= :start`.
 
+#### 미측정 null 은 0 이 아니다 — COALESCE·guard 비대칭
+
+Windows 는 Linux 가 세는 성분 일부(CPU 의 nice/iowait/irq/softirq/steal, 메모리의 cached/buffered)를 OS 개념 부재로 null 로 싣는다. null 을 어디서 0 으로 접고 어디서 행째 제외할지가 축마다 다르고, 이 비대칭이 capacity-weighted util 그룹의 규약이다.
+
+- CPU 분모 `_CPU_TOTAL_EXPR` 는 8개 성분을 전부 COALESCE 한다. Postgres 는 `X + NULL` 을 NULL 로 전파하므로 한 성분만 null 이어도 raw 합이 null 이 되고, delta 가 null 이 돼 Windows CPU 추이 차트가 통째로 빈다. cagg 정의와 `compute_cpu` 도 같은 규칙을 따른다.
+- CPU 분자 중 per-component(`cpu.user/system/iowait/nice_percent`)는 bare 로 둔다. COALESCE 하면 Windows 의 iowait 미측정이 "측정된 0%(여유)"로 읽힌다 — null 로 두어 그 시점이 자연 제외(N/A)되게 한다. `cpu.usage_percent` 분자는 idle 을 뺀 나머지 성분의 합이라 분모와 같은 규칙으로 COALESCE 한다.
+- 메모리 `_ENV_SCALAR_WEIGHTED` 는 `(numerator, denominator, guard)` 3튜플이고 guard 가 분자 성분이 실측된 행만 집계에 넣는다(예: `mem_limit_bytes > 0 AND mem_cached_bytes IS NOT NULL`). guard 없이 `SUM` 하면 Windows 의 null 이 0 으로 삼켜져 "측정된 0%" 로 표시된다 — 미측정은 gap 으로 남아야 한다.
+
+분모와 분자를 "일관성 있게" 맞추는 후속 수정은 Windows 차트를 비우거나 iowait 오탐을 만든다. 세 규칙은 각각 다른 이유로 서 있다.
+
 `get_metric_trend(collapse=False)`(서버 상세 멀티라인) 의 범례 `dimension` 은 raw `id_type:id`(예: `mac:fa:16:3e:df:18:87`) 대신 `LEFT JOIN LATERAL` 로 `server_inventory.block_devices`/`net_interfaces` 조회한 사람이 읽는 `name`(예: `enp3s0`·`PhysicalDrive0`) 으로 치환(`COALESCE(dn.name, dim)`, 미매칭 시 raw 폴백) — Linux 는 id_type=mac 인터페이스가 흔해 MAC 원문 노출 시 가독성이 떨어짐. collapse=True(환경 합산)는 dimension 자체가 없어(단일선) 미적용.
 
 ### Task 조회 — `TaskQueryRepository`
@@ -111,28 +121,20 @@
 interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedelta(hours=N)` (SQLAlchemy idiomatic — Python timedelta가 PostgreSQL interval로 자동 변환·bind 파라미터 안전, C5 의무). f-string `text("interval '{N} days'")` 금지.
 
 ### 타입·윈도우 상수 (`db/repositories/query/types.py`)
-- `MetricType` Literal — chart metric (카탈로그는 `types.py` 단일 진실)
-- range·bucket·집계 함수는 `db/repositories/query/types.py` 의 Literal 이 값을 갖는다. 기본값은 right-sizing 평가 윈도우와 같아야 한다 — 한쪽만 바꾸면 분류 창과 갈린다 (#F10).
-- 신규 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 넷을 동시에 갱신한다(#F10).
+
+`MetricType`·range·bucket·집계 함수는 본 모듈의 Literal 이 값을 갖는다. range 기본값은 right-sizing 평가 윈도우와 같아야 한다 — 한쪽만 바꾸면 분류 창과 갈린다 (동시 갱신 위치는 #F10).
 
 (`DIAGNOSTIC_RANGE_LABEL_KR` time_range 한국어 표시 라벨은 표시 소속이라 `mappers/constants.py`.)
 
 ### `list_servers` 부분 SELECT 정책
 `select(ServerInventory)` 풀 row 대신 목록에 쓰는 컬럼만 명시. `services`/`listen_ports`/`net_interfaces` JSONB 는 페이지당 N행 직렬화 비용이 크고 목록에서 안 쓴다. 트레이드오프: `docs/explanation/tradeoffs.md` T8. 정렬은 `hostname` ASC.
 
-## INSERT 통일 — `pg_insert` + `on_conflict_do_nothing`
+## `.returning()` 결과 수신
 
-시계열 metric 7테이블 모두 동일 패턴 적용(CLAUDE.md #D2 2단 방어). 자연키 카탈로그: `docs/reference/db/models.md` "시계열 자연키 UNIQUE" 표.
-
-## `.returning()` + `scalar_one`
-
-INSERT 결과 PK 받기:
-- `.returning(ServerInventory.id)` — 단일 컬럼 반환
-- `result.scalar_one()` — 1행 보장 시 (upsert)
-- `result.scalar_one_or_none()` — 0/1행 (placeholder INSERT — `ON CONFLICT DO NOTHING`이라 0행 가능)
+INSERT 결과 PK 는 `.returning()` 으로 받는다. `on_conflict_do_update`(upsert)는 항상 1행이라 `scalar_one()`, `on_conflict_do_nothing`(placeholder INSERT)은 충돌 시 0행이라 `scalar_one_or_none()` 이다 — 여기서 `scalar_one()` 을 쓰면 동시 등록 race 에서 예외가 난다.
 
 ## asyncpg 파라미터 주의사항
 
-- named param `:dim` 뒤 `::text`는 asyncpg 파싱 버그 — `CAST(:dim AS text)`로 우회
-- `ANY(:sids)` — 배열 파라미터. asyncpg가 list/tuple 자동 변환
-- TIMESTAMPTZ 비교는 tz-aware datetime만 — naive datetime 전달 시 timezone 불일치 오류
+- named param `:dim` 뒤 `::text` 는 asyncpg 파싱 버그 — `CAST(:dim AS text)` 로 우회
+- `ANY(:sids)` — 배열 파라미터. asyncpg 가 list/tuple 자동 변환
+- TIMESTAMPTZ 비교는 tz-aware datetime 만 — naive datetime 전달 시 timezone 불일치 오류

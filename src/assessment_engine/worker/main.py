@@ -1,10 +1,7 @@
-"""전용 백그라운드 워커 프로세스 — 비동기 보고서 생성 + install task reaper.
+"""전용 백그라운드 워커 — 비동기 보고서 생성 + install task reaper.
 
-web(HTTP 전담)에서 분리한 별도 컨테이너(command: assessment_engine.worker). 두 루프를 공유 stop_event 로
-병행 구동하고, SIGTERM 시 asyncio-native 로 함께 graceful 종료한다(F11). job/task 상태는 DB 라 메모리
-손실 0 — 미완 보고서는 running 잔류 후 다음 기동 recover_stale 가 회수.
-
-Composition Root(F4): DiagnosticService·QueryService·Repository 구체 인스턴스를 여기서 구성해 루프에 주입.
+web(HTTP 전담)에서 분리한 별도 컨테이너. 두 루프를 공유 stop_event 로 병행 구동하고 SIGTERM 시 함께
+graceful 종료한다 — 미완 보고서는 running 으로 남았다가 다음 기동의 recover_stale 이 회수한다.
 """
 
 import asyncio
@@ -42,9 +39,8 @@ async def main() -> None:
     setup_logging(get_worker_settings().log_format, get_worker_settings().log_level)
     logger.info("worker starting — report generation + install task reaper")
 
-    # graceful shutdown (F11) — asyncio.run 은 SIGTERM(docker stop)을 취소로 변환하지 않으므로 asyncio-native
-    # add_signal_handler 로 공유 stop_event 를 set(signal.signal 아님 — 이벤트 루프 안전). 두 루프가 동시에
-    # 다음 점검에서 종료, graceful_drain 이 진행 중 1건 drain.
+    # asyncio.run 은 SIGTERM(docker stop)을 취소로 바꾸지 않는다 — add_signal_handler 로 공유 stop_event 를
+    # set 한다(signal.signal 은 이벤트 루프 밖이라 쓰지 않는다).
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
@@ -84,8 +80,6 @@ async def main() -> None:
         stop_task.cancel()
         with suppress(asyncio.CancelledError):
             await stop_task
-        # 공유 stop_event 로 두 루프 종료 신호 -> 각자 shutdown timeout 안 진행 중 1건 drain.
-        # report 미완 job 은 running 잔류 -> 다음 기동 recover_stale 회수(in-flight 손실 0).
         # 한 drain 이 자식 예외를 올려도 나머지 정리는 계속돼야 한다 — 각각 격리하고 예외는 모아 둔다.
         try:
             failures = [
@@ -111,8 +105,7 @@ async def main() -> None:
             await close_pool()
 
     if failures:
-        # 루프가 죽은 프로세스를 유지할 이유가 없다. 0 으로 나가면 restart 정책이 재기동하지 않아
-        # 컨테이너는 살아 있는데 보고서도 reaper 도 돌지 않는 상태로 남는다.
+        # 0 으로 나가면 restart 정책이 재기동하지 않아 컨테이너만 살아 있고 두 루프는 죽은 채로 남는다.
         raise failures[0]
 
 

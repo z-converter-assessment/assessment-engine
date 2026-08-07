@@ -1,22 +1,14 @@
-"""보고서 정적 스냅샷 직렬화 — 발행 시점 ViewModel <-> diagnostic_jobs.result JSONB.
+"""보고서 정적 스냅샷 직렬화 — 발행 시점 ViewModel <-> diagnostic_jobs.result JSONB 안 `snapshot`.
 
-발행(POST emit) 시 mapper 가 모든 파생(badge_class·pct·dash_length 등)을 채운 완성 ViewModel 을
-JSONB dict 로 저장(`report_summary_to_dict`·`env_report_to_dict`), GET(세부·이력 포함) 시 저장된 dict 를
-ViewModel 로 복원(`*_from_dict`)해 정적 렌더. 재계산·재진단 없음 — 발행 시점
-데이터 그대로 (요구: 정적 보관 + 이력 동적변화 0).
+발행 시 파생까지 다 채운 ViewModel 을 dict 로 저장하고 GET 은 그 dict 를 ViewModel 로 되돌려 정적 렌더한다
+(재계산·재진단 없음). result JSONB 의 구조·키 단일 진실은 `report/result.py`.
 
-cache_serializer.py 와 동일 패턴 (asdict + json datetime, 역직렬화 nested 재구성).
-AttentionSignals.catalog/has_any 는 @property 라 asdict 누락 — 역직렬화 시 ViewModel 재구성으로
-property 자동 복원 (dict 직접 template 전달 시 `attention.catalog` 접근이 깨짐).
-
-result JSONB 구조·키 단일 진실은 `report/result.py`.
-본 모듈은 그 구조 안 `snapshot` 의 ViewModel <-> JsonObject 직렬화만 담당.
+dict 를 템플릿에 그대로 넘기지 않고 ViewModel 로 재구성하는 이유는 `AttentionSignals.catalog`·`has_any` 가
+@property 라 asdict 에 담기지 않는 데 있다 — dict 인 채로는 `attention.catalog` 접근이 깨진다.
 """
 
 import dataclasses
 
-# result 구조 계약(키·dict 조립)은 report/result.py 단일 진실 — web view_models 에 의존하지
-# 않는 중립 모듈에 분리.
 from assessment_engine.json_types import JsonObject, json_list, json_obj
 from assessment_engine.web.services.serialization import parse_dt, to_jsonable
 from assessment_engine.web.view_models.attention import (
@@ -62,41 +54,33 @@ from assessment_engine.web.view_models.server import IpAddr, NetIfaceAddress, Ne
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
 
 
-# --------------------------------------------------------------------------
-# ReportSummary (server scope 보고서 base — EnvironmentReportSummary.base 직렬화·복원에 사용)
-# --------------------------------------------------------------------------
 def report_summary_to_dict(vm: ReportSummary) -> JsonObject:
     return to_jsonable(vm)
 
 
 def _drop_unknown_fields(cls: type, data: JsonObject) -> JsonObject:
-    """저장된 스냅샷에 남아있으나 현재 dataclass 에 없는 키 제거 — 보고서는 발행 시점 정적 스냅샷이라
+    """현재 dataclass 에 없는 키 제거.
 
-    (C1) 필드를 나중에 빼도 과거 스냅샷의 JSONB 는 옛 키를 그대로 보관한다. `cls(**data)` 가 그 키를
-    unexpected keyword argument 로 거부하지 않도록 현재 스키마 기준으로 걸러낸다(에이전트 wire 계약의
-    `extra=ignore` 와 동일 취지, #B).
+    보고서는 발행 시점 정적 스냅샷이라 필드를 나중에 빼도 과거 JSONB 는 옛 키를 그대로 보관한다 —
+    `cls(**data)` 가 그것을 unexpected keyword argument 로 거부하지 않게 현재 스키마로 거른다.
     """
     known = {f.name for f in dataclasses.fields(cls)}
     return {k: v for k, v in data.items() if k in known}
 
 
 def _build[T](cls: type[T], data: JsonObject) -> T:
-    """dict -> dataclass 재구성 단일 진입점 — 모든 nested `cls(**data)` 는 본 helper 경유 의무.
+    """dict -> dataclass 재구성 단일 진입점 — spread(`**`) 재구성은 전부 여기를 거친다.
 
-    `_drop_unknown_fields` 를 항상 적용해 필드 제거 마이그레이션 후 과거 스냅샷의 잔존 키가 TypeError 로
-    복원을 깨지 않는다(#C1 정적 스냅샷 removal-tolerance). 명시 kwargs 재구성(PeriodResource 등 get(key,
-    default))은 이미 제거 내성이 있어 본 helper 불요 — spread(`**`)만 본 함수로.
+    명시 kwargs 재구성(PeriodResource 등 `get(key, default)`)은 이미 키 제거에 내성이 있어 예외다.
     """
     return cls(**_drop_unknown_fields(cls, data))
 
 
-# 보고서는 발행 시점 정적 스냅샷이라 과거 값이 그대로 되살아난다. 지원 단계 어휘가 바뀌기 전에
-# 발행된 스냅샷은 옛 문자열을 갖고 있고, 표시 계층이 새 값만 분기하므로 여기서 옮겨 준다.
+# 지원 단계 어휘가 바뀌기 전에 발행된 스냅샷은 옛 문자열을 그대로 들고 되살아난다 — 표시 계층은 새 값만 분기.
 _LEGACY_OS_EOL_STATUS = {"eol": "ended", "extended": "security_only", "supported": "full"}
 
 
 def _report_row_from_dict(r: JsonObject) -> ReportRowItem:
-    """ReportRowItem 복원 — nested 구동 서비스 2 필드(list[dataclass]) 재구성 포함."""
     data = dict(r)
     data["workload_groups"] = [_build(ReportWorkloadGroup, g) for g in json_list(data, "workload_groups")]
     data["listen_ports_detail"] = [_build(ReportListenItem, p) for p in json_list(data, "listen_ports_detail")]
@@ -116,9 +100,6 @@ def report_summary_from_dict(d: JsonObject) -> ReportSummary:
     return _build(ReportSummary, data)
 
 
-# --------------------------------------------------------------------------
-# EnvironmentReportSummary (환경 + 단일서버 보고서 — reports/environment.html, servers/single_report.html)
-# --------------------------------------------------------------------------
 def env_report_to_dict(vm: EnvironmentReportSummary) -> JsonObject:
     return to_jsonable(vm)
 
@@ -133,8 +114,7 @@ def env_report_from_dict(d: JsonObject) -> EnvironmentReportSummary:
     data["os_family_dist"] = [_build(DistributionBar, b) for b in json_list(data, "os_family_dist")]
     topo = data.get("topology")
     if topo:
-        # subnets nested 복원 (SubnetGroup/SubnetHost) — 보고서 서브넷 요약 표가 .net_key/.host_count 접근.
-        # elements 는 Cytoscape용 plain dict list 라 그대로 보존.
+        # elements 는 Cytoscape 용 plain dict list 라 그대로 둔다.
         topo["subnets"] = [
             SubnetGroup(
                 net_key=s["net_key"],
@@ -146,9 +126,8 @@ def env_report_from_dict(d: JsonObject) -> EnvironmentReportSummary:
         data["topology"] = _build(NetworkTopology, topo)
     else:
         data["topology"] = None
-    # trend 는 plain dict list (at=isoformat str) — 라운드트립 시 그대로 보존 (복원 불필요).
+    # trend 는 plain dict list(at=isoformat str) 라 복원할 것이 없다.
     data["top_risks"] = [_report_row_from_dict(r) for r in json_list(data, "top_risks")]
-    # 통합 조치 대상 표 — hosts nested(CapacityWarningItem, metrics 포함) 복원.
     data["action"] = _action_targets_from_dict(json_obj(data, "action"))
     data["service_catalog"] = [
         ServiceCatalogGroup(
@@ -194,11 +173,7 @@ def _period_signal_rows(rows: list[JsonObject] | None) -> list[PeriodSignalRow]:
 
 
 def _period_assessment_from_dict(d: JsonObject) -> PeriodAssessment:
-    """PeriodAssessment 복원 — 자원별 util_rows/sat_rows/extra_groups/error_rows 중첩 재구성.
-
-    단일 서버 보고서(engineer) 전용 스냅샷 필드 — 서버 상세 페이지의 get_period_assessment 는 항상 라이브
-    재계산이라 이 복원 경로를 타지 않는다(본 함수는 report_serializer 전용).
-    """
+    """PeriodAssessment 복원 — 단일 서버 보고서(engineer) 스냅샷 전용. 서버 상세는 라이브 재계산이라 안 탄다."""
     resources = [
         PeriodResource(
             name=r["name"],
@@ -230,7 +205,6 @@ def _period_assessment_from_dict(d: JsonObject) -> PeriodAssessment:
 
 
 def _storage_node_from_dict(d: JsonObject) -> StorageNode:
-    """StorageNode 복원 — children 재귀 트리(storage.html 과 동일 구조)."""
     data = dict(d)
     data["children"] = [_storage_node_from_dict(c) for c in json_list(data, "children")]
     return _build(StorageNode, data)
@@ -255,7 +229,6 @@ def _overview_from_dict(d: JsonObject) -> EnvironmentOverview:
 
 
 def _attention_from_dict(d: JsonObject) -> AttentionSignals:
-    # catalog/has_any 는 @property — field 만 재구성하면 자동 복원.
     return AttentionSignals(
         gap_warnings=[_attention_row_from_dict(r) for r in json_list(d, "gap_warnings")],
         os_eol_warnings=[_attention_row_from_dict(r) for r in json_list(d, "os_eol_warnings")],
@@ -271,13 +244,11 @@ def _attention_row_from_dict(d: JsonObject) -> AttentionRow:
 
 def _capacity_warning_from_dict(d: JsonObject) -> CapacityWarningItem:
     data = dict(d)
-    # active_causes 는 list[str] — 스칼라라 별도 복원 불요. 지금 dataclass 에 없는 필드를 들고 있는 과거
-    # 스냅샷은 _drop_unknown_fields 가 걸러낸다.
+    # active_causes 는 list[str] 스칼라라 별도 복원이 없다.
     return _build(CapacityWarningItem, data)
 
 
 def _action_targets_from_dict(d: JsonObject) -> ActionTargets:
     data = dict(d)
-    # hosts = CapacityWarningItem list. 지금 dataclass 에 없는 키는 _drop_unknown_fields 가 걸러낸다.
     data["hosts"] = [_capacity_warning_from_dict(c) for c in json_list(data, "hosts")]
     return _build(ActionTargets, data)

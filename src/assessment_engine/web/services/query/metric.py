@@ -53,13 +53,11 @@ async def latest_metric(
     if not raw or not raw.metrics:
         return None
     result = build_dashboard(raw)
-    # 포화 신호 — 호출자가 벌크 조회분(saturation)을 넘기면 재조회 생략 (B4: _assemble_realtime 이 sat_map 을
-    # 이미 벌크 조회 -> per-server 재조회 N+1 제거). 미전달 시 단일 조회.
+    # 호출자가 벌크 조회분을 넘기면 재조회를 생략한다 — 환경 화면에서 per-server 재조회로 N+1 이 나는 자리다.
     sat = saturation
     if sat is None:
         since = datetime.now(UTC) - timedelta(minutes=10)
         sat = (await repo.get_latest_saturation([server_id], since)).get(server_id) or SaturationRaw()
-    # os-aware 구조화 포화 신호 (P2 서버 판정) — 개요·자원 탭 스냅샷 카드 공통 소비.
     cur = raw.metrics[0] if raw.metrics else None
     signals = build_saturation_signals(
         os_family=raw.os_family,
@@ -74,8 +72,7 @@ async def latest_metric(
     result.mem_saturation = signals["mem"]
     result.disk_saturation = signals["disk"]
     result.net_saturation = signals["net"]
-    # 에러 축(E)은 서버 세부 '자원 이용률·포화·에러' 카드(14일 창, SSR get_period_assessment)로 통합 — 실시간
-    # 스냅샷은 이용률(도넛)·포화·활동만. per-server get_latest_errors N+1 회피 겸.
+    # 에러 축(E)은 여기 안 싣는다 — 평가 윈도우 카드(get_period_assessment)가 맡고, per-server 조회는 N+1 이다.
     await safe_set(redis, cache_key, dashboard_to_json(result), ex=get_web_settings().redis_ttl_cache_metrics)
     return result
 
@@ -103,10 +100,10 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         end: datetime | None = None,
         server_ids: list[int] | None = None,
     ) -> list[MetricSeriesItem]:
-        """환경 시계열 — 대시보드 추이 차트 live. server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
+        """환경 시계열 — server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
 
-        통일 get_metric_trend(collapse=True) 위임 — 시점별 1값(그 시점 데이터 있는 서버 sum/sum) -> 버킷 avg.
-        서버 상세(collapse=False, [1대])와 동일 산식 — dimension 없는 지표(cpu/mem)는 선택 1대=상세 일치.
+        시점별 1값(그 시점 데이터가 있는 서버 sum/sum) -> 버킷 avg. 서버 상세와 같은 산식이라
+        dimension 없는 지표(cpu/mem)는 1대 선택 시 상세 화면과 값이 일치한다.
         """
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
@@ -126,10 +123,7 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         end: datetime | None = None,
         collapse: bool = False,
     ) -> list[MetricSeriesItem]:
-        # 검증은 라우터의 Query(MetricType) Literal Pydantic 단계에서 이미 처리됨.
-        # device/mount 선별은 repo SQL 단계 (fs.usage_percent 데이터볼륨 필터). 표시 계층 재필터 없음.
-        # collapse=True — 물리 디바이스 수 무관 1선 합산(스토리지 IOPS·처리량 추이, 디바이스 많으면 멀티라인
-        # 지저분 문제 회피). 기본 False 유지 — 기존 페이지(cpu/memory/network) 회귀 없음.
+        # collapse=True 는 물리 디바이스 수와 무관하게 1선으로 합산한다 — 디바이스가 많으면 멀티라인이 안 읽힌다.
         dtos = await self.repo.get_metric_chart(
             server_id, metric_type, dimension, time_range, bucket, agg, end, collapse
         )
@@ -141,10 +135,9 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         time_range: TimeRange,
         end: datetime | None = None,
     ) -> list[RebootEvent]:
-        """차트 vertical marker용 — 지정 time_range 내 시스템 재부팅·에이전트 재시작 시점.
+        """차트 vertical marker 용 — 지정 time_range 내 시스템 재부팅·에이전트 재시작 시점.
 
-        outbound DTO 그대로 반환 (raw 그대로 — P1). 별도 ViewModel 변환 없음 — 파생 필드
-        없고 datetime / Literal kind 그대로 JSON 직렬화 가능 (cache_serializer._json_default).
+        파생 필드가 없고 datetime·Literal 이 그대로 직렬화돼 ViewModel 변환 없이 outbound DTO 를 넘긴다.
         """
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]

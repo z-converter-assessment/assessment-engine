@@ -1,10 +1,8 @@
 """비동기 보고서 생성 워커 루프 — 전용 워커 프로세스(assessment_engine.worker)가 구동.
 
-발행(emit)은 parent job 을 pending 으로 enqueue 만 하고 즉시 반환 -> 본 워커가 claim 해서 생성한다.
-job 상태가 DB(diagnostic_jobs)에 있어 메모리 상태 기반의 in-flight 손실 문제가 없다:
-- 멀티노드 분산 = `claim_pending` 의 FOR UPDATE SKIP LOCKED (row-lock, 큐 없이 DB 가 조정).
-- graceful(F11) = stop_event 로 새 claim 중단, 진행 중 1건은 shutdown timeout 안 완료 시도, 미완은
-  running 으로 남겨 다음 기동 `recover_stale` 가 pending 으로 회수.
+발행(emit)은 parent job 을 pending 으로 enqueue 만 하고 즉시 반환하고, 본 워커가 claim 해서 생성한다.
+job 상태가 DB(diagnostic_jobs)에 있어 in-flight 손실이 없다 — 멀티노드 분산은 `claim_pending` 의
+FOR UPDATE SKIP LOCKED 가, SIGTERM 으로 미완인 건은 다음 기동 `recover_stale` 회수가 담당한다.
 
 구체 인스턴스(QueryService·DiagnosticService)는 composition root(worker/main.py)가 구성해 주입.
 """
@@ -45,8 +43,7 @@ async def _process_one(
         await diag_service.finish_failed(rec.id, str(e))
         logger.info("report job failed (generation) job_id={} reason={}", rec.id, str(e))
     except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
-        # 워커 격리 — 한 job 실패가 루프를 중단시키면 안 됨(F6 except Exception 예외: reraise 시 워커 사망).
-        # raw 예외는 traceback 로그만, 사용자 노출 error_message 는 sanitize(F8).
+        # raw 예외는 traceback 로그로만 남기고 사용자 노출 error_message 는 sanitize (#F8).
         logger.exception("report job failed (internal) job_id={}", rec.id)
         await diag_service.finish_failed(rec.id, "internal error")
 
@@ -69,7 +66,7 @@ async def run_report_loop(
         if recovered:
             logger.info("report worker recovered stale running jobs n={}", recovered)
     except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
-        # 기동 시 DB 일시 장애 — 워커를 죽이지 않고 루프 진입(claim 이 이후 재시도). F6 격리.
+        # 기동 시 DB 일시 장애면 복구를 포기하고 루프에 진입한다 — 이후 claim 이 재시도한다.
         logger.exception("report worker stale recovery failed at startup")
     logger.info("report worker started poll_interval={}s stale={}s", poll_interval_sec, stale_seconds)
 
@@ -77,7 +74,6 @@ async def run_report_loop(
         try:
             rec = await diag_service.claim_pending()
         except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
-            # claim 자체 실패(DB 일시 장애 등) — 루프 유지, poll 후 재시도.
             logger.exception("report worker claim failed")
             await sleep_or_stop(stop_event, poll_interval_sec)
             continue
@@ -88,7 +84,7 @@ async def run_report_loop(
             await _process_one(diag_service, query_service_factory, rec)
         except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
             # _process_one 은 생성 예외를 내부 격리하나 finish_succeeded/finish_failed 의 DB 호출은 전파 가능 —
-            # 루프에서 방어(워커 사망 방지). job 은 running 잔류 -> 다음 기동 recover_stale 가 회수(F6 격리).
+            # 여기서 막아야 워커가 안 죽는다. job 은 running 잔류 -> 다음 기동 recover_stale 가 회수.
             logger.exception("report worker process failed job_id={}", rec.id)
 
     logger.info("report worker stopped")

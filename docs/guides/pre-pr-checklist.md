@@ -13,7 +13,7 @@
 진입 조건:
 - 기능 동작 완성 — 사용자가 화면·로그로 동작을 확인한 상태. 이 동작 검증이 Stage 1 리팩토링의 회귀 안전망이다 (통과하는 검증 하에서만 구조를 바꾼다 — Fowler).
 - feature branch 위 (`main`·`master` 직접 X). 미커밋 변경만 또는 clean 상태.
-- PR 발행 전. `/pr` 이 develop PR 게이트로 Stage 1~5 를 돌린 뒤 PR 을 연다 (0절 표). `/commit` 은 본 워크플로와 무관하게 언제든 별도 발동.
+- PR 발행 전. `/commit` 은 본 워크플로와 무관하게 언제든 별도 발동한다.
 
 검증 강도 — 되돌리기 비용에 비례해 배치한다. 커밋은 `amend`·`rebase` 로 지울 수 있고, develop 통합은 revert 로 물릴 수 있고, main 승격은 배포로 이어진다.
 
@@ -34,14 +34,12 @@
 
 main PR 이 아니라 그 앞 develop PR 에 두는 이유는 왕복 비용이다. main PR 에서 지적이 나오면 고칠 자리가 develop 이라 되돌아가야 하고, 고친 뒤 다시 승격하면 게이트가 또 선다. 지적이 나올 확률이 낮지 않으므로 이 왕복은 예외가 아니라 기본 경로가 된다. 검증을 고칠 수 있는 자리에 두면 왕복이 사라진다.
 
-main PR 은 쓰지도 검증하지도 않는다 — 통합 테스트와 커밋 형식만 본다.
-
 범위 밖:
 - 기능 동작 개발 자체 — 개발 시간의 대부분. 본 워크플로는 동작하는 코드를 전제로 그 위에서 정석화·정합만 수행 (make it work 후의 make it right).
 - commit 메시지·PR 본문 작성·push.
 - 동작 검증 — 사용자가 실행 화면으로 한다.
 
-Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파이프라인 검증 -> 문서 -> CLAUDE.md. 코드가 먼저 정석에 도달한 뒤 문서를 맞춘다 (역순이면 코드 변경 때마다 문서 재작업). 다섯 Stage 가 한 PR 안에서 순서대로 돈다.
+Stage 순서는 실제 작업 흐름과 일치한다 — 리팩토링 -> 테스트 -> 파이프라인 검증 -> 문서 -> CLAUDE.md. 코드가 먼저 정석에 도달한 뒤 문서를 맞춘다 (역순이면 코드 변경 때마다 문서 재작업).
 
 ---
 
@@ -56,8 +54,6 @@ Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파
 
 위 셋 외 발견은 자율 처리 (정석 정정이 명백하면 즉시 적용 + 변경 카탈로그 기록).
 
-각 Stage 는 입력 / 목적 / 체크리스트 / 산출물 / 통과 기준 5요소를 가진다.
-
 루프 처리:
 - 코드 변경이 발생하면 영향 받는 후속 검증을 다시 돌린다.
   - Stage 2 테스트 중 코드 부족 발견 -> Stage 1 재실행.
@@ -69,7 +65,7 @@ Stage 순서는 실제 작업 흐름과 일치: 리팩토링 -> 테스트 -> 파
 - 매 Stage 진입 전 1줄 알림 (`Stage N — <목적> (도구: X)`).
 - 매 Stage 종료 후 (변경 파일 카탈로그 / 자율 처리 항목 / 결정 필요 사항 / 다음 Stage 큐) 보고 + 다음 Stage 즉시 진입.
 - 사용자가 명시적으로 정지·추가 컨펌 요청 시에만 대기.
-- 1분 진행 신호 무 시 abort + 진단.
+- 진행 신호가 1분간 없으면 abort + 진단.
 
 Self-audit 메타 인용 제외:
 - 본 명세는 금지 토큰·모호 표현·temp 인용 카탈로그 정의를 위해 해당 토큰을 본문에 인용한다 (예: `TODO` · `향후` · `docs/temp/`).
@@ -98,7 +94,7 @@ Self-audit 메타 인용 제외:
   - Jinja2: 필터 · `{% if %}` · `{% for %}` 만 (#E1 P3). 계산 X.
   - aio-pika: `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료 (#F11).
 - [1.2] 추상화는 정석 위치에만. `BaseSettings` · repository protocol · `*Service` 외 ad-hoc abstract 0건.
-- [1.3] composition root 외 위치에서 `Settings()` 인스턴스 생성 0건 (#F4 6 위치만). 검사: `rg 'Settings\(\)|WebSettings\(\)|ConsumerSettings\(\)|DiagnosticSettings\(\)' src/`.
+- [1.3] composition root 외 위치에서 `Settings()` 인스턴스 생성 0건 (#F4 6 위치만). 검사: `rg 'Settings\(\)' src/ -l` 이 그 6 파일만 내는지.
 - [1.4] 중복 함수·중복 상수 0건. 같은 의미는 단일 모듈. 임계 도메인 둘(UI badge / USE Method) 혼용 0건 (#E3).
 - [1.5] 죽은 코드 0건 — unused import · unreachable branch · 호출처 없는 public 함수. `ruff` · IDE inspection 통과.
 - [1.6] 명명 · 매직 넘버. 약식 접미사(`_data` · `_temp` · `_v2` · `_new` · `_old` · `_fix`) 0건. 임계·시간·크기·HTTP status 는 명명 상수 또는 enum(`Literal` · `IntEnum`). 단 0/1/-1 · `LIMIT 1` 같은 자명한 경우 예외.
@@ -113,12 +109,12 @@ Self-audit 메타 인용 제외:
 | F1 타입 | `rg 'pyright: ignore' src/` 억제에 사유 주석이 붙었는지 · Pydantic 필드 타입이 `TYPE_CHECKING` 블록에만 선언됐는지 · 검사기 만족용 `assert x is not None` |
 | F2 시간대 | `rg 'datetime\.now\(\)' src/` 에서 tz 인자 없는 것 · `rg '9 ?\* ?60 ?\* ?60' src/` 인라인 KST offset |
 | F3 검증 | `rg '_VALID_' src/` · 진입점 밖 `model_validate` 재실행 |
-| F4 DI | `rg 'Settings\(\)' src/` 가 #F4 6 위치에만 · Service/Handler 안 `Sql*` import |
+| F4 DI | Service/Handler 안 `Sql*` import (`Settings()` 위치는 [1.3]) |
 | F6 실패 | `rg 'except Exception' src/` · timeout 인자 없는 외부 호출 · 영구 오류 재시도 |
 | F7 로깅 | `rg '\bprint\(|sys\.stdout\.write|^import logging' src/` · except 밖 `logger.exception()` · payload 로깅 |
 | F8 시크릿 | 신규 비밀 필드의 `SecretStr` · 응답·캐시·로그·예외의 PII |
 | F10 F11 | 평가 윈도우가 `right_sizing.WINDOW_DAYS` 단일 참조 · 새 TimeRange 는 4곳 동시 갱신 · `rg 'signal\.signal|os\._exit' src/` |
-| B C5 E1 | `rg 'extra="(forbid|allow)"' src/` · hypertable 조회의 `collected_at` 술어 · 템플릿 계산(`+`·`*`·`length`·`sort`·`selectattr`) · 차트 JS 5 의무 규약 |
+| B C5 E1 | `rg 'extra="(forbid|allow)"' src/` 가 인바운드 메시지 모델에 붙었는지 (외부 계약 `TypedDict` 의 `extra=forbid` 는 정상) · hypertable 조회의 `collected_at` 술어 · 템플릿 계산(`+`·`*`·`length`·`sort`·`selectattr`) · 차트 JS 5 의무 규약 |
 
 주석 (1):
 - [1.8] 이번 브랜치가 건드린 파일의 주석만 본다. 전수 검토는 하지 않는다 — 판단이 필요해 자동화가 안 되고,
@@ -236,7 +232,7 @@ Self-audit 메타 인용 제외:
 
 간결 (3):
 - [4.10] 코드만 봐도 알 수 있는 사실(디렉토리 트리·함수 시그니처 본문·import graph·라인 수) 0건 — 코드 경로 포인터로.
-- [4.11] 임시 상태(`TODO`·`FIXME`·`XXX`·"작업 중"·"향후"·"차후") 0건. 검사: `rg '\b(TODO|FIXME|XXX)\b|작업\s*중|향후|차후' docs/reference/ docs/guides/ -g '!pre-pr-checklist.md'`. 한글은 `\w` 라 `\b` 가 조사 앞에서 성립하지 않으므로 감싸지 않고, `XXX` 는 대소문자를 가려 CSS placeholder(`#xxx`)를 배제한다. 본 파일은 토큰 카탈로그라 제외하고, `docs/explanation/` 은 한계·확장 트리거가 사는 자리라 대상이 아니다. 임시는 `docs/temp/` 또는 PR 본문.
+- [4.11] 임시 상태(`TODO`·`FIXME`·`XXX`·"작업 중"·"향후"·"차후") 0건. 검사: `rg '\b(TODO|FIXME|XXX)\b|작업\s*중|향후|차후' docs/reference/ docs/guides/ -g '!pre-pr-checklist.md'`. 한글은 `\w` 라 `\b` 가 조사 앞에서 성립하지 않으므로 감싸지 않고, `XXX` 는 대소문자를 가려 CSS placeholder(`#xxx`)를 배제한다. `docs/explanation/` 은 한계·확장 트리거가 사는 자리라 대상이 아니다. 임시는 `docs/temp/` 또는 PR 본문.
 - [4.12] 동일 결정·금지가 한 문서 안 반복 0건.
 
 엄밀 (3):
@@ -274,19 +270,17 @@ Self-audit 메타 인용 제외:
 - [5.1] CLAUDE.md A→F 섹션 번호 규약 유지. 추가는 해당 절에만 (계층 위반 0건). 충돌 시 #E1 P1~P4 우선순위.
 - [5.2] CLAUDE.md 본문 변경 시 영향 deep dive(`docs/reference/*` · `docs/guides/*`) 동시 갱신. 시그니처·임계·카탈로그 일치.
 - [5.3] CLAUDE.md "본 절 결정" 신규 = (원칙 → 결정 → 금지) 구조 + 외부 포인터는 "상세는 `docs/X` 절" 형식만. 본 절 안 deep dive 본문 dump 0건.
-- [5.4] ADR 정리는 `/docs` 4절이 갖는다 (판정 표·채번·인덱스 행). 여기서는 그 결과가 반영됐는지만 확인한다.
-- [5.5] `docs/README.md` 카테고리 표 + 디렉토리 트리 동시 갱신. 추가/제거 영구 문서 한 줄로 (위치 · 역할 · 수명).
+- [5.4] ADR 파일·인덱스 변경분이 `/docs` 4절 판정 표를 벗어나지 않았는지 diff 로 확인. 판정 표는 그 절, 채번·Status 어휘는 `docs/decisions/adr/README.md` 소유이고 여기서는 결과 반영만 본다.
+- [5.5] `docs/README.md` 계층 역할 표 + 지도 동시 갱신. 추가/제거 영구 문서 한 줄로 (위치 · 역할 · 수명).
 
-정석 (4):
-- [5.6] ADR 파일·인덱스 변경분이 `/docs` 4절 판정 표를 벗어나지 않았는지 diff 로 확인 (규약 본문은 그 절 소유 — 여기 복제 금지).
-- [5.7] CLAUDE.md F9 "변경 영향도 체크리스트" 에 본 feature 가 추가한 변경 유형이 빠졌으면 행 추가 (변경 유형 + 동시 갱신 위치).
-- [5.8] 새 외부 의존(HTTP · 외부 큐) 도입 시 F6 "외부 의존 실패 모드 매트릭스"(`docs/reference/observability.md`)에 행 추가 (fail-open/close · timeout · 재시도).
-- [5.9] CLAUDE.md "본 절 결정" 신규는 (a) 검사 가능(`rg`·`ruff`·테스트로 위반 발견) (b) F9 영향도 표시 (c) 위반 시 행동 명시 셋 다 충족. 새 F-policy 는 번호 단조 증가. 단순 조언(`...하는 게 좋다`)이면 채택 X — 결정·금지·매트릭스 형태만.
+정석 (3):
+- [5.6] CLAUDE.md F9 "변경 영향도 체크리스트" 에 본 feature 가 추가한 변경 유형이 빠졌으면 행 추가 (변경 유형 + 동시 갱신 위치).
+- [5.7] 새 외부 의존(HTTP · 외부 큐) 도입 시 F6 "외부 의존 실패 모드 매트릭스"(`docs/reference/observability.md`)에 행 추가 (fail-open/close · timeout · 재시도).
+- [5.8] CLAUDE.md "본 절 결정" 신규는 (a) 검사 가능(`rg`·`ruff`·테스트로 위반 발견) (b) F9 영향도 표시 (c) 위반 시 행동 명시 셋 다 충족. 새 F-policy 는 번호 단조 증가. 단순 조언(`...하는 게 좋다`)이면 채택 X — 결정·금지·매트릭스 형태만.
 
-원칙 (3):
-- [5.10] 모든 "상세는 X 절" 포인터가 가리키는 단일 진실이 실제 존재·정확. 검사: `rg '상세는|단일 진실|catalog: ' CLAUDE.md docs/` 추출 후 인용 경로·절 실재 확인.
-- [5.11] `docs/temp/` 인용 0건 (재 grep — 양방향).
-- [5.12] 영구 문서 간 양방향 의존 0건 (Stage 4 [4.17] 재검). CLAUDE.md → deep dive 단방향만.
+원칙 (2):
+- [5.9] 모든 "상세는 X 절" 포인터가 가리키는 단일 진실이 실제 존재·정확. 검사: `rg '상세는|단일 진실' .claude/CLAUDE.md docs/` 추출 후 인용 경로·절 실재 확인.
+- [5.10] Stage 5 가 만진 파일에 [4.16] `docs/temp/` 인용·[4.17] 양방향 의존 재검. CLAUDE.md -> deep dive 단방향만.
 
 도구:
 - 수동 Read + Edit. 의식적 결정 단계 — 자동화 X.
@@ -295,7 +289,7 @@ Self-audit 메타 인용 제외:
 - `CLAUDE.md` · `docs/reference/*` · `docs/explanation/tradeoffs.md` · `docs/README.md` · `docs/reference/observability.md`.
 
 통과 기준:
-- 12 항목 OK. Stage 1·2·4 에서 넘어온 후보 모두 처리.
+- 10 항목 OK. Stage 1·2·4 에서 넘어온 후보 모두 처리.
 
 ---
 

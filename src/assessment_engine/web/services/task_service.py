@@ -1,14 +1,7 @@
 """원격 작업 발행 service — 운영자가 등록 호스트에 task.install 명령을 발행.
 
-흐름: web POST -> DB INSERT (이력) -> agent.tasks.<agent_id> 큐 declare (idempotent)
-      -> assessment.tasks exchange 에 task.install.<agent_id> routing key 로 publish.
-원격 호스트의 worker 가 본 큐를 consume 해 install bundle fetch + 실행 후 task.result 발행.
-
-책임 경계:
-- DB INSERT + 메시지 publish 캡슐화 — router 는 service 만 호출
-- 추상 `CollectRepository` 의존 (F4) — composition root 에서 구체 주입
-- 트랜잭션 경계는 service 가 관리 (서버별 독립 commit + best-effort publish)
-- ZDM 패키지 메타 (sha256·size) 조회 헬퍼는 본 모듈 상단 `HttpZdmPackageResolver` — install 발행 의존성.
+DB INSERT 와 메시지 publish 를 한 트랜잭션 경계 안에 묶는다 (서버별 독립 commit). 발행 흐름 전체는
+`docs/explanation/products/install-task.md`.
 """
 
 import hashlib
@@ -41,18 +34,14 @@ if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
 
 _TASK_TYPE_INSTALL = "zconverter_install"
-# engine task deadline_at 과 broker 큐 x-message-ttl 을 단일 창(install_task_deadline_sec)으로 정합 —
-# 엔진이 timeout 선언하는 시점 == broker 가 미배달 메시지 버리는 시점 (F6 관측성, zombie 지연 실행 차단).
-# 오프라인 호스트 store-and-forward 유예 = 이 창. reaper(task_reaper)가 창 경과 pending 을 능동 terminal 전이.
 _TASK_QUEUE_MAX_LEN = 100
 
 
 def _resolve_install_dispatch(os_family: str) -> tuple[str, str, str | None]:
     """os_family -> (package_path, install_type, install_script).
 
-    Linux  = .tar.gz extract + install.sh exec.
-    Windows = single .exe 직접 실행 (extract 없음, install.script null).
-    그 외 = TaskNotConfiguredError raise (운영자 알림 — agent 미지원).
+    install_type 은 agent 측 실행 방식 계약 — shell 은 archive 를 풀고 install_script 를 실행하고,
+    direct_exec 는 받은 파일을 그대로 실행한다(script null). 모르는 type 은 agent 가 거부한다.
     """
     if os_family == "linux":
         return (get_web_settings().zdm_package_path, "shell", get_web_settings().zdm_package_script)
@@ -61,8 +50,7 @@ def _resolve_install_dispatch(os_family: str) -> tuple[str, str, str | None]:
     raise TaskNotConfiguredError(f"unsupported os_family={os_family!r}")
 
 
-# 운영자 입력에서 scheme·path 제거 → host (또는 host:port) 만 추출.
-# agent download.url 조립 시 host 만 사용 (https?://{host}{zdm_package_path} 형태).
+# 운영자가 URL 을 통째로 넣어도 host(:port)만 남긴다 — download.url 은 `http://{host}{package_path}` 로 조립된다.
 _URL_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
@@ -72,11 +60,10 @@ def _extract_zdm_host(zdm_ip: str) -> str:
     return s if slash < 0 else s[:slash]
 
 
-# --- ZDM 패키지 메타 (sha256·size_bytes) 동적 조회 --------------------------
 # cache key 에 ETag 를 넣는 이유는 그것이 곧 invalidation 키라서다 — 패키지가 바뀌면 ETag 가 바뀌므로
-# TTL 을 길게(6h) 잡아도 stale 을 내주지 않는다.
-# 메타 조회는 fail-close 다. sha256 없이 발행하면 agent 가 검증 없이 설치하게 되므로 publish 를 막는다
-# (Redis 자체는 fail-open — 캐시가 죽으면 매번 GET 으로 떨어질 뿐이다).
+# TTL 을 길게 잡아도 stale 을 내주지 않는다. package_path 를 키에 안 넣는 것도 같은 이유 — path 가 다르면
+# ETag 도 다르다. 메타 조회 자체는 fail-close(sha256 없이 발행하면 agent 가 검증 없이 설치한다),
+# Redis 는 fail-open.
 
 
 class ZdmPackageMetaError(Exception):
@@ -85,11 +72,7 @@ class ZdmPackageMetaError(Exception):
 
 class BaseZdmPackageResolver(Protocol):
     async def resolve(self, zdm_host: str, package_path: str) -> tuple[str, int]:
-        """ZDM 패키지의 (sha256_hex, size_bytes) 반환. 실패 시 raise.
-
-        package_path = OS 별 path (caller 가 os_family 보고 결정). cache key 는 ETag 기반이라
-        path 별 자동 분리.
-        """
+        """ZDM 패키지의 (sha256_hex, size_bytes) 반환. 실패 시 raise."""
         ...
 
 
@@ -101,7 +84,6 @@ class HttpZdmPackageResolver:
     async def resolve(self, zdm_host: str, package_path: str) -> tuple[str, int]:
         url = f"http://{zdm_host}{package_path}"
 
-        # 1. HEAD — ETag + Content-Length
         try:
             head_resp = await self.http.head(url)
         except httpx.HTTPError as e:
@@ -118,19 +100,16 @@ class HttpZdmPackageResolver:
         if size_bytes <= 0:
             raise ZdmPackageMetaError(f"HEAD Content-Length non-positive: {size_bytes}")
 
-        # ETag 우선, 없으면 Last-Modified fallback. 둘 다 없으면 cache 키 안정성 깨지지만
-        # 그 경우라도 매 publish 마다 fresh GET 으로 sha256 산출 → 동작은 정확.
+        # 둘 다 없으면 캐시를 건너뛴다 — 매 publish 마다 GET 으로 sha256 을 다시 내므로 느릴 뿐 결과는 정확.
         etag = head_resp.headers.get("ETag") or head_resp.headers.get("Last-Modified") or ""
         cache_key = get_web_settings().redis_key_zdm_package_sha256.format(zdm_host, etag) if etag else ""
 
-        # 2. cache hit?
         if cache_key:
             cached = await safe_get(self.redis, cache_key)
             if cached:
                 logger.info("zdm package meta cache hit host={} etag={}", zdm_host, etag)
                 return cached, size_bytes
 
-        # 3. miss — GET stream + sha256
         sha = hashlib.sha256()
         bytes_read = 0
         try:
@@ -155,7 +134,6 @@ class HttpZdmPackageResolver:
             size_bytes,
         )
 
-        # 4. cache set (fail-open — Redis 장애 시 다음 publish 에서 다시 계산)
         if cache_key:
             await safe_set(self.redis, cache_key, sha256_hex, ex=get_web_settings().redis_ttl_zdm_package_sha256)
 
@@ -166,7 +144,7 @@ class HttpZdmPackageResolver:
 class TaskCreated:
     target_public_id: str
     task_id: str
-    # 발행 시점 online 여부 — False 면 오프라인에 큐 적재(store-and-forward). 운영자 advisory 용(차단 아님).
+    # 발행 시점 online 여부 — 운영자 advisory 이고 발행을 막지 않는다(오프라인이면 큐에 적재된 채 대기).
     target_online: bool
 
 
@@ -193,14 +171,10 @@ class TaskService:
         zdm_ip: str,
         zdm_user: str,
     ) -> list[TaskCreated]:
-        """선택 호스트 N대에 install task 발행.
+        """선택 호스트 N대에 install task 발행 — 서버별 독립 트랜잭션 + 독립 publish.
 
-        best-effort — 서버별 독립 트랜잭션 + 독립 publish. 미존재 public_id 는 즉시 raise.
-        zdm_ip / zdm_user 는 install 스크립트의 `-s` / `-u` 인자로 전달되어 ZDM 서버에서
-        실제 setup 패키지 fetch + 실행에 사용. 본 엔진은 Linux 호스트만 발행 대상.
-
-        sha256 / size_bytes 는 publish 직전 ZDM 에서 동적 fetch (ETag cache).
-        실패 시 publish 차단 → 503 (TaskNotConfiguredError).
+        zdm_ip / zdm_user 는 install 스크립트의 `-s` / `-u` 인자로 나가 ZDM 에서 setup 패키지를 받아 실행한다.
+        미존재 public_id·진행 중 task·ZDM 메타 조회 실패는 부분 발행 없이 전체를 raise 로 취소한다.
         """
         sid_map = await self.query_repo.resolve_server_ids(target_public_ids)
         missing = [pid for pid in target_public_ids if pid not in sid_map]
@@ -213,8 +187,7 @@ class TaskService:
         details = await self.query_repo.get_servers(server_ids)
         detail_by_id = {d.id: d for d in details}
 
-        # 직전 발행분 중 deadline 경과 pending 을 failure(timeout) 로 전이 후, 남은 활성 pending 보유 서버 사전 검증.
-        # All-or-nothing — 하나라도 진행 중 작업이 있으면 전체 발행 취소(부분 발행 방지).
+        # 마감 지난 pending 을 먼저 정리해야 이미 끝난 작업이 신규 발행을 막지 않는다.
         async with self.session_factory() as session:
             repo = self.collect_repo_factory(session)
             expired = await repo.expire_overdue_tasks(server_ids)
@@ -227,19 +200,18 @@ class TaskService:
             raise TaskDuplicatePendingError(
                 f"이미 설치 작업이 진행 중인 서버가 있어 전체 발행을 취소했습니다: {', '.join(busy_names)}"
             )
-        # deadline_at = 배달/마감 단일 창(install_task_deadline_sec) — broker 큐 x-message-ttl 과 동일 값이라
-        # 엔진 timeout 선언 시점 == broker 미배달 메시지 만료 시점. 경과분은 emit 경로 expire + reaper 가 terminal 전이.
+        # 아래 큐 x-message-ttl 과 같은 창이라 엔진 timeout 선언 시점 == broker 미배달 메시지 만료 시점.
+        # 오프라인 호스트가 돌아와 큐에 쌓인 명령을 집어갈 수 있는 유예도 같은 창이다.
         deadline_at = datetime.now(UTC) + timedelta(seconds=get_web_settings().install_task_deadline_sec)
 
-        # 발행 시점 online 여부 — advisory(차단 아님). 오프라인은 그대로 큐 적재(store-and-forward), 운영자에게만 알림.
         online_by_id = await self._online_targets(server_ids)
 
         zdm_host = _extract_zdm_host(zdm_ip)
-        # 엔진이 sha256/size 산출하려고 fetch 하는 호스트 = download.url·install args 와 동일 (real ZDM 직접 도달).
+        # 메타를 받아오는 호스트는 agent 가 실제로 받으러 갈 호스트와 같아야 한다 (download.url·install args 와 동일).
         resolve_host = zdm_host
 
-        # OS family 별 ZDM 메타 fetch — batch 안 OS 섞이면 OS 별 1 회씩 (캐시 효과 + 정합성).
-        # detail.os_family None (Linux agent minor bump 전) → fallback "linux".
+        # 패키지 path 별 1 회만 메타 조회 — batch 에 OS 가 섞여도 OS 수만큼만 fetch.
+        # os_family 를 아직 안 싣는 구 minor agent 는 linux 로 본다.
         dispatch_by_host: dict[int, tuple[str, str, str | None]] = {}
         meta_by_path: dict[str, tuple[str, int]] = {}
         for server_id, detail in detail_by_id.items():
@@ -284,14 +256,13 @@ class TaskService:
                         )
                     )
                 except IntegrityError as e:
-                    # 사전 검증 통과 후 race(동시 발행) — 극히 드묾. 부분 발행 가능성은 T1 한계.
+                    # 사전 검증과 INSERT 사이에 다른 발행이 끼어든 경우 — 부분 발행 한계는 tradeoffs T1.
                     logger.warning("install race conflict server_id={} public_id={}", server_id, public_id)
                     raise TaskDuplicatePendingError(
                         f"발행 도중 다른 작업과 충돌했습니다: {detail.hostname}. 잠시 후 다시 시도하세요."
                     ) from e
 
-                # publish-then-commit — 발행 성공 후에만 commit. 발행 실패 시 commit 하지 않고 async with 종료가
-                # task INSERT 를 rollback -> "메시지 없는 유령 pending" 방지 (dual-write 갭 축소).
+                # commit 은 publish 성공 뒤여야 한다 — 순서를 뒤집으면 발행 실패한 task 가 유령 pending 으로 남는다.
                 try:
                     await self._ensure_machine_queue(detail.agent_id)
                     await self._publish_install(
@@ -330,10 +301,7 @@ class TaskService:
         return created
 
     async def _online_targets(self, server_ids: list[int]) -> dict[int, bool]:
-        """server_id -> 발행 시점 online 여부. Redis online 플래그(safe_mget) 기준.
-
-        advisory 전용(발행 차단 아님) — Redis 장애(None)면 fail-open 으로 online 취급(허위 오프라인 경보 회피, #C3).
-        """
+        """server_id -> 발행 시점 online 여부. Redis 장애 시 전부 online 취급 — 허위 오프라인 경보를 내지 않는다."""
         if not server_ids:
             return {}
         keys = [get_web_settings().redis_key_online.format(sid) for sid in server_ids]
@@ -343,17 +311,14 @@ class TaskService:
         return {sid: flags[i] is not None for i, sid in enumerate(server_ids)}
 
     async def _ensure_machine_queue(self, agent_id: str) -> None:
-        """원격 호스트 전용 큐 declare. idempotent — 동일 인자 재선언 안전.
-
-        worker 측은 declare 권한이 없어 engine 이 책임진다.
-        """
+        """원격 호스트 전용 큐 declare (동일 인자 재선언은 무해) — worker 측에 declare 권한이 없어 engine 이 진다."""
         queue_name = get_diagnostic_settings().agent_task_queue(agent_id)
         routing_key = get_diagnostic_settings().task_install_routing_key(agent_id)
         queue = await self.broker_channel.declare_queue(
             queue_name,
             durable=True,
             arguments={
-                # deadline_at 과 동일 창 = 큐 x-message-ttl. 엔진 timeout 과 미배달 만료 시점 정합.
+                # tasks.deadline_at 과 같은 창 — 엔진이 timeout 을 선언하는 시점에 미배달 메시지도 만료된다.
                 "x-message-ttl": get_web_settings().install_task_deadline_sec * 1000,
                 "x-max-length": _TASK_QUEUE_MAX_LEN,
                 "x-overflow": "reject-publish",
@@ -378,8 +343,7 @@ class TaskService:
         download_url = f"http://{zdm_host}{package_path}"
         payload: JsonObject = {
             "message_type": "task.install",
-            # 특권 실행 경로라 에이전트가 실행 전 major 게이트 — 모르는 major/부재 시 다운로드·실행 전
-            # 거부(unsupported_contract_version).
+            # 특권 실행 경로라 agent 가 다운로드 전에 major 를 본다 — 모르는 major·부재면 실행 거부.
             "schema_version": AGENT_CONTRACT_VERSION,
             "task_id": task_id,
             "agent_id": agent_id,

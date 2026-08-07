@@ -1,11 +1,7 @@
-"""Assessment API 매퍼 — /api/assessment per-server 통합 계약 dict.
+"""Assessment API 매퍼 — /api/assessment per-server 계약 dict.
 
-계약 단일 진실: docs/reference/contracts/assessment-api.md. decision-first 2계층 —
-identity/reproduction/sizing(axes[])/assessment 가 1급, diagnostics 는 선택 소비.
-
-분류/사이징/근본원인은 도메인 단일 진실(right_sizing.rollup_host) 재사용 — 화면/right-sizing API 와 값 정합.
-reproduction 은 인벤토리(os 서술자·boot·nonblock_mounts 컬럼 + block_devices/net_interfaces/lvm_vgs JSONB)를
-계약 OUTPUT 형태로 reshape. sizing 은 near-peak 메모리 + p95 CPU + per-mount 디스크(도메인 assess_*).
+계약 단일 진실: docs/reference/contracts/assessment-api.md.
+분류·사이징·근본원인은 right_sizing.rollup_host 재사용 — 화면·right-sizing API 와 값이 갈라지지 않는다.
 """
 
 from typing import TYPE_CHECKING, cast
@@ -34,7 +30,6 @@ if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
 
 
-# --- identity ----------------------------------------------
 def _identity(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool) -> AssessmentIdentity:
     return {
         "public_id": raw.public_id,
@@ -46,8 +41,7 @@ def _identity(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool) -> A
     }
 
 
-# --- reproduction ------------------------------------------
-# bond_mode raw 커널 토큰 -> 계약 enum(에이전트는 raw 발행, 엔진 정규화). 미매핑/None -> None.
+# 에이전트는 raw 커널 토큰을 발행한다 — 계약 enum 정규화는 엔진 몫. 미매핑은 None.
 _BOND_MODE_MAP = {
     "802.3ad": "lacp",
     "active-backup": "active-backup",
@@ -73,9 +67,8 @@ def _norm_raid_level(v: object) -> int | None:
     return int(s) if s.isdigit() else None
 
 
-# 계약 4.3 block_devices 전 키 — OUTPUT 은 "전 키 존재(null)" 규약(미수집 키도 노출). wire 는 자연노드만(엔진이 채움).
-# 계약 스키마에서 파생 — 키 목록을 손으로 한 번 더 적으면 필드가 늘 때 여기만 옛 상태로 남는다.
-# 전부 pass-through 라 순서·집합이 스키마와 같아야 하고, 그 동일성이 파생으로 보장된다.
+# 스키마에서 파생 — 키 목록을 손으로 한 번 더 적으면 필드가 늘 때 여기만 옛 상태로 남는다.
+# 계약 OUTPUT 은 미수집 키도 null 로 내보내므로 순서·집합이 스키마와 같아야 한다.
 _BLOCK_DEVICE_KEYS = tuple(ReproBlockDevice.__annotations__)
 
 
@@ -87,8 +80,8 @@ def _repro_block_device(d: JsonObject) -> ReproBlockDevice:
 
 
 def _repro_interface(i: JsonObject, link_speeds: dict[str, int] | None = None) -> ReproInterface:
-    # speed_mbps null(Windows NT5.2/virtio 는 inventory 미발행) 시 metrics link.speed(bit/s)로 폴백 — reproduction
-    # 정확도(agent 확정 규약). iface 안정 id 로 매칭. link.speed 도 null(virtio)이면 그대로 null.
+    # inventory 가 speed_mbps 를 안 싣는 환경(Windows NT5.2·virtio)에서 metrics link.speed(bit/s)로 폴백.
+    # link.speed 도 없으면 null 그대로 둔다.
     speed = i.get("speed_mbps")
     iface_id = i.get("id")
     if speed is None and link_speeds and isinstance(iface_id, str):
@@ -131,12 +124,7 @@ def _repro_lvm_vg(v: JsonObject) -> ReproLvmVg:
 
 
 def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) -> Reproduction:
-    """재현 팩트 — 현 인벤토리를 계약 OUTPUT 형태로 reshape.
-
-    os 재현 서술자(arch/bits/boot_firmware 등)·boot·nonblock_mounts 는 server_inventory 전용 컬럼에서,
-    레이아웃 상세(block_devices/lvm_vgs 세부)는 raw JSONB 에서 _repro_* 의 d.get 으로 픽업. 소비자는 값 부재 시
-    null 처리(계약: 모든 키 present + nullable). speed_mbps 는 inventory null 시 link_speeds(metrics) 폴백.
-    """
+    """재현 팩트 — 인벤토리를 계약 OUTPUT 형태로 reshape (값 부재는 키 유지 + null)."""
     boot = raw.boot or {}
     return {
         "os": {
@@ -177,14 +165,8 @@ def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) 
     }
 
 
-# --- sizing (axes[]) ---------------------------------------
 def _axis_size(current: float, ra: right_sizing.ResourceAssessment, stats: right_sizing.ResourceStats):
-    """cpu/memory 축 판정 -> (recommended, action, estimate_quality). recommended never-null(current 폴백).
-
-    under: 정확 목표 있으면 exact, floor 있으면 floor, 둘 다 없으면 uncertain(방어).
-    over: 다운사이즈 게이트 통과 시 decrease(exact), 미충족이면 keep(과다는 diagnostics).
-    unmeasured/insufficient: uncertain(current 유지). optimal: keep(exact).
-    """
+    """cpu/memory 축 판정 -> (recommended, action, estimate_quality). recommended 는 never-null(current 폴백)."""
     status = ra.status
     if status == "under":
         if ra.sizing_target is not None:
@@ -215,7 +197,7 @@ def _sizing(
     host: right_sizing.HostAssessment,
     mounts: list[MountCapacityRaw],
 ) -> JsonObject:
-    """사이징 축 배열 — cpu/memory(호스트 1축) + disk(마운트별 N축). 소비자 전 원소 순회 + max(current,recommended)."""
+    """사이징 축 배열 — cpu/memory 는 호스트 1축, disk 는 마운트별 N축."""
     axes: list[JsonObject] = []
     sizing_axes: tuple[tuple[right_sizing.ResourceKind, str, int | None], ...] = (
         ("cpu", "vcpus", stats.cpu_cores),
@@ -223,7 +205,7 @@ def _sizing(
     )
     for kind, unit, current in sizing_axes:
         if current is None:
-            continue  # base 수량(코어/총 RAM) 미상 -> 축 생략(recommended never-null 보장, disk 축과 대칭)
+            continue  # 기준 수량 미상 -> 축 생략 (recommended never-null 유지)
         ra = host.resources[kind]
         rec, action, quality = _axis_size(current, ra, stats)
         axes.append(
@@ -257,7 +239,7 @@ def _sizing(
                 "unit": "gib",
                 "action": s.action,
                 "estimate_quality": s.estimate_quality,
-                # 관측 근거(cpu/memory 의 utilization 과 대칭) + 크기로 안 풀리는 신호(inode 소진 등).
+                # 크기 조정으로 풀리지 않는 신호(inode 소진 등)까지 관측 근거로 싣는다.
                 "used_pct": round(m.used_pct, 1) if m.used_pct is not None else None,
                 "runway_days": int(m.byte_runway_days) if m.byte_runway_days is not None else None,
                 "note": s.note or None,
@@ -266,12 +248,7 @@ def _sizing(
     return {"axes": axes}
 
 
-# --- assessment --------------------------------------------
 def _assessment(host: right_sizing.HostAssessment) -> Assessment:
-    """호스트 종합 판정 — classification(도메인 Recommendation, 계약 enum 과 동일 값) + confidence + data_quality.
-
-    confidence: insufficient_data -> low / 하향 사유 있으면 medium / 없으면 high. 불변식(high 아니면 notes 최소 1).
-    """
     rec = right_sizing.host_status_to_recommendation(host.host_status)
     notes = build_host_confidence_notes(host)
     if rec == "insufficient_data":
@@ -289,12 +266,11 @@ def _assessment(host: right_sizing.HostAssessment) -> Assessment:
     }
 
 
-# --- diagnostics (선택 소비) -------------------------------
 _DIAG_AXES = ("cpu", "memory", "disk_capacity", "disk_io", "network")
 
 
 def _diag_util(kind: str, raw: ReportRowRaw) -> DiagUtilization:
-    """utilization eval/sizing — eval=판정 p95, sizing=축별 사이징 통계(cpu p95, memory near-peak, 비사이징 null)."""
+    """eval=판정 p95, sizing=축별 사이징 통계(cpu p95 / memory near-peak / 그 외 null)."""
     if kind == "cpu":
         p = round(raw.cpu_p95_pct, 1) if raw.cpu_p95_pct is not None else None
         return {"eval_pct": p, "sizing_pct": p}
@@ -320,7 +296,6 @@ def _diag_resource(
 
 
 def _root_cause_axis(host: right_sizing.HostAssessment):
-    """근본원인 축 소문자 enum (disk_capacity -> disk) | null."""
     rc = host.root_cause
     if rc is None:
         return None
@@ -333,7 +308,7 @@ def _diagnostics(raw: ReportRowRaw, stats: right_sizing.ResourceStats, host: rig
         "root_cause_detail": right_sizing.root_cause_display(host) or None,
         "resources": [_diag_resource(k, host.resources[k], raw, stats) for k in _DIAG_AXES],
         "advisory": {
-            # 디스크 I/O 티어 힌트 단일 권위(호스트 단위) — 엔진에 per-device await 없어 per-disk 미제공.
+            # 엔진에 per-device await 가 없어 티어 힌트는 호스트 단위로만 낸다.
             "disk_io_tier_hint": "high_iops" if host.resources["disk_io"].status == "io_bound" else None,
             "network_congested": host.network_congested,
         },
@@ -349,8 +324,7 @@ def build_assessment_entry(
 ) -> JsonObject:
     """ReportRowRaw + per-mount 용량 + online -> /api/assessment 서버 항목 (계약 4.2).
 
-    분류/사이징/근본원인 전부 rollup_host 종합에서 파생 — 화면/right-sizing API 와 값 정합(재계산 0).
-    link_speeds = iface별 최신 link.speed(bit/s) — inventory speed_mbps null 폴백(reproduction 정확도).
+    link_speeds = iface별 최신 link.speed(bit/s) — inventory speed_mbps 가 null 일 때의 폴백.
     """
     # 계약 API 는 net baseline 만 주입받는다 — disk 활동 축은 미관측(보고서 경로 전용).
     stats = build_resource_stats(raw, disk_baseline=None)
@@ -373,11 +347,7 @@ def build_assessment_envelope(
     window_end: str,
     filters: JsonObject,
 ) -> JsonObject:
-    """계약 4.1 최상위 envelope — GET /api/assessment 와 POST export 가 공유(byte-identical 구조).
-
-    result = QueryService.get_assessment 반환(servers + ambiguous_hostnames/unresolved_pairs/unmatched_filters).
-    export(파일 다운로드)도 이 함수를 써 최상위 구조가 GET 응답과 동일하다(계약 8절 — 같은 데이터, 전달만 파일).
-    """
+    """계약 4.1 최상위 envelope — GET /api/assessment 와 export 가 공유해 최상위 구조가 어긋나지 않는다."""
     servers = result["servers"]
     return {
         "contract_version": API_CONTRACT_VERSION,

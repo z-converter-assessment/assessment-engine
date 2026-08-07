@@ -13,10 +13,7 @@ export interface paths {
         };
         /**
          * Overview
-         * @description 환경 개요 (홈, `/`) — 집계 위젯(환경 요약·주요 워크로드·자원 적정성·자원 이용·포화 7도넛·운영 이벤트/에러).
-         *
-         *     서버 목록은 `/servers`, 환경 단위 분석은 `/environment/*` 로 분리. 집계형 위젯만 본 페이지에 남는다.
-         *     운영 신호는 실시간 현황(`/environment/realtime`)으로 분리. 자동 갱신 없음 — 정적 집계라 진입 시 1회 렌더.
+         * @description 환경 개요 (홈) — 집계 위젯만. 자동 갱신 없음(정적 집계라 진입 시 1회 렌더).
          */
         get: operations["overview__get"];
         put?: never;
@@ -382,10 +379,9 @@ export interface paths {
         };
         /**
          * Assessment
-         * @description 환경 자원 평가 — 14일 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
+         * @description 환경 자원 평가 — 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
          *
-         *     분류 창은 서버 목록·보고서·환경 개요 카드와 같은 14일(#F10 #E3 정합). 기본값 `DIAGNOSTIC_DEFAULT_TIME_RANGE`.
-         *     환경 단위 `/environment` 그룹. fragment=result: 결과 partial 만 재렌더 (JS swap, 풀 reload 회피).
+         *     분류 창은 서버 목록·보고서·환경 개요 카드와 같다(#E3 정합). fragment=result: 결과 partial 만 재렌더.
          */
         get: operations["assessment_environment_assessment_get"];
         put?: never;
@@ -405,7 +401,7 @@ export interface paths {
         };
         /**
          * Environment Metrics
-         * @description 환경 성능 추이 (live) — 전체 환경 차트 10종. ids 면 선택 N대 한정. 환경 단위 `/environment` 그룹.
+         * @description 환경 성능 추이 (live) — 전체 환경 차트 10종. ids 면 선택 N대 한정.
          */
         get: operations["environment_metrics_environment_metrics_get"];
         put?: never;
@@ -425,9 +421,9 @@ export interface paths {
         };
         /**
          * Environment Realtime
-         * @description 실시간 메트릭 (live 현황 모니터링) — 현재 평균 활용률 + 현재 부하 상위. ids 면 선택 N대 한정.
+         * @description 실시간 현황 — 현재 평균 활용률 + 서버별 부하. ids 면 선택 N대 한정.
          *
-         *     fragment=realtime: 실시간 메트릭 partial 만 재렌더 (JS 30초 폴링이 mount innerHTML 교체).
+         *     fragment=realtime: 메트릭 partial 만 재렌더 (JS 폴링이 mount innerHTML 교체).
          */
         get: operations["environment_realtime_environment_realtime_get"];
         put?: never;
@@ -447,9 +443,7 @@ export interface paths {
         };
         /**
          * Topology
-         * @description 네트워크 토폴로지 전용 — L3 subnet 공동소속 그래프. 환경 단위 `/environment` 그룹.
-         *
-         *     현재 전체 인벤토리 그래프 — 대규모 범위 좁히기(subnet/host 필터)는 후속.
+         * @description 네트워크 토폴로지 — L3 subnet 공동소속 그래프 (전체 인벤토리, 범위 필터 없음).
          */
         get: operations["topology_environment_topology_get"];
         put?: never;
@@ -486,10 +480,7 @@ export interface paths {
         };
         /**
          * Right Sizing Thresholds
-         * @description Right-sizing 분류 임계값 reference 페이지 — 환경 엔지니어 보고서에서 link 로 분리.
-         *
-         *     `right_sizing` 모듈 단일 진실의 분류·USE 축·입력·임계·근거 표 + 출처 설명.
-         *     보고서·진단 양쪽이 참조하는 reference 자료 — 본 페이지에서만 한 번 정의 (T13).
+         * @description Right-sizing 분류 임계값 reference — 보고서·진단이 함께 참조해 여기서만 한 번 정의한다 (T13).
          */
         get: operations["right_sizing_thresholds_reference_get"];
         put?: never;
@@ -509,7 +500,7 @@ export interface paths {
         };
         /**
          * Api Reference
-         * @description JSON API 목록 페이지 — OpenAPI 스펙(app.openapi())에서 자동 도출. 라우터 코드 단일 진실, drift 0(F12).
+         * @description JSON API 목록 — app.openapi() 에서 자동 도출해 라우터 코드와 어긋나지 않는다.
          */
         get: operations["api_reference_reference_api_get"];
         put?: never;
@@ -551,11 +542,9 @@ export interface paths {
         put?: never;
         /**
          * Environment Report Emit
-         * @description 환경 보고서 발행 (PRG) — parent job enqueue 후 즉시 `?job={id}` 반환(워커가 비동기 생성).
+         * @description 환경 보고서 발행(PRG) — parent job enqueue 후 즉시 `{"view_url": "?job={id}"}` 반환.
          *
-         *     응답 view_url = `?job={id}` — 클라이언트가 navigate -> 생성 중이면 진행 화면 + 폴링, 완료 시 스냅샷.
-         *     같은 input 활성 충돌(더블클릭) 시 기존 job_id 회수(enqueue_report). 등록 서버 0 등 생성 불가는
-         *     워커가 job 을 failed 로 전이 -> GET 이 실패 화면 표시.
+         *     본문 생성은 워커가 비동기로 한다 — 생성 불가(등록 서버 0 등)도 여기서 막지 않고 워커가 failed 로 전이한다.
          */
         post: operations["environment_report_emit_reports_environment_emit_post"];
         delete?: never;
@@ -573,9 +562,7 @@ export interface paths {
         };
         /**
          * History
-         * @description 보고서 발행 이력 — 운영자 회고용. created_at DESC. 기본 20건 + "더보기"(limit 누적).
-         *
-         *     fragment=True: 결과 partial 만 반환 — JS 가 filter 변경·더보기 시 즉시 fetch + DOM 교체 (서버 목록과 동일 UX).
+         * @description 보고서 발행 이력 — created_at DESC. 기본 20건 + 더보기(limit 누적).
          */
         get: operations["history_reports_history_get"];
         put?: never;
@@ -617,11 +604,11 @@ export interface paths {
         put?: never;
         /**
          * Report Emit
-         * @description Server scope 보고서 발행 (PRG) — parent job enqueue 후 즉시 `?job={id}` 반환(워커가 비동기 생성).
+         * @description Server scope 보고서 발행 (PRG) — parent job enqueue 후 즉시 `?job={id}` 반환.
          *
-         *     ids 1개=단일 양식(`/servers/{pid}/report?job=`), 2개+=N대 표(`/reports/servers?job=`). 워커가
-         *     child 단일 보고서 N건 + selection 본문을 단일 단위로 생성(부분 누락 차단). 유효 id 0 은 워커가
-         *     job 을 failed 로 전이 -> GET 이 실패 화면 표시. 같은 input 더블클릭은 기존 job 으로 합류(멱등).
+         *     생성은 워커 몫이다 — child 단일 보고서 N건과 selection 본문이 한 처리 단위라 부분 누락이 없고,
+         *     유효 id 가 0 이면 job 이 failed 로 가 GET 이 실패 화면을 띄운다. 같은 input 더블클릭은 기존
+         *     job 에 합류한다(멱등).
          */
         post: operations["report_emit_reports_servers_emit_post"];
         delete?: never;
@@ -639,10 +626,10 @@ export interface paths {
         };
         /**
          * Report Status
-         * @description 비동기 보고서 생성 진행 상태 — report-poll.js 폴링용 JSON. 미존재 404.
+         * @description 비동기 보고서 생성 진행 상태 — report-poll.js 폴링용. 미존재 404.
          *
-         *     failed 의 error 는 도메인 사유만(워커가 raw 예외는 'internal error' 로 sanitize, F8).
-         *     정적 라우트(/environment·/history·/servers·*\/emit)와 segment 구조가 달라 충돌 없음.
+         *     error 는 도메인 사유만 담는다(raw 예외는 워커가 sanitize). `{job_id}` 는 segment 구조가 달라
+         *     정적 라우트를 삼키지 않는다.
          */
         get: operations["report_status_reports__job_id__status_get"];
         put?: never;
@@ -662,10 +649,10 @@ export interface paths {
         };
         /**
          * Servers List
-         * @description 서버 목록 (`/servers`) — 검색·필터 + 선택 N대 액션(보고서·install·export).
+         * @description 서버 목록 — 검색·필터 + 선택 N대 액션(보고서·install·export).
          *
-         *     fragment=rows: 서버목록 행 partial 만 재렌더.
-         *     현재 전체 로드 후 client clip — page/limit Query 는 서버사이드 페이지네이션 도입 시 사용 (E2 page 정책).
+         *     page/limit 은 지금 쓰이지 않는다(전체 로드 후 client clip) — 서버사이드 페이지네이션 도입 시 진입점.
+         *     fragment=rows: 행 partial 만 재렌더.
          */
         get: operations["servers_list_servers_get"];
         put?: never;
@@ -770,7 +757,7 @@ export interface paths {
         };
         /**
          * Single Server Report
-         * @description 단일 서버 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview (단순화 양식, T13).
+         * @description 단일 서버 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview.
          */
         get: operations["single_server_report_servers__server_id__report_get"];
         put?: never;
@@ -926,7 +913,7 @@ export interface components {
         };
         /**
          * CpuCoreSnapshot
-         * @description 코어별 순간 사용률 — 단일스레드 병목 실시간 표시(Linux 전용, Windows 는 빈 list). CPU 상세 전용.
+         * @description 코어별 순간 사용률 — 단일스레드 병목 실시간 표시(Linux 전용, Windows 는 빈 list).
          */
         CpuCoreSnapshot: {
             /** Core Id */
@@ -1025,12 +1012,11 @@ export interface components {
         };
         /**
          * ErrorSignal
-         * @description 에러 축 표시자 (Errors) — 카운트형 신호, 정상=0 발화(E9). 서버 판정, 클라 렌더만.
+         * @description 에러 축 표시자 (Errors) — 카운트형 신호, 정상=0 발화.
          *
-         *     시계열 차트 아님(대부분 0이라 빈 차트 안티패턴) — 카운트 + 종류 + 시점 컨텍스트.
-         *     state = "clean"(창내 0, 초록 이상 없음) · "occurred"(발생, 빨강 카운트) · "no_data"(표본 없음, 회색 —
-         *     일시적 미수집, 나중에 나타날 수 있음) · "not_applicable"(이 OS 구조적 미지원, 회색 — 영구히 N/A. 예:
-         *     Windows EDAC — WHEA 소스 미구현. no_data 와 구분해 "수집 대기"로 오인 표시 안 함).
+         *     시계열 차트로 두지 않는다 — 대부분 0 이라 빈 차트가 된다. 카운트 + 종류 + 시점 컨텍스트로 표시.
+         *     state = "clean"(창내 0) | "occurred" | "no_data"(표본 없음, 나중에 나타날 수 있음) | "not_applicable"
+         *     (이 OS 구조적 미지원, 영구 N/A — 예: Windows EDAC. no_data 와 구분해 "수집 대기"로 오인 표시 안 함).
          */
         ErrorSignal: {
             /** Context */
@@ -1052,7 +1038,7 @@ export interface components {
         };
         /**
          * FleetStatus
-         * @description 전역 상단 바 데이터 최신성 — 온라인 대수/전체 + 마지막 메트릭 수집 시각 (전 페이지 폴링). 파생 없음(P1).
+         * @description 전역 상단 바 데이터 최신성 — 온라인 대수/전체 + 마지막 메트릭 수집 시각 (전 페이지 폴링).
          */
         FleetStatus: {
             /** Last Collected At */
@@ -1069,7 +1055,7 @@ export interface components {
         };
         /**
          * HostSearchItem
-         * @description 전역 호스트 검색(jump-to) 결과 1건 — hostname 부분일치. public_id 로 상세 이동(#E4).
+         * @description 전역 호스트 검색(jump-to) 결과 1건 — hostname 부분일치.
          */
         HostSearchItem: {
             /** Hostname */
@@ -1179,11 +1165,9 @@ export interface components {
         };
         /**
          * RebootEvent
-         * @description server_inventory_history에서 boot_time / agent_started_at 변경 시점 추출.
+         * @description server_inventory_history 에서 추출한 재부팅/에이전트 재시작 시점 (차트 vertical marker).
          *
-         *     kind 분류:
-         *     - "reboot": boot_time 변경 (시스템 재부팅) 또는 첫 등록 (이전 행 없음)
-         *     - "restart": boot_time 동일 + agent_started_at 변경 (에이전트 단독 재시작)
+         *     kind — "reboot": boot_time 변경 또는 첫 등록(이전 행 없음) / "restart": boot_time 동일 + agent_started_at 변경.
          */
         RebootEvent: {
             /** Agent Started At */
@@ -1641,16 +1625,11 @@ export interface components {
         };
         /**
          * SaturationSignal
-         * @description os-aware 포화 스냅샷 신호 — 서버 단일 판정(P2), 클라는 렌더만(P4).
+         * @description os-aware 포화 스냅샷 신호 — 이 호스트 OS 에 해당하는 값·임계만 담는다(양 OS 설명 인라인 없음).
          *
-         *     이 호스트 OS 에 해당하는 값·임계만 담고(양 OS 설명 인라인 없음), 판정(saturated)은 도메인 os-aware
-         *     helper(cpu_saturation_index·disk_io_saturation_index·mem_pressure_active) 경유 — 임계 재계산 금지(E3).
-         *
-         *     state = 미발화 4상태 어휘:
-         *     - "measured": 값 있음(value/saturated 유효).
-         *     - "no_data": 이 신호 미수집(첫 표본·수집 끊김) — 회색 "수집 대기".
-         *     - "not_applicable": 이 OS/구성 미지원(예 Windows PSI·steal) — na_reason 사유.
-         *     - "insufficient": 측정됐으나 신뢰 표본 부족(현재 스냅샷 축엔 미사용, 향후 확장 슬롯).
+         *     판정(saturated)은 도메인 os-aware helper 경유 — 여기서 임계를 다시 계산하지 않는다.
+         *     state = "measured" | "no_data"(미수집) | "not_applicable"(이 OS/구성 미지원) | "insufficient"(표본 부족,
+         *     현재 스냅샷 축엔 미사용).
          */
         SaturationSignal: {
             /** Detail */

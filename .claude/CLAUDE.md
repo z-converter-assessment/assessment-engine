@@ -3,39 +3,16 @@
 > 본 파일은 본 프로젝트의 규약 단일 진실 (single source of truth).
 > 실제 동작은 코드, 흐름은 `docs/reference/` · `docs/guides/`, 트레이드오프는 `docs/explanation/tradeoffs.md`. 본 파일은 그 위에 얹는 결정 사항·원칙·금지 사항만 담는다.
 >
-> 섹션 번호 규약: A 시스템 → B 에이전트 데이터 계약 → C 데이터 계층 → D Consumer → E Web → F 운영 규약.
+> 섹션 번호 규약: A 시스템 → B 메시지 데이터 계약 → C 데이터 계층 → D Consumer → E Web → F 운영 규약.
 > 각 섹션은 자기 계층 책임만 다룬다. 계층 충돌 시 #E1 원칙(P1~P4) 우선순위로 해결.
 
 ## 문서 인덱스
 
-본 파일을 읽다가 "상세는 X 절"을 만나면 아래 카테고리에서 위치 파악 후 `docs/README.md`로 점프 — 카테고리별 파일 목록·역할은 `docs/README.md` 단일 진실.
+본 파일을 읽다가 "상세는 X 절"을 만나면 목적으로 카테고리를 고른 뒤 `docs/README.md` 지도로 점프한다 — 지금 어떻게 도나 = `docs/reference/`, 어떻게 하나 = `docs/guides/`, 왜 이렇게 설계했나 = `docs/explanation/`, 왜 바꿨나 = `docs/decisions/`. 카테고리별 파일 목록·역할·성격과 그 밖의 디렉토리(`temp/`·`learning/`·`superpowers/`, 전부 인용 금지)는 `docs/README.md` 단일 진실.
 
-문서는 목적 넷으로 가른다 — 찾는 이유(지금 어떻게/어떻게 하나/왜 설계/왜 바꿨나)별로.
+명령은 문서가 아니라 루트 `Makefile` 이 갖는다 (`make help`) — 문서에는 왜와 옵션·맥락만 둔다. 위에 명시되지 않은 경로의 문서는 코드·영구 문서에서 인용 금지.
 
-명령은 문서가 아니라 루트 `Makefile` 이 갖는다 (`make help`) — 문서에는 왜와 옵션·맥락만 둔다. 작업 순서 진입점은 루트 `CONTRIBUTING.md`.
-
-| 디렉토리 | 목적 | 성격 |
-|----------|------|------|
-| `docs/README.md` | 문서 관리 계약 (4원칙) + 지도 단일 진실 | 영구·갱신 |
-| `docs/reference/` | 지금 어떻게 도나 — subsystem 동작·docker 구성 + `contracts/` 얼어붙은 계약 | 현재 상태 선언 |
-| `docs/guides/` | 어떻게 하나 — 작업 절차 | 현재 상태 선언 |
-| `docs/explanation/` | 왜 이렇게 설계했나 — 한계(`tradeoffs.md`)·산출물 의의(`products/`) | 현재 상태 선언 |
-| `docs/decisions/` | 왜 바꿨나 — `adr/`(결정)·`rfc/`(제안) append-only 이력 | 불변 아카이브 |
-
-그 외 명시되지 않은 경로의 문서는 코드·영구 문서에서 인용 금지.
-
-`docs/temp/` 디렉토리 — 임시 자료 모음. 용도 둘: 외부 공유 자료(협의 input 등)와 학습 자료 초안. 디렉토리 위치 자체는 영구이나 안의 파일은 임시 (자유 작성·삭제). 본 repo 영구 문서·코드가 temp 인용 금지. 외부 공유 자료는 본 repo 영구 문서·코드 의존도 금지 (self-contained 필수) — 학습 자료 초안은 이 제약에서 예외이며 `docs/learning/` 격상 대상이다. 인덱스 표에 추가 안 함.
-
-`docs/learning/` 디렉토리 — 학습 자료. 도구·플랫폼 원리가 본문이고 이 저장소는 그것이 실물로 어떻게 나타나는지 보여주는 예제로 쓰인다. 시점 스냅샷이라 코드 변경 추종 의무 없음 (기준 시점 표기 의무). 인용 단방향 — 학습 자료가 코드·영구 문서를 가리키는 것은 허용, 영구 문서·코드가 학습 자료 인용 금지. 계층 3층(L1 플랫폼·프로토콜 / L2 도구·생태계 / L3 이 저장소의 조합)과 작성·격상 규약은 `docs/learning/README.md` 단일 진실. 인덱스 표에 추가 안 함.
-
-## 빠른 참조 (진입점)
-
-> 오리엔테이션 포인터. 명령은 루트 `Makefile` (`make help`), 절차 상세는 `docs/guides/` 단일 진실 — 본 파일은 복제하지 않는다 (#F12).
-
-프로세스 셋과 본 파일 관할 절 — web = E · consumer = D · worker = F11 · compose `migrate` = C4.
-서비스 카탈로그·command 분기는 `docs/reference/docker.md`.
-
-작업 절차 진입은 루트 `CONTRIBUTING.md`, 문서 위치는 `docs/README.md` 지도.
+프로세스 셋과 본 파일 관할 절 — web = E · consumer = D · worker = F11 · compose `migrate` = C4. 서비스 카탈로그·command 분기는 `docs/reference/docker.md`, 작업 절차 진입은 루트 `CONTRIBUTING.md`.
 
 ---
 
@@ -137,8 +114,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 
 본 절 결정:
 - 1단 Redis fail-open: `safe_set_nx(idempotent:{message_id}, 24h)` — 동일 message_id 재전송 차단. Redis 장애 시 True 반환 → 2단이 흡수.
-- 2단 DB UNIQUE: 시계열 metric 7테이블 자연키 UNIQUE(#C1) + `pg_insert(...).on_conflict_do_nothing(index_elements=...)` — 1단 깨져도 silent no-op.
-- fail-open 의존성: 시계열 metric 7테이블 UNIQUE 제약(#C1) 누락 시 멱등성 보장 자체가 깨짐. 모델 변경 시 검증 필수.
+- 2단 DB UNIQUE: 시계열 metric 7테이블 자연키 UNIQUE(#C1) + `pg_insert(...).on_conflict_do_nothing(index_elements=...)` — 1단 깨져도 silent no-op. 이 UNIQUE 가 빠지면 보장 자체가 무너진다(보존 의무는 #C1).
 - at-most-once 트레이드오프: SET NX는 DB 커밋 이전 실행 → 커밋 전 크래시 시 broker 재전송이 idempotent 충돌로 silent 드롭 가능. 한계·outbox 대안: `docs/explanation/tradeoffs.md` T1.
 
 ---
@@ -152,7 +128,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 
 ### P1. Repository는 raw 데이터만 (절대)
 - raw 단위 그대로 outbound DTO (KB·bytes·jiffies·sectors). Python 레이어에서 delta·percent·단위 변환·임계값 분류·dedup·정렬 금지.
-- SQL 표현식 예외: 차트·보고서 집계 SQL 안에서 percent·delta·집계 가능 (`get_metric_trend`·`get_report_aggregate`). dispatch table whitelist 상수에만 적용, 사용자 입력 f-string 삽입 금지(#C5).
+- SQL 표현식 예외: 차트·보고서 집계 SQL 안에서 percent·delta·집계 가능 (`get_metric_trend`·`get_report_aggregate`). 바인딩 규칙은 #C5.
 
 ### P2. 서비스 계층이 표현 변환 단일 소스 (절대)
 - Service → mapper → ViewModel 흐름에서 모든 파생 계산 (단위 변환·델타·임계값 분류·dedup·정렬·합계·풀네임).
@@ -161,6 +137,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 ### P3. Jinja2 템플릿은 순수 렌더링만 (절대)
 - 허용: `{% if %}`·`{% for %}`·Jinja2 필터(포맷팅 전용).
 - 금지: 계산(`+`, `*`, `length`, `sort`, `selectattr`)·dedup·임계값 비교·단위 변환. 정렬·`badge_class`/`bar_color`/`is_significant` 같은 파생은 mapper precompute.
+- 분기 조건은 안정 enum·bool ViewModel 필드로만. 로컬라이즈된 표시 문자열(`net_status_label == "혼잡"` 등)로 분기하면 라벨을 바꾼 순간 조건이 조용히 거짓이 되고 화면에서만 드러난다 — 표시 텍스트 필드와 분기용 bool 필드를 짝으로 두는 것이 mapper 책임이다 (`net_status_label` + `net_congested`).
 - 표시 표준 단일 진실 — `docs/reference/web/static-assets.md` 다음 절: 표준 컴포넌트 카탈로그 / 폰트 위계 / 폰트 체 / 시간 표기 / 네비게이션 규약 / 링크 포맷 / P3 정공 예외 (1회 fetch vs polling 흐름).
 
 ### P4. 클라이언트 차트 JS는 P3 명시 예외
@@ -249,7 +226,7 @@ Pagination 정책:
 
 본 절 결정:
 - 발화/조건부 섹션은 데이터가 없어도 제목·카테고리를 노출. 섹션을 통째로 `{% if %}`로 숨기지 않음 (E8 도넛 카테고리 항상 노출이 이 원칙의 한 사례).
-- 빈 상태 표시는 단일 컴포넌트 경유: `_shared.html`의 `empty_state(message)` 매크로 + base.html `.empty-state` 클래스 (박스 없는 회색 텍스트 placeholder). 매크로는 dumb — 분기·계산 0, 정적 message만 렌더 (P3). 정상/미수집 의미 구분 안 함 (placeholder 통일 — 구분 로직 복잡도·버그 회피).
+- 빈 상태 표시는 단일 컴포넌트 경유: `_shared.html`의 `empty_state(message)` 매크로 + `app.css` `.empty-state` 클래스 (박스 없는 회색 텍스트 placeholder). 매크로는 dumb — 분기·계산 0, 정적 message만 렌더 (P3). 정상/미수집 의미 구분 안 함 (placeholder 통일 — 구분 로직 복잡도·버그 회피).
 - "화면 컨텍스트 가드"와 "데이터 발화 가드" 분리:
   - 컨텍스트 가드(유지) — 그 정보 자체가 무의미한 맥락. 예: 환경 요약·운영신호 집계 위젯은 환경 개요(`/`) 전용이고, 서버 목록(`/servers`)은 행만 — 화면 분리 자체가 컨텍스트 가드.
   - 데이터 발화 가드(placeholder 전환) — `{% if items %}` 류. 비면 사라지지 말고 `empty_state`.
@@ -298,7 +275,7 @@ Pagination 정책:
 
 금지:
 - Service/Handler 안 구현(`Sql*`) import.
-- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치 (web/settings·consumer/settings·worker/settings·db/session·cache/redis·migrations/env)만 허용 — 전부 `src/assessment_engine/` 아래다.
+- Composition Root 외 위치에서 `Settings()` 인스턴스 생성 — 위 6 위치만 허용.
 - `assessment_engine.config`에서 Settings 인스턴스 import — class만 export.
 - `APP_ENV` 환경 분기를 entry lifespan 외 위치에 추가. 비밀번호 검증은 환경을 가르지 않는다 (#F8·`contracts/env.md` 6절).
 
@@ -353,7 +330,7 @@ Protocol 카탈로그·새 Repository 절차: `docs/reference/web/layering.md` �
 
 금지: payload·secret raw dump — 식별자(agent_id·composite_id·routing key·message_id·server_id)와 카운트만.
 
-로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer/worker)가 기동 직후 `setup_logging(settings.log_format)` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
+로그 format: `LOG_FORMAT` env 분기 — `text`(dev colorized) 또는 `json`(prod, loguru `serialize=True`). 각 entry(web/consumer/worker)가 기동 직후 `setup_logging()` 호출. 단일 진실은 `src/assessment_engine/log_config.py`.
 
 Request/Correlation ID 분산 trace 는 적용하지 않는다 — 근거와 재검토 트리거는 `docs/explanation/tradeoffs.md` T23 (도입 시 별도 ADR 의무).
 
@@ -394,7 +371,7 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - range -> 자동 bucket 매핑(`AUTO_BUCKET`)은 backend `types.AUTO_BUCKET` 와 frontend `chart-utils.js` 두 곳 — 값 동기화 의무 (range별 적정 분해력 단일 의미). 신규 TimeRange 도입 시 두 곳 동시 신설. SSR 정적 차트(환경 부하 추이)는 backend 매핑, 동적 fetch 차트는 frontend 매핑 적용 — 둘이 어긋나면 같은 range 가 화면별 다른 bucket.
 - 보고서 형태 산출물은 윈도우를 envelope·표제 명시 — JSON Export `period_window{days, start, end}` 의무 필드(#B 동일 원칙).
-- install task 배달/마감 창 단일 진실 = `install_task_deadline_sec` (기본 3600) — engine `tasks.deadline_at` 과 broker 큐 `x-message-ttl` 이 동일 창 (엔진 timeout 선언 == 미배달 메시지 만료, zombie 지연 실행 0). agent 실행 예산 `install_timeout_sec`(600, payload `install.timeout_sec`)는 별개 개념..
+- install task 배달/마감 창 단일 진실 = `install_task_deadline_sec` (기본 3600) — engine `tasks.deadline_at` 과 broker 큐 `x-message-ttl` 이 동일 창 (엔진 timeout 선언 == 미배달 메시지 만료, zombie 지연 실행 0). agent 실행 예산 `install_timeout_sec`(600, payload `install.timeout_sec`)는 별개 개념.
 
 ## F11. Disposability — Graceful shutdown (12-factor IX)
 

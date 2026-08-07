@@ -1,10 +1,4 @@
-"""보고서 라우터 — 환경 단위 발행 + (고객/엔지니어) 발행 이력 (T13).
-
-흐름:
-- /reports/environment: 환경 단위 high-level 양식. /reports/servers (server scope)와 별도 template.
-  GET `?job={id}` = 정적 스냅샷, job 없음 = live read-only preview. POST `/environment/emit` = 발행.
-- /reports/history: 보고서 발행 이력. job_type='customer_report'|'engineer_report'.
-"""
+"""보고서 라우터 — 환경 단위 발행·조회 + 발행 이력."""
 
 from datetime import datetime
 from typing import Annotated, Any, Literal
@@ -31,7 +25,7 @@ from assessment_engine.web.services.report import normalize_anchor
 from assessment_engine.web.templating import templates
 
 reports_router = APIRouter(prefix="/reports", tags=["pages"])
-# 참고(기준·임계값)는 보고서가 아닌 독립 reference — /reference (사이드바 참고 그룹).
+# 참고(기준·임계값)는 보고서가 아니라 독립 reference 라 prefix 를 나눈다.
 reference_router = APIRouter(tags=["pages"])
 
 
@@ -54,7 +48,6 @@ async def environment_report(
     if job:
         return await _render_environment_snapshot(request, job, back_url, self_back_url, diag_service)
 
-    # 발행 전 — 컨트롤만 노출(본문 미표시, summary 미계산). 발행(POST emit)해야 스냅샷 생성 + 화면 표시 + 이력 추가.
     return templates.TemplateResponse(
         request=request,
         name="reports/environment.html",
@@ -78,7 +71,6 @@ async def _render_environment_snapshot(
     self_back_url: str,
     diag_service: DiagnosticService,
 ):
-    """발행된 환경 보고서 렌더 — succeeded 면 정적 스냅샷, 그 외(pending/running/failed)는 진행 화면."""
     loaded = await load_snapshot(job_id, diag_service)
     if not isinstance(loaded, LoadedSnapshot):
         return render_job_progress(request, loaded, back_url)
@@ -105,11 +97,9 @@ async def environment_report_emit(
     anchor_at: datetime | None = None,
     view: Literal["customer", "engineer"] = "customer",
 ):
-    """환경 보고서 발행 (PRG) — parent job enqueue 후 즉시 `?job={id}` 반환(워커가 비동기 생성).
+    """환경 보고서 발행(PRG) — parent job enqueue 후 즉시 `{"view_url": "?job={id}"}` 반환.
 
-    응답 view_url = `?job={id}` — 클라이언트가 navigate -> 생성 중이면 진행 화면 + 폴링, 완료 시 스냅샷.
-    같은 input 활성 충돌(더블클릭) 시 기존 job_id 회수(enqueue_report). 등록 서버 0 등 생성 불가는
-    워커가 job 을 failed 로 전이 -> GET 이 실패 화면 표시.
+    본문 생성은 워커가 비동기로 한다 — 생성 불가(등록 서버 0 등)도 여기서 막지 않고 워커가 failed 로 전이한다.
     """
     anchor = normalize_anchor(anchor_at)
     job_id = await diag_service.enqueue_report(
@@ -149,10 +139,7 @@ async def history(
     ] = False,
     back: BackUrl = None,
 ):
-    """보고서 발행 이력 — 운영자 회고용. created_at DESC. 기본 20건 + "더보기"(limit 누적).
-
-    fragment=True: 결과 partial 만 반환 — JS 가 filter 변경·더보기 시 즉시 fetch + DOM 교체 (서버 목록과 동일 UX).
-    """
+    """보고서 발행 이력 — created_at DESC. 기본 20건 + 더보기(limit 누적)."""
     records, total = await diag_service.list_reports(
         days,
         view,
@@ -160,14 +147,14 @@ async def history(
         limit=limit,
         scope=None if scope == "all" else scope,
     )
-    # 본 이력 페이지 URL — 진입한 보고서의 "이전" 버튼이 돌아올 위치 (back chain).
+    # 여기서 진입한 보고서의 "이전" 버튼이 돌아올 위치.
     history_back = self_back(request)
     items = [to_report_history_item(r, history_back) for r in records]
     back_url = safe_back(back, "/")
     context: dict[str, Any] = {
         "active_nav": "history",
         "items": items,
-        "items_count": len(items),  # P3 정공 — template 안 `length` 계산 회피, server precompute.
+        "items_count": len(items),  # 템플릿이 `length` 를 세지 않게 서버에서 미리 센다 (P3).
         "total": total,
         "has_more": len(items) < total,
         "page_limit": _HISTORY_PAGE_LIMIT,
@@ -186,10 +173,10 @@ async def report_status(
     job_id: str,
     diag_service: DiagnosticServiceDep,
 ) -> dict[str, str | None]:
-    """비동기 보고서 생성 진행 상태 — report-poll.js 폴링용 JSON. 미존재 404.
+    """비동기 보고서 생성 진행 상태 — report-poll.js 폴링용. 미존재 404.
 
-    failed 의 error 는 도메인 사유만(워커가 raw 예외는 'internal error' 로 sanitize, F8).
-    정적 라우트(/environment·/history·/servers·*/emit)와 segment 구조가 달라 충돌 없음.
+    error 는 도메인 사유만 담는다(raw 예외는 워커가 sanitize). `{job_id}` 는 segment 구조가 달라
+    정적 라우트를 삼키지 않는다.
     """
     rec = await diag_service.get_report_snapshot(job_id)
     if rec is None:
@@ -206,11 +193,7 @@ async def right_sizing_thresholds(
     request: Request,
     back: BackUrl = None,
 ):
-    """Right-sizing 분류 임계값 reference 페이지 — 환경 엔지니어 보고서에서 link 로 분리.
-
-    `right_sizing` 모듈 단일 진실의 분류·USE 축·입력·임계·근거 표 + 출처 설명.
-    보고서·진단 양쪽이 참조하는 reference 자료 — 본 페이지에서만 한 번 정의 (T13).
-    """
+    """Right-sizing 분류 임계값 reference — 보고서·진단이 함께 참조해 여기서만 한 번 정의한다 (T13)."""
     back_url = safe_back(back, "/")
     return templates.TemplateResponse(
         request=request,
@@ -227,7 +210,7 @@ async def right_sizing_thresholds(
 async def api_reference(
     request: Request,
 ):
-    """JSON API 목록 페이지 — OpenAPI 스펙(app.openapi())에서 자동 도출. 라우터 코드 단일 진실, drift 0(F12)."""
+    """JSON API 목록 — app.openapi() 에서 자동 도출해 라우터 코드와 어긋나지 않는다."""
     return templates.TemplateResponse(
         request=request,
         name="reports/api_reference.html",

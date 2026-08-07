@@ -6,6 +6,7 @@
 |------|------|--------|------|
 | `routers/pages/__init__.py` | `pages_router` | (없음 — sub-router 자체 prefix) | HTML (Jinja2 SSR) |
 | `routers/api.py` | `api_router` | `/api/servers` | JSON (시계열·메트릭) |
+| `routers/api.py` | `fleet_router` | `/api` | JSON (서버 무관 전역 상단 바) |
 | `routers/tasks.py` | `tasks_router` | `/api/tasks` | JSON |
 | `routers/assessment.py` | `assessment_router` | `/api/assessment` | JSON (재해복구/마이그레이션 소비 — 통합 프로비저닝 어세스먼트) |
 | `routers/exports.py` | `exports_router` | `/api/exports` | JSON (다운로드 — assessment 계약 파일) |
@@ -30,13 +31,13 @@
 | `GET /servers/{server_id}` | `get_server` | detail 탭 |
 | `GET /servers/{server_id}/{cpu,memory,services,metrics}` | 동일 helper | `_render_server_tab` 탭 공유. metrics=성능 추이(자원별 `.perf-stack` 카드 + 카드 안 `.perf-grid`/`.perf-item` 낱개 차트, 화면·인쇄 모두 2열 — 인쇄는 A4 portrait 1페이지, `static-assets.md` 단일 진실) |
 | `GET /servers/{server_id}/{storage,network}` | 별도 핸들러 | 다른 service 메서드 |
-| `GET /servers/{server_id}/report?job=&view=&time_range=` | `single_server_report` | 단일 server 보고서. job 있으면 정적 스냅샷(ids 1개 발행이 이 URL 로 귀결), 없으면 read-only live preview. GET 은 record 안 함 |
-| `GET /reports/servers?ids=&view=customer\|engineer&time_range=&job=` | `report` | 선택 N대 보고서 표시 (scope=server). job 있으면 정적 스냅샷, 없으면 read-only live preview (PRG). view 파라미터로 분기 |
-| `POST /reports/servers/emit?ids=&view=&time_range=` | `report_emit` | 선택 N대 보고서 발행 record (PRG). ids 1개=단일 양식, 2개+=selection. `{view_url}` 응답 — JS navigate. 다시 보기/북마크/직접 URL 은 GET 만 → 중복 row 방지 |
+| `GET /servers/{server_id}/report?job=&view=&time_range=` | `single_server_report` | 단일 server 보고서. job 있으면 정적 스냅샷(ids 1개 발행이 이 URL 로 귀결), 없으면 read-only live preview |
+| `GET /reports/servers?ids=&view=customer\|engineer&time_range=&job=` | `report` | 선택 N대 보고서 표시 (scope=server). job 있으면 정적 스냅샷, 없으면 read-only live preview. view 파라미터로 분기 |
+| `POST /reports/servers/emit?ids=&view=&time_range=&anchor_at=` | `report_emit` | 선택 N대 보고서 발행 record. ids 1개=단일 양식, 2개+=selection. `{view_url}` 응답 — JS navigate |
 
 `_render_server_tab` helper — cpu/memory/services/metrics 4개 탭이 `service.get_server` 결과 + 공통 context(period·resource_period·back chain·service_categories)로 동일하게 렌더링되어 묶음. detail(`/servers/{id}`)은 stability·recent_tasks·zdm_defaults 를 더 조회해 별도 핸들러, storage/network는 별도 service 메서드라 분리.
 
-PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리. `POST /reports/environment/emit` + `POST /reports/servers/emit` 가 record 책임, GET endpoint 는 read-only. 다시 보기 / 북마크 / 직접 URL 진입 시 record 안 됨 — 발행 시각만 다른 중복 row 방지.
+보고서 발행 2개(`POST /reports/environment/emit`·`POST /reports/servers/emit`)만 record 책임을 지고 GET 은 전부 read-only 다 (PRG) — 다시 보기·북마크·직접 URL 진입이 발행 시각만 다른 중복 row 를 만들지 않게 한다.
 
 ## JSON API
 
@@ -75,16 +76,17 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 |------|------|
 | `GET /api/right-sizing?hostname=&ip=&public_id=&pair=&window_days=&end=` | 서버별 자원 적정성 판정 JSON — 외부 자동화 소비. 화면·보고서와 동일 산식(`get_report_aggregate` -> `rollup_host`, 재계산 0). 외부는 내부 public_id 를 모르는 게 보통이라 hostname/ip 로 조회한다. 파라미터·응답 스키마·enum·권고 포맷·호스트명 충돌 안전은 Swagger(`/docs`)·ReDoc(`/redoc`)가 OpenAPI 스펙(라우터 docstring·Pydantic 응답 모델) 기준 단일 소유 |
 
-`GET /reference/api` (`reference_router`) — 외부 연동 카탈로그만(OpenAPI 파생, 메서드·경로·요약·파라미터·요청 본문 필드명). 태그 화이트리스트(assessment/right-sizing/exports/tasks) + JSON 응답만 필터링 — 화면 전용 내부 데이터 조회(`api` 태그)·HTML fragment 엔드포인트는 제외(`services/mappers/api_reference.py` `_ALLOWED_TAGS`/`_returns_json`). 상세 스키마·enum·예시는 중복 문서화하지 않고 Swagger(`/docs`)·ReDoc(`/redoc`) 단일 진실로 위임(#F12·docs/README 1원칙).
-
-### `reports.py` — 보고서 SSR + 발행 (PRG 패턴)
+### `reports.py` — 보고서 SSR + 발행 (PRG 패턴) + 참고 페이지
 | 경로 | 용도 |
 |------|------|
-| `GET /reports/environment?job=&view=&time_range=&anchor_at=` | 환경 보고서 표시. job 있으면 정적 스냅샷 렌더, 없으면 발행 컨트롤만(본문 미생성). GET 은 read-only — record 안 함 (PRG) |
+| `GET /reports/environment?job=&view=&time_range=&anchor_at=` | 환경 보고서 표시. job 있으면 정적 스냅샷 렌더, 없으면 발행 컨트롤만(본문 미생성) |
 | `POST /reports/environment/emit?view=&time_range=&anchor_at=` | 환경 보고서 발행 record + `{view_url}` 응답 (JS navigate) |
 | `GET /reports/history?days=&view=&scope=&server_public_ids=&limit=&fragment=&back=` | 보고서 발행 이력. 기본 20건, "더보기"가 `limit` 누적 재조회. `fragment=1` 시 partial HTML 만 (filter 변경 즉시 적용용) |
 | `GET /reports/{job_id}/status` | 비동기 보고서 생성 상태 폴링 (pending/running/succeeded/failed) — `report-poll.js` |
-| `GET /reference` | 참고 페이지 (`reference_router`) — 지표 정의(`_metric_definitions`) + 에이전트-엔진 데이터 계약·수집 함수 근거·assessment API 계약 요약(`_agent_contract_reference`) + 자원 적정성 평가 임계값·근거 계층·임계 상수 전체·Errors 축 설명(`_thresholds_reference`, right_sizing 단일 진실) + 서비스 뱃지 카탈로그(`_service_badges`). 각 페이지 하단 `_reference_link.html` 은 제품명·버전 푸터만 렌더(보고서 꼬리 `_reference_footer.html` 도 이 partial 공유) — 참고 자료 진입은 사이드바 "참고" 그룹 단일 경로 |
+| `GET /reference` (`reference_router`) | 참고 페이지 — 지표 정의 + 에이전트-엔진 데이터 계약·assessment API 계약 요약 + 자원 적정성 임계값·근거 계층·임계 상수 전체 + 서비스 뱃지 카탈로그. 참고 자료 진입은 사이드바 "참고" 그룹 단일 경로 |
+| `GET /reference/api` (`reference_router`) | 외부 연동 카탈로그 — OpenAPI 파생(메서드·경로·요약·파라미터·요청 본문 필드명). 태그 화이트리스트(assessment/right-sizing/exports/tasks) + JSON 응답만 남기고 화면 전용 조회(`api` 태그)·HTML fragment 는 제외. 상세 스키마·enum·예시는 Swagger(`/docs`)·ReDoc(`/redoc`) 위임 |
+
+`GET /reports/history` 는 목록과 함께 `total`(필터 적용 후 전체 건수)·`has_more` 를 SSR 컨텍스트로 내려보낸다 — 응답에 `total_count`/`has_more` 를 두지 않는 #E2 정책의 명시적 예외다. 발행 이력을 90일 규모로 가정해 `SELECT COUNT(*)` 비용을 수용했고, 목록 하단 "전체보기 N/전체" 표기와 버튼 노출이 두 값을 그대로 쓴다. 다른 목록 endpoint 에는 확대 적용하지 않는다.
 
 ## 검증·에러 매핑
 

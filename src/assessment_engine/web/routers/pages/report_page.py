@@ -1,12 +1,8 @@
 """서버 보고서 SSR — 선택 N대 (`/reports/servers`) + 단일 1대 (`/servers/{id}/report`).
 
-server scope 보고서. 환경 단위 high-level 보고서는 `/reports/environment` 별도 endpoint (T13).
-
-발행/표시 분리 (PRG):
-- POST `/reports/servers/emit` (ids 1개=단일 양식, 2개+=N대 표 양식) — 발행 시점 정적 스냅샷.
-  응답 view_url = `?job={id}` (단일은 `/servers/{pid}/report?job=`).
-- GET `?job={id}` — 저장된 정적 스냅샷 렌더 (재계산·재진단 없음, 이력 동적변화 0).
-- GET (job 없음) — live read-only preview. 진단 트리거 없음.
+발행(POST emit)과 표시(GET)를 PRG 로 가른다 — `?job=` 이 붙은 GET 은 저장된 정적 스냅샷을 그대로
+렌더하고 재계산·재진단을 하지 않는다. job 없는 GET 은 live read-only preview 라 발행도 진단 트리거도
+없다. 환경 단위 보고서는 `/reports/environment` 별도 endpoint.
 """
 
 from datetime import datetime
@@ -60,7 +56,6 @@ async def report(
     if job:
         return await _render_summary_snapshot(request, job, back_url, self_back_url, diag_service)
 
-    # live read-only preview — 진단 트리거 없음.
     public_ids = [pid.strip() for pid in (ids or "").split(",") if pid.strip()]
     summary = await service.get_selection_report(public_ids, view=view, time_range=time_range)
     if summary is None:
@@ -91,7 +86,6 @@ async def _render_summary_snapshot(
     self_back_url: str,
     diag_service: DiagnosticService,
 ):
-    """발행된 N대 selection 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + 운영신호 (aux)."""
     loaded = await load_snapshot(job_id, diag_service)
     if not isinstance(loaded, LoadedSnapshot):
         return render_job_progress(request, loaded, back_url)
@@ -120,11 +114,11 @@ async def report_emit(
     view: Literal["customer", "engineer"] = "customer",
     anchor_at: Annotated[str | None, Query(description="발행 기준 시각 (ISO 8601). 미명시 시 발행 시점")] = None,
 ):
-    """Server scope 보고서 발행 (PRG) — parent job enqueue 후 즉시 `?job={id}` 반환(워커가 비동기 생성).
+    """Server scope 보고서 발행 (PRG) — parent job enqueue 후 즉시 `?job={id}` 반환.
 
-    ids 1개=단일 양식(`/servers/{pid}/report?job=`), 2개+=N대 표(`/reports/servers?job=`). 워커가
-    child 단일 보고서 N건 + selection 본문을 단일 단위로 생성(부분 누락 차단). 유효 id 0 은 워커가
-    job 을 failed 로 전이 -> GET 이 실패 화면 표시. 같은 input 더블클릭은 기존 job 으로 합류(멱등).
+    생성은 워커 몫이다 — child 단일 보고서 N건과 selection 본문이 한 처리 단위라 부분 누락이 없고,
+    유효 id 가 0 이면 job 이 failed 로 가 GET 이 실패 화면을 띄운다. 같은 input 더블클릭은 기존
+    job 에 합류한다(멱등).
     """
     public_ids = [pid.strip() for pid in ids.split(",") if pid.strip()]
     if not public_ids:
@@ -137,7 +131,7 @@ async def report_emit(
         time_range=time_range,
         anchor_at=anchor,
     )
-    # 양식 분기는 ids 개수로 사전 결정 (생성 전이라도 URL 명사는 확정 — child 양식 vs N대 표 양식).
+    # 양식 분기가 ids 개수만으로 정해져 생성 전이라도 URL 명사는 확정된다.
     if len(public_ids) == 1:
         return {"view_url": f"/servers/{public_ids[0]}/report?job={job_id}"}
     return {"view_url": f"/reports/servers?job={job_id}"}
@@ -154,7 +148,7 @@ async def single_server_report(
     view: Literal["customer", "engineer"] = "customer",
     back: BackUrl = None,
 ):
-    """단일 서버 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview (단순화 양식, T13)."""
+    """단일 서버 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview."""
     self_back_url = self_back(request)
     back_url = safe_back(back, f"/servers/{server_id}")
 
@@ -193,7 +187,6 @@ async def _render_single_snapshot(
     self_back_url: str,
     diag_service: DiagnosticService,
 ):
-    """발행된 단일 서버 보고서 정적 스냅샷 렌더 (EnvironmentReportSummary) + 운영신호 (aux)."""
     loaded = await load_snapshot(job_id, diag_service)
     if not isinstance(loaded, LoadedSnapshot):
         return render_job_progress(request, loaded, back_url)

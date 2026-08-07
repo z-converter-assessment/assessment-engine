@@ -20,16 +20,13 @@ class ServerSummary:
     hostname: str
     os_id: str | None
     os_version: str | None
-    # 레거시 Windows Server 표시명 보강용 (build -> 버전, os_version 빈값 Server 세대). _os_display 단일 소비.
-    kernel_version: str | None
-    # CurrentVersion ProductName 원문(Windows only) — os_display 짧은 라벨(연도/세대) 파싱 소스. _os_display 단일 소비.
-    product_name: str | None
+    kernel_version: str | None  # 레거시 Windows Server 표시명 보강 (build -> 버전, os_version 빈값 세대)
+    product_name: str | None  # Windows CurrentVersion ProductName 원문 — os_display 라벨 파싱 소스
     cpu_cores: int | None
     mem_total_bytes: int | None
     ip_external: list[str] | None
     block_devices: list[JsonObject]  # 인벤토리 스토리지 트리 (size 합산용)
-    # 서비스 뱃지 — ingest 사전계산 카테고리 키 집합(service_classifier 단일 진실). services JSONB 는 목록 미로드(경량).
-    service_categories: list[str]
+    service_categories: list[str]  # ingest 사전계산 (services JSONB 는 목록에서 미로드 — 경량)
     last_seen_at: datetime | None  # Redis online TTL fallback 용도
 
 
@@ -39,7 +36,7 @@ class ServerDetail:
     public_id: str
     agent_id: str  # 식별 단일 키 (UUID) — task.install 라우팅 대상
     composite_id: str | None  # 감사·표시용 (식별 미사용)
-    machine_id: str | None  # raw machine-id 표시 전용
+    machine_id: str | None  # raw machine-id (표시 전용)
     hostname: str
     agent_version: str | None
     os_family: str | None  # "linux" | "windows" — task.install dispatch 단일 진실
@@ -49,8 +46,8 @@ class ServerDetail:
     kernel_version: str | None
     cpu_cores: int | None
     cpu_model: str | None
-    cpu_arch: str | None  # ISA — x86_64|aarch64 등 (server_inventory.arch)
-    cpu_bits: int | None  # 32|64 (server_inventory.bits)
+    cpu_arch: str | None  # ISA — x86_64|aarch64 등
+    cpu_bits: int | None  # 32|64
     mem_total_bytes: int | None
     boot_time: datetime | None
     agent_started_at: datetime | None
@@ -61,11 +58,9 @@ class ServerDetail:
     services: list[JsonObject] | None
     listen_ports: list[JsonObject]
     last_seen_at: datetime | None
-    # ingest 사전계산 워크로드 카테고리(service_classifier 단일 진실, E7) — 토폴로지 노드 역할 주석 등 소비.
-    service_categories: list[str] | None = None
-    # CurrentVersion ProductName 원문(Windows only) — os_display 짧은 라벨 파싱 소스. _os_display 단일 소비.
-    product_name: str | None = None
-    edition: str | None = None  # Windows EditionID(SKU) — os_display 상세 조합 표시용(single_report.html 동형)
+    service_categories: list[str] | None = None  # ingest 사전계산 워크로드 카테고리 (토폴로지 노드 역할 등 소비)
+    product_name: str | None = None  # Windows only — os_display 라벨 파싱 소스
+    edition: str | None = None  # Windows EditionID(SKU)
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,12 +71,12 @@ class CollectionStatus:
 
 @dataclass(frozen=True, slots=True)
 class TaskRow:
-    """Task row raw — query repo 가 채워 service 가 받는 형식. 표시 파생(badge_class·duration_label)은 mapper."""
+    """Task row raw — 표시 파생(badge_class·duration_label)은 mapper."""
 
     public_id: str
     target_server_id: int
-    target_public_id: str | None  # JOIN server_inventory.public_id (목록 응답 시각·운영자용)
-    target_hostname: str | None  # JOIN server_inventory.hostname
+    target_public_id: str | None  # JOIN server_inventory
+    target_hostname: str | None
     task_type: str
     status: str  # "pending" / "success" / "failure"
     created_at: datetime
@@ -93,7 +88,7 @@ class TaskRow:
     stdout_tail: str | None
     stderr_tail: str | None
     params: JsonObject | None = None  # install task 발행 파라미터
-    # 응답 마감 — mapper 가 경과 pending 을 "응답 시간 초과"로 파생 (install 외 None)
+    # 응답 마감 (install 외 None) — 경과 pending 을 mapper 가 "응답 시간 초과"로 파생
     deadline_at: datetime | None = None
 
 
@@ -103,7 +98,7 @@ class TaskRow:
 @dataclass(frozen=True, slots=True)
 class MetricPairRaw:
     collected_at: datetime
-    # CPU 시간 (seconds counter, calculator 가 prev-cur delta 로 util%)
+    # CPU 시간 (s counter — calculator 가 prev-cur delta 로 util%)
     cpu_user_s: float | None
     cpu_nice_s: float | None
     cpu_system_s: float | None
@@ -121,16 +116,16 @@ class MetricPairRaw:
     mem_used_bytes: int | None
     # 실행 큐 gauge — Linux procs_running / Windows Processor Queue. 스냅샷 os-aware 표시.
     cpu_run_queue: float | None = None
-    cpu_logical_count: int | None = None  # 코어 수 — 실행 큐 코어당 정규화용 (calculator 가 run_queue/cores)
+    cpu_logical_count: int | None = None  # 실행 큐 코어당 정규화용 (run_queue/cores)
     cpu_blocked: float | None = None  # D-state gauge(IO 대기 근본원인) — 실행 큐와 동일 gauge, delta 불요
-    # counter reset 정밀 식별 (calculator가 prev-cur 비교).
+    # counter reset 정밀 식별 (calculator 가 prev-cur 비교).
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class CpuCoreRaw:
-    """per-core CPU 시간 원자료 (server_cpu_core, Linux 전용 — Windows 미발행). 단일스레드 병목 실시간 표시."""
+    """per-core CPU 시간 원자료 (server_cpu_core, Linux 전용 — Windows 미발행). 단일스레드 병목 표시용."""
 
     core_id: int
     collected_at: datetime
@@ -156,7 +151,7 @@ class DiskIoRaw:
     op_write_time_s: float | None = None
     io_time_s: float | None = None  # %util 산출
     pending_ops: float | None = None  # 큐 gauge
-    device_name: str | None = None  # 표시명
+    device_name: str | None = None
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
 
@@ -174,7 +169,7 @@ class NetIoRaw:
     rx_dropped: int | None = None
     tx_dropped: int | None = None
     link_speed_bps: int | None = None
-    iface_name: str | None = None  # 표시명
+    iface_name: str | None = None
     boot_time: datetime | None = None
     agent_started_at: datetime | None = None
 
@@ -199,12 +194,11 @@ class DashboardRaw:
     filesystems: list[MountUsageRaw]  # 마운트당 최신 1행
     os_family: str | None = None  # os-aware 스냅샷 포화 판정 입력 (linux|windows|null)
     kernel_version: str | None = None  # PSI 지원(Linux 4.20+) 판정 입력 — 구커널 N/A 분기용
-    # 물리 device/interface 필터 입력 (raw passthrough, P1) — build_dashboard 가 {id_type}:{id} 합성해
-    # disk_io/net_io 를 물리 계층으로 좁힌다 (I/O 활동 축 = 물리 디스크·인터페이스 단일 규칙, device_filters).
+    # 물리 device/interface 필터 입력 (raw passthrough) — build_dashboard 가 {id_type}:{id} 합성해
+    # disk_io/net_io 를 물리 계층으로 좁힌다.
     block_devices: list[JsonObject] | None = None
     net_interfaces: list[JsonObject] | None = None
-    # 코어당 최대 2행 — 단일스레드 병목 실시간 표시
-    cpu_cores: list[CpuCoreRaw] = field(default_factory=list[CpuCoreRaw])
+    cpu_cores: list[CpuCoreRaw] = field(default_factory=list[CpuCoreRaw])  # 코어당 최대 2행
 
 
 # ---------- Storage / Network 풍부화 DTOs ----------
@@ -217,9 +211,9 @@ class StorageWithUsage:
     hostname: str
     block_devices: list[JsonObject]  # 인벤토리 스토리지 트리 (type=swap 포함)
     lvm_vgs: list[JsonObject]  # 확장여력
-    filesystems: list[MountUsageRaw]  # 마운트별 최신 사용량 시계열
+    filesystems: list[MountUsageRaw]  # 마운트별 최신 사용량
     inventory_at: datetime | None
-    os_family: str | None = None  # OS 분기 표시(Windows PSI N/A 등, #E6 data-os-family)
+    os_family: str | None = None  # OS 분기 표시 (Windows PSI N/A 등)
 
 
 @dataclass(frozen=True, slots=True)
@@ -231,9 +225,8 @@ class NetworkWithIo:
     ip_external: list[str] | None
     net_io: list[NetIoRaw]  # 인터페이스당 최대 2행 (delta 계산용)
     inventory_at: datetime | None
-    os_family: str | None = None  # OS 분기 표시(conntrack N/A 등, #E6 data-os-family)
-    # iface_id -> 최신 link_speed_bps(bit/s) — 인벤토리 speed_mbps null(virtio·Windows NT5.2) 폴백용
-    # (get_latest_link_speed 재사용, environment.py 와 동일 목적).
+    os_family: str | None = None  # OS 분기 표시 (Windows conntrack N/A 등)
+    # iface_id -> 최신 link_speed_bps(bit/s) — 인벤토리 speed_mbps null(virtio·Windows NT5.2) 폴백용.
     link_speed_by_iface: dict[str, int] = field(default_factory=dict[str, int])
 
 
@@ -287,13 +280,12 @@ class SaturationRaw:
     run_queue: float | None = None  # CPU 실행 큐 (Linux procs_running / Windows Processor Queue)
     await_ms: float | None = None  # 디스크 응답 (op_time delta / ops delta)
     pending_ops: float | None = None  # 디스크 큐 깊이 (await 폴백)
-    # 디스크 I/O 이용률 % (물리 disk only — 합성/숨김 pseudo-device 제외, worst device io_time delta / wall-time
-    # delta * 100, USE Method Utilization 축, 0~100 범위). await 와 동일 원칙으로 ops_delta > 0 요구(연산 0건인데
-    # io_time 만 증가하면 구세대 virtio phantom busy 카운터 오탐), io_time delta 가 wall-time 초과(overflow, 카운터
-    # 이상)도 미측정 None. 정상 활동이면 0%도 유효 실측.
+    # 디스크 I/O 이용률 % (물리 disk only — worst device io_time delta / wall-time delta * 100). await 와 동일
+    # 원칙으로 ops_delta > 0 을 요구한다 — 연산 0건인데 io_time 만 늘면 구세대 virtio phantom busy 카운터 오탐.
+    # io_time delta 가 wall-time 을 넘는 카운터 이상도 미측정(None). 정상 활동이면 0% 도 유효 실측.
     disk_io_util_pct: float | None = None
-    # 하드폴트 rate — os-aware 소스(Linux refault=paging_major / Windows Pages Input=paging_in, get_latest_saturation
-    # SQL 이 os_family 로 컬럼 선택. Windows 는 paging_major 컬럼 자체가 항상 NULL, 겸용 아님).
+    # 하드폴트 rate — os-aware 소스(Linux refault=paging_major / Windows Pages Input=paging_in). Windows 는
+    # paging_major 컬럼 자체가 항상 NULL 이라 겸용이 아니다.
     paging_major_rate: float | None = None
     retrans_pct: float | None = None  # TCP 재전송율 %
     drop_pct: float | None = None  # 드롭율 %
@@ -312,9 +304,9 @@ class ErrorFleetRaw:
     measured=False(창 안 표본 없음)면 카운트 지표 전부 no_data. corrupted_bytes 는 gauge(현재값>0=존재).
     """
 
-    measured: bool = False  # 창 안 server_metrics 표본 존재 여부 (없으면 mce/oom/corrupted no_data)
+    measured: bool = False  # 창 안 server_metrics 표본 존재 여부
     net_measured: bool = False  # server_net_io 표본 존재 (없으면 net_errors no_data)
-    disk_err_measured: bool = False  # server_disk_error 는 정상 시 행 자체가 없음 -> 항상 측정된 것으로 간주(0=정상)
+    disk_err_measured: bool = False  # server_disk_error 는 정상 시 행 자체가 없음 -> 항상 측정 간주(0=정상)
     mce_count: int = 0  # cpu.mce 창내 증가분 (Machine Check)
     oom_count: int = 0  # memory.oom_kill 창내 증가분
     corrupted_bytes: int | None = None  # 현재 EDAC hardware corrupted (>0=메모리 손상)
@@ -340,8 +332,8 @@ class FleetErrorRaw:
 class MountCapacityRaw:
     """마운트별 용량 사이징 raw (per-mount) — /api/assessment 디스크 축 입력.
 
-    runway/target 은 가용 이력 전체 span 산출(get_report_aggregate mount_calc 와 동일 산식, 임계 상수 단일 진실).
-    target_bytes = 소진 임박 시 목표 총 용량(바이트). None=안 참(유지). assess_mount_capacity 가 사이징 판정.
+    runway/target 은 가용 이력 전체 span 산출(get_report_aggregate mount_calc 와 동일 산식).
+    target_bytes = 소진 임박 시 목표 총 용량(By). None=안 참(유지).
     """
 
     mountpoint: str
@@ -372,28 +364,17 @@ class CpuBreakdownRaw:
     iowait_pct: float | None
 
 
-# ---------- Series ----------
-
-
 @dataclass(frozen=True, slots=True)
 class MetricSeries:
     collected_at: datetime
-    # SQL avg·sum 은 numeric 을 Decimal 로 준다 — raw 그대로 싣고 표시 변환은 매퍼가 한다.
-    value: float | Decimal | None
+    value: float | Decimal | None  # SQL avg·sum 은 numeric 을 Decimal 로 준다
     dimension: str | None
-    kind: str | None = None  # per-dimension 차트 필터용 (물리/가상 선별은 query 시 inventory 조인). 환경 합산선 None.
-
-
-# ---------- Reboot / Agent restart 이벤트 (차트 vertical marker용) ----------
+    kind: str | None = None  # per-dimension 차트 필터용 (물리/가상 선별은 query 시 inventory 조인). 환경 합산선은 None.
 
 
 @dataclass(frozen=True, slots=True)
 class ReportRowRaw:
-    """Assessment 보고서 한 행의 raw stats — repository가 반환 (P1).
-
-    표시 파생(role/is_online/recommendation/os_display 등)은 service mapper에서 ReportRowItem으로.
-    USE Method (Utilization/Saturation/Errors) 기반 — 신호는 run_queue·paging·await·steal·conntrack.
-    """
+    """Assessment 보고서 한 행의 raw stats — USE Method(Utilization/Saturation/Errors) 신호 묶음."""
 
     server_id: int
     public_id: str
@@ -407,30 +388,26 @@ class ReportRowRaw:
     services: list[JsonObject] | None  # service_classifier 입력 (role 추론용)
     last_seen_at: datetime | None
 
-    # USE Method Utilization (p95 + avg + peak)
     cpu_p95_pct: float | None
     cpu_avg_pct: float | None
     cpu_peak_pct: float | None
     mem_p95_pct: float | None
     mem_avg_pct: float | None
     mem_peak_pct: float | None
-    mem_near_peak_pct: float | None = None  # near-peak(버킷별 max 의 p95) — 메모리 사이징 통계(비탄력 피크 대표)
+    mem_near_peak_pct: float | None = None  # near-peak(버킷별 max 의 p95) — 비탄력 피크 대표, 메모리 사이징 통계
 
-    # service_classifier listen 신호 (개별 보고서 구동 서비스 표시·role 보강).
-    listen_ports: list[JsonObject] | None = None
+    listen_ports: list[JsonObject] | None = None  # service_classifier listen 신호 (구동 서비스 표시·role 보강)
 
     # I/O wait (cpu iowait 시간 / total non-idle 비율) — Linux 디스크 병목 참고 신호
     iowait_p95_pct: float | None = None
     iowait_peak_pct: float | None = None
-    # Windows CPU saturation — Processor Queue Length p95 (Linux run queue 등가 축, os-aware 소비)
-    cpu_run_queue_p95: float | None = None
-    # Windows Memory saturation — Pages Input/sec rate p95 (Linux paging_major 등가 축, os-aware 소비)
-    mem_pages_input_rate_p95: float | None = None
+    cpu_run_queue_p95: float | None = None  # Windows Processor Queue Length p95 (Linux run queue 등가 축)
+    mem_pages_input_rate_p95: float | None = None  # Windows Pages Input/sec rate p95 (Linux paging_major 등가 축)
 
     # Inventory 합계 산정용 — QueryService.get_report 가 totals 계산 시 사용
     cpu_cores: int | None = None
     mem_total_bytes: int | None = None
-    block_devices: list[JsonObject] | None = None  # 합계 산정 위해 size_bytes 합산
+    block_devices: list[JsonObject] | None = None
     lvm_vgs: list[JsonObject] | None = None  # 확장여력 (용량 처방)
     # OS 재현 서술자 (assessment API reproduction) — server_inventory 컬럼 pass-through.
     arch: str | None = None
@@ -438,8 +415,7 @@ class ReportRowRaw:
     boot_firmware: str | None = None
     secure_boot: bool | None = None
     edition: str | None = None
-    # CurrentVersion ProductName 원문(Windows only) — os_display 짧은 라벨 파싱 소스(_os_display 단일 소비).
-    product_name: str | None = None
+    product_name: str | None = None  # Windows only — os_display 라벨 파싱 소스
     timezone: str | None = None
     rtc_utc: bool | None = None
     boot: JsonObject | None = None  # {kernel_cmdline,root_ref_type,grub_install_target}
@@ -448,15 +424,12 @@ class ReportRowRaw:
 
     # 서버 안 가장 채워진 마운트의 used%(most-full, fs cagg) — 디스크 이용률 KPI. 임박(runway)과 별개 축.
     worst_mount_used_pct: float | None = None
-    # worst_mount_used_pct 를 낸 마운트 이름 — 14일 카드 "사용률" 행이 실시간 도넛(전체 가중평균)과 다른
-    # worst-mount 산식임을 명시 표기하는 용도. disk_capacity_driving_mount(runway 임박 구동 마운트)와는 별개
-    # 축이라 다른 마운트일 수 있음(하나는 정적 최대%, 하나는 소진 추세 기준).
+    # worst_mount_used_pct 를 낸 마운트 — 카드 "사용률" 행이 실시간 도넛(전체 가중평균)과 다른 산식임을 명시하는
+    # 용도. runway 구동 마운트와는 축이 달라(정적 최대% vs 소진 추세) 다른 마운트일 수 있다.
     disk_capacity_worst_mount: str | None = None
 
-    # Uptime + period 내 재부팅 횟수 — 별도 SQL(`get_report_uptime_stats`)에서 채움
-    reboot_count: int = 0
-    # period 내 에이전트 재시작 횟수 — 별도 SQL(`get_report_agent_restart_stats`), anchor+window 정합 (#F10).
-    agent_restart_count: int = 0
+    reboot_count: int = 0  # period 내 재부팅 — 별도 SQL(`get_report_uptime_stats`)에서 채움
+    agent_restart_count: int = 0  # period 내 에이전트 재시작 — 별도 SQL, anchor+window 정합 (#F10)
 
     # Disk I/O — baseline(평균) + p95 + peak (모든 device 시점별 합산 후 통계)
     disk_iops_baseline: int | None = None
@@ -488,28 +461,26 @@ class ReportRowRaw:
     history_hours: float | None = None  # 관측 버킷(5분) 누적 시간 — 통계 정밀도 바닥(30h floor)
     disk_await_p95_ms: float | None = None  # worst await p95 (op_time delta / ops delta, s->ms)
     disk_capacity_runway_days: float | None = None  # 바이트 소진까지 남은 일수(가장 빨리 차는 마운트=구동 마운트)
-    disk_capacity_driving_mount: str | None = None  # 구동 마운트 이름(runway·driving_used_pct 짝) — 임박 표시 단일 진실
-    disk_inode_runway_days: float | None = None  # inode 소진까지 남은 일수
+    disk_capacity_driving_mount: str | None = None  # 구동 마운트 이름(runway·driving_used_pct 짝)
+    disk_inode_runway_days: float | None = None
     disk_inode_used_pct: float | None = None  # worst mount inode 사용률 % — 정적 가드(바이트 85% 대칭)
     disk_capacity_target_gb: float | None = None  # 1년 수명 목표 총 용량(GB) — 소진 마운트 확장 목표
     disk_capacity_proj_30d_pct: float | None = None  # 30일 후 예상 used%(현재 rate 외삽) — 확장 근거 근시 신호
     disk_capacity_driving_used_pct: float | None = None  # 소진 임박/최고-used 마운트의 현재 used%
 
     net_drop_pct: float | None = None  # 드롭/패킷 % (로컬 saturation)
-    net_retrans_pct: float | None = None  # TCP 재전송/tx패킷 % (Errors — OutSegs 미수집이라 tx_packets 분모 근사)
+    net_retrans_pct: float | None = None  # TCP 재전송/tx패킷 % (OutSegs 미수집이라 tx_packets 분모 근사)
     conntrack_ratio: float | None = None  # conntrack 사용/상한 — 연결테이블 고갈 임박(모듈 미로드 시 None)
-    cpu_trend_slope: float | None = None  # cpu 이용률 최소제곱 기울기 %/day (도메인이 상승 추세 판정)
+    cpu_trend_slope: float | None = None  # cpu 이용률 최소제곱 기울기 %/day
     mem_trend_slope: float | None = None  # mem 이용률 최소제곱 기울기 %/day
     cpu_percore_p95_max: float | None = None  # 가장 바쁜 코어의 이용률 p95 (단일스레드 병목, server_cpu_core)
 
 
 @dataclass(frozen=True, slots=True)
 class RebootEvent:
-    """server_inventory_history에서 boot_time / agent_started_at 변경 시점 추출.
+    """server_inventory_history 에서 추출한 재부팅/에이전트 재시작 시점 (차트 vertical marker).
 
-    kind 분류:
-    - "reboot": boot_time 변경 (시스템 재부팅) 또는 첫 등록 (이전 행 없음)
-    - "restart": boot_time 동일 + agent_started_at 변경 (에이전트 단독 재시작)
+    kind — "reboot": boot_time 변경 또는 첫 등록(이전 행 없음) / "restart": boot_time 동일 + agent_started_at 변경.
     """
 
     collected_at: datetime
@@ -518,27 +489,21 @@ class RebootEvent:
     kind: Literal["reboot", "restart"]
 
 
-# ---------- 주의 신호 (목록 화면 상단 운영신호 — gap 전용) ----------
-
-
 @dataclass(frozen=True, slots=True)
 class MetricGapWarningRaw:
-    """metric 발행 갭 — last_metric_at이 임계 초과로 끊김. raw (P1). 통신 끊김 운영신호."""
+    """metric 발행 갭 — last_metric_at 이 임계 초과로 끊긴 호스트 (통신 끊김 운영신호)."""
 
     public_id: str
     hostname: str
     last_metric_at: datetime
 
 
-# --- 보고서 발행 job 조회 결과 ---
-
-
 @dataclass(frozen=True, slots=True)
 class DiagnosticJobRecord:
     """보고서 발행 job 단건 — 라우터 조회 응답·발행 이력 표현.
 
-    id는 UUID 문자열 (PG_UUID as_uuid=False). result·error_message는 status 따라 둘 중 하나만 채움.
-    job_type: 'customer_report' | 'engineer_report'
+    id 는 UUID 문자열 (PG_UUID as_uuid=False). job_type 은 'customer_report' | 'engineer_report'.
+    result·error_message 는 status 따라 둘 중 하나만 채운다.
     """
 
     id: str

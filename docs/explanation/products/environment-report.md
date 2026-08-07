@@ -1,12 +1,10 @@
 # 환경 보고서 (Environment Report)
 
-본 문서는 환경 단위 (scope=environment) 산출물의 존재 의의·구현 의도·근거를 정리한다. 환경 안 모든 등록 서버를 묶어 자원 합계·이용률·분류 분포를 한 화면에 합성.
-
-서버 단위 산출물(scope=server, 선택 N대 row 단위 상세) 은 `docs/explanation/products/server-report.md` 별도.
+본 문서는 환경 단위 (scope=environment) 산출물의 존재 의의·구현 의도·근거를 정리한다. 서버 단위 산출물(scope=server, 선택 N대 row 단위 상세) 은 `docs/explanation/products/server-report.md` 별도.
 
 ## 산출물
 
-환경 scope 환경 보고서 — `GET /reports/environment?view=customer|engineer&time_range=14d`. 환경 전체 자원 합계·이용률·분류 분포 high-level 한 장. customer(양식 A) vs engineer(양식 B) view 분기.
+환경 보고서 — `GET /reports/environment?view=customer|engineer&time_range=14d`. 환경 안 모든 등록 서버를 묶어 자원 합계·이용률·분류 분포를 high-level 한 장으로 합성한다. customer(양식 A) vs engineer(양식 B) view 분기.
 
 발행 흐름:
 - 발행(`POST /reports/environment/emit`)은 parent job 을 pending 으로 만들고 즉시 `?job={id}` 로 이동 — 전용 워커 프로세스가 스냅샷 생성 후 succeeded, 그때 본문 표시(생성 중엔 진행 화면 + 폴링). 발행 전 GET 은 컨트롤(보고서 양식·윈도우·앵커 select + 발행 버튼)만 노출, live preview 본문 없음. 발행된 스냅샷은 `GET /reports/environment?job={id}` 정적 렌더 (서버 scope `/reports/servers` 는 발행 전에도 live preview 본문 유지 — 환경 보고서만 컨트롤-only).
@@ -15,8 +13,7 @@
 
 ## 위치
 
-- UI 진입점: 홈/네비 "환경 보고서" 또는 `/reports/environment?view=customer|engineer` 직접 호출 (컨트롤 노출, 발행 후 본문)
-- 발행 경로: 운영자가 양식·윈도우·앵커 선택 후 발행(POST emit) — parent job pending enqueue 후 `?job=` 이동, 워커가 SQL 집계 + 스냅샷 저장 + succeeded, GET 이 진행->완료 렌더. 발행 전 GET 은 컨트롤만
+- UI 진입점: 홈/네비 "환경 보고서" 또는 `/reports/environment?view=customer|engineer` 직접 호출
 - 산출물 형태: HTML SSR. 브라우저 인쇄로 PDF/PPT 캡처 (백엔드 PDF export 미도입)
 
 ## 존재 의의
@@ -50,20 +47,19 @@
 
 목적: 컨설턴트가 고객 미팅·내부 보고에 들고 가는 한 장짜리 환경 자원 요약.
 
-- 분류 어휘 = 자원 적정성 한국어 분류명(RECOMMENDATION_LABEL_KO) 단일 — 요약·분포·조치 표 동일, 영어 enum·평행 어휘 없음.
 - 환경 요약: 인벤토리(등록 서버·총 vCPU/메모리/디스크) + 메트릭(CPU/메모리/디스크 평균) + OS 구성(Linux/Windows, 0대 포함 #E9) metric-card 소제목 — 카드는 `.env-stat-card` 너비·높이 통일. 서비스 구성은 별도 카드. engineer 환경 현황과 동일 구조.
-- 자원 적정성 평가: 분류 분포(조치 방향) + 효율화 검토 대상(과다·유휴·종료 자원 합) + 조치 필요 호스트(자원 부족, high 만). 분모는 등록 서버 전수이고, 시계열 누적이 부족해 분류가 불가한 서버는 표본 부족 카테고리로 분포 안에서 드러난다.
+- 자원 적정성 평가: 분류 분포(조치 방향) + 효율화 검토 대상(과다 할당·유휴 호스트의 자원 합) + 조치 필요 호스트(자원 부족, high 만).
 - 운영 신호: OS 지원 종료 카드만 (2축 정책, 디스크 capacity 는 자원 적정성 평가가 흡수).
-- 정성 요약: 분류 분포 + 자원 부족 원인 또는 효율화 여지 (결정론 템플릿 합성, engineer 와 동일 불릿).
+- 정성 요약: view 무관 단일 불릿 (아래 "정성 요약" 절).
 - 발화 항목은 제목 + placeholder (데이터 0 이어도 노출, #E9).
 - Print 우선 — 임계값 전문은 인쇄본에 임베드하지 않는다(사이드바 "참고" 그룹 `/reference`에서 별도 확인, 보고서 본문 인쇄 분량 절약).
 
 ### view 분기 — engineer (양식 B)
 
-목적: 운영자·엔지니어가 환경 단위 정량 패턴 분석 + 자원 적정성 근거 검증. customer 와 동일 어휘(RECOMMENDATION_LABEL_KO) + 정량 상세.
+목적: 운영자·엔지니어가 환경 단위 정량 패턴 분석 + 자원 적정성 근거 검증. customer 와 동일 어휘 + 정량 상세.
 
-- 요약: customer 와 동일 (view 무관 단일 `_env_summary_bullets`) — 등록 서버(+vCPU/메모리/디스크) / 온라인·오프라인 / 분류 분포 / 자원 부족(원인별) / OS 지원 종료.
-- 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 / OS 구성 소제목. 메트릭 = metric-card 6축 — 이용률 3(CPU·메모리 = capacity-weighted avg + p95 부기, 디스크 용량) + 포화 3(CPU 포화·메모리 압박·디스크 I/O 포화, 발화 호스트 수/표본). 대시보드 '자원 이용·포화' 도넛의 부분집합 — 절대 처리량(네트워크·디스크 I/O rate)은 기준선이 없어 건강 판단이 어려워 제외. 디스크 p95 는 시점별 capacity 합이 Windows 디바이스(major/minor) 인식 불완전으로 신뢰 불가라 의도 제외(repo `get_environment_utilization` SQL 주석 단일 진실). 인벤토리/메트릭/OS 카드 `.env-stat-card` 높이 통일. 에이전트 버전은 보고서 헤더 메타.
+- 요약: customer 와 동일 (아래 "정성 요약" 절).
+- 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 / OS 구성 소제목. 메트릭 = metric-card 6축 — 이용률 3(CPU·메모리 = capacity-weighted avg + p95 부기, 디스크 용량) + 포화 3(CPU 포화·메모리 압박·디스크 I/O 포화, 발화 호스트 수/표본). 대시보드 '자원 이용·포화' 도넛의 부분집합 — 절대 처리량(네트워크·디스크 I/O rate)은 기준선이 없어 건강 판단이 어려워 제외. 디스크는 p95 를 내지 않는다 — 시점별 capacity 합이 Windows 물리 디스크 인식 불완전으로 신뢰 불가. 인벤토리/메트릭/OS 카드 `.env-stat-card` 높이 통일. 에이전트 버전은 보고서 헤더 메타.
 - 환경 부하 추이(시계열 CPU/메모리/디스크, 발행 윈도우 정적 스냅샷) + 네트워크 토폴로지(정적 서브넷 요약 표 — 서브넷 대역·호스트 수만, 인터랙티브 Cytoscape 그래프는 화면 토폴로지 페이지 `/environment/topology` 전용) — 한 카드 2열. 둘 다 engineer 전용.
 - 자원 적정성 평가: 분류 분포(소제목 "자원 적정성 분포") + 서버별 자원 적정성(전 서버 통합 표, `action_targets_table` — 환경 자원 평가 페이지와 칼럼 동일: 호스트·사양(CPU·메모리·디스크)·분류(근본원인 병합)·권고(`recommendation_action`, 자원별 독립 처방)·네트워크 상태·디스크 I/O 상태·신뢰도). 조치 호스트 노출은 이 한 표가 단일 진실(별도 효율화 표 없음 — customer view 만 "효율화 검토 대상"/"조치 필요 호스트" 2표로 분리).
 - 세부 서버 목록: 환경 보고서는 미표시 (전수 인쇄 폭주 회피 — 조치 대상은 효율화/자원 부족 표가 담음). 선택 N대 보고서(selection)만 표시.
@@ -72,8 +68,8 @@
 
 분기 메커니즘:
 - 같은 endpoint·SQL·템플릿. `summary.view` 로 `_env_report_body.html` 의 customer/engineer 블록을 토글.
-- 갈리는 건 조치 대상 선정뿐 — `_select_top_risks(rows, view)` 가 customer 는 위험 호스트만, engineer 는 위험도 정렬 상위 10을 낸다.
-- 요약 불릿은 view 무관 단일 (`_env_summary_bullets`).
+- 갈리는 건 조치 대상 선정뿐 — customer 는 위험 호스트(자원 부족)만, engineer 는 전 호스트를 위험도 순으로 낸다. 양쪽 다 운영 검토 list 라 상위 N 절단이 없다 (전수 노출).
+- 요약 불릿은 view 무관 단일.
 
 ### 정성 요약 — 발행 시점 합성
 
@@ -117,13 +113,11 @@ Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverag
 
 ### 규칙 기반 한정
 
-- 분류·권장은 결정론 임계값으로 충분. 자연어 요약은 결정론 템플릿으로 산출.
+분류·권장은 결정론 임계값으로 산출하고, 자연어 요약도 결정론 템플릿으로 만든다.
 
 ## 평가 대상 범위의 표현
 
-분모는 별도 커버리지 수치가 아니라 등록 서버 전수다. 시계열 누적이 평가 윈도우에 비해 짧은 신규 서버나 메트릭 누적이 부족한 서버는 분류가 불가한데, 그 대수를 분포 밖으로 빼지 않고 표본 부족 카테고리로 분포 안에 세운다.
-
-분포 자체가 "몇 대가 아직 판단 근거 부족인지"를 드러내므로, "N대 분포가 환경 전체에 적용된다"는 오해가 별도 커버리지 문구 없이 차단된다.
+분모는 별도 커버리지 수치가 아니라 등록 서버 전수다. 시계열 누적이 평가 윈도우에 비해 짧은 신규 서버나 메트릭 누적이 부족한 서버는 분류가 불가한데, 그 대수를 분포 밖으로 빼지 않고 표본 부족 카테고리로 분포 안에 세운다. 분포 자체가 "몇 대가 아직 판단 근거 부족인지"를 드러내므로 "N대 분포가 환경 전체에 적용된다"는 오해가 별도 커버리지 문구 없이 차단된다.
 
 ## 서버 단위 산출물과의 분기
 
@@ -150,7 +144,7 @@ Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverag
 
 - `docs/reference/web/routers.md` — 보고서 라우터·view 분기
 - `docs/reference/web/services.md` "Recommendation 분류" — USE Method 임계값 출처
-- `docs/reference/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리
+- `docs/reference/web/static-assets.md` "인쇄 CSS" — 인쇄 색 처리
 - `docs/explanation/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 스냅샷 보존
 - 구현 위치(조립 서비스·매퍼·템플릿)는 `docs/reference/web/services.md`·`view-models.md` 카탈로그가 갖는다
 - `docs/explanation/products/server-report.md` — 서버 단위 산출물 (cross-reference)
