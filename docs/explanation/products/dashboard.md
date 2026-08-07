@@ -139,7 +139,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 - 환경 평균 이용률 게이지는 단색 — 색으로 임계 의미를 주지 않고 채움 길이가 정도를 전달 (색 상수도 같은 자리)
 
 대시보드 평가 윈도우:
-- `right_sizing.WINDOW_DAYS` 단일 진실 (CLAUDE.md #F10) — 분류·평균 활용률·포화 도넛 전부 한 창 통일(#E3 화면 간 정합)
+- 분류·평균 활용률·포화 도넛이 전부 한 창으로 통일된다 (#F10 · #E3 화면 간 정합)
 - 환경 개요 홈·성능 추이는 표준 윈도우 고정. 환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용 (기본값 `DIAGNOSTIC_DEFAULT_TIME_RANGE`=14d)
 - 실시간 현황 페이지만 창 무관 — 최신 순간 스냅샷
 
@@ -159,7 +159,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 2. 행별 권장 단일 라벨 — recommendation 분류 1개만 표시. 다중 신호(예: CPU 정상 + 메모리 부족)는 우선순위 평가 후 1개만.
 3. 실시간 갱신 지연 — `docs/explanation/tradeoffs.md` T5.
 
-## 관련 문서·코드
+## 관련 문서
 
 - `docs/reference/web/layering.md` — 라우터 흐름·다이어그램
 - `docs/reference/web/services.md` — query 패키지·service_classifier
@@ -167,13 +167,5 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 - `docs/reference/web/static-assets.md` — list-table.js·차트 P4 규약
 - `docs/explanation/products/{environment-report,server-report}.md` — 보고서 산출물 (scope별)
 - `docs/explanation/products/install-task.md` — "ZDM Install" column source
-- `src/assessment_engine/web/routers/pages/list_page.py` — overview·서버 목록·자원 평가·토폴로지·실시간·성능 추이 라우터
-- `src/assessment_engine/web/templating/setup.py` `NAV_GROUPS` — 사이드바 네비 정의 단일 진실
-- `src/assessment_engine/web/templates/servers/overview.html` (+ `_environment_overview.html`) — 환경 개요 홈
-- `src/assessment_engine/web/templates/servers/assessment.html` (+ `_assessment_result.html`) — 환경 자원 평가
-- `src/assessment_engine/web/templates/servers/topology.html` — 네트워크 토폴로지
-- `src/assessment_engine/web/templates/servers/realtime.html` (+ `_environment_realtime.html`) — 실시간 현황
-- `src/assessment_engine/web/templates/servers/environment_metrics.html` — 환경 성능 추이
-- `src/assessment_engine/web/templates/servers/list_table.html` — 서버 목록 테이블
-- `src/assessment_engine/web/static/js/pages/{list-table,assessment,realtime}.js` — selection·필터·task cell polling / 자원 평가 swap / 실시간 30초 polling
+- 구현 위치(라우터·서비스·템플릿)는 위 `docs/reference/web/` 카탈로그가 갖는다
 - CLAUDE.md #E1·#E2·#E3·#E8 — 표시 계층 원칙·데이터 흐름·임계 색 단일 진실

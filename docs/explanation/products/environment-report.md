@@ -112,7 +112,7 @@ Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverag
 
 ### 평가 윈도우
 
-`right_sizing.WINDOW_DAYS` 를 쓴다 — 화면·보고서가 분류와 한 창을 공유한다(#F10). 길이와 근거는
+화면·보고서가 분류와 한 창을 공유한다 (#F10). 길이와 근거는
 `docs/reference/right-sizing-thresholds.md` "무엇을 어떻게 평가하나" 절.
 
 ### 규칙 기반 한정
@@ -146,14 +146,11 @@ Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverag
 4. 정성 요약의 표현 한정 — 결정론 템플릿이라 운영자가 추가 컨텍스트 (예: "이 서버는 신규 도입 한 달째"·"비용 절감 우선") 를 요약에 반영 불가.
 5. 인쇄 색상 — 브라우저 인쇄 시 색 처리가 브라우저별 다름. 흑백 PDF 에서 위험도 색이 비슷해 보일 수 있음. `print` CSS 에서 별도 처리.
 
-## 관련 문서·코드
+## 관련 문서
 
 - `docs/reference/web/routers.md` — 보고서 라우터·view 분기
 - `docs/reference/web/services.md` "Recommendation 분류" — USE Method 임계값 출처
 - `docs/reference/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리
 - `docs/explanation/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 스냅샷 보존
-- `src/assessment_engine/domain/right_sizing.py` — 분류 임계값·`WINDOW_DAYS`
-- `src/assessment_engine/web/services/query/report.py::ReportQueryMixin.get_environment_report` — 환경 스냅샷 조립
-- `src/assessment_engine/web/services/mappers/environment_report.py` — 환경 현황 메트릭·요약 불릿·조치 대상 선정
-- `src/assessment_engine/web/templates/reports/environment.html` (본문 `reports/_env_report_body.html`) — 환경 보고서 템플릿
+- 구현 위치(조립 서비스·매퍼·템플릿)는 `docs/reference/web/services.md`·`view-models.md` 카탈로그가 갖는다
 - `docs/explanation/products/server-report.md` — 서버 단위 산출물 (cross-reference)

@@ -44,8 +44,8 @@
 - 스냅샷 1회성: 발행 시점 상태. 시계열 분포는 차트 endpoint 별도.
 - 무인증: 관리망 전용 전제(계약 10절, tradeoffs T19). 외부 노출 시 앞단 인증 게이트웨이.
 
-## 관련 문서·코드
+## 관련 문서
 
 - `docs/reference/contracts/assessment-api.md` — 응답 계약 단일 진실 (스키마·필드·버전)
 - `docs/explanation/products/environment-report.md` / `server-report.md` — 같은 source 의 사람용 출력
-- `src/assessment_engine/web/routers/exports.py` — Export endpoint
+- 구현 위치는 `docs/reference/web/routers.md` 카탈로그가 갖는다

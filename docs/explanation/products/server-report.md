@@ -147,16 +147,12 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 6. 표는 위험 우선 기본 정렬 (발행 시점 under -> attention -> normal, 동순위 cpu_p95 DESC). 사용자 임의 재정렬·필터는 미지원.
 7. URL 길이 한계 — `ids` query string 에 N개 public_id 넣음. N 이 매우 크면 URL 한계.
 
-## 관련 문서·코드
+## 관련 문서
 
 - `docs/reference/web/routers.md` — `routers/pages/` 패키지(`report_page.py`) 보고서 라우터·view 분기
 - `docs/reference/web/services.md` "Recommendation 분류" — USE Method 임계값 출처
 - `docs/reference/db/timescaledb.md` — counter reset 정밀 식별
 - `docs/reference/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리
 - `docs/explanation/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 스냅샷 보존
-- `src/assessment_engine/domain/right_sizing.py` — 분류 임계값 상수 카탈로그
-- `src/assessment_engine/web/services/query/report.py::ReportQueryMixin` — 선택 N대(`get_selection_report`)·단일(`get_single_server_report`) 스냅샷 조립
-- `src/assessment_engine/web/services/mappers/report.py::_build_diagnosis` — 진단 칼럼 우선순위 평가
-- `src/assessment_engine/web/templates/servers/report.html` — 선택 N대 보고서 (본문은 `reports/_env_report_body.html` 공유)
-- `src/assessment_engine/web/templates/servers/single_report.html` — 단일 1대 보고서 (engineer 심화 계층)
+- 구현 위치(조립 서비스·매퍼·템플릿)는 `docs/reference/web/services.md`·`view-models.md` 카탈로그가 갖는다
 - `docs/explanation/products/environment-report.md` — 환경 단위 산출물 (cross-reference)

@@ -112,7 +112,7 @@ interval 표현은 `func.now() - timedelta(days=N)` 또는 `func.now() - timedel
 
 ### 타입·윈도우 상수 (`db/repositories/query/types.py`)
 - `MetricType` Literal — chart metric (카탈로그는 `types.py` 단일 진실)
-- range·bucket·집계 함수는 `db/repositories/query/types.py` 의 Literal 이 값을 갖는다. 기본 14d 는 `right_sizing.WINDOW_DAYS` 와 같은 값이라 한쪽만 바꾸면 분류 창과 갈린다(#F10).
+- range·bucket·집계 함수는 `db/repositories/query/types.py` 의 Literal 이 값을 갖는다. 기본값은 right-sizing 평가 윈도우와 같아야 한다 — 한쪽만 바꾸면 분류 창과 갈린다 (#F10).
 - 신규 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 넷을 동시에 갱신한다(#F10).
 
 (`DIAGNOSTIC_RANGE_LABEL_KR` time_range 한국어 표시 라벨은 표시 소속이라 `mappers/constants.py`.)

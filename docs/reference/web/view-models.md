@@ -65,7 +65,7 @@
 
 환경 개요(`/`)는 `EnvironmentOverview`(환경 요약 KPI + 활용률·포화 도넛 + 자원 적정성 분포 막대)만 노출 — 서버 목록(`/servers`)은 행만, 화면 분리 자체가 컨텍스트 가드(#E9). `AttentionSignals`(운영신호 3 카탈로그 — 통신끊김/OS지원종료/에이전트재시작, `get_attention_signals`)는 보고서 경로에서만 소비 — 단일/선택은 `attention_for_host`/`attention_by_host`(`services/report/generator.py` 정의, `report_page.py` 소비), 환경·선택 요약은 `EnvironmentReportSummary.attention`(OS 지원종료 표). 독립 라이브 카드로는 렌더되지 않는다.
 
-요약 위젯·right-sizing 분류 모두 `right_sizing.WINDOW_DAYS`(#F10) — 한 창 통일(#E3 화면 간 정합).
+요약 위젯과 right-sizing 분류가 같은 평가 윈도우를 쓴다 (#F10 · #E3 화면 간 정합).
 
 | ViewModel | 채우는 mapper | 데이터 소스 | 시간 축 | 색상 톤 |
 |-----------|---------------|-------------|---------|---------|
