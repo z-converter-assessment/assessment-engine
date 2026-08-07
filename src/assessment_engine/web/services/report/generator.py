@@ -1,7 +1,7 @@
 """보고서 생성 디스패치 — 비동기 워커·발행 경로 공유 단일 진실.
 
 parent job(diagnostic_jobs, pending)을 받아 scope/input_params 분기로 보고서 ViewModel 을 생성하고
-발행 시점 정적 스냅샷 result dict 를 돌려준다. 워커(`report_worker`)가 claim 한 job 을 본 함수로
+발행 시점 정적 스냅샷 result dict 를 돌려준다. 워커(`report_loop`)가 claim 한 job 을 본 함수로
 생성 -> `mark_succeeded(result)`, 예외 시 `mark_failed`.
 
 발행 시점 고정(C1 정적 스냅샷): anchor 는 emit 라우터가 enqueue 시점에 확정해 input_params 에
@@ -15,14 +15,14 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 from assessment_engine.db.repositories.query.types import DIAGNOSTIC_DEFAULT_TIME_RANGE
-from assessment_engine.web.services.report_result import REPORT_KIND_ENV, build_report_result
-from assessment_engine.web.services.report_serializer import env_report_to_dict
+from assessment_engine.web.services.report.result import REPORT_KIND_ENV, build_report_result
+from assessment_engine.web.services.report.serializer import env_report_to_dict
 
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
     from assessment_engine.json_types import JsonObject
     from assessment_engine.web.services.diagnostic_service import DiagnosticService
-    from assessment_engine.web.services.query_service import QueryService
+    from assessment_engine.web.services.query import QueryService
     from assessment_engine.web.view_models.attention import AttentionSignals
 
 

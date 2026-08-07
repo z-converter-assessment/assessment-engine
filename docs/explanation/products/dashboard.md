@@ -39,7 +39,7 @@
 ### 영역 3: 자원 적정성 분포
 
 - 자원 적정성 5분류 카운트 가로 막대 (`overview.risk_donut`) — 환경 자원 평가 페이지와 `provisioning_dist_bar` 매크로 공유(단일 소스)
-- 윈도우 = `recommendation.WINDOW_DAYS` — 서버 목록·보고서 분류와 정합(#E3). 이용률·포화 도넛도 같은 창(화면 간 한 창 통일)
+- 윈도우 = `right_sizing.WINDOW_DAYS` — 서버 목록·보고서 분류와 정합(#E3). 이용률·포화 도넛도 같은 창(화면 간 한 창 통일)
 - 홈에는 분포 요약만 — 서버별 자원 적정성 상세 표는 환경 자원 평가 페이지(`/environment/assessment`)
 
 답: "환경이 자원 관점에서 적정한가? 부족·과다 서버 분포는?"
@@ -47,7 +47,7 @@
 ### 영역 4: 자원 이용·포화 도넛
 
 - 이용률 3(CPU·메모리·디스크 capacity-weighted 창 평균, 게이지 단색 — 채움 길이로만 정도 표현) + 포화 4(CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡 호스트 수 / 표본)
-- 전부 `recommendation.WINDOW_DAYS` 창 — 분류와 한 창 통일(#E3). 포화는 dual-gate(CPU·메모리 신호 AND 이용률) 판정 호스트 수
+- 전부 `right_sizing.WINDOW_DAYS` 창 — 분류와 한 창 통일(#E3). 포화는 dual-gate(CPU·메모리 신호 AND 이용률) 판정 호스트 수
 - 순간 스냅샷 아닌 윈도우 통계 (실시간 순간값은 `/environment/realtime`)
 
 답: "환경 전체 자원 활용·포화 수준은?"
@@ -98,7 +98,7 @@ list에서 N대 선택 → 다음 액션 활성화:
 
 - 자원 적정성 평가 막대: 분류 카운트 막대 (`overview.risk_donut`). 평가 대상 N대 표기.
 - 서버별 자원 적정성 표: 전 서버(자원 부족·과다 할당·유휴·정상·표본 부족) 한 표에 — 호스트·사양(CPU·메모리·디스크)·분류(근본원인 병합)·권고(자원별 독립 처방)·네트워크 상태·디스크 I/O 상태·신뢰도. 초과 행은 더보기/접기 토글.
-- 구간·앵커 선택: `?time_range=`(15분~30일) + 기준 시각 override. 변경 즉시 `assessment.js` 가 `?fragment=result` 로 본문 swap. 기본 윈도우는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` — 보고서·서버 목록 분류 표준 평가(`recommendation.WINDOW_DAYS`=14일)와 동일. 본 평가 페이지만 대시보드 중 윈도우 override 허용(#F10).
+- 구간·앵커 선택: `?time_range=`(15분~30일) + 기준 시각 override. 변경 즉시 `assessment.js` 가 `?fragment=result` 로 본문 swap. 기본 윈도우는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` — 보고서·서버 목록 분류 표준 평가(`right_sizing.WINDOW_DAYS`=14일)와 동일. 본 평가 페이지만 대시보드 중 윈도우 override 허용(#F10).
 - Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverage_gap 으로 부분 평가한다 (임계·신호원은 `docs/reference/right-sizing.md`).
 
 답: "환경 안 자원 부족·자원 과다 서버는 누구이고, 무엇부터 손대야 하나?"
@@ -126,7 +126,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 
 환경 단위 시계열 차트 — 전 서버 capacity-weighted 평균 추이. 본문 = `servers/environment_metrics.html`.
 
-- CPU·메모리·스토리지 이용률(capacity-weighted, 0~100% 고정 y축)·네트워크 처리량(rx/tx bytes/s, floating y축) 추이 + CPU 실행 큐 포화 서버 수(recommendation.cpu_saturation_index 와 동일 임계 판정을 SQL 이식 — Linux procs_running·Windows Processor Queue Length 를 각자 임계로 판정한 crossing 서버 수, "윈도우 정규화 보정")·메모리 페이징 압박 서버 수(recommendation.mem_pressure_active 와 동일 원자료·임계 — Linux refault·Windows Pages Input/sec crossing 서버 수)·디스크 I/O 포화 서버 수(`RS_DISKIO_AWAIT_MS` 서버별 판정 crossing 서버 수 — worst-device await 단일값보다 영향 범위가 바로 읽히는 count 로 통일)·네트워크 이상 서버 수(recommendation.assess_network 의 network_congested 와 동일 원자료·임계 — 재전송율·드롭율(저트래픽 게이트)·conntrack 고갈 OR). 넷 다 강도(연속 지수/worst 단일값)가 아닌 count(임계 넘은 서버 수)로 통일 — 도메인 지식 없이 바로 읽히고 분모(온라인 대수) 변동에 왜곡되지 않는 절대치(리눅스 페이징은 애초에 magnitude 아닌 존재 판정이라 지수화 자체가 불가능해 CPU·디스크·네트워크도 일관성 위해 count 로 맞춤). CPU 분류(User/System/I·O Wait/Nice)는 환경(여러 호스트 혼합) 단위에서 제외 — Windows 가 해당 신호를 아예 미발행이라 "환경" 명목의 차트가 사실상 Linux 전용이 되는 오인 소지(서버 상세 성능 추이는 단일 호스트라 계속 보유). CPU/메모리/디스크 PSI 는 트렌드 차트로는 전 스코프(환경·서버 상세)에서 제외 — 실시간 메트릭 카드의 포화 열 순간값으로만 표시(추이선은 정보 밀도 대비 판단 기여가 낮음). 디스크 IOPS·처리량·네트워크 PPS(합산 절대값)도 제외 — 이기종 장치를 그냥 더한 숫자는 비교 기준선이 없어 해석 불가. 스토리지 사용량(절대 총량)도 서버마다 프로비저닝 용량이 제각각이라 위험도를 못 읽어 사용률(%)로 대체. TCP 재전송율·패킷 드롭율은 두 % 라인이 시각적으로 거의 겹쳐 구분이 안 돼 네트워크 이상 서버 수로 통합.
+- CPU·메모리·스토리지 이용률(capacity-weighted, 0~100% 고정 y축)·네트워크 처리량(rx/tx bytes/s, floating y축) 추이 + CPU 실행 큐 포화 서버 수(right_sizing.cpu_saturation_index 와 동일 임계 판정을 SQL 이식 — Linux procs_running·Windows Processor Queue Length 를 각자 임계로 판정한 crossing 서버 수, "윈도우 정규화 보정")·메모리 페이징 압박 서버 수(right_sizing.mem_pressure_active 와 동일 원자료·임계 — Linux refault·Windows Pages Input/sec crossing 서버 수)·디스크 I/O 포화 서버 수(`DISKIO_AWAIT_MS` 서버별 판정 crossing 서버 수 — worst-device await 단일값보다 영향 범위가 바로 읽히는 count 로 통일)·네트워크 이상 서버 수(right_sizing.assess_network 의 network_congested 와 동일 원자료·임계 — 재전송율·드롭율(저트래픽 게이트)·conntrack 고갈 OR). 넷 다 강도(연속 지수/worst 단일값)가 아닌 count(임계 넘은 서버 수)로 통일 — 도메인 지식 없이 바로 읽히고 분모(온라인 대수) 변동에 왜곡되지 않는 절대치(리눅스 페이징은 애초에 magnitude 아닌 존재 판정이라 지수화 자체가 불가능해 CPU·디스크·네트워크도 일관성 위해 count 로 맞춤). CPU 분류(User/System/I·O Wait/Nice)는 환경(여러 호스트 혼합) 단위에서 제외 — Windows 가 해당 신호를 아예 미발행이라 "환경" 명목의 차트가 사실상 Linux 전용이 되는 오인 소지(서버 상세 성능 추이는 단일 호스트라 계속 보유). CPU/메모리/디스크 PSI 는 트렌드 차트로는 전 스코프(환경·서버 상세)에서 제외 — 실시간 메트릭 카드의 포화 열 순간값으로만 표시(추이선은 정보 밀도 대비 판단 기여가 낮음). 디스크 IOPS·처리량·네트워크 PPS(합산 절대값)도 제외 — 이기종 장치를 그냥 더한 숫자는 비교 기준선이 없어 해석 불가. 스토리지 사용량(절대 총량)도 서버마다 프로비저닝 용량이 제각각이라 위험도를 못 읽어 사용률(%)로 대체. TCP 재전송율·패킷 드롭율은 두 % 라인이 시각적으로 거의 겹쳐 구분이 안 돼 네트워크 이상 서버 수로 통합.
 - 구간(globalRange)·앵커 토글 — `?time_range=` + 기준 시각, 차트 P4 동적 fetch (`AUTO_BUCKET[range]` 동적 bucket, #F10).
 - 선택 N대 진입(`?ids=`) 시 "선택 N대 성능 추이" 로 제목·집계 범위 한정.
 
@@ -135,17 +135,17 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 ## 의사결정 근거
 
 활용률 임계 신호:
-- 색 분기를 갖는 건 서버 badge 뿐 — "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분. 임계 상수(`_USAGE_WARN_PCT`·`_USAGE_DANGER_PCT`)는 `web/services/mappers/shared.py` 단일 진실, 대시보드는 표현만
-- 환경 평균 이용률 게이지는 단색 — 색으로 임계 의미를 주지 않고 채움 길이가 정도를 전달 (색 상수는 `web/services/mappers/shared.py`)
+- 색 분기를 갖는 건 서버 badge 뿐 — "warn"(노랑)·"danger"(빨강) 두 단계로 시각 구분. 임계 상수(`_USAGE_WARN_PCT`·`_USAGE_DANGER_PCT`)는 `web/services/mappers/constants.py` 단일 진실, 대시보드는 표현만
+- 환경 평균 이용률 게이지는 단색 — 색으로 임계 의미를 주지 않고 채움 길이가 정도를 전달 (색 상수는 `web/services/mappers/constants.py`)
 
 대시보드 평가 윈도우:
-- `recommendation.WINDOW_DAYS` 단일 진실 (CLAUDE.md #F10) — 분류·평균 활용률·포화 도넛 전부 한 창 통일(#E3 화면 간 정합)
+- `right_sizing.WINDOW_DAYS` 단일 진실 (CLAUDE.md #F10) — 분류·평균 활용률·포화 도넛 전부 한 창 통일(#E3 화면 간 정합)
 - 환경 개요 홈·성능 추이는 표준 윈도우 고정. 환경 자원 평가 페이지(`/environment/assessment`)만 `?time_range=` override 허용 (기본값 `DIAGNOSTIC_DEFAULT_TIME_RANGE`=14d)
 - 실시간 현황 페이지만 창 무관 — 최신 순간 스냅샷
 
 자원 적정성 평가 분류 막대 (환경 자원 평가 페이지):
 - 5분류(under/over/idle/optimal/insufficient_data) 카운트 막대 — `classify_host` 규칙 분류 -> `build_risk_donut_segments`
-- 분류명은 한국어(LABEL_KO) 단일 진실 — 영어 enum 노출 금지, 보고서·화면 통일
+- 분류명은 한국어(RECOMMENDATION_LABEL_KO) 단일 진실 — 영어 enum 노출 금지, 보고서·화면 통일
 - 막대 색은 게이지 테마 단색 통일 (라벨이 의미 전달) — `UTIL_GAUGE_COLOR`
 - 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·자원 적정성·capacity trigger 일관, CLAUDE.md #E8)
 
@@ -162,7 +162,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 ## 관련 문서·코드
 
 - `docs/reference/web/layering.md` — 라우터 흐름·다이어그램
-- `docs/reference/web/services.md` — query_service·service_classifier
+- `docs/reference/web/services.md` — query 패키지·service_classifier
 - `docs/reference/web/view-models.md` — ViewModel 카탈로그·도넛 SVG 상수
 - `docs/reference/web/static-assets.md` — list-table.js·차트 P4 규약
 - `docs/explanation/products/{environment-report,server-report}.md` — 보고서 산출물 (scope별)

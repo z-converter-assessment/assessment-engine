@@ -16,7 +16,7 @@ from assessment_engine.db.repositories.diagnostic_sql import SqlDiagnosticReposi
 from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepository
 from assessment_engine.db.session import get_db, get_session_factory
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
-from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.services.query import QueryService
 from assessment_engine.web.services.task_service import HttpZdmPackageResolver, TaskService
 
 type DbSessionDep = Annotated[AsyncSession, Depends(get_db)]

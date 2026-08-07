@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, get_args
 from sqlalchemy import select, text
 from sqlalchemy.sql.elements import TextClause
 
-from assessment_engine import recommendation  # 순수 도메인 커널 — right-sizing 정책 상수(순환 없음)
 from assessment_engine.db.dtos.outbound import (
     CpuCoreRaw,
     DashboardRaw,
@@ -51,6 +50,7 @@ from assessment_engine.db.repositories.query.types import (
     MetricType,
     TimeRange,
 )
+from assessment_engine.domain import right_sizing  # 순수 도메인 커널 — right-sizing 정책 상수(순환 없음)
 
 if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
@@ -68,7 +68,7 @@ _RATE_PER_DIM: dict[str, tuple[str, str, str]] = {
 
 @dataclass(frozen=True, slots=True)
 class _TrendCtx:
-    """`metric_trend` 한 호출의 입력 — builder 가 SQL 을 조립하는 데 필요한 전부.
+    """`get_metric_trend` 한 호출의 입력 — builder 가 SQL 을 조립하는 데 필요한 전부.
 
     `bi`(time_bucket interval 문자열)와 `bucket_td`(같은 폭의 timedelta)를 둘 다 싣는다. 절반 넘는
     builder 가 `start - bucket_td` 로 delta 계산용 선행 버킷을 붙이기 때문이다.
@@ -174,8 +174,8 @@ def _trend_cpu_saturation_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]
     # collected_at 별로 먼저 세고 avg 내면 서버들이 비동기 보고라 매 시점 사실상 1대만 잡혀(다른 서버는
     # 그 시점에 값이 없음) 3/7 같은 소수 카운트가 나온다(오류). 버킷 우선이라 항상 정수.
     sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
-    params["procs_running_threshold"] = recommendation.PROCS_RUNNING_PER_CORE_SATURATION
-    params["cpu_run_queue_threshold"] = recommendation.CPU_RUN_QUEUE_PER_CORE_SATURATION
+    params["procs_running_threshold"] = right_sizing.PROCS_RUNNING_PER_CORE_SATURATION
+    params["cpu_run_queue_threshold"] = right_sizing.CPU_RUN_QUEUE_PER_CORE_SATURATION
     sql = text(f"""
         WITH flags AS (
             SELECT sm.collected_at, sm.server_id,
@@ -201,11 +201,11 @@ def _trend_cpu_saturation(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
     bi, server_ids = ctx.bi, ctx.server_ids
     params: JsonObject = {"start": ctx.start, "end": ctx.end}
     # CPU 실행 큐 포화 여부(서버 상세, 이진 0/1) — cpu.saturation_hosts(환경, crossing 서버 수)와 동일
-    # 원자료·임계, 서버 1대 단일 시계열로 축소: recommendation.cpu_saturated 동일 판정 — Linux
+    # 원자료·임계, 서버 1대 단일 시계열로 축소: right_sizing.cpu_saturated 동일 판정 — Linux
     # (procs_running/core, 임계 1.0)·Windows(Processor Queue/core, 임계 2.0, "윈도우 정규화 보정").
     sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
-    params["procs_running_threshold"] = recommendation.PROCS_RUNNING_PER_CORE_SATURATION
-    params["cpu_run_queue_threshold"] = recommendation.CPU_RUN_QUEUE_PER_CORE_SATURATION
+    params["procs_running_threshold"] = right_sizing.PROCS_RUNNING_PER_CORE_SATURATION
+    params["cpu_run_queue_threshold"] = right_sizing.CPU_RUN_QUEUE_PER_CORE_SATURATION
     sql = text(f"""
         WITH flags AS (
             SELECT sm.collected_at,
@@ -286,7 +286,7 @@ def _trend_disk_io_saturation(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
         FROM per_ts WHERE v IS NOT NULL GROUP BY ts ORDER BY ts
     """)
     params["window_start"] = start - bucket_td
-    params["diskio_util_min"] = recommendation.RS_DISKIO_UTIL_MIN
+    params["diskio_util_min"] = right_sizing.DISKIO_UTIL_MIN
     return sql, params
 
 
@@ -295,16 +295,16 @@ def _trend_disk_saturation_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonObject
     server_ids = ctx.server_ids
     params: JsonObject = {"start": ctx.start, "end": ctx.end}
     # 디스크 I/O 포화 서버 수 — disk.io_saturation(worst-device await, 환경 단일 MAX선)과 동일 판정
-    # 임계(RS_DISKIO_AWAIT_MS)를 서버별로 적용해 "판정 crossing 서버 수"(count)로 집계 — CPU 실행 큐·
+    # 임계(DISKIO_AWAIT_MS)를 서버별로 적용해 "판정 crossing 서버 수"(count)로 집계 — CPU 실행 큐·
     # 메모리 페이징과 동형(도메인 지식 없이 바로 읽히고, MAX 단일선보다 문제의 확산 범위가 드러남).
     # 물리 disk only(_PHYS_DISK_SQL_FILTER) + 카운터 신뢰 조건(ops_delta>0, iot_delta 가 [0, wall]
-    # 범위 — phantom busy/reset/overflow 가드, 실시간현황 latest_saturation 과 동일 원칙) 적용.
+    # 범위 — phantom busy/reset/overflow 가드, 실시간현황 get_latest_saturation 과 동일 원칙) 적용.
     # 버킷 우선 bool_or count(cpu.saturation_hosts·mem.paging_pressure_hosts 와 동형, 항상 정수) —
     # raw per_ts 먼저 세면 서버 비동기 보고라 소수 카운트 오류(오늘 발견·수정한 버그와 동일 원인).
     sid_dio = "AND server_id = ANY(:server_ids)" if server_ids else ""
     params["window_start"] = start - bucket_td
-    params["diskio_util_min"] = recommendation.RS_DISKIO_UTIL_MIN
-    params["diskio_await_ms"] = recommendation.RS_DISKIO_AWAIT_MS
+    params["diskio_util_min"] = right_sizing.DISKIO_UTIL_MIN
+    params["diskio_await_ms"] = right_sizing.DISKIO_AWAIT_MS
     sql = text(f"""
         WITH l_raw AS (
             SELECT collected_at, server_id, device_id,
@@ -349,14 +349,14 @@ def _trend_disk_saturation(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
     server_ids = ctx.server_ids
     params: JsonObject = {"start": ctx.start, "end": ctx.end}
     # 디스크 I/O 포화 여부(서버 상세, 이진 0/1) — disk.saturation_hosts(환경, crossing 서버 수)와 동일
-    # 원자료·임계(RS_DISKIO_AWAIT_MS), 서버 1대 단일 시계열로 축소. 물리 disk only(_PHYS_DISK_SQL_FILTER)
+    # 원자료·임계(DISKIO_AWAIT_MS), 서버 1대 단일 시계열로 축소. 물리 disk only(_PHYS_DISK_SQL_FILTER)
     # + 카운터 신뢰 조건(ops_delta>0, iot_delta 가 [0, wall] 범위 — phantom busy/reset/overflow 가드,
-    # disk.io_saturation·실시간현황 latest_saturation 과 동일 원칙). MAX(await_ms)>임계 는 device 별
+    # disk.io_saturation·실시간현황 get_latest_saturation 과 동일 원칙). MAX(await_ms)>임계 는 device 별
     # bool_or(await_ms>임계) 와 동치(비교가 단조라 — worst device 만 넘으면 전체 넘음).
     sid_dio = "AND server_id = ANY(:server_ids)" if server_ids else ""
     params["window_start"] = start - bucket_td
-    params["diskio_util_min"] = recommendation.RS_DISKIO_UTIL_MIN
-    params["diskio_await_ms"] = recommendation.RS_DISKIO_AWAIT_MS
+    params["diskio_util_min"] = right_sizing.DISKIO_UTIL_MIN
+    params["diskio_await_ms"] = right_sizing.DISKIO_AWAIT_MS
     sql = text(f"""
         WITH l_raw AS (
             SELECT collected_at, server_id, device_id,
@@ -477,10 +477,10 @@ def _trend_net_congested(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
     # 동일 원자료·임계·OR 판정, 서버 1대 단일 시계열로 축소(mem.paging_pressure 와 동일 원칙).
     sid_nc = "AND server_id = ANY(:server_ids)" if server_ids else ""
     params["window_start"] = start - bucket_td
-    params["min_traffic_kbps"] = recommendation.RS_NET_MIN_TRAFFIC_KBPS
-    params["retrans_threshold"] = recommendation.RS_NET_RETRANS_PCT
-    params["drop_threshold"] = recommendation.RS_NET_DROP_PCT
-    params["conntrack_threshold"] = recommendation.RS_CONNTRACK_SATURATION_RATIO
+    params["min_traffic_kbps"] = right_sizing.NET_MIN_TRAFFIC_KBPS
+    params["retrans_threshold"] = right_sizing.NET_RETRANS_PCT
+    params["drop_threshold"] = right_sizing.NET_DROP_PCT
+    params["conntrack_threshold"] = right_sizing.CONNTRACK_SATURATION_RATIO
     sql = text(f"""
         WITH tcp_raw AS (
             SELECT collected_at, server_id, net_tcp_retransmits AS retrans,
@@ -559,7 +559,7 @@ def _trend_net_congested_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
     bi, bucket_td, start = ctx.bi, ctx.bucket_td, ctx.start
     server_ids = ctx.server_ids
     params: JsonObject = {"start": ctx.start, "end": ctx.end}
-    # 판정 3종(재전송·드롭·conntrack)과 저트래픽 게이트 규약은 `recommendation.assess_network` 와
+    # 판정 3종(재전송·드롭·conntrack)과 저트래픽 게이트 규약은 `right_sizing.assess_network` 와
     # `docs/reference/db/repositories.md` "차트 집계" 표가 갖는다 — 여기는 그 판정의 SQL 이식이다.
     #
     # delta 순서가 결과를 바꾼다: iface 별로 delta 를 먼저 내고 그 다음 server 로 SUM 한다. server SUM 을
@@ -568,10 +568,10 @@ def _trend_net_congested_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
     # 드롭·트래픽(server_net_io)이 같은 agent 보고 주기에 실려 오기 때문이다.
     sid_nc = "AND server_id = ANY(:server_ids)" if server_ids else ""
     params["window_start"] = start - bucket_td
-    params["min_traffic_kbps"] = recommendation.RS_NET_MIN_TRAFFIC_KBPS
-    params["retrans_threshold"] = recommendation.RS_NET_RETRANS_PCT
-    params["drop_threshold"] = recommendation.RS_NET_DROP_PCT
-    params["conntrack_threshold"] = recommendation.RS_CONNTRACK_SATURATION_RATIO
+    params["min_traffic_kbps"] = right_sizing.NET_MIN_TRAFFIC_KBPS
+    params["retrans_threshold"] = right_sizing.NET_RETRANS_PCT
+    params["drop_threshold"] = right_sizing.NET_DROP_PCT
+    params["conntrack_threshold"] = right_sizing.CONNTRACK_SATURATION_RATIO
     sql = text(f"""
         WITH tcp_raw AS (
             SELECT collected_at, server_id, net_tcp_retransmits AS retrans,
@@ -689,17 +689,17 @@ def _trend_mem_paging_pressure(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
     server_ids = ctx.server_ids
     params: JsonObject = {"start": ctx.start, "end": ctx.end}
     # 메모리 압박 여부(서버 상세, 이진 0/1) — mem.paging_pressure_hosts(환경, 판정 crossing 서버 수)와
-    # 동일 원자료·임계, 서버 1대 단일 시계열로 축소: recommendation.mem_pressure_active 동일 판정
+    # 동일 원자료·임계, 서버 1대 단일 시계열로 축소: right_sizing.mem_pressure_active 동일 판정
     # (Linux refault 임계 "> 0"·Windows Pages Input/sec 임계 WIN_PAGES_INPUT_SATURATION=20/s). Linux
     # 페이징은 magnitude 아닌 존재 판정이라(하드폴트 절대 rate 는 디스크 속도 의존이라 보편 임계 불가)
     # raw rate 를 그대로 선으로 그리면 OS 간 척도가 달라 비교 불가 — 버킷 안에서 한 번이라도 넘었는지
     # (bool_or)를 1.0/0.0 스텝으로 표시해야 Linux·Windows 를 같은 잣대(판정 결과)로 비교 가능.
     # reset(카운터 감소)은 GREATEST(delta,0) 흡수. 하드폴트 원자료 컬럼은 os-aware(Windows 는 paging.operations
     # 를 direction=in 만 발행해 paging_major 가 항상 NULL — Linux=paging_major(refault) / Windows=paging_in
-    # (Pages Input), report_aggregate pages_input_rate 산식과 동일 소스 통일).
+    # (Pages Input), get_report_aggregate pages_input_rate 산식과 동일 소스 통일).
     sid_mp = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
     params["window_start"] = start - bucket_td
-    params["win_paging_threshold"] = recommendation.WIN_PAGES_INPUT_SATURATION
+    params["win_paging_threshold"] = right_sizing.WIN_PAGES_INPUT_SATURATION
     sql = text(f"""
         WITH raw AS (
             SELECT sm.collected_at, sm.server_id, si.os_family,
@@ -739,7 +739,7 @@ def _trend_mem_paging_pressure_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonOb
     bi, bucket_td, start = ctx.bi, ctx.bucket_td, ctx.start
     server_ids = ctx.server_ids
     params: JsonObject = {"start": ctx.start, "end": ctx.end}
-    # 메모리 압박 서버 수 — recommendation.mem_pressure_active(mem_saturated dual-gate 의 실제 페이징
+    # 메모리 압박 서버 수 — right_sizing.mem_pressure_active(mem_saturated dual-gate 의 실제 페이징
     # 신호원) 동일 원자료·임계를 SQL 로 이식: paging_major(하드폴트 카운터) rate 가 os별 임계를 넘는
     # 서버 수. Linux(refault, 임계 "> 0")·Windows(Pages Input/sec, 임계 WIN_PAGES_INPUT_SATURATION=20/s).
     # CPU 실행 큐와 달리 Linux 쪽이 magnitude 아닌 존재 판정이라(하드폴트 절대 rate 는 디스크 속도
@@ -753,7 +753,7 @@ def _trend_mem_paging_pressure_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonOb
     # (refault) / Windows=paging_in(Pages Input)).
     sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
     params["window_start"] = start - bucket_td
-    params["win_paging_threshold"] = recommendation.WIN_PAGES_INPUT_SATURATION
+    params["win_paging_threshold"] = right_sizing.WIN_PAGES_INPUT_SATURATION
     sql = text(f"""
         WITH raw AS (
             SELECT sm.collected_at, sm.server_id, si.os_family,
@@ -976,17 +976,17 @@ _TREND_KEYS: frozenset[str] = frozenset(get_args(MetricType.__value__)) | frozen
 )
 
 if len(_TREND_PAIRS) != len(_TREND_BUILDERS):
-    raise AssertionError("metric_trend dispatch 에 중복 키가 있다 — 뒤 항목이 앞을 덮는다")
+    raise AssertionError("get_metric_trend dispatch 에 중복 키가 있다 — 뒤 항목이 앞을 덮는다")
 _REGISTERED: frozenset[str] = frozenset(_TREND_BUILDERS)
 if _REGISTERED != _TREND_KEYS:
-    raise AssertionError(f"metric_trend dispatch 누락·초과: {_REGISTERED ^ _TREND_KEYS}")
+    raise AssertionError(f"get_metric_trend dispatch 누락·초과: {_REGISTERED ^ _TREND_KEYS}")
 
 
 class SqlMetricQueryRepository(_BaseQueryMixin):
     # cursor pagination 윈도우 — C5 partition pruning 하한. cursor 마다 cursor-30d 동적.
     _METRIC_SNAPSHOTS_WINDOW = timedelta(days=30)
 
-    async def latest_dashboard(self, server_id: int) -> DashboardRaw | None:
+    async def get_latest_dashboard(self, server_id: int) -> DashboardRaw | None:
         inv = await self.session.execute(
             select(
                 ServerInventory.os_family,
@@ -1121,18 +1121,18 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
             cpu_cores=cpu_cores,
         )
 
-    async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
+    async def get_latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
         """서버별 실시간 포화 원자료 (os 통일):
 
         - run_queue: 최신 cpu_run_queue gauge (Linux procs_running / Windows Processor Queue).
         - await_ms: server_disk_io op_time delta / ops delta (양 OS, ms, 물리 disk only — `_PHYS_DISK_SQL_FILTER`
-          fail-closed, chart/report_aggregate 와 동일). pending_ops 는 큐 폴백.
+          fail-closed, chart/get_report_aggregate 와 동일). pending_ops 는 큐 폴백.
         - disk_io_util_pct: 물리 disk worst device io_time delta / wall-time delta * 100 (USE Method Utilization
           축, 0% 도 실측). 합성/숨김 pseudo-device(예: Windows aggregate:system) 제외 — 실측치인 척 대체하면
           진짜 물리 device 카운터 이상(phantom busy 등)이 은폐된다.
         - paging_major_rate: 하드폴트 rate, os-aware 컬럼 선택 — Linux paging_major(refault) / Windows paging_in
           (Pages Input/sec. Windows 는 paging.operations 를 direction=in 만 발행, type=major 포인트 없음 —
-          paging_major 컬럼은 Windows 에서 항상 NULL, report_aggregate pages_input_rate 산식과 동일 소스 통일).
+          paging_major 컬럼은 Windows 에서 항상 NULL, get_report_aggregate pages_input_rate 산식과 동일 소스 통일).
         - retrans_pct / drop_pct / conntrack_ratio: 네트워크 품질·로컬 포화.
         - psi_cpu / psi_mem / psi_io: PSI %정체(stall_time delta / wall-time delta, server_pressure some, Linux 4.20+ / null).
 
@@ -1169,7 +1169,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
                 FROM m2 WHERE rn <= 2 GROUP BY server_id
             ),
             d2 AS (
-                -- 물리 disk 만(합성/숨김 pseudo-device 제외, chart/report_aggregate 와 동일 fail-closed 필터) —
+                -- 물리 disk 만(합성/숨김 pseudo-device 제외, chart/get_report_aggregate 와 동일 fail-closed 필터) —
                 -- 미필터면 Windows aggregate:system 같은 pseudo-device 가 실측 0%/await 로 위장해 진짜 물리
                 -- 디바이스(PhysicalDrive0 등) 카운터 이상 시 그걸로 대체돼 버림(오탐 은폐, N/A 여야 할 게 값으로 보임).
                 SELECT server_id, device_id,
@@ -1273,7 +1273,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
                    LEFT JOIN psi ON psi.server_id = m.server_id
         """)
         result = await self.session.execute(
-            sql, {"sids": server_ids, "since": since, "diskio_util_min": recommendation.RS_DISKIO_UTIL_MIN}
+            sql, {"sids": server_ids, "since": since, "diskio_util_min": right_sizing.DISKIO_UTIL_MIN}
         )
 
         def _f(v: float | None) -> float | None:
@@ -1296,7 +1296,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
             for r in result
         }
 
-    async def latest_errors(self, server_id: int, since: datetime) -> ErrorFleetRaw:
+    async def get_latest_errors(self, server_id: int, since: datetime) -> ErrorFleetRaw:
         """창내 에러 축 카운트 (단일 서버, bounded raw). counter delta = MAX-MIN(reset 은 >=0 자연 클램프).
 
         server_disk_error 는 정상 시 count=0 -> delta 0 = 정상(no_data 아님). server_metrics/net_io 는 창 안
@@ -1364,7 +1364,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
             last_error_at=de.last_at,
         )
 
-    async def fleet_error_summary(self, server_ids: list[int], since: datetime) -> FleetErrorRaw:
+    async def get_fleet_error_summary(self, server_ids: list[int], since: datetime) -> FleetErrorRaw:
         """전 서버 에러축 영향 호스트 수 (환경 개요 fleet 표시자). 창내 counter delta > 0(또는 corrupted 현재>0) 호스트 count."""
         if not server_ids:
             return FleetErrorRaw()
@@ -1429,12 +1429,12 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
             disk_error_hosts=int(disk_hosts or 0),
         )
 
-    async def fleet_error_hosts(self, server_ids: list[int], since: datetime) -> set[int]:
+    async def get_fleet_error_hosts(self, server_ids: list[int], since: datetime) -> set[int]:
         """에러 발생 server_id 집합 (서버 목록 "운영 이벤트" 칼럼). 5축(mce·oom·corrupted·net·disk) 중
 
-        하나라도 창내 counter delta > 0(또는 corrupted 현재>0)이면 포함 — fleet_error_summary 와 동일 소스·delta.
+        하나라도 창내 counter delta > 0(또는 corrupted 현재>0)이면 포함 — get_fleet_error_summary 와 동일 소스·delta.
 
-        #C5 예외: since=epoch 전체기간 스캔이나 에러 delta 는 저비용(fleet_error_summary 와 동일 예외).
+        #C5 예외: since=epoch 전체기간 스캔이나 에러 delta 는 저비용(get_fleet_error_summary 와 동일 예외).
         3 소스 각각 SELECT 후 Python 합집합.
         """
         if not server_ids:
@@ -1494,14 +1494,14 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
         hosts.update(disk_rows)
         return {int(h) for h in hosts}
 
-    async def latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]:
+    async def get_latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]:
         """서버·iface별 최신 link_speed_bps (bit/s gauge). assessment reproduction 의 inventory speed_mbps
 
         null(Windows NT5.2/virtio) 폴백용 — 엔진이 metrics network.link.speed 로 대체(agent 확정 규약).
         """
         return await self._latest_link_speed(server_ids, since)
 
-    async def metric_snapshots(
+    async def get_metric_snapshots(
         self,
         server_id: int,
         cursor: datetime | None,
@@ -1523,7 +1523,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
         result = await self.session.execute(stmt)
         return [MetricSeries(collected_at=ts, value=None, dimension=None) for ts in result.scalars().all()]
 
-    async def metric_chart(
+    async def get_metric_chart(
         self,
         server_id: int,
         metric_type: MetricType,
@@ -1534,12 +1534,12 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
         end: datetime | None = None,
         collapse: bool = False,
     ) -> list[MetricSeries]:
-        # 서버 상세 차트 = metric_trend(server_ids=[1대]) 위임. collapse=True — 물리 디바이스/마운트 수와
+        # 서버 상세 차트 = get_metric_trend(server_ids=[1대]) 위임. collapse=True — 물리 디바이스/마운트 수와
         # 무관하게 1대 서버 내에서 dimension 합산 1선(스토리지 IOPS·처리량 추이 — 디바이스 많으면 멀티라인
         # 지저분해지는 문제, 환경 합산과 동일 SQL 재사용). collapse=False(기본) 는 기존 dimension 별 멀티라인.
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
-        return await self.metric_trend(
+        return await self.get_metric_trend(
             metric_type,
             start,
             end_dt,
@@ -1550,7 +1550,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
             collapse=collapse,
         )
 
-    async def metric_trend(
+    async def get_metric_trend(
         self,
         metric_type: MetricType | EnvironmentMetricType,
         start: datetime,
@@ -1590,7 +1590,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
             for row in result.all()
         ]
 
-    async def reboot_events(
+    async def get_reboot_events(
         self,
         server_id: int,
         start: datetime,

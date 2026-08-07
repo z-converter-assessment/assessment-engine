@@ -3,15 +3,15 @@
 5 도메인 sub-repository (server / metric / report / attention / task) 가 공유하는
 TimeRange · BucketSize · MetricType · dispatch table whitelist 카탈로그.
 
-caller(`web/services/query_service.py`, `web/routers/api.py`, `tests/...`)는 본 모듈에서 import.
+caller(`web/services/query/service.py`, `web/routers/api.py`, `tests/...`)는 본 모듈에서 import.
 """
 
 from datetime import timedelta
 from typing import Literal
 
-from assessment_engine.boot_time import BOOT_TIME_JITTER_TOLERANCE
+from assessment_engine.domain.boot_time import BOOT_TIME_JITTER_TOLERANCE
 
-# boot_time 지터 허용치(초) — reboot_events(server_inventory_history) 의 재부팅 판정 게이트.
+# boot_time 지터 허용치(초) — get_reboot_events(server_inventory_history) 의 재부팅 판정 게이트.
 # child 시계열(disk_io/net_io)은 boot_time 미보유 -> rate 차트 reset 은 GREATEST(delta,0) 로 흡수(아래).
 BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
 
@@ -69,8 +69,8 @@ type TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 type BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
 type AggFunc = Literal["avg", "max", "p95"]
 
-# TimeRange → timedelta. metric_chart·reboot_events 양쪽 사용 (service·repo 중복 방지).
-# 14d는 right-sizing 윈도우(recommendation.WINDOW_DAYS)와 동일 — 보고서·대시보드·차트 일관.
+# TimeRange → timedelta. get_metric_chart·get_reboot_events 양쪽 사용 (service·repo 중복 방지).
+# 14d는 right-sizing 윈도우(right_sizing.WINDOW_DAYS)와 동일 — 보고서·대시보드·차트 일관.
 TIME_RANGE_TD: dict[str, timedelta] = {
     "15m": timedelta(minutes=15),
     "1h": timedelta(hours=1),
@@ -84,7 +84,7 @@ TIME_RANGE_TD: dict[str, timedelta] = {
 # TimeRange → 평가 윈도우(일, float). SQL interval 은 fraction 지원(0.25 days = 6h). TIME_RANGE_TD 단일 소스 파생.
 DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {r: td.total_seconds() / 86400 for r, td in TIME_RANGE_TD.items()}
 
-# 진단 발행·분류 기본 윈도우 — service default·UI 기본값 단일 진실 (#F10). recommendation.WINDOW_DAYS(14d)와 정합.
+# 진단 발행·분류 기본 윈도우 — service default·UI 기본값 단일 진실 (#F10). right_sizing.WINDOW_DAYS(14d)와 정합.
 DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
 
 # (SQL interval 문자열, Python timedelta) — bucket 단위를 SQL과 Python 양쪽에서 사용.

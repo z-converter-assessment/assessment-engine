@@ -13,11 +13,11 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from assessment_engine.web.services.report_generator import (
+from assessment_engine.web.services.report import (
     ReportGenerationError,
     build_report_result_for_job,
 )
-from assessment_engine.worker.worker_lifecycle import sleep_or_stop
+from assessment_engine.worker.lifecycle import sleep_or_stop
 
 if TYPE_CHECKING:
     import asyncio
@@ -26,7 +26,7 @@ if TYPE_CHECKING:
 
     from assessment_engine.db.dtos.outbound import DiagnosticJobRecord
     from assessment_engine.web.services.diagnostic_service import DiagnosticService
-    from assessment_engine.web.services.query_service import QueryService
+    from assessment_engine.web.services.query import QueryService
 
 
 async def _process_one(
@@ -51,7 +51,7 @@ async def _process_one(
         await diag_service.finish_failed(rec.id, "internal error")
 
 
-async def run_report_worker(
+async def run_report_loop(
     *,
     diag_service: DiagnosticService,
     query_service_factory: Callable[[], AbstractAsyncContextManager[QueryService]],

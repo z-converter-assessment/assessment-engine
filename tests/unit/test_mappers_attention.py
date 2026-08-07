@@ -6,7 +6,7 @@ capacity-weighted 평균·top_n 피크·포화 카운트(realtime) + 분류순·
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from assessment_engine import recommendation
+from assessment_engine.domain import right_sizing
 from assessment_engine.web.services.mappers.attention import (
     _NET_CONGESTED_COLOR,
     _UTIL_COLOR_GAUGE,
@@ -173,7 +173,7 @@ def test_realtime_load_rows_paging_os_tagged_run_queue_not():
     """페이징 — 무정규화 raw rate라 OS별 원 지표·임계 상이, 값 앞 L(Linux)/W(Windows) 접두(_os_cell).
 
     실행 큐는 임계 정규화(값/threshold)로 OS 무관 비교 가능해 접두 없음. os_family 미설정(None)은
-    Linux 취급(recommendation 기본 분기와 정합) — 페이징만 L 접두.
+    Linux 취급(right_sizing 기본 분기와 정합) — 페이징만 L 접두.
     """
     snaps = [
         _snap("lin", "pl", os_family="linux", cpu_sat_index=0.8, paging_rate=3.0),
@@ -362,13 +362,13 @@ def test_action_targets_reuses_capacity_warning_classification():
     assert at.hosts[0].classification == direct.classification
     assert at.hosts[0].severity_score == direct.severity_score
     assert at.hosts[0].classification == "under_provisioned"
-    assert recommendation.CLASSIFICATION_ORDER[at.hosts[0].classification] == 0
+    assert right_sizing.CLASSIFICATION_ORDER[at.hosts[0].classification] == 0
 
 
 def test_capacity_warning_item_disk_io_status_symmetric_with_network():
     """disk_io_status_label/color — network 와 동형 orthogonal flag, host_status(classification) 무관 항상 노출.
 
-    await 25ms > RS_DISKIO_AWAIT_MS(20) -> io_bound(빨강, net congested 와 동일 색). CPU/메모리 정상이라
+    await 25ms > DISKIO_AWAIT_MS(20) -> io_bound(빨강, net congested 와 동일 색). CPU/메모리 정상이라
     classification 은 optimal 이어도 디스크 I/O 상태는 별도로 노출(사각지대 보완이 이 필드의 목적).
     """
     raw = _raw(hostname="h", public_id="ph", cpu_p95_pct=50.0, mem_p95_pct=85.0, disk_await_p95_ms=25.0)

@@ -87,7 +87,7 @@
 
 트레이드오프
 - 얻은 것: 가장 단순한 운영. 모든 raw 데이터를 영구 보존해 사후 분석 자유도 높음.
-- 포기한 것: 디스크 사용량 무한 증가. 차트(`metric_trend`, 동적 버킷)는 목적상 raw 조회라 range 가 길수록 스캔량 증가.
+- 포기한 것: 디스크 사용량 무한 증가. 차트(`get_metric_trend`, 동적 버킷)는 목적상 raw 조회라 range 가 길수록 스캔량 증가.
 
 왜 받아들였나
 - 소규모 dev 환경 서버 수와 1분 주기에서는 1개월 데이터가 ~130k행/서버. 운영 부담 미미.
@@ -222,7 +222,7 @@ inventory 비어 있는 데이터베이스로 metrics가 도착하면 1시간 �
 
 ## T10. ViewModel 비대화 vs 클라이언트 재계산 (P2 따름)
 
-> 관련 코드: `src/assessment_engine/web/view_models/`, `src/assessment_engine/web/services/mappers/`, `src/assessment_engine/web/services/mappers/metrics_calculator.py`
+> 관련 코드: `src/assessment_engine/web/view_models/`, `src/assessment_engine/web/services/mappers/`, `src/assessment_engine/web/services/mappers/metric_dashboard.py`
 > 관련 문서: CLAUDE.md #E1 P2 · #E3, `docs/reference/web/view-models.md`
 
 선택
@@ -370,7 +370,7 @@ right-sizing 분류는 USE Method 의 Utilization + Saturation 두 축을 본다
 
 ## T15. 서비스 분류 — pid 부재 유닛의 per-unit 귀속 한계 (호스트 union 으로 보완)
 
-agent 는 `services[]` 에 pid/exe 를, `listen_ports[]` 에 pid/comm 을 싣는다. 양쪽에 pid 가 있으면 `_attributed_ports` 가 동일 pid 소켓만 귀속해 per-unit 분류(`classify`)가 확정된다. pid 가 null 인 구간(소켓 액티베이션 리스너·비-systemd 열거·권한 부족 Windows 포트)에서만 `comm~name` substring -> name well-known 포트 순 fallback 이라, 이름이 comm 과 무관한 opaque 서비스를 그 구간에서 per-unit 으론 못 잡는다.
+agent 는 `services[]` 에 pid/exe 를, `listen_ports[]` 에 pid/comm 을 싣는다. 양쪽에 pid 가 있으면 `_attributed_ports` 가 동일 pid 소켓만 귀속해 per-unit 분류(`classify_service`)가 확정된다. pid 가 null 인 구간(소켓 액티베이션 리스너·비-systemd 열거·권한 부족 Windows 포트)에서만 `comm~name` substring -> name well-known 포트 순 fallback 이라, 이름이 comm 과 무관한 opaque 서비스를 그 구간에서 per-unit 으론 못 잡는다.
 
 pid 부재 구간 보완 — 호스트 워크로드 union:
 - 뱃지/role/환경분포는 per-unit 분류에 의존하지 않고, `detect_listen_categories(listen_ports)` 로 listen 소켓을 직접 분류(comm/port)해 services 이름 분류와 합집합(`workload_category_counter`)한다. listen 소켓의 comm·port 는 깨끗·안정 식별자라 opaque 이름을 우회 — `MSSQL$무엇` 이든 1433/`sqlservr` 로 db 탐지.
@@ -394,7 +394,7 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 - 보고서 발행은 비동기다: emit 은 parent job 을 pending enqueue 후 즉시 `?job={id}` 반환, 전용 워커 프로세스(`assessment_engine.worker`)가 job 을 claim 해 생성한다. consumer 큐 워커가 아니라 전용 워커 + DB 상태머신 방식.
 
 왜 consumer 큐 워커가 아니라 전용 워커 프로세스인가
-- 보고서 생성 코드(query_service report 메서드 + mappers·view_models·serializer)가 web/services 강결합. consumer(F4 CollectRepository 만)로 위임하면 web 표시계층 절반을 web 비의존 패키지로 승격하는 대공사 + 양방향 의존. 워크로드가 DB 집계 I/O(수초)라 큐 분리 효용도 낮다. 전용 워커는 web/services 를 그대로 재사용(단일 이미지)하면서 별도 프로세스로만 뗀다 — 추출 0.
+- 보고서 생성 코드(`QueryService` report 메서드 + mappers·view_models·serializer)가 web/services 강결합. consumer(F4 CollectRepository 만)로 위임하면 web 표시계층 절반을 web 비의존 패키지로 승격하는 대공사 + 양방향 의존. 워크로드가 DB 집계 I/O(수초)라 큐 분리 효용도 낮다. 전용 워커는 web/services 를 그대로 재사용(단일 이미지)하면서 별도 프로세스로만 뗀다 — 추출 0.
 - 메모리 task 방식은 in-flight 손실 위험으로 기각 — job 상태를 DB 에 두고 stale 복구로 그 손실을 무효화한다(FOR UPDATE SKIP LOCKED 로 멀티노드 분산까지).
 
 포기한 것 / 한계
@@ -432,7 +432,7 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 ## T18. 용량 runway 전체 이력 집계 — cagg 하한 술어 예외
 
 무엇을
-- `report_aggregate` 의 mount_span CTE 는 `server_filesystem_5m` cagg 를 `WHERE server_id = ANY(:sids) AND bucket <= :end` 로 조회한다 — 다른 CTE(분류·포화·품질)가 전부 `bucket >= :start`(평가 윈도우) 인 것과 달리 하한 술어가 없다. 용량 runway(바이트·inode 소진 일수)는 실제 관측 span 전체의 fill_rate 로 산출하기 때문이다(#C5 partition pruning 하한 술어 원칙의 의식적 예외).
+- `get_report_aggregate` 의 mount_span CTE 는 `server_filesystem_5m` cagg 를 `WHERE server_id = ANY(:sids) AND bucket <= :end` 로 조회한다 — 다른 CTE(분류·포화·품질)가 전부 `bucket >= :start`(평가 윈도우) 인 것과 달리 하한 술어가 없다. 용량 runway(바이트·inode 소진 일수)는 실제 관측 span 전체의 fill_rate 로 산출하기 때문이다(#C5 partition pruning 하한 술어 원칙의 의식적 예외).
 
 왜 전체 이력인가
 - CPU·메모리 이용률은 변동 신호라 최근 평가 윈도우의 대표 부하로 p95 를 뽑는다(오래된 데이터는 지금을 대변 못 함). 반면 디스크 용량은 누적 신호라 채워지는 속도(추세)가 곧 모델이고, 데이터가 길수록 기울기가 정확하다. 평가 윈도우로 자르면 완만히 차는 볼륨의 runway 를 과소·과대 추정한다. 그래서 runway 만 분류 창과 분리해 전체 이력을 쓴다(윈도우 2분리 기준, #F10).
@@ -451,15 +451,15 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 ## T19. Assessment API — 포털 표준에서의 의식적 이탈 (pagination·캐시·인증)
 
 무엇을
-- `/api/assessment`(+ POST export)는 인터랙티브 포털의 세 표준에서 벗어난다: (1) pagination 없음 — 매칭 전량을 한 응답으로(E2 page/cursor 규약 이탈). (2) Redis 캐시 없음 — 매 요청이 매칭 fleet 전체를 `report_aggregate` 로 재계산(대시보드 캐시 경로와 달리). (3) 인증 없음 — 전체 인프라 청사진(재현 레이아웃·IP·사이징)을 관리망 격리만 신뢰하고 무인증 노출. 소비자 계약 관점의 선언은 계약 문서(contracts/assessment-api.md) 10절 — 본 절은 엔진측 설계 근거·확장 트리거만.
+- `/api/assessment`(+ POST export)는 인터랙티브 포털의 세 표준에서 벗어난다: (1) pagination 없음 — 매칭 전량을 한 응답으로(E2 page/cursor 규약 이탈). (2) Redis 캐시 없음 — 매 요청이 매칭 fleet 전체를 `get_report_aggregate` 로 재계산(대시보드 캐시 경로와 달리). (3) 인증 없음 — 전체 인프라 청사진(재현 레이아웃·IP·사이징)을 관리망 격리만 신뢰하고 무인증 노출. 소비자 계약 관점의 선언은 계약 문서(contracts/assessment-api.md) 10절 — 본 절은 엔진측 설계 근거·확장 트리거만.
 
 왜 표준을 벗어났나
 - pagination: 소비자가 인터랙티브 사용자가 아니라 재해복구/마이그레이션 자동화다. fleet 프로비저닝은 원자적 전량 소비가 목적 — 페이지 슬라이스로는 부분 인프라만 재현돼 under-provision 위험. cursor/페이지는 "계속 새 데이터 유입"(시계열)이나 "사람이 스크롤"(목록) 전제인데 assessment 는 스냅샷 1회 소비라 둘 다 안 맞는다. 스코프 축소는 필터(hostname/ip/public_id/pair)로 한다.
-- 캐시 없음: assessment 는 저빈도 운영/자동화 액션(핫 대시보드 경로 아님)이라 신선도·정확성 > 지연. per-mount 디스크 + 수십 필드 스냅샷은 변동이 커 캐시 churn 이 높고, stale 사이징은 안전 최우선 원칙에 반한다. `report_aggregate` 는 cagg 사전집계라 현 fleet 규모에서 비용이 작다.
+- 캐시 없음: assessment 는 저빈도 운영/자동화 액션(핫 대시보드 경로 아님)이라 신선도·정확성 > 지연. per-mount 디스크 + 수십 필드 스냅샷은 변동이 커 캐시 churn 이 높고, stale 사이징은 안전 최우선 원칙에 반한다. `get_report_aggregate` 는 cagg 사전집계라 현 fleet 규모에서 비용이 작다.
 - 무인증: 관리망 전용 내부 B2B 포털로 나머지 화면과 같은 신뢰 경계. 이 엔드포인트만 별도 토큰 게이트를 세우면 포털 전체 인증 모델과 이원화된다.
 
 포기한 것 / 한계
-- 대규모 fleet 무필터 호출은 매칭 전량 `report_aggregate` 를 캐시 없이 매번 — 현재 70 VM 규모는 수백 ms 수준이나 수천 대·고빈도 폴링이면 반복 재계산이 선형 비용.
+- 대규모 fleet 무필터 호출은 매칭 전량 `get_report_aggregate` 를 캐시 없이 매번 — 현재 70 VM 규모는 수백 ms 수준이나 수천 대·고빈도 폴링이면 반복 재계산이 선형 비용.
 - 이 엔드포인트 하나가 전체 인프라를 가장 진하게 노출하는 단일 지점(재현 청사진 + IP + 토폴로지). 관리망 격리가 뚫리면 노출이 이 한 곳에 집중.
 - 전량 응답이라 응답 크기가 매칭 수에 선형 — 필터를 안 걸면 fleet 전체 JSON.
 
@@ -474,9 +474,9 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 ## T20. 실시간 스냅샷 포화 축 — 윈도우 분류 경로와의 미세 원자료·경계 불일치
 
 무엇을
-- 포화 판정에는 두 경로가 있다: (A) 평가 윈도우 분류·환경·보고서 = `recommendation` 도메인의 os-aware verdict helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`, dual-gate) 경유(#E3). (B) 실시간 현황·서버 상세 순간 스냅샷 = sibling index/active helper(`cpu_saturation_index`·`mem_pressure_active`·`disk_io_saturation_index`·`net_signal_active`, 목적상 single-gate) 경유. 두 경로가 같은 `RS_*` 상수를 공유하나, 두 축에서 미세하게 어긋나 같은 서버가 화면 간 다른 포화 판정을 낼 수 있다.
-- 네트워크(실무 심각도 중): 서버 상세 실시간 네트워크 축(`metrics_calculator.build_saturation_signals`)이 단일 진실 `net_signal_active` 를 경유하지 않고 ratio 비교를 직접 조립한다. 두 이탈 — (1) 저트래픽 게이트 부재: `net_signal_active`/`assess_network` 는 트래픽 < `RS_NET_MIN_TRAFFIC_KBPS`(10 kB/s)면 retrans/drop 을 억제하나, 실시간 net 축은 무조건 임계 비교(`SaturationRaw` 에 net traffic 필드가 없어 구조적으로 게이트 불가). (2) 경계 연산자: 실시간은 `>=`, `net_signal_active` 는 strict `>`. -> 유휴 저트래픽 서버의 retrans 1.5% 나 정확히 1.0%/0.5% 경계값이 서버 상세엔 "혼잡", 환경/보고서엔 "정상".
-- 디스크 await(실무 심각도 하): `disk_io_saturated` 는 `await_p95 > RS_DISKIO_AWAIT_MS`(strict `>`), `disk_io_saturation_index` 소비 게이트는 `>= 1.0`(실질 `await >= 20`). await == 20.000ms 정확값에서만 갈린다(measure-zero) — index docstring "동일 로직" 선언과의 latent slip.
+- 포화 판정에는 두 경로가 있다: (A) 평가 윈도우 분류·환경·보고서 = `right_sizing` 도메인의 os-aware verdict helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`, dual-gate) 경유(#E3). (B) 실시간 현황·서버 상세 순간 스냅샷 = sibling index/active helper(`cpu_saturation_index`·`mem_pressure_active`·`disk_io_saturation_index`·`net_signal_active`, 목적상 single-gate) 경유. 두 경로가 같은 임계 상수를 공유하나, 두 축에서 미세하게 어긋나 같은 서버가 화면 간 다른 포화 판정을 낼 수 있다.
+- 네트워크(실무 심각도 중): 서버 상세 실시간 네트워크 축(`metric_dashboard.build_saturation_signals`)이 단일 진실 `net_signal_active` 를 경유하지 않고 ratio 비교를 직접 조립한다. 두 이탈 — (1) 저트래픽 게이트 부재: `net_signal_active`/`assess_network` 는 트래픽 < `NET_MIN_TRAFFIC_KBPS`(10 kB/s)면 retrans/drop 을 억제하나, 실시간 net 축은 무조건 임계 비교(`SaturationRaw` 에 net traffic 필드가 없어 구조적으로 게이트 불가). (2) 경계 연산자: 실시간은 `>=`, `net_signal_active` 는 strict `>`. -> 유휴 저트래픽 서버의 retrans 1.5% 나 정확히 1.0%/0.5% 경계값이 서버 상세엔 "혼잡", 환경/보고서엔 "정상".
+- 디스크 await(실무 심각도 하): `disk_io_saturated` 는 `await_p95 > DISKIO_AWAIT_MS`(strict `>`), `disk_io_saturation_index` 소비 게이트는 `>= 1.0`(실질 `await >= 20`). await == 20.000ms 정확값에서만 갈린다(measure-zero) — index docstring "동일 로직" 선언과의 latent slip.
 
 왜 이대로 두나
 - 두 경로는 목적이 다르다: 윈도우 분류는 dual-gate(신호 AND 이용률)로 오탐을 억제하는 결론이고, 실시간은 순간 단일 신호 crossing 을 그대로 보여주는 스냅샷(30초 갱신)이다. single-gate 는 위반이 아니라 실시간의 의도된 정의(#E3 취지 "임계 재계산·직접 해석 금지"는 두 경로 모두 충족 — 같은 도메인 상수 재사용, 소비처 임계 재선언 0).
@@ -562,11 +562,11 @@ Request/Correlation ID 를 심지 않는다. HTTP 진입점이 `X-Request-ID` �
 ## T24. 유휴 판정 디스크 활동 축 — 보고서 경로에만 주입한다
 
 무엇을
-- `build_resource_stats(raw, *, disk_baseline)` 의 `disk_baseline` 은 유휴 판정 활동 축(`recommendation` 의 `IDLE_DISK_IOPS` 비교)이다. 이 값을 실제로 채우는 경로는 보고서 prefetch(`query/report.py::_assemble_report_raws`) 하나뿐이고, 나머지 7 호출 경로(서버 목록·서버 세부·환경 개요·환경 자원 평가·운영 신호·계약 API 둘)는 `None` 을 명시적으로 넘긴다.
+- `build_resource_stats(raw, *, disk_baseline)` 의 `disk_baseline` 은 유휴 판정 활동 축(`right_sizing` 의 `IDLE_DISK_IOPS` 비교)이다. 이 값을 실제로 채우는 경로는 보고서 prefetch(`query/report.py::_assemble_report_raws`) 하나뿐이고, 나머지 7 호출 경로(서버 목록·서버 세부·환경 개요·환경 자원 평가·운영 신호·계약 API 둘)는 `None` 을 명시적으로 넘긴다.
 - 결과적으로 같은 호스트가 보고서에서는 디스크 활동을 근거로 `idle` 로 갈릴 수 있고, 서버 목록·환경 개요에서는 그 축이 미관측이라 `over_provisioned` 에 머무를 수 있다.
 
 왜 이대로 두나
-- 통일 방향이 둘인데 어느 쪽도 공짜가 아니다. (A) 전 경로에 주입하면 `report_disk_io_baseline` 쿼리가 서버 목록·환경 개요·계약 API 요청마다 붙는다 — 목록은 페이지당 수십 대, 환경 개요는 전체 인벤토리다. (B) 보고서에서 빼면 보고서의 유휴 판정이 지금보다 보수적으로 바뀌어 발행된 스냅샷과 새 보고서가 갈린다.
+- 통일 방향이 둘인데 어느 쪽도 공짜가 아니다. (A) 전 경로에 주입하면 `get_report_disk_io_baseline` 쿼리가 서버 목록·환경 개요·계약 API 요청마다 붙는다 — 목록은 페이지당 수십 대, 환경 개요는 전체 인벤토리다. (B) 보고서에서 빼면 보고서의 유휴 판정이 지금보다 보수적으로 바뀌어 발행된 스냅샷과 새 보고서가 갈린다.
 - 어느 쪽이든 화면 분류가 실제로 바뀌므로 계약 개정에 해당한다. 이 저장소의 이번 현대화는 결과물 보존이 조건이라 범위 밖이다.
 
 포기한 것 / 한계
@@ -577,4 +577,4 @@ Request/Correlation ID 를 심지 않는다. HTTP 진입점이 `X-Request-ID` �
 
 언제 다시 봐야 하는가
 - 유휴 판정을 근거로 실제 다운사이즈를 집행하기 시작하면 -> 화면 간 판정이 갈리는 것이 곧 운영 사고이므로 (A) 로 통일하고 baseline 쿼리를 목록·개요 경로에 배치(벌크 1회, N+1 금지).
-- `report_disk_io_baseline` 이 cagg 사전집계로 충분히 싸지면 -> (A) 의 비용 근거가 사라지므로 재검토.
+- `get_report_disk_io_baseline` 이 cagg 사전집계로 충분히 싸지면 -> (A) 의 비용 근거가 사라지므로 재검토.

@@ -1,14 +1,14 @@
-"""ADR 0052 신 자원 적정성 모델 — per-resource USE + 근본원인 종합 + 신뢰도 4종 회귀 가드.
+"""자원 적정성 모델 — per-resource USE + 근본원인 종합 + 신뢰도 4종 회귀 가드 (ADR 0052).
 
-대상: recommendation.py 신 함수(assess_cpu/memory/disk_capacity/disk_io/network · rollup_host ·
-downsize_prescribable · ConfidenceNote). 합성 ResourceStats 입력으로 분기·사이징·근본원인·신뢰도를 검증.
-기존 assess/classify(단일 분류)는 test_recommendation.py 가 커버 — 본 파일은 신 모델만.
+대상: right_sizing.py 의 assess_cpu/memory/disk_capacity/disk_io/network · rollup_host ·
+downsize_prescribable · ConfidenceNote. 합성 ResourceStats 입력으로 분기·사이징·근본원인·신뢰도를 검증.
+os-aware 포화 helper 는 test_right_sizing_saturation.py 가 본다.
 """
 
 import dataclasses
 from typing import Any
 
-from assessment_engine import recommendation as r
+from assessment_engine.domain import right_sizing as r
 
 
 def _stats(**kw: Any) -> r.ResourceStats:
@@ -86,13 +86,13 @@ def test_mem_under_by_util():
     a = r.assess_memory(_stats(mem_p95_pct=95.0, mem_total_mb=16384))
     assert a.status == "under"
     assert "mem_util" in a.triggers
-    # 메모리 사이징 목표 80%(RS_MEM_SIZING_TARGET_PCT), 통계=near-peak.
+    # 메모리 사이징 목표 80%(MEM_SIZING_TARGET_PCT), 통계=near-peak.
     # near-peak 미측정이라 p95(95) 폴백 -> ceil(16384*95/80).
     assert a.sizing_target == 19456
 
 
 def test_mem_under_by_swap_paging():
-    # Gate0 dual-gate: mem_saturation 은 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징 발생 둘 다여야 성립
+    # Gate0 dual-gate: mem_saturation 은 이용률 p95 >= MEM_UNDER_PCT(90) AND 페이징 발생 둘 다여야 성립
     # (paging 단독은 mmap/시작 하드폴트 오탐). 그래서 util 95% + swap page-out 으로 포화 발화.
     a = r.assess_memory(_stats(mem_p95_pct=95.0, mem_swap_paging=True))
     assert a.status == "under"
@@ -356,8 +356,8 @@ def test_util_trend_rising_both_none_returns_none():
 
 def test_util_trend_rising_true_when_any_slope_over_threshold():
     """하나라도 임계(%/day) 이상이면 상승 — 보수적(어느 코어 자원이든 성장하면 다운사이즈 보류)."""
-    assert r.util_trend_rising_from_slopes(-0.5, r.RS_UTIL_TREND_RISING_PCT_PER_DAY) is True
-    assert r.util_trend_rising_from_slopes(r.RS_UTIL_TREND_RISING_PCT_PER_DAY + 1.0, None) is True
+    assert r.util_trend_rising_from_slopes(-0.5, r.UTIL_TREND_RISING_PCT_PER_DAY) is True
+    assert r.util_trend_rising_from_slopes(r.UTIL_TREND_RISING_PCT_PER_DAY + 1.0, None) is True
 
 
 def test_util_trend_rising_false_when_all_below_threshold():
@@ -478,9 +478,9 @@ def test_labels_cover_all_statuses():
     from typing import get_args
 
     for status in get_args(r.ResourceStatus.__value__):
-        assert status in r.RS_STATUS_LABEL_KO, f"missing status label: {status}"
+        assert status in r.STATUS_LABEL_KO, f"missing status label: {status}"
     for hs in get_args(r.HostStatus.__value__):
-        assert hs in r.RS_HOST_STATUS_LABEL_KO, f"missing host status label: {hs}"
+        assert hs in r.HOST_STATUS_LABEL_KO, f"missing host status label: {hs}"
 
 
 def test_labels_cover_all_triggers():
@@ -495,7 +495,7 @@ def test_labels_cover_all_triggers():
         "net_retrans",
         "net_drop",
     }
-    assert keys <= set(r.RS_TRIGGER_LABEL_KO)
+    assert keys <= set(r.TRIGGER_LABEL_KO)
 
 
 # --- under_prescription — root 기반 처방 (근본원인 정합) --------------------
@@ -547,7 +547,7 @@ def test_disk_capacity_target_1yr():
     assert a.status == "filling"
     assert a.sizing_target == 500.0
     assert "목표 500GB" in a.detail
-    assert r._resource_prescription("disk_capacity", a) == "스토리지: 500GB"
+    assert r.resource_prescription("disk_capacity", a) == "스토리지: 500GB"
 
 
 def test_disk_capacity_target_none_when_inode_drives():
@@ -557,4 +557,4 @@ def test_disk_capacity_target_none_when_inode_drives():
     )
     assert a.status == "filling"
     assert a.sizing_target is None
-    assert r._resource_prescription("disk_capacity", a) == "스토리지 확장"
+    assert r.resource_prescription("disk_capacity", a) == "스토리지 확장"

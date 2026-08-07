@@ -9,10 +9,10 @@ storage/network 는 별도 service 메서드라 분리.
 
 from fastapi import APIRouter, HTTPException, Request
 
-from assessment_engine.service_classifier import SERVICE_CATEGORIES
+from assessment_engine.domain.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import QueryServiceDep, ServerIdDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back
-from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.services.query import QueryService
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.templating import templates
 

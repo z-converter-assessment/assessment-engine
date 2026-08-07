@@ -63,7 +63,7 @@ class SqlTaskQueryRepository(_BaseQueryMixin):
         result = await self.session.execute(stmt)
         return [self._row_to_task(r) for r in result.all()]
 
-    async def latest_tasks_by_servers(
+    async def get_latest_tasks_by_servers(
         self,
         server_ids: list[int],
     ) -> dict[int, TaskRow]:

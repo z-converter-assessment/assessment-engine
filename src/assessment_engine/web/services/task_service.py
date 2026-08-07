@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from assessment_engine.db.repositories.collect import CollectRepository
-    from assessment_engine.db.repositories.query.repository import QueryRepository
+    from assessment_engine.db.repositories.query import QueryRepository
     from assessment_engine.json_types import JsonObject
 
 _TASK_TYPE_INSTALL = "zconverter_install"

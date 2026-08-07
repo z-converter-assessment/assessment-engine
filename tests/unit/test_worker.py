@@ -1,6 +1,6 @@
 """전용 worker 프로세스 루프 단위 테스트 — 기동 격리·graceful 종료·설정.
 
-DB 없이 fake 로 run_report_worker/run_task_reaper 의 F6 격리(기동·tick 예외가 루프를 죽이지 않음)와
+DB 없이 fake 로 run_report_loop/run_task_reaper 의 F6 격리(기동·tick 예외가 루프를 죽이지 않음)와
 stop_event 종료를 검증. 실제 claim/expire SQL 은 통합 테스트(test_task_queries·test_diagnostic_service).
 """
 
@@ -15,17 +15,17 @@ from loguru import logger
 
 from assessment_engine.config import WorkerSettings
 from assessment_engine.db.session import dispose_engine, get_engine
-from assessment_engine.web.services.report_generator import ReportGenerationError
+from assessment_engine.web.services.report import ReportGenerationError
 from assessment_engine.web.services.task_service import (
     TaskNotConfiguredError,
     _resolve_install_dispatch,
 )
 from assessment_engine.web.settings import get_web_settings
-from assessment_engine.worker import report_worker
+from assessment_engine.worker import report_loop
+from assessment_engine.worker.lifecycle import graceful_drain
 from assessment_engine.worker.main import _drain_logged
-from assessment_engine.worker.report_worker import run_report_worker
+from assessment_engine.worker.report_loop import run_report_loop
 from assessment_engine.worker.task_reaper import run_task_reaper
-from assessment_engine.worker.worker_lifecycle import graceful_drain
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator, Callable
@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
     from assessment_engine.db.repositories.collect import CollectRepository
     from assessment_engine.web.services.diagnostic_service import DiagnosticService
-    from assessment_engine.web.services.query_service import QueryService
+    from assessment_engine.web.services.query import QueryService
 
 
 def _no_query_service() -> AbstractAsyncContextManager[QueryService]:
@@ -78,15 +78,15 @@ def test_worker_settings_exposes_worker_fields():
     assert s.database_url.startswith("postgresql+asyncpg://")
 
 
-# --- run_report_worker ----------------------------------------
+# --- run_report_loop ----------------------------------------
 
 
-async def test_report_worker_survives_startup_recover_failure():
+async def test_report_loop_survives_startup_recover_failure():
     """기동 recover_stale 예외가 전파되면 워커가 죽는다 — 가드가 흡수해 정상 종료해야."""
     stop = asyncio.Event()
     stop.set()  # 루프 진입 전 종료 조건 (recover 가드만 실행)
     diag = _FakeDiag(recover_raises=True)
-    await run_report_worker(
+    await run_report_loop(
         diag_service=cast("DiagnosticService", diag),
         query_service_factory=_no_query_service,
         poll_interval_sec=0.01,
@@ -97,12 +97,12 @@ async def test_report_worker_survives_startup_recover_failure():
     assert diag.claim_calls == 0  # stop set 이라 루프 미진입
 
 
-async def test_report_worker_stops_on_event():
+async def test_report_loop_stops_on_event():
     """pending 없으면 poll 하며 대기, stop_event set 시 다음 점검에서 종료."""
     stop = asyncio.Event()
     diag = _FakeDiag()
     task = asyncio.create_task(
-        run_report_worker(
+        run_report_loop(
             diag_service=cast("DiagnosticService", diag),
             query_service_factory=_no_query_service,
             poll_interval_sec=0.01,
@@ -117,12 +117,12 @@ async def test_report_worker_stops_on_event():
     assert diag.claim_calls >= 1  # 최소 1회 poll
 
 
-async def test_report_worker_survives_claim_failure():
+async def test_report_loop_survives_claim_failure():
     """claim 예외(일시 DB 장애)가 루프를 죽이지 않고 계속 poll."""
     stop = asyncio.Event()
     diag = _FakeDiag(claim_raises=True)
     task = asyncio.create_task(
-        run_report_worker(
+        run_report_loop(
             diag_service=cast("DiagnosticService", diag),
             query_service_factory=_no_query_service,
             poll_interval_sec=0.01,
@@ -419,9 +419,9 @@ async def _query_service() -> AsyncGenerator[Any]:
 
 
 async def _run_process_one(monkeypatch: pytest.MonkeyPatch, build: Any) -> _ProcessDiag:
-    monkeypatch.setattr(report_worker, "build_report_result_for_job", build)
+    monkeypatch.setattr(report_loop, "build_report_result_for_job", build)
     diag = _ProcessDiag()
-    await report_worker._process_one(cast("Any", diag), _query_service, cast("Any", _Job()))
+    await report_loop._process_one(cast("Any", diag), _query_service, cast("Any", _Job()))
     return diag
 
 

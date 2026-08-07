@@ -1,8 +1,8 @@
 """task.result 성공/실패 판정 정책.
 
 `consumer/` 에 있는 이유는 소비자가 `handlers/task_result.py` 하나이고, 정책 입력인
-`task_install_success_exit_codes` 도 `ConsumerSettings` 소유이기 때문이다. 패키지 루트의 도메인
-모듈(`recommendation`·`service_classifier`)은 web·consumer 양쪽이 쓰는 것들이고, 이건 아니다.
+`task_install_success_exit_codes` 도 `ConsumerSettings` 소유이기 때문이다. `domain/` 의 도메인
+모듈(`right_sizing`·`service_classifier`)은 web·consumer 양쪽이 쓰는 것들이고, 이건 아니다.
 
 판정 1순위는 실제 설치 신호 task_policy(agent worker 가 데몬 기동+등록을 확인해 발행하는 bool) —
 exit_code 는 "설치가 실제로 됐나"와 상관이 약해(exit 0 인데 데몬 미기동 = false positive) 보조로 내린다.

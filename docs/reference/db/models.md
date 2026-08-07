@@ -40,9 +40,9 @@
 `server_metrics` 만 `boot_time TIMESTAMPTZ NULL` + `agent_started_at TIMESTAMPTZ NULL` 컬럼 보유 (수집 1회당 1행 = envelope). 자식 시계열(disk_io·net_io·filesystem·cpu_core·pressure·disk_error)은 동일 `(server_id, collected_at)` 로 server_metrics 행을 참조 — 메타 N중복 회피.
 
 - 실시간 스냅샷 delta 는 `boot_time.is_counter_reset` 이 두 시점 boot_time 을 비교해 reset 구간을 건너뛴다.
-- 차트(`metric_trend`)는 boot_time 을 읽지 않는다 → CPU 는 `d_total > 0 AND d_num >= 0`, 자식 시계열 rate 는 `GREATEST(delta, 0)` 로 흡수.
-- 보고서 집계(`report_aggregate`·cagg)는 `counter_agg` 가 값-감소 기준 reset 을 일률 처리 → boot_time gate 불요.
-- 5초 지터 허용치로 boot_time 을 비교하는 SQL 은 `reboot_events`(server_inventory_history) 의 재부팅 marker 판정뿐이다.
+- 차트(`get_metric_trend`)는 boot_time 을 읽지 않는다 → CPU 는 `d_total > 0 AND d_num >= 0`, 자식 시계열 rate 는 `GREATEST(delta, 0)` 로 흡수.
+- 보고서 집계(`get_report_aggregate`·cagg)는 `counter_agg` 가 값-감소 기준 reset 을 일률 처리 → boot_time gate 불요.
+- 5초 지터 허용치로 boot_time 을 비교하는 SQL 은 `get_reboot_events`(server_inventory_history) 의 재부팅 marker 판정뿐이다.
 
 ## tasks 테이블 — 부분 UNIQUE (C1 + 운영자 더블클릭 방어)
 

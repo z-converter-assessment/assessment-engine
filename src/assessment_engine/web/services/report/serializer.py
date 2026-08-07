@@ -9,13 +9,13 @@ cache_serializer.py 와 동일 패턴 (asdict + json datetime, 역직렬화 nest
 AttentionSignals.catalog/has_any 는 @property 라 asdict 누락 — 역직렬화 시 ViewModel 재구성으로
 property 자동 복원 (dict 직접 template 전달 시 `attention.catalog` 접근이 깨짐).
 
-result JSONB 구조·키 단일 진실은 `diagnostic.report_result`.
+result JSONB 구조·키 단일 진실은 `report/result.py`.
 본 모듈은 그 구조 안 `snapshot` 의 ViewModel <-> JsonObject 직렬화만 담당.
 """
 
 import dataclasses
 
-# result 구조 계약(키·dict 조립)은 diagnostic.report_result 단일 진실 — web view_models 에 의존하지
+# result 구조 계약(키·dict 조립)은 report/result.py 단일 진실 — web view_models 에 의존하지
 # 않는 중립 모듈에 분리.
 from assessment_engine.json_types import JsonObject, json_list, json_obj
 from assessment_engine.web.services.serialization import parse_dt, to_jsonable

@@ -22,7 +22,7 @@ class TaskQueryRepository(Protocol):
         """한 서버의 task timeline — created_at 역순. cursor < created_at WHERE 조건 (E2)."""
         ...
 
-    async def latest_tasks_by_servers(
+    async def get_latest_tasks_by_servers(
         self,
         server_ids: list[int],
     ) -> dict[int, TaskRow]:

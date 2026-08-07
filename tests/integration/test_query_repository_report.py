@@ -1,12 +1,12 @@
 """SqlQueryRepository — 보고서·환경 요약 SQL 통합 테스트 (본 세션 v3~v5 추가분).
 
 검증 영역:
-- report_aggregate — iowait_p95/peak + inventory(cpu_cores·mem_total_bytes·block_devices) + 용량 임박 마운트
-- report_uptime_stats — period 안 boot_time DISTINCT count - 1
-- report_disk_io_baseline — io_bytes·ops delta 평균 (IOPS·throughput_kbps), DiskIoBaselineRaw
-- report_net_io_baseline — rx/tx bytes delta 평균 (kbps), NetIoBaselineRaw
-- report_memory_breakdown — used/available/cached/buffers 윈도우 평균 (전체 메모리 대비)
-- report_cpu_breakdown — user/system/iowait LAG delta 비율
+- get_report_aggregate — iowait_p95/peak + inventory(cpu_cores·mem_total_bytes·block_devices) + 용량 임박 마운트
+- get_report_uptime_stats — period 안 boot_time DISTINCT count - 1
+- get_report_disk_io_baseline — io_bytes·ops delta 평균 (IOPS·throughput_kbps), DiskIoBaselineRaw
+- get_report_net_io_baseline — rx/tx bytes delta 평균 (kbps), NetIoBaselineRaw
+- get_report_memory_breakdown — used/available/cached/buffers 윈도우 평균 (전체 메모리 대비)
+- get_report_cpu_breakdown — user/system/iowait LAG delta 비율
 """
 
 from datetime import UTC, datetime, timedelta
@@ -84,7 +84,7 @@ async def _seed_server_with_period_metrics(
     return sid, base_ts, base_ts + timedelta(minutes=interval_min * (n_points - 1))
 
 
-# --- report_aggregate iowait + inventory 합계 -----------------------------
+# --- get_report_aggregate iowait + inventory 합계 -----------------------------
 
 
 async def test_report_aggregate_returns_iowait_and_inventory(
@@ -92,7 +92,7 @@ async def test_report_aggregate_returns_iowait_and_inventory(
     query_repo: SqlQueryRepository,
 ):
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-iowait")
-    rows = await query_repo.report_aggregate(
+    rows = await query_repo.get_report_aggregate(
         [sid],
         period_days=1,
         end=end + timedelta(minutes=1),
@@ -114,7 +114,7 @@ async def test_report_aggregate_returns_reproduction_columns(
     collect_repo: SqlCollectRepository,
     query_repo: SqlQueryRepository,
 ):
-    """report_aggregate SELECT 가 server_inventory 재현 9컬럼을 ReportRowRaw 로 왕복 — SELECT 오타·매핑 누락 가드.
+    """get_report_aggregate SELECT 가 server_inventory 재현 9컬럼을 ReportRowRaw 로 왕복 — SELECT 오타·매핑 누락 가드.
 
     재현 컬럼은 server_inventory LEFT JOIN 직결이라 metric 불요. JSONB(boot/nonblock_mounts) 왕복 포함.
     """
@@ -140,7 +140,7 @@ async def test_report_aggregate_returns_reproduction_columns(
             ],
         )
     )
-    rows = await query_repo.report_aggregate([sid], period_days=1, end=datetime.now(UTC))
+    rows = await query_repo.get_report_aggregate([sid], period_days=1, end=datetime.now(UTC))
     assert len(rows) == 1
     r = rows[0]
     assert r.arch == "x86_64"
@@ -156,12 +156,12 @@ async def test_report_aggregate_returns_reproduction_columns(
     assert r.nonblock_mounts[0]["fstype"] == "tmpfs"
 
 
-# --- report_uptime_stats — boot_time DISTINCT count - 1 ------------------
+# --- get_report_uptime_stats — boot_time DISTINCT count - 1 ------------------
 
 
 async def test_report_uptime_stats_no_reboot(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-up-stable")
-    counts = await query_repo.report_uptime_stats(
+    counts = await query_repo.get_report_uptime_stats(
         [sid],
         period_days=1,
         end=end + timedelta(minutes=1),
@@ -202,7 +202,7 @@ async def test_report_uptime_stats_counts_reboot_transitions(
         )
     )
 
-    counts = await query_repo.report_uptime_stats(
+    counts = await query_repo.get_report_uptime_stats(
         [sid],
         period_days=30,
         end=datetime(2026, 5, 15, tzinfo=UTC),
@@ -210,7 +210,7 @@ async def test_report_uptime_stats_counts_reboot_transitions(
     assert counts.get(sid, 0) == 2  # boot_time DISTINCT 3 - 1 = 2회 재부팅
 
 
-# --- report_disk_io_baseline — IOPS + throughput -------------------------
+# --- get_report_disk_io_baseline — IOPS + throughput -------------------------
 
 
 async def test_report_disk_io_baseline_iops_and_throughput(
@@ -223,7 +223,7 @@ async def test_report_disk_io_baseline_iops_and_throughput(
         n_points=10,
         interval_min=1,
     )
-    io_map = await query_repo.report_disk_io_baseline(
+    io_map = await query_repo.get_report_disk_io_baseline(
         [sid],
         period_days=1,
         end=end + timedelta(minutes=1),
@@ -254,7 +254,7 @@ async def test_report_disk_io_baseline_missing_data_returns_empty(
 ):
     """metric 없는 서버 -> dict에서 누락."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="r-disk-empty"))
-    io_map = await query_repo.report_disk_io_baseline(
+    io_map = await query_repo.get_report_disk_io_baseline(
         [sid],
         period_days=1,
         end=datetime.now(UTC),
@@ -262,7 +262,7 @@ async def test_report_disk_io_baseline_missing_data_returns_empty(
     assert sid not in io_map
 
 
-# --- report_net_io_baseline — rx/tx kbps ---------------------------------
+# --- get_report_net_io_baseline — rx/tx kbps ---------------------------------
 
 
 async def test_report_net_io_baseline_rx_tx(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
@@ -272,7 +272,7 @@ async def test_report_net_io_baseline_rx_tx(collect_repo: SqlCollectRepository, 
         n_points=10,
         interval_min=1,
     )
-    net_map = await query_repo.report_net_io_baseline(
+    net_map = await query_repo.get_report_net_io_baseline(
         [sid],
         period_days=1,
         end=end + timedelta(minutes=1),
@@ -310,13 +310,13 @@ async def test_all_report_queries_share_server_ids_and_period(
         interval_min=1,
     )
     end_q = end + timedelta(minutes=1)
-    raws = await query_repo.report_aggregate([sid], period_days=1, end=end_q)
-    uptime = await query_repo.report_uptime_stats([sid], period_days=1, end=end_q)
-    disk_io = await query_repo.report_disk_io_baseline([sid], period_days=1, end=end_q)
-    net_io = await query_repo.report_net_io_baseline([sid], period_days=1, end=end_q)
+    raws = await query_repo.get_report_aggregate([sid], period_days=1, end=end_q)
+    uptime = await query_repo.get_report_uptime_stats([sid], period_days=1, end=end_q)
+    disk_io = await query_repo.get_report_disk_io_baseline([sid], period_days=1, end=end_q)
+    net_io = await query_repo.get_report_net_io_baseline([sid], period_days=1, end=end_q)
 
     assert len(raws) == 1
-    # 마운트 최악 used% 는 report_aggregate 단일 산출 (별도 report_mount_worst 폐기)
+    # 마운트 최악 used% 는 get_report_aggregate 단일 산출 (별도 report_mount_worst 폐기)
     assert raws[0].worst_mount_used_pct is not None
     assert sid in disk_io
     assert sid in net_io
@@ -330,7 +330,7 @@ async def test_all_report_queries_share_server_ids_and_period(
 async def test_report_memory_breakdown_pct_split(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     """used/available/cached/buffers 윈도우 평균 (전체 메모리 대비). 기본 mem 8GB·available 5GB."""
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-mem-bd")
-    mb = await query_repo.report_memory_breakdown(sid, period_days=1, end=end + timedelta(minutes=1))
+    mb = await query_repo.get_report_memory_breakdown(sid, period_days=1, end=end + timedelta(minutes=1))
     # mem_total=8GB, available=5GB -> used 37.5% / available 62.5%, cached 1GB=12.5%, buffers 200MB~2.4%
     assert mb.used_pct == approx(37.5, abs=0.1)
     assert mb.available_pct == approx(62.5, abs=0.1)
@@ -342,7 +342,7 @@ async def test_report_memory_breakdown_pct_split(collect_repo: SqlCollectReposit
 async def test_report_cpu_breakdown_delta_split(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     """user/system/iowait counter_agg delta 비율. step delta user 100·system 30·iowait 40·idle 600 -> total 770."""
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-cpu-bd")
-    cb = await query_repo.report_cpu_breakdown(sid, period_days=1, end=end + timedelta(minutes=1))
+    cb = await query_repo.get_report_cpu_breakdown(sid, period_days=1, end=end + timedelta(minutes=1))
     assert cb.user_pct == approx(100 / 770 * 100, abs=0.5)
     assert cb.system_pct == approx(30 / 770 * 100, abs=0.5)
     assert cb.iowait_pct == approx(40 / 770 * 100, abs=0.5)
@@ -358,12 +358,12 @@ async def test_report_breakdowns_single_equals_batch(
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-eq-batch")
     end_q = end + timedelta(minutes=1)
 
-    mem_single = await query_repo.report_memory_breakdown(sid, period_days=1, end=end_q)
-    mem_batch = (await query_repo.report_memory_breakdown_batch([sid], period_days=1, end=end_q)).get(sid)
+    mem_single = await query_repo.get_report_memory_breakdown(sid, period_days=1, end=end_q)
+    mem_batch = (await query_repo.get_report_memory_breakdown_batch([sid], period_days=1, end=end_q)).get(sid)
     assert mem_single == mem_batch
 
-    cpu_single = await query_repo.report_cpu_breakdown(sid, period_days=1, end=end_q)
-    cpu_batch = (await query_repo.report_cpu_breakdown_batch([sid], period_days=1, end=end_q)).get(sid)
+    cpu_single = await query_repo.get_report_cpu_breakdown(sid, period_days=1, end=end_q)
+    cpu_batch = (await query_repo.get_report_cpu_breakdown_batch([sid], period_days=1, end=end_q)).get(sid)
     assert cpu_single == cpu_batch
 
 
@@ -400,7 +400,7 @@ async def test_report_aggregate_counter_reset_segments_summed(
                 net_io=[],
             ),
         )
-    rows = await query_repo.report_aggregate([sid], period_days=1, end=now)
+    rows = await query_repo.get_report_aggregate([sid], period_days=1, end=now)
     assert len(rows) == 1
     cpu_p95 = rows[0].cpu_p95_pct
     # counter_agg: total delta = 3000+2000=5000, idle delta = 2400+1000=3400 -> 1-3400/5000 = 32%.
@@ -443,7 +443,7 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(
                 net_io=[],
             ),
         )
-    d = await query_repo.report_disk_io_baseline([sid], 1, now)
+    d = await query_repo.get_report_disk_io_baseline([sid], 1, now)
     assert sid in d
     iops_baseline = d[sid].iops_baseline
     # counter_agg: reads delta = (150-0)+(100-0)=250 over ~5분 관측. naive last-first=100-0=100 이면 과소.
@@ -452,11 +452,11 @@ async def test_report_disk_io_baseline_counter_reset_segments_summed(
     assert iops_baseline > 0
 
 
-# --- ADR 0052 신 신호 report_aggregate 집계 ------------------------------
+# --- ADR 0052 신 신호 get_report_aggregate 집계 ------------------------------
 
 
 async def test_report_aggregate_adr0052_signals(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
-    """ADR 0052 신 신호가 report_aggregate 로 집계되는지 — steal p95·burst·D-state·swap paging·await·
+    """ADR 0052 신 신호가 get_report_aggregate 로 집계되는지 — steal p95·burst·D-state·swap paging·await·
 
     drop%·retrans%·history_hours. 같은 5분 버킷 다중 시점으로 counter_agg delta 성립.
 
@@ -518,7 +518,7 @@ async def test_report_aggregate_adr0052_signals(collect_repo: SqlCollectReposito
         )
         await collect_repo.record_metrics(sid, m)
 
-    rows = await query_repo.report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=n))
+    rows = await query_repo.get_report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=n))
     assert len(rows) == 1
     r = rows[0]
     # CPU 신뢰도 신호
@@ -543,7 +543,7 @@ async def test_report_aggregate_adr0052_signals(collect_repo: SqlCollectReposito
 
 
 async def test_report_aggregate_runway_long_span(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
-    """용량/inode runway 는 fill-rate 최소 span(RS_DISK_RATE_MIN_SPAN_DAYS ~1.25일) 넘는 관측에서만 산출 —
+    """용량/inode runway 는 fill-rate 최소 span(DISK_RATE_MIN_SPAN_DAYS ~1.25일) 넘는 관측에서만 산출 —
 
     짧은 span 외삽(노이즈) 배제. 가용 이력 전체 span(bucket <= end, 하한 없음, F10) 기반이라 period 창과 무관.
 
@@ -569,7 +569,7 @@ async def test_report_aggregate_runway_long_span(collect_repo: SqlCollectReposit
             ],
         )
         await collect_repo.record_metrics(sid, m)
-    r = (await query_repo.report_aggregate([sid], period_days=14, end=end))[0]
+    r = (await query_repo.get_report_aggregate([sid], period_days=14, end=end))[0]
     assert r.disk_capacity_runway_days is not None
     assert r.disk_capacity_runway_days >= 0
     assert r.disk_inode_runway_days is not None
@@ -582,7 +582,7 @@ async def test_report_aggregate_adr0052_signals_absent_are_none(
 ):
     """신 신호 미발행(옛 agent) 시 신 필드는 None/False graceful — 옛 경로 무손상."""
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-rs0052-absent")
-    rows = await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1))
+    rows = await query_repo.get_report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1))
     assert len(rows) == 1
     r = rows[0]
     # 미발행 신호 — steal 은 0(기본), await/procs_blocked/runway(inode)/retrans 는 None, swap paging False.
@@ -642,10 +642,10 @@ async def test_report_aggregate_percore_p95_max_reflects_busy_core(
         )
         await collect_repo.record_metrics(sid, m)
 
-    rows = await query_repo.report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=n))
+    rows = await query_repo.get_report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=n))
     assert len(rows) == 1
     r = rows[0]
-    # 가장 바쁜 코어(0) p95 ~90 반영 — 단일스레드 보호(RS_CPU_PERCORE_HOLD=85) 발화선 위
+    # 가장 바쁜 코어(0) p95 ~90 반영 — 단일스레드 보호(CPU_PERCORE_HOLD=85) 발화선 위
     assert r.cpu_percore_p95_max is not None
     assert r.cpu_percore_p95_max >= 85.0
 
@@ -655,7 +655,7 @@ async def test_report_aggregate_percore_none_when_absent(
 ):
     """per-core 미발행(구 agent·Windows) 시 cpu_percore_p95_max None — graceful skip."""
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-percore-absent")
-    rows = await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1))
+    rows = await query_repo.get_report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1))
     assert rows[0].cpu_percore_p95_max is None
 
 
@@ -673,7 +673,7 @@ async def test_report_aggregate_runqueue_and_oom(collect_repo: SqlCollectReposit
             mem_oom_kill=i,  # 단조 증가 -> delta>0 -> oom 발생
         )
         await collect_repo.record_metrics(sid, m)
-    rows = await query_repo.report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=10))
+    rows = await query_repo.get_report_aggregate([sid], period_days=1, end=base_ts + timedelta(minutes=10))
     r = rows[0]
     assert r.procs_running_p95 is not None
     assert r.procs_running_p95 >= 7.5
@@ -683,7 +683,7 @@ async def test_report_aggregate_runqueue_and_oom(collect_repo: SqlCollectReposit
 async def test_report_aggregate_runqueue_oom_absent(collect_repo: SqlCollectRepository, query_repo: SqlQueryRepository):
     """cpu_run_queue·mem_oom_kill 미발행 시 p95 None·oom False — graceful."""
     sid, _start, end = await _seed_server_with_period_metrics(collect_repo, "r-runqueue-absent")
-    r = (await query_repo.report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1)))[0]
+    r = (await query_repo.get_report_aggregate([sid], period_days=1, end=end + timedelta(minutes=1)))[0]
     assert r.procs_running_p95 is None
     assert r.oom_occurred is False
 
@@ -735,7 +735,7 @@ async def test_report_aggregate_await_conntrack_inode(
         await collect_repo.record_metrics(sid, m)
 
     end = base_ts + timedelta(minutes=12)
-    r = (await query_repo.report_aggregate([sid], period_days=1, end=end))[0]
+    r = (await query_repo.get_report_aggregate([sid], period_days=1, end=end))[0]
     assert r.disk_await_p95_ms is not None, "물리 device op_time delta 로 await 채워져야 함"
     assert 24.0 <= r.disk_await_p95_ms <= 26.0, f"await 25ms 근방 기대, got {r.disk_await_p95_ms}"
     assert r.conntrack_ratio is not None

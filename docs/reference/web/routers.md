@@ -63,7 +63,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 ### `assessment.py` — 프로비저닝 어세스먼트 (재해복구/마이그레이션 소비)
 | 경로 | 용도 |
 |------|------|
-| `GET /api/assessment?hostname=&ip=&public_id=&pair=&window_days=&end=` | 통합 프로비저닝 어세스먼트 JSON — 소스 서버를 관측해 타겟 VM 재현/수정 사이징에 필요한 것을 한 응답으로(identity/reproduction/sizing axes[]/assessment/diagnostics). 화면·보고서와 동일 산식(`report_aggregate` -> `rollup_host`, 재계산 0). 외부는 public_id 를 모르는 게 보통이라 hostname/ip 로 조회. 응답 구조·필드·불변식·버전 정본 = `docs/reference/contracts/assessment-api.md` |
+| `GET /api/assessment?hostname=&ip=&public_id=&pair=&window_days=&end=` | 통합 프로비저닝 어세스먼트 JSON — 소스 서버를 관측해 타겟 VM 재현/수정 사이징에 필요한 것을 한 응답으로(identity/reproduction/sizing axes[]/assessment/diagnostics). 화면·보고서와 동일 산식(`get_report_aggregate` -> `rollup_host`, 재계산 0). 외부는 public_id 를 모르는 게 보통이라 hostname/ip 로 조회. 응답 구조·필드·불변식·버전 정본 = `docs/reference/contracts/assessment-api.md` |
 
 ### `exports.py` — assessment 계약 파일 전달
 | 경로 | 용도 |
@@ -73,7 +73,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 ### `right_sizing.py` — 자원 적정성 판정 (외부 자동화 소비)
 | 경로 | 용도 |
 |------|------|
-| `GET /api/right-sizing?hostname=&ip=&public_id=&pair=&window_days=&end=` | 서버별 자원 적정성 판정 JSON — 외부 자동화 소비. 화면·보고서와 동일 산식(`report_aggregate` -> `rollup_host`, 재계산 0). 외부는 내부 public_id 를 모르는 게 보통이라 hostname/ip 로 조회한다. 파라미터·응답 스키마·enum·권고 포맷·호스트명 충돌 안전은 Swagger(`/docs`)·ReDoc(`/redoc`)가 OpenAPI 스펙(라우터 docstring·Pydantic 응답 모델) 기준 단일 소유 |
+| `GET /api/right-sizing?hostname=&ip=&public_id=&pair=&window_days=&end=` | 서버별 자원 적정성 판정 JSON — 외부 자동화 소비. 화면·보고서와 동일 산식(`get_report_aggregate` -> `rollup_host`, 재계산 0). 외부는 내부 public_id 를 모르는 게 보통이라 hostname/ip 로 조회한다. 파라미터·응답 스키마·enum·권고 포맷·호스트명 충돌 안전은 Swagger(`/docs`)·ReDoc(`/redoc`)가 OpenAPI 스펙(라우터 docstring·Pydantic 응답 모델) 기준 단일 소유 |
 
 `GET /reference/api` (`reference_router`) — 외부 연동 카탈로그만(OpenAPI 파생, 메서드·경로·요약·파라미터·요청 본문 필드명). 태그 화이트리스트(assessment/right-sizing/exports/tasks) + JSON 응답만 필터링 — 화면 전용 내부 데이터 조회(`api` 태그)·HTML fragment 엔드포인트는 제외(`services/mappers/api_reference.py` `_ALLOWED_TAGS`/`_returns_json`). 상세 스키마·enum·예시는 중복 문서화하지 않고 Swagger(`/docs`)·ReDoc(`/redoc`) 단일 진실로 위임(#F12·docs/README 1원칙).
 
@@ -84,7 +84,7 @@ PRG (Post-Redirect-Get) 패턴 — 보고서 발행 시 record 와 표시 분리
 | `POST /reports/environment/emit?view=&time_range=&anchor_at=` | 환경 보고서 발행 record + `{view_url}` 응답 (JS navigate) |
 | `GET /reports/history?days=&view=&scope=&server_public_ids=&limit=&fragment=&back=` | 보고서 발행 이력. 기본 20건, "더보기"가 `limit` 누적 재조회. `fragment=1` 시 partial HTML 만 (filter 변경 즉시 적용용) |
 | `GET /reports/{job_id}/status` | 비동기 보고서 생성 상태 폴링 (pending/running/succeeded/failed) — `report-poll.js` |
-| `GET /reference` | 참고 페이지 (`reference_router`) — 지표 정의(`_metric_definitions`) + 에이전트-엔진 데이터 계약·수집 함수 근거·assessment API 계약 요약(`_agent_contract_reference`) + 자원 적정성 평가 임계값·근거 계층·임계 상수 전체·Errors 축 설명(`_thresholds_reference`, recommendation 단일 진실) + 서비스 뱃지 카탈로그(`_service_badges`). 각 페이지 하단 `_reference_link.html` 은 제품명·버전 푸터만 렌더(보고서 꼬리 `_reference_footer.html` 도 이 partial 공유) — 참고 자료 진입은 사이드바 "참고" 그룹 단일 경로 |
+| `GET /reference` | 참고 페이지 (`reference_router`) — 지표 정의(`_metric_definitions`) + 에이전트-엔진 데이터 계약·수집 함수 근거·assessment API 계약 요약(`_agent_contract_reference`) + 자원 적정성 평가 임계값·근거 계층·임계 상수 전체·Errors 축 설명(`_thresholds_reference`, right_sizing 단일 진실) + 서비스 뱃지 카탈로그(`_service_badges`). 각 페이지 하단 `_reference_link.html` 은 제품명·버전 푸터만 렌더(보고서 꼬리 `_reference_footer.html` 도 이 partial 공유) — 참고 자료 진입은 사이드바 "참고" 그룹 단일 경로 |
 
 ## 검증·에러 매핑
 

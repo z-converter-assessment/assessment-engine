@@ -9,12 +9,12 @@
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import MetricSeries
+from assessment_engine.domain import right_sizing
+from assessment_engine.web.services.mappers import constants as m_constants
 from assessment_engine.web.services.mappers import environment_report as erm
-from assessment_engine.web.services.mappers import shared as m_shared
+from assessment_engine.web.services.mappers.constants import RISK_LEVEL_ORDER
 from assessment_engine.web.services.mappers.environment_report import to_environment_report
-from assessment_engine.web.services.mappers.shared import RISK_LEVEL_ORDER
 from assessment_engine.web.view_models.attention import (
     ActionTargets,
     AttentionSignals,
@@ -25,8 +25,8 @@ from tests.approx import approx
 
 
 def test_provisioning_segment_defs_single_truth():
-    """environment_report._PROVISIONING_SEGMENT_DEFS 는 mappers.shared._DONUT_SEGMENT_DEFS alias."""
-    assert erm._PROVISIONING_SEGMENT_DEFS is m_shared._DONUT_SEGMENT_DEFS
+    """environment_report._PROVISIONING_SEGMENT_DEFS 는 mappers.constants._DONUT_SEGMENT_DEFS alias."""
+    assert erm._PROVISIONING_SEGMENT_DEFS is m_constants._DONUT_SEGMENT_DEFS
 
 
 def _make_row(public_id: str, hostname: str, rec: str = "optimal") -> ReportRowItem:
@@ -326,8 +326,8 @@ def _cap_row(
 
 
 def test_extract_capacity_imminent_filters_and_sorts():
-    """runway < RS_DISK_RUNWAY_DAYS + 구동 마운트 있는 호스트만, days ASC → hostname ASC 정렬."""
-    assert recommendation.RS_DISK_RUNWAY_DAYS == 30
+    """runway < DISK_RUNWAY_DAYS + 구동 마운트 있는 호스트만, days ASC → hostname ASC 정렬."""
+    assert right_sizing.DISK_RUNWAY_DAYS == 30
     rows = [
         _cap_row("u-far", "far", runway=45, mount="/data"),  # runway >= 30 제외
         _cap_row("u-none", "none", runway=None, mount="/data"),  # runway None 제외
@@ -352,8 +352,8 @@ def test_extract_capacity_imminent_filters_and_sorts():
 
 
 def test_extract_capacity_imminent_boundary_at_threshold_excluded():
-    """runway == RS_DISK_RUNWAY_DAYS 는 미포함 (>= 제외 경계)."""
-    rows = [_cap_row("u-1", "h1", runway=recommendation.RS_DISK_RUNWAY_DAYS, mount="/data")]
+    """runway == DISK_RUNWAY_DAYS 는 미포함 (>= 제외 경계)."""
+    rows = [_cap_row("u-1", "h1", runway=right_sizing.DISK_RUNWAY_DAYS, mount="/data")]
     assert erm._extract_capacity_imminent(rows) == []
 
 

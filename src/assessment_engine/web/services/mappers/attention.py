@@ -1,10 +1,10 @@
 """Attention 신호·환경 개요 mapper (P2).
 
-운영신호 카드(AttentionSignals) = gap·os_eol·agent_unstable 3개 (`query_service._assemble_attention` 조립) +
+운영신호 카드(AttentionSignals) = gap·os_eol·agent_unstable 3개 (`QueryService._assemble_attention` 조립) +
 환경 활용률 도넛·bar·USE Method 분포·under_provisioned 호스트(EnvironmentOverview) 합성. 책임은 raw 신호 → ViewModel.
 capacity(under_provisioned)·disk·days_until_full 은 운영신호가 아니라 USE Method right-sizing 소속 —
 to_capacity_warning_item 은 EnvironmentOverview.under_provisioned_hosts 로 간다.
-임계 분류·표시 색은 shared.py 또는 본 모듈 상단 상수 단일 진실.
+임계 분류·표시 색은 constants.py 또는 본 모듈 상단 상수 단일 진실.
 """
 
 import math
@@ -12,23 +12,23 @@ from collections import Counter
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 
-from assessment_engine import recommendation
-from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
+from assessment_engine.domain import right_sizing
+from assessment_engine.domain.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import disk_total_bytes
+from assessment_engine.web.services.mappers.assessment_display import build_host_confidence_notes
+from assessment_engine.web.services.mappers.constants import (
+    _CAUSE_LABEL_BY_TRIGGER,
+    _DONUT_SEGMENT_DEFS,
+    BADGE_CLASS,
+    UTIL_GAUGE_COLOR,
+)
+from assessment_engine.web.services.mappers.host_display import spec_display_line
 from assessment_engine.web.services.mappers.os_eol import (
     lookup_os_eol,
     resolve_os_eol,
 )
 from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.mappers.server import workload_category_counter
-from assessment_engine.web.services.mappers.shared import (
-    _CAUSE_LABEL_BY_TRIGGER,
-    _DONUT_SEGMENT_DEFS,
-    BADGE_CLASS,
-    UTIL_GAUGE_COLOR,
-    build_host_confidence_notes,
-    spec_display_line,
-)
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
 from assessment_engine.web.view_models.attention import (
     ActionTargets,
@@ -64,7 +64,7 @@ _ATTN_ACTIVE_BADGE = "attn-active"
 # UtilizationBar 게이지 색 — 환경 평균 활용률 도넛/바 단색 (그라데이션·임계 분기 제거).
 # 활용률 정도는 게이지 길이(dash_length)로, 색은 값 무관 단일 푸른색. 색으로 임계 의미를 주지
 # 않는다 — 위험도 색은 Right-sizing 분류 도넛이 별도 담당.
-_UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR  # 테마 주색 단색 — shared.UTIL_GAUGE_COLOR 단일 진실
+_UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR  # 테마 주색 단색 — constants.UTIL_GAUGE_COLOR 단일 진실
 _UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 
 # 주요 워크로드 도넛 세그먼트 색 — SIGNATURE_CATEGORIES 대응. base.html .badge-cat-* 뱃지 색의 시각적 쌍둥이
@@ -163,9 +163,9 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list[RiskDon
         segments.append(
             RiskDonutSegment(
                 key=key,
-                # 표시 라벨 = right-sizing 한국어 분류명(LABEL_KO 단일 진실).
+                # 표시 라벨 = right-sizing 한국어 분류명(RECOMMENDATION_LABEL_KO 단일 진실).
                 # 보고서·대시보드 통일, 영어 enum 노출 금지.
-                label=recommendation.LABEL_KO[key],
+                label=right_sizing.RECOMMENDATION_LABEL_KO[key],
                 # 색 = 게이지 테마 단색 통일 (분류 막대 — 라벨이 의미 전달, 색 무관). _DONUT_SEGMENT_DEFS 다색 미사용.
                 color=UTIL_GAUGE_COLOR,
                 count=count,
@@ -393,11 +393,11 @@ def build_environment_realtime(
                 (Utilization)·응답지연(Saturation)은 USE Method상 별개 축 — 이용률 0%(유휴 실측)와 응답지연
                 미측정("—", I/O 0건이라 await 계산 불가)이 같은 호스트에 동시에 나타날 수 있음(모순 아님).
                 페이징은 무정규화 raw rate라 OS별 원 지표·임계 상이 — 값 앞 L(Linux)/W(Windows) 접두(_os_cell,
-                single_report 포화 축 카드의 shared.saturation_axis_displays 표기 관례와 동일). 실행 큐는 지수
+                single_report 포화 축 카드의 assessment_display.saturation_axis_displays 표기 관례와 동일). 실행 큐는 지수
                 정규화(값/threshold)돼 있어 OS 무관 비교 가능 — 접두 없음.
     """
 
-    # capacity-weighted 평균 — 환경 전체 자원 풀 활용률(단순 산술평균 X). environment_utilization SQL 과 동일 정의:
+    # capacity-weighted 평균 — 환경 전체 자원 풀 활용률(단순 산술평균 X). get_environment_utilization SQL 과 동일 정의:
     #   CPU = sum(usage%·cores)/sum(cores) (시점 usage 라 jiffies delta 대신 코어 가중 근사),
     #   mem = sum(used_bytes)/sum(total_bytes), disk = sum(used_gb)/sum(total_gb) (전 mount 통합, worst mount 아님).
     def _cap_weighted(value_key: str, weight_key: str) -> float | None:
@@ -445,7 +445,7 @@ def build_environment_realtime(
     def _os_cell(
         value: float | None, os_family: str | None, fmt: Callable[[float], str], exceeded: bool = False
     ) -> RealtimeLoadCell:
-        """페이징 전용 — 값 앞 L/W 접두(shared.saturation_axis_displays 표기 관례).
+        """페이징 전용 — 값 앞 L/W 접두(assessment_display.saturation_axis_displays 표기 관례).
 
         무정규화 raw rate라 OS 무관 해석 불가 — Linux refault(any>0 압박) vs Windows Pages Input/sec
         (>=20 압박), 같은 숫자가 다른 의미. 실행 큐는 지수 정규화(값/threshold, >=1.0 포화)로 이미
@@ -529,12 +529,12 @@ def to_capacity_warning_item(raw: ReportRowRaw):
     환경 요약 원인 집계(_under_cause_summary)의 단일 소스. 임계 재계산 없이 rollup 이 잡은 trigger 키를 매핑
     (drift 방지, runway 소진 디스크 등도 강조).
     """
-    # 운영 신호 경로는 report_aggregate 원본만 본다 — disk baseline 주입 없음(유휴 활동 축 미관측).
+    # 운영 신호 경로는 get_report_aggregate 원본만 본다 — disk baseline 주입 없음(유휴 활동 축 미관측).
     stats = build_resource_stats(raw, disk_baseline=None)
     # 분류·근본원인·처방·신뢰도 전부 rollup_host 단일 모델 — 화면 간 정합(#E3). 처방은 자원별 독립(ADR 0056),
     # confidence_notes 도 host 기반(build_host_confidence_notes).
-    host = recommendation.rollup_host(stats)
-    classification = recommendation.host_status_to_recommendation(host.host_status)
+    host = right_sizing.rollup_host(stats)
+    classification = right_sizing.host_status_to_recommendation(host.host_status)
     hit = {t for r in host.resources.values() for t in r.triggers}
     swap_active = "mem_saturation" in hit
     # 원인 라벨 — trigger key 를 os-neutral 축 이름으로(고정 순서, _CAUSE_LABEL_BY_TRIGGER dict 삽입순 = 표시순).
@@ -546,13 +546,13 @@ def to_capacity_warning_item(raw: ReportRowRaw):
     # (net_status_label/color). 원시 수치(재전송·드롭·conntrack)는 서버 상세.
     net_status_value = _NET_STATUS_LABEL.get(net_res.status, net_res.status)
     net_status_color = _NET_CONGESTED_COLOR if net_congested else ""
-    # 디스크 I/O — network 와 동형 orthogonal flag(io_bound/io_ok/unmeasured, host_status 미구동). RS_STATUS_LABEL_KO
-    # (분류 enum 아닌 축 status 전용 라벨, LABEL_KO 와 다른 딕셔너리) 가 이미 세 상태 전부 보유(io_bound="I/O 병목"
+    # 디스크 I/O — network 와 동형 orthogonal flag(io_bound/io_ok/unmeasured, host_status 미구동). STATUS_LABEL_KO
+    # (분류 enum 아닌 축 status 전용 라벨, RECOMMENDATION_LABEL_KO 와 다른 딕셔너리) 가 이미 세 상태 전부 보유(io_bound="I/O 병목"
     # 등)라 별도 라벨 딕셔너리 불요 — net_status 와 동일 색 재사용(동일 의미=동일 hex, E8). classification 무관
     # 항상 노출(root_cause_label 은 under_provisioned 인과 기여 시에만 노출돼 CPU·메모리 정상인 io_bound 호스트는
     # 안 드러나는 사각지대 보완).
     disk_io_res = host.resources["disk_io"]
-    disk_io_status_value = recommendation.RS_STATUS_LABEL_KO.get(disk_io_res.status, disk_io_res.status)
+    disk_io_status_value = right_sizing.STATUS_LABEL_KO.get(disk_io_res.status, disk_io_res.status)
     disk_io_status_color = _NET_CONGESTED_COLOR if disk_io_res.status == "io_bound" else ""
     # 정적 배정 사양 — 서버 목록과 동일 단일 진실(spec_display_line). 환경 자원 평가 표에서 권고와 대조.
     spec_display = spec_display_line(raw.cpu_cores, raw.mem_total_bytes, raw.block_devices)
@@ -562,24 +562,24 @@ def to_capacity_warning_item(raw: ReportRowRaw):
     peak_util = max(util_vals) if util_vals else 0.0
     # 권고·심각도는 분류별 — 자원 부족은 root 처방 + 위반 심각도(swap>원인수>활용률), 과다/유휴는 상태 조치 + 낮은 활용률(낭비) 우선.
     if classification == "under_provisioned":
-        action = recommendation.under_prescription(host)
+        action = right_sizing.under_prescription(host)
         severity_score = (10000.0 if swap_active else 0.0) + len(active_causes) * 100.0 + peak_util
     else:
-        action = recommendation.recommend_action(classification, stats)
+        action = right_sizing.recommend_action(classification, stats)
         severity_score = 100.0 - peak_util  # 낮은 활용률 = 낭비 큼 -> 정렬 우선
     return CapacityWarningItem(
         public_id=raw.public_id,
         hostname=raw.hostname,
         classification=classification,
-        classification_label=recommendation.LABEL_KO[classification],
+        classification_label=right_sizing.RECOMMENDATION_LABEL_KO[classification],
         badge_class=BADGE_CLASS[classification],
-        classification_rank=recommendation.CLASSIFICATION_ORDER[classification],
+        classification_rank=right_sizing.CLASSIFICATION_ORDER[classification],
         active_causes=active_causes,
         # 워크로드 카테고리 카운트 — role_distribution 과 동일 단일 진실 (services 이름 + listen 소켓).
         services=dict(workload_category_counter(raw.services, raw.listen_ports)),
         confidence_notes=build_host_confidence_notes(host),
         recommendation_action=action,
-        root_cause_label=recommendation.root_cause_display(host),
+        root_cause_label=right_sizing.root_cause_display(host),
         severity_score=severity_score,
         net_status_label=net_status_value,
         net_status_color=net_status_color,
@@ -602,7 +602,7 @@ def build_action_targets(raws: list[ReportRowRaw]) -> ActionTargets:
         items.append(item)
         if item.classification in ("over_provisioned", "idle"):
             eff_raws.append(raw)
-    items.sort(key=lambda it: (recommendation.CLASSIFICATION_ORDER[it.classification], -it.severity_score, it.hostname))
+    items.sort(key=lambda it: (right_sizing.CLASSIFICATION_ORDER[it.classification], -it.severity_score, it.hostname))
     return ActionTargets(
         hosts=items,
         total=len(items),
@@ -618,7 +618,7 @@ def build_action_targets(raws: list[ReportRowRaw]) -> ActionTargets:
 def to_os_eol_warning_item(raw: ReportRowRaw, now: datetime) -> AttentionRow | None:
     """ReportRowRaw -> AttentionRow if EOL 경과(resolve_os_eol 공용 판정), else None.
 
-    판정(Windows build / Linux os_version + EOL 경과 비교)은 shared.resolve_os_eol 단일 진실 —
+    판정(Windows build / Linux os_version + EOL 경과 비교)은 os_eol.resolve_os_eol 단일 진실 —
     보고서 정성 요약과 동일 로직. 본 함수는 표시(AttentionRow) 변환만.
     """
     result = resolve_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())

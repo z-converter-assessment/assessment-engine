@@ -2,10 +2,10 @@
 
 검증 영역:
 - inventory query (resolve_server_id, list_servers, get_server)
-- _latest_per_dimension n=1/n=2 (get_storage, get_network, latest_dashboard)
+- _latest_per_dimension n=1/n=2 (get_storage, get_network, get_latest_dashboard)
 - collection_status
-- metric_chart(metric_trend 위임) dispatcher — MetricType 전량 dispatch + SQL 정상 실행
-- metric_trend 결과 정확성 (CPU LAG delta, fs.usage 시점 값, rate/dim, reset 흡수)
+- get_metric_chart(get_metric_trend 위임) dispatcher — MetricType 전량 dispatch + SQL 정상 실행
+- get_metric_trend 결과 정확성 (CPU LAG delta, fs.usage 시점 값, rate/dim, reset 흡수)
 """
 
 from datetime import UTC, datetime, timedelta
@@ -218,7 +218,7 @@ async def test_collection_status_missing_server(query_repo: SqlQueryRepository):
     assert await query_repo.get_collection_status(999_999) is None
 
 
-# --- latest_dashboard — 3번의 _latest_per_dimension 통합 ------------------
+# --- get_latest_dashboard — 3번의 _latest_per_dimension 통합 ------------------
 
 
 async def test_latest_dashboard_returns_all_four_blocks(
@@ -226,7 +226,7 @@ async def test_latest_dashboard_returns_all_four_blocks(
     query_repo: SqlQueryRepository,
 ):
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-dash-1", n_points=3)
-    dash = await query_repo.latest_dashboard(sid)
+    dash = await query_repo.get_latest_dashboard(sid)
     assert dash is not None
     # server_metrics는 최신 2행 (delta 계산용)
     assert len(dash.metrics) == 2
@@ -239,7 +239,7 @@ async def test_latest_dashboard_returns_all_four_blocks(
 
 
 async def test_latest_dashboard_missing_server(query_repo: SqlQueryRepository):
-    assert await query_repo.latest_dashboard(999_999) is None
+    assert await query_repo.get_latest_dashboard(999_999) is None
 
 
 async def test_latest_dashboard_skips_future_timestamp_rows(
@@ -248,7 +248,7 @@ async def test_latest_dashboard_skips_future_timestamp_rows(
 ):
     """미래 timestamp 행 방어 — 시계 어긋난 agent 가 미래 collected_at 으로 발행해도 그 행을 "최신"으로
 
-    잡지 않는다. 미래행이 cur 를 가로채면 CPU delta(연속 2행)가 깨지므로, latest_dashboard 는 now()
+    잡지 않는다. 미래행이 cur 를 가로채면 CPU delta(연속 2행)가 깨지므로, get_latest_dashboard 는 now()
     이하 행만 본다 (server_metrics + disk_io/net_io/mount 모든 블록 동일 정책).
     """
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-future-1", n_points=3)
@@ -285,7 +285,7 @@ async def test_latest_dashboard_skips_future_timestamp_rows(
             ],
         ),
     )
-    dash = await query_repo.latest_dashboard(sid)
+    dash = await query_repo.get_latest_dashboard(sid)
     assert dash is not None
     # 미래행 제외 후에도 정상 최신 2행 — 그리고 cur(최신)가 미래행이 아니어야 한다
     assert len(dash.metrics) == 2
@@ -296,7 +296,7 @@ async def test_latest_dashboard_skips_future_timestamp_rows(
     assert all(mu.collected_at is not None and mu.collected_at < future_ts for mu in dash.filesystems)
 
 
-# --- metric_chart dispatcher — 17개 metric_type 모두 무사 dispatch --------
+# --- get_metric_chart dispatcher — 17개 metric_type 모두 무사 dispatch --------
 
 
 @pytest.mark.parametrize("metric_type", _ALL_METRIC_TYPES)
@@ -307,7 +307,7 @@ async def test_metric_chart_dispatcher_all_types(
 ):
     """모든 metric_type이 dispatcher를 통과하고 SQL이 정상 실행 — 결과는 비어도 OK."""
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id=f"q-mc-{metric_type}", n_points=3)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type=metric_type,
         dimension=None,
@@ -328,7 +328,7 @@ async def test_metric_trend_env_dispatcher_all_types(
     """EnvironmentMetricType 전량이 collapse=True dispatch 를 통과 — 결과는 비어도 OK(#F9)."""
     sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id=f"q-env-{metric_type}", n_points=3)
     end = base_ts + timedelta(minutes=10)
-    rows = await query_repo.metric_trend(
+    rows = await query_repo.get_metric_trend(
         metric_type,
         base_ts,
         end,
@@ -340,7 +340,7 @@ async def test_metric_trend_env_dispatcher_all_types(
     assert isinstance(rows, list)
 
 
-# --- metric_chart helper 결과 정확성 --------------------------------------
+# --- get_metric_chart helper 결과 정확성 --------------------------------------
 
 
 async def test_metric_chart_cpu_usage_percent_returns_data(
@@ -350,7 +350,7 @@ async def test_metric_chart_cpu_usage_percent_returns_data(
     """_chart_cpu_delta — n_points=3이면 LAG로 d_total > 0인 행 2개 → 시간 버킷 >= 1."""
     sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-cpu-1", n_points=3)
     end = base_ts + timedelta(minutes=10)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="cpu.usage_percent",
         dimension=None,
@@ -372,7 +372,7 @@ async def test_metric_chart_disk_io_saturation_returns_await(
 ):
     """disk.io_saturation — await(ms) 로 양 OS 통일. sum(delta(op_time))/sum(delta(ops))*1000.
 
-    시드 op_time/ops 델타 + io_time_s(device util >= RS_DISKIO_UTIL_MIN 게이트 통과 — 60s 간격에 40s delta = 0.67).
+    시드 op_time/ops 델타 + io_time_s(device util >= DISKIO_UTIL_MIN 게이트 통과 — 60s 간격에 40s delta = 0.67).
 
     device_id 는 물리 디스크 필터(`_PHYS_DISK_SQL_FILTER`)가 조인하는 "name:{block_devices.name}" 규약 —
     inventory 에 동일 name 의 disk 노드가 있어야 chart 가 값을 낸다(tests/factories.py 상단 규약 주석).
@@ -404,7 +404,7 @@ async def test_metric_chart_disk_io_saturation_returns_await(
                 ],
             ),
         )
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="disk.io_saturation",
         dimension=None,
@@ -445,7 +445,7 @@ async def test_metric_chart_disk_io_saturation_excludes_idle_disk(
                 ],
             ),
         )
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="disk.io_saturation",
         dimension=None,
@@ -461,7 +461,7 @@ async def test_metric_chart_disk_io_saturation_util_gate_excludes_low_activity(
     collect_repo: SqlCollectRepository,
     query_repo: SqlQueryRepository,
 ):
-    """disk.io_saturation util-gate(2-1) — ops 델타는 있으나 io_time util < RS_DISKIO_UTIL_MIN 인 저활동
+    """disk.io_saturation util-gate(2-1) — ops 델타는 있으나 io_time util < DISKIO_UTIL_MIN 인 저활동
 
     device 는 제외. 극소 ops 로 op_time 을 나눠 await 가 폭증(writeback 잔류)해도 병목 아님 → 값 없음.
     """
@@ -487,7 +487,7 @@ async def test_metric_chart_disk_io_saturation_util_gate_excludes_low_activity(
                 ],
             ),
         )
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="disk.io_saturation",
         dimension=None,
@@ -506,7 +506,7 @@ async def test_metric_chart_fs_usage_returns_per_mount(
     """_chart_fs — dimension=mount, 시점 값. 각 행에 dimension 채워짐."""
     sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-fs-1", n_points=2)
     end = base_ts + timedelta(minutes=10)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="fs.usage_percent",
         dimension=None,
@@ -558,7 +558,7 @@ async def test_metric_chart_disk_read_iops_per_device(
             ),
         )
     end = base_ts + timedelta(minutes=10)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="disk.read_iops",
         dimension=None,
@@ -578,7 +578,7 @@ async def test_metric_chart_cpu_reset_excludes_counter_decrease(
     collect_repo: SqlCollectRepository,
     query_repo: SqlQueryRepository,
 ):
-    """metric_chart(metric_trend 위임) — CPU counter reset(재부팅 후 jiffies 0 재시작 = 값 감소)은
+    """get_metric_chart(get_metric_trend 위임) — CPU counter reset(재부팅 후 jiffies 0 재시작 = 값 감소)은
 
     d_total>0 필터로 제외 → 그 버킷 차트 missing.
 
@@ -605,7 +605,7 @@ async def test_metric_chart_cpu_reset_excludes_counter_decrease(
         )
 
     end = base_ts + timedelta(minutes=15)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="cpu.usage_percent",
         dimension=None,
@@ -657,7 +657,7 @@ async def test_metric_chart_rate_clamps_counter_decrease(
         )
 
     end = base_ts + timedelta(minutes=15)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="disk.read_iops",
         dimension="sda",
@@ -705,7 +705,7 @@ async def test_reboot_events_classifies_boot_time_change_as_reboot(
     # agent_id 단일 키 (#C1) — make_inventory 가 composite_id 라벨로 파생한 값과 일치.
     sid = await collect_repo.find_server_id(agent_id_for("q-rb-1"))
     assert sid is not None
-    events = await query_repo.reboot_events(
+    events = await query_repo.get_reboot_events(
         sid,
         start=base_ts - timedelta(minutes=1),
         end=base_ts + timedelta(hours=2),
@@ -745,7 +745,7 @@ async def test_reboot_events_classifies_agent_only_change_as_restart(
     # agent_id 단일 키 (#C1) — make_inventory 가 composite_id 라벨로 파생한 값과 일치.
     sid = await collect_repo.find_server_id(agent_id_for("q-rb-2"))
     assert sid is not None
-    events = await query_repo.reboot_events(
+    events = await query_repo.get_reboot_events(
         sid,
         start=base_ts - timedelta(minutes=1),
         end=base_ts + timedelta(hours=2),
@@ -802,7 +802,7 @@ async def test_metric_chart_dimension_filter(
             ),
         )
     end = base_ts + timedelta(minutes=10)
-    rows_sda = await query_repo.metric_chart(
+    rows_sda = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="disk.read_iops",
         dimension="name:sda",
@@ -811,7 +811,7 @@ async def test_metric_chart_dimension_filter(
         agg="avg",
         end=end,
     )
-    rows_all = await query_repo.metric_chart(
+    rows_all = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="disk.read_iops",
         dimension=None,
@@ -825,7 +825,7 @@ async def test_metric_chart_dimension_filter(
     assert any(r.dimension == "sdb" for r in rows_all)
 
 
-# --- metric_snapshots -----------------------------------------------------
+# --- get_metric_snapshots -----------------------------------------------------
 
 
 async def test_metric_snapshots_returns_timestamps(
@@ -833,7 +833,7 @@ async def test_metric_snapshots_returns_timestamps(
     query_repo: SqlQueryRepository,
 ):
     sid, _ = await _seed_one_server_with_metrics(collect_repo, composite_id="q-snap-1", n_points=5)
-    rows = await query_repo.metric_snapshots(sid, cursor=None, limit=10)
+    rows = await query_repo.get_metric_snapshots(sid, cursor=None, limit=10)
     assert len(rows) == 5
     for r in rows:
         assert r.collected_at is not None
@@ -848,7 +848,7 @@ async def test_metric_snapshots_cursor_pagination(
     """cursor 이전 timestamps만."""
     sid, base_ts = await _seed_one_server_with_metrics(collect_repo, composite_id="q-snap-2", n_points=4)
     cursor = base_ts + timedelta(minutes=2)
-    rows = await query_repo.metric_snapshots(sid, cursor=cursor, limit=10)
+    rows = await query_repo.get_metric_snapshots(sid, cursor=cursor, limit=10)
     assert all(r.collected_at < cursor for r in rows)
 
 
@@ -961,7 +961,7 @@ async def test_latest_per_dimension_excludes_data_older_than_30d(
     assert "/old" not in mount_names, "30d 이상 오래된 mount가 결과에 포함됨 — partition pruning 미적용"
 
 
-# --- attention 신호: metric_gap_warnings (통신 끊김 운영신호) --------------
+# --- attention 신호: get_metric_gap_warnings (통신 끊김 운영신호) --------------
 # disk_usage_warnings 는 운영신호에서 USE Method 로 이동(코드 제거) — 관련 테스트 삭제됨.
 
 
@@ -972,7 +972,7 @@ async def test_metric_gap_warnings_excludes_recent_metric(
     """방금 metric 발행한 서버는 갭 없음 — 결과 제외."""
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gap-fresh", hostname="fresh-host"))
     await collect_repo.record_metrics(sid, make_metrics(collected_at=datetime.now(UTC)))
-    rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
+    rows = await query_repo.get_metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
     assert all(r.hostname != "fresh-host" for r in rows)
 
 
@@ -984,7 +984,7 @@ async def test_metric_gap_warnings_includes_gap_in_window(
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gap-mid", hostname="gap-host"))
     last_ts = datetime.now(UTC).replace(microsecond=0) - timedelta(minutes=10)
     await collect_repo.record_metrics(sid, make_metrics(collected_at=last_ts))
-    rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
+    rows = await query_repo.get_metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
     matching = [r for r in rows if r.hostname == "gap-host"]
     assert len(matching) == 1
     assert matching[0].last_metric_at == last_ts
@@ -998,7 +998,7 @@ async def test_metric_gap_warnings_excludes_dead_server(
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-gap-dead", hostname="dead-host"))
     long_ago = datetime.now(UTC).replace(microsecond=0) - timedelta(hours=48)
     await collect_repo.record_metrics(sid, make_metrics(collected_at=long_ago))
-    rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
+    rows = await query_repo.get_metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
     assert all(r.hostname != "dead-host" for r in rows)
 
 
@@ -1008,15 +1008,15 @@ async def test_metric_gap_warnings_no_metric_excluded(
 ):
     """metric 한 번도 발행 안 한 서버 — JOIN 조건으로 제외."""
     await collect_repo.upsert_server(make_inventory(composite_id="q-gap-none", hostname="never-host"))
-    rows = await query_repo.metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
+    rows = await query_repo.get_metric_gap_warnings(gap_minutes=5, recent_hours=24, limit=10)
     assert all(r.hostname != "never-host" for r in rows)
 
 
-# --- mount 사용률 신호는 report_aggregate 가 단일 산출 ----------------
-# worst mount used% + 용량 임박 구동 마운트(runway) 모두 report_aggregate (test_query_repository_report.py).
+# --- mount 사용률 신호는 get_report_aggregate 가 단일 산출 ----------------
+# worst mount used% + 용량 임박 구동 마운트(runway) 모두 get_report_aggregate (test_query_repository_report.py).
 
 
-# --- environment_utilization ----------------------------------------------
+# --- get_environment_utilization ----------------------------------------------
 
 
 async def test_environment_utilization_returns_averages(
@@ -1059,7 +1059,7 @@ async def test_environment_utilization_returns_averages(
         ),
     )
     # CPU: LAG pair 1개. (1 - sum(d_idle)/sum(d_total))*100 = (1 - 50/100)*100 = 50%
-    util = await query_repo.environment_utilization(period_days=1, end=datetime.now(UTC))
+    util = await query_repo.get_environment_utilization(period_days=1, end=datetime.now(UTC))
     assert util.cpu_avg_pct is not None
     assert 49.0 <= util.cpu_avg_pct <= 51.0
     # MEM capacity-weighted = sum(used)/sum(total) = (50+70)/(100+100) = 60%
@@ -1092,7 +1092,7 @@ async def test_environment_utilization_excludes_outside_window(
             net_io=[],
         ),
     )
-    util = await query_repo.environment_utilization(period_days=1, end=datetime.now(UTC))
+    util = await query_repo.get_environment_utilization(period_days=1, end=datetime.now(UTC))
     assert util is not None  # 정상 호출 + 기간 밖 데이터로 인한 예외 없음
 
 
@@ -1137,7 +1137,7 @@ async def test_environment_utilization_capacity_weighted(
                 net_io=[],
             ),
         )
-    util = await query_repo.environment_utilization(period_days=1, end=end, server_ids=[small, big])
+    util = await query_repo.get_environment_utilization(period_days=1, end=end, server_ids=[small, big])
     # CPU capacity-weighted = (1 - sum(d_idle)/sum(d_total))*100 = (1 - 910/1100)*100 ~ 17.3% (동등가중이면 50%)
     assert util.cpu_avg_pct is not None
     assert 15.0 <= util.cpu_avg_pct <= 20.0
@@ -1172,11 +1172,11 @@ async def test_environment_utilization_server_ids_filter(
                     net_io=[],
                 ),
             )
-    only_a = await query_repo.environment_utilization(period_days=1, end=end, server_ids=[a])
+    only_a = await query_repo.get_environment_utilization(period_days=1, end=end, server_ids=[a])
     assert only_a.cpu_avg_pct is not None
     assert 89.0 <= only_a.cpu_avg_pct <= 91.0
     assert only_a.sample_size == 1
-    both = await query_repo.environment_utilization(period_days=1, end=end, server_ids=[a, b])
+    both = await query_repo.get_environment_utilization(period_days=1, end=end, server_ids=[a, b])
     assert both.cpu_avg_pct is not None
     assert 49.0 <= both.cpu_avg_pct <= 51.0
     assert both.sample_size == 2
@@ -1213,12 +1213,12 @@ async def test_metric_trend_capacity_weighted(
                 ),
             )
     bucket = "1h"  # 전 데이터 한 버킷으로 강제
-    cpu = await query_repo.metric_trend("cpu.usage_percent", start, end, bucket, [small, big])
+    cpu = await query_repo.get_metric_trend("cpu.usage_percent", start, end, bucket, [small, big])
     # 버킷 sum(d_num)/sum(d_total) = (90+100)/(100+1000)*100 ~ 17.3% (서버 동등가중이면 50%)
     assert cpu
     assert cpu[-1].value is not None
     assert 15.0 <= cpu[-1].value <= 20.0
-    mem = await query_repo.metric_trend("mem.usage_percent", start, end, bucket, [small, big])
+    mem = await query_repo.get_metric_trend("mem.usage_percent", start, end, bucket, [small, big])
     # sum(used)/sum(total) = (180+200)/(200+2000)*100 ~ 17.3% (서버 동등가중이면 50%)
     assert mem
     assert mem[-1].value is not None
@@ -1233,7 +1233,7 @@ async def test_metric_trend_cached_null_component_is_gap_not_zero(
 
     이전 COALESCE-to-0 는 null 성분을 "측정된 0% cached" 로 오도했다. 성분 IS NOT NULL 가드로 win-only 는
     데이터 포인트 없음(gap), 실측 host 는 값 산출. 혼재 시 win 이 분모·분자에서 함께 제외돼 실측값을 0 쪽으로
-    끌어내리지 않는다(capacity-weighted 정합, environment_utilization 과 동일 가드).
+    끌어내리지 않는다(capacity-weighted 정합, get_environment_utilization 과 동일 가드).
     """
     base_ts = _bucket_aligned_base()
     start = base_ts - timedelta(minutes=1)
@@ -1269,15 +1269,15 @@ async def test_metric_trend_cached_null_component_is_gap_not_zero(
     )
     bucket = "1h"
     # win-only: cached 미측정 -> gap (0% 포인트 아님)
-    win_cached = await query_repo.metric_trend("mem.cached_percent", start, end, bucket, [win])
+    win_cached = await query_repo.get_metric_trend("mem.cached_percent", start, end, bucket, [win])
     assert win_cached == []
     # 실측 host: 250/1000*100 = 25%
-    lin_cached = await query_repo.metric_trend("mem.cached_percent", start, end, bucket, [lin])
+    lin_cached = await query_repo.get_metric_trend("mem.cached_percent", start, end, bucket, [lin])
     assert lin_cached
     assert lin_cached[-1].value is not None
     assert 20.0 <= lin_cached[-1].value <= 30.0
     # 혼재: win 이 분모에서도 제외 -> 실측 25% 유지(0 쪽으로 안 끌림)
-    mixed = await query_repo.metric_trend("mem.cached_percent", start, end, bucket, [win, lin])
+    mixed = await query_repo.get_metric_trend("mem.cached_percent", start, end, bucket, [win, lin])
     assert mixed
     assert mixed[-1].value is not None
     assert 20.0 <= mixed[-1].value <= 30.0
@@ -1307,7 +1307,7 @@ async def test_mem_paging_pressure_crosses_on_linux_refault(
         ),
     )
     end = base_ts + timedelta(minutes=5)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="mem.paging_pressure",
         dimension=None,
@@ -1337,7 +1337,7 @@ async def test_mem_paging_pressure_flat_stays_zero(
             ),
         )
     end = base_ts + timedelta(minutes=5)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="mem.paging_pressure",
         dimension=None,
@@ -1379,7 +1379,7 @@ async def test_mem_paging_pressure_crosses_on_windows_pages_input(
         ),
     )
     end = base_ts + timedelta(minutes=5)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid,
         metric_type="mem.paging_pressure",
         dimension=None,
@@ -1415,7 +1415,9 @@ async def test_mem_paging_pressure_hosts_counts_windows(
         ),
     )
     end = base_ts + timedelta(minutes=5)
-    rows = await query_repo.metric_trend("mem.paging_pressure_hosts", base_ts, end, "1m", server_ids=[sid], agg="avg")
+    rows = await query_repo.get_metric_trend(
+        "mem.paging_pressure_hosts", base_ts, end, "1m", server_ids=[sid], agg="avg"
+    )
     assert rows
     assert max(r.value for r in rows if r.value is not None) >= 1, "Windows 호스트가 압박 카운트에 잡혀야 한다"
 
@@ -1424,9 +1426,9 @@ async def test_latest_saturation_windows_paging_uses_pages_input(
     collect_repo: SqlCollectRepository,
     query_repo: SqlQueryRepository,
 ):
-    """회귀(HIGH): latest_saturation(실시간 환경/서버 상세 원자료) 이 Windows 는 paging_major(항상 NULL) 대신
+    """회귀(HIGH): get_latest_saturation(실시간 환경/서버 상세 원자료) 이 Windows 는 paging_major(항상 NULL) 대신
 
-    paging_in 을 읽어 paging_major_rate 를 산출해야 한다 — 그래야 mem_pressure_active(실시간)가 report_aggregate
+    paging_in 을 읽어 paging_major_rate 를 산출해야 한다 — 그래야 mem_pressure_active(실시간)가 get_report_aggregate
     기반 mem_saturated(윈도우 사이징)와 같은 Windows 호스트에 대해 상반된 진단을 내지 않는다.
     """
     base_ts = _bucket_aligned_base(minutes_ago=10)
@@ -1447,7 +1449,7 @@ async def test_latest_saturation_windows_paging_uses_pages_input(
         ),
     )
     since = base_ts - timedelta(minutes=1)
-    result = await query_repo.latest_saturation([sid], since)
+    result = await query_repo.get_latest_saturation([sid], since)
     sat = result[sid]
     # delta=2000(3000-1000) / dt=60s = 33.33.../s — paging_major 는 두 행 모두 None 이라 paging_in 델타에서만 나온다.
     assert sat.paging_major_rate is not None, "Windows 는 paging_in 델타로 rate 가 산출돼야 한다(paging_major 무관)"
@@ -1511,7 +1513,7 @@ async def test_net_congested_crosses_on_retrans_spike(
         ),
     )
     end = base_ts + timedelta(minutes=5)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid, metric_type="net.congested", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
     )
     assert rows
@@ -1524,7 +1526,7 @@ async def test_net_congested_low_traffic_gate_suppresses_retrans(
     collect_repo: SqlCollectRepository,
     query_repo: SqlQueryRepository,
 ):
-    """net.congested — 트래픽이 저트래픽 게이트(RS_NET_MIN_TRAFFIC_KBPS) 미만이면 재전송율이 임계를 넘어도 억제."""
+    """net.congested — 트래픽이 저트래픽 게이트(NET_MIN_TRAFFIC_KBPS) 미만이면 재전송율이 임계를 넘어도 억제."""
     base_ts = _bucket_aligned_base(minutes_ago=10)
     sid = await collect_repo.upsert_server(make_inventory(composite_id="q-net-lowtraffic"))
     await collect_repo.record_metrics(
@@ -1571,7 +1573,7 @@ async def test_net_congested_low_traffic_gate_suppresses_retrans(
         ),
     )
     end = base_ts + timedelta(minutes=5)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid, metric_type="net.congested", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
     )
     assert rows
@@ -1609,7 +1611,7 @@ async def test_fs_usage_percent_collapse_locf_no_first_bucket_distortion(
         ),
     )
     end = base_ts + timedelta(minutes=6)
-    rows = await query_repo.metric_trend(
+    rows = await query_repo.get_metric_trend(
         "fs.usage_percent", base_ts, end, "1m", server_ids=[sid], agg="avg", collapse=True
     )
     assert len(rows) >= 5, "표본 사이 버킷들도 LOCF 로 값이 채워져야 한다(gap 아님)"
@@ -1636,7 +1638,7 @@ async def test_cpu_saturation_crosses_when_run_queue_over_per_core_threshold(
         sid, make_metrics(collected_at=base_ts, cpu_run_queue=5.0, filesystems=[], disk_io=[], net_io=[])
     )
     end = base_ts + timedelta(minutes=5)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid, metric_type="cpu.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
     )
     assert rows
@@ -1656,7 +1658,7 @@ async def test_cpu_saturation_stays_zero_under_threshold(
         sid, make_metrics(collected_at=base_ts, cpu_run_queue=1.0, filesystems=[], disk_io=[], net_io=[])
     )
     end = base_ts + timedelta(minutes=5)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid, metric_type="cpu.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
     )
     assert rows
@@ -1667,7 +1669,7 @@ async def test_disk_saturation_crosses_when_await_over_threshold(
     collect_repo: SqlCollectRepository,
     query_repo: SqlQueryRepository,
 ):
-    """disk.saturation — disk.saturation_hosts(환경, crossing 서버 수)와 동일 원자료·임계(RS_DISKIO_AWAIT_MS=20ms).
+    """disk.saturation — disk.saturation_hosts(환경, crossing 서버 수)와 동일 원자료·임계(DISKIO_AWAIT_MS=20ms).
 
     60s 간격 delta_ops=100/delta_t=4.0s -> await=40ms(임계 20ms 초과), io_time delta=40s/60s=0.67 util 게이트 통과.
     """
@@ -1692,7 +1694,7 @@ async def test_disk_saturation_crosses_when_await_over_threshold(
         ),
     )
     end = base_ts + timedelta(minutes=5)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid, metric_type="disk.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
     )
     assert rows
@@ -1728,7 +1730,7 @@ async def test_disk_saturation_stays_zero_under_threshold(
         ),
     )
     end = base_ts + timedelta(minutes=5)
-    rows = await query_repo.metric_chart(
+    rows = await query_repo.get_metric_chart(
         server_id=sid, metric_type="disk.saturation", dimension=None, time_range="15m", bucket="1m", agg="avg", end=end
     )
     assert rows

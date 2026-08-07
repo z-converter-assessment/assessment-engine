@@ -44,12 +44,12 @@ _RETRY_MAX_ATTEMPTS = 3
 _RETRY_BACKOFF_BASE_SEC = 2
 
 # 검증 오류 로그에 남길 최대 필드 수 — inventory 는 한 메시지에 수십 건이 나올 수 있다 (F7).
-_VALIDATION_ERR_LIMIT = 5
+_VALIDATION_ERROR_LIMIT = 5
 # 경로 한 조각의 길이 상한 — 에이전트가 정한 dict 키가 그대로 실린다.
 _VALIDATION_LOC_MAX = 48
 
 
-def _format_db_err(e: DBAPIError) -> str:
+def _format_db_error(e: DBAPIError) -> str:
     """DB 예외에서 SQL·param·connection string 제외한 진단 메타만 추출 (F8)."""
     sa_cls = type(e).__name__
     orig = getattr(e, "orig", None)
@@ -76,7 +76,7 @@ def _sanitize_loc_part(part: object) -> str:
     return _sanitize_log_text(str(part), _VALIDATION_LOC_MAX)
 
 
-def _format_validation_err(e: ValidationError, limit: int = _VALIDATION_ERR_LIMIT) -> str:
+def _format_validation_error(e: ValidationError, limit: int = _VALIDATION_ERROR_LIMIT) -> str:
     """검증 오류에서 필드 경로와 오류 종류만 추출 (F8).
 
     `msg` 는 입력값 조각을 싣는 경우가 있어(uuid_parsing 은 실패 문자를 노출) 제외한다. 필드가 많은
@@ -97,7 +97,7 @@ def _hide_bound_params(e: DBAPIError) -> None:
     e.hide_parameters = True
 
 
-def _is_retryable_db_exc(e: DBAPIError) -> bool:
+def _is_retryable_db_failure(e: DBAPIError) -> bool:
     """일시 DB 장애 판정 — 예외 타입 또는 SQLSTATE 둘 중 하나라도 걸리면 재시도."""
     if isinstance(e, _RETRYABLE_DB_EXC):
         return True
@@ -110,7 +110,7 @@ def _is_retryable_db_exc(e: DBAPIError) -> bool:
 def _describe_db_failure(e: DBAPIError | TimeoutError) -> tuple[str, str]:
     """(무엇이 실패했나, 진단 메타) — 재시도 로그 두 자리가 같은 문구를 쓰게 한다."""
     if isinstance(e, DBAPIError):
-        return "db error", f" {_format_db_err(e)}"
+        return "db error", f" {_format_db_error(e)}"
     return "db timeout", ""
 
 
@@ -124,11 +124,11 @@ def _is_permanent_db_failure(e: DBAPIError | TimeoutError) -> bool:
         return False
     _hide_bound_params(e)
     if isinstance(e, IntegrityError):
-        logger.error("db integrity error (non-retryable) {}", _format_db_err(e))
+        logger.error("db integrity error (non-retryable) {}", _format_db_error(e))
         return True
-    if not _is_retryable_db_exc(e):
+    if not _is_retryable_db_failure(e):
         # ProgrammingError·DataError 등 — 재시도해도 같은 결과다.
-        logger.error("db error (non-retryable) {}", _format_db_err(e))
+        logger.error("db error (non-retryable) {}", _format_db_error(e))
         return True
     return False
 
@@ -187,7 +187,7 @@ def _parse[T: MessageBase](model: type[T], label: str, body: bytes) -> T:
     try:
         return model.model_validate_json(body)
     except ValidationError as e:
-        detail = _format_validation_err(e)
+        detail = _format_validation_error(e)
         logger.error("{} parse error {}", label, detail)
         raise ValueError(f"{label} validation failed: {detail}") from None
 

@@ -6,9 +6,9 @@
 
 | ViewModel | 채우는 mapper | 핵심 파생 |
 |-----------|---------------|-----------|
-| `ServerListItem` | `to_server_list_item` | `os_display` / `mem_total_gb` / `storage_total_gb` / `is_online` / `known_services` (카테고리 dedup) / `show_unknown_badge` / `recommendation_label`(한국어 분류명 `recommendation.LABEL_KO`) / `provisioning_class`(raw enum — 목록 색은 이 필드 기반 under-only 강조, 분류 다색 배지는 상세/보고서 전용) / `os_eol_status`(지원 단계 — full·security_only·paid_only·ended·unknown, 카탈로그 미매칭을 "지원 중"으로 단정 안 함) / `has_operational_event`(전기간 에러 발생 유무, `fleet_error_hosts` 집합) |
+| `ServerListItem` | `to_server_list_item` | `os_display` / `mem_total_gb` / `storage_total_gb` / `is_online` / `known_services` (카테고리 dedup) / `show_unknown_badge` / `recommendation_label`(한국어 분류명 `right_sizing.RECOMMENDATION_LABEL_KO`) / `provisioning_class`(raw enum — 목록 색은 이 필드 기반 under-only 강조, 분류 다색 배지는 상세/보고서 전용) / `os_eol_status`(지원 단계 — full·security_only·paid_only·ended·unknown, 카탈로그 미매칭을 "지원 중"으로 단정 안 함) / `has_operational_event`(전기간 에러 발생 유무, `get_fleet_error_hosts` 집합) |
 | `ServerDetailResponse` | `to_server_detail` + `enrich_server_detail` | `os_display`(Windows 는 `product_name` 연도/세대 라벨 우선 — `_os_display` 4단 폴백) / `edition`(Windows SKU pass-through, `detail.html` os_display 조합 표시) / `cpu_display` / `disk_total_gb` / `services` (ServiceItem) / `sorted_listen_ports` / `agent_id`(식별 단일 키 표시) / `cpu_arch`+`cpu_bits`(ISA·비트, pass-through) |
-| `ServiceItem` | mapper | `category` (`service_classifier.classify`) / `matched_ports` (port 리스트) / `display_name` |
+| `ServiceItem` | mapper | `category` (`service_classifier.classify_service`) / `matched_ports` (port 리스트) / `display_name` |
 | `ListenPortItem` | mapper | `is_significant` (boolean, port < 49152 = 비동적 포트) — 매퍼가 `key_listen_ports` 를 고를 때 쓴다 |
 | `MountUsageItem` | `_build_mount_item` | `mount` / `fstype` / `total_gb`·`used_gb`·`avail_gb` / `usage_pct` / `badge_class`·`bar_color` (임계값 분류) |
 
@@ -28,7 +28,7 @@
 
 ## 자원 상세 탭 '최근 N일' 평가 카드 (CPU/메모리/스토리지/네트워크, 평가 윈도우 창)
 
-서버 세부(`/servers/{id}`) 및 4개 자원 상세 탭(`/cpu`·`/memory`·`/storage`·`/network`)이 공유하는 이용률(U)+포화(S)+에러(E) 3축 카드 — `build_period_assessment(stats, errors, disk_worst_mount=)`(mappers/report.py) 단일 산출, `query/server.py.get_period_assessment` 경유 각 라우터가 조회(`server_detail.py`). 실시간 스냅샷 카드(순간)와 분리 — 이쪽은 `recommendation.WINDOW_DAYS`(#F10) 통계 기준의 분류·판정 근거.
+서버 세부(`/servers/{id}`) 및 4개 자원 상세 탭(`/cpu`·`/memory`·`/storage`·`/network`)이 공유하는 이용률(U)+포화(S)+에러(E) 3축 카드 — `build_period_assessment(stats, errors, disk_worst_mount=)`(mappers/report.py) 단일 산출, `query/server.py.get_period_assessment` 경유 각 라우터가 조회(`server_detail.py`). 실시간 스냅샷 카드(순간)와 분리 — 이쪽은 `right_sizing.WINDOW_DAYS`(#F10) 통계 기준의 분류·판정 근거.
 
 | ViewModel | 핵심 필드 |
 |-----------|-----------|
@@ -57,37 +57,37 @@
 
 | ViewModel | 채우는 mapper |
 |-----------|---------------|
-| `ReportRowItem` | `to_report_row_item(raw, online, now, has_operational_event=False)` — `role`(`infer_role`, listen 보강) / `recommendation`(`classify_host`) / `recommendation_label` (한국어) / `badge_class` (`rec-{enum}`) / `root_cause_label`(`rollup_host` 인과 종합) / `net_status_label`(네트워크 품질 정상·혼잡·미측정, 사이징과 별개) / `os_display` / `internal_ip[0]`. 특징 워크로드(baseline 제외): `workload_categories`(카테고리 집합) / `signature_workload_categories`(`SIGNATURE_CATEGORIES` 부분집합 — 세부 서버 목록 "구동 서비스" 열 전용, 서버 목록 뱃지와 동일 기준) / `workload_services`(카테고리별 서비스명) — 환경/N대 집계·세부 목록 뱃지 공유. 구동 서비스 차등(개별 보고서, `_build_workload_display`, baseline 포함 전부): `workload_groups`(customer 카테고리별 제품명) / `listen_ports_detail`(engineer Listen 포트 카드 — listen 소켓 원시 표). `os_eol`/`os_eol_status`(`lookup_os_eol(...,  now.date())` full·security_only·paid_only·ended·unknown — 보고서 발행 기준 시각, live "오늘" 아님) / `has_operational_event`(보고서 window 기준 `latest_errors` — 세부 서버 목록 전용, caller 가 `get_report(fetch_operational_events=True)` 로 명시 요청할 때만 계산, 기본 False — 환경 전체 스코프는 N+1 회피로 미계산) |
-| `ReportSummary` | `query_service.get_report` — `rows: list[ReportRowItem]`(`sort_rows_for_report` 위험 우선 정렬) + KPI 집계 (`total`/`online`/`risk_attention`(과다+유휴)/`risk_high`(부족)) + N대 선택 맥락 `os_family_summary`/`workload_summary`(`build_selection_context`) |
+| `ReportRowItem` | `to_report_row_item(raw, online, now, has_operational_event=False)` — `role`(`infer_role`, listen 보강) / `recommendation`(`classify_host`) / `recommendation_label` (한국어) / `badge_class` (`rec-{enum}`) / `root_cause_label`(`rollup_host` 인과 종합) / `net_status_label`(네트워크 품질 정상·혼잡·미측정, 사이징과 별개) / `os_display` / `internal_ip[0]`. 특징 워크로드(baseline 제외): `workload_categories`(카테고리 집합) / `signature_workload_categories`(`SIGNATURE_CATEGORIES` 부분집합 — 세부 서버 목록 "구동 서비스" 열 전용, 서버 목록 뱃지와 동일 기준) / `workload_services`(카테고리별 서비스명) — 환경/N대 집계·세부 목록 뱃지 공유. 구동 서비스 차등(개별 보고서, `_build_workload_display`, baseline 포함 전부): `workload_groups`(customer 카테고리별 제품명) / `listen_ports_detail`(engineer Listen 포트 카드 — listen 소켓 원시 표). `os_eol`/`os_eol_status`(`lookup_os_eol(...,  now.date())` full·security_only·paid_only·ended·unknown — 보고서 발행 기준 시각, live "오늘" 아님) / `has_operational_event`(보고서 window 기준 `get_latest_errors` — 세부 서버 목록 전용, caller 가 `get_report(fetch_operational_events=True)` 로 명시 요청할 때만 계산, 기본 False — 환경 전체 스코프는 N+1 회피로 미계산) |
+| `ReportSummary` | `QueryService.get_report` — `rows: list[ReportRowItem]`(`sort_rows_for_report` 위험 우선 정렬) + KPI 집계 (`total`/`online`/`risk_attention`(과다+유휴)/`risk_high`(부족)) + N대 선택 맥락 `os_family_summary`/`workload_summary`(`build_selection_context`) |
 | `MetricSeriesItem` | `to_metric_series_item` — chart API 응답 |
 
 ## 환경 개요 상단 요약 (overview, `/`)
 
-환경 개요(`/`)는 `EnvironmentOverview`(환경 요약 KPI + 활용률·포화 도넛 + 자원 적정성 분포 막대)만 노출 — 서버 목록(`/servers`)은 행만, 화면 분리 자체가 컨텍스트 가드(#E9). `AttentionSignals`(운영신호 3 카탈로그 — 통신끊김/OS지원종료/에이전트재시작, `get_attention_signals`)는 보고서 경로에서만 소비 — 단일/선택은 `attention_for_host`/`attention_by_host`(`services/report_generator.py` 정의, `report_page.py` 소비), 환경·선택 요약은 `EnvironmentReportSummary.attention`(OS 지원종료 표). 독립 라이브 카드로는 렌더되지 않는다.
+환경 개요(`/`)는 `EnvironmentOverview`(환경 요약 KPI + 활용률·포화 도넛 + 자원 적정성 분포 막대)만 노출 — 서버 목록(`/servers`)은 행만, 화면 분리 자체가 컨텍스트 가드(#E9). `AttentionSignals`(운영신호 3 카탈로그 — 통신끊김/OS지원종료/에이전트재시작, `get_attention_signals`)는 보고서 경로에서만 소비 — 단일/선택은 `attention_for_host`/`attention_by_host`(`services/report/generator.py` 정의, `report_page.py` 소비), 환경·선택 요약은 `EnvironmentReportSummary.attention`(OS 지원종료 표). 독립 라이브 카드로는 렌더되지 않는다.
 
-요약 위젯·right-sizing 분류 모두 `recommendation.WINDOW_DAYS`(#F10) — 한 창 통일(#E3 화면 간 정합).
+요약 위젯·right-sizing 분류 모두 `right_sizing.WINDOW_DAYS`(#F10) — 한 창 통일(#E3 화면 간 정합).
 
 | ViewModel | 채우는 mapper | 데이터 소스 | 시간 축 | 색상 톤 |
 |-----------|---------------|-------------|---------|---------|
-| `EnvironmentOverview` | `build_environment_overview` — 화면 축 6: 환경 요약 KPI(대수·온라인/오프라인·자원 합계·`os_distribution`·OS 지원 4분기 `os_eol_passed`(무상 패치 종료 — paid_only·ended 합산)/`os_eol_security_only`/`os_eol_unknown`/`os_eol_supported`) / 주요 워크로드(`role_distribution` 시그니처 카테고리 인스턴스 분포 — `SIGNATURE_CATEGORIES`, 호스트 dedup 아님·0 포함 + `workload_donut`·`workload_total`·`role_unknown_count`) / 활용률(`utilization` 평균 + `utilization_p95` 환경 보고서 소비, 표본 `util_sample_size`) / 포화 4도넛(`saturation_donuts` — CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡) / 에러 fleet(`error_fleet` — MCE·OOM·EDAC·디스크·NIC 에러 발생 호스트 수) / 분류 도넛(`risk_donut`·`risk_donut_total`·`risk_high_count`) | `list_server_ids` + `get_servers` + `environment_utilization` + `report_aggregate` + `fleet_error_summary` + Redis `online:*` mget | 자원 적정성 창 (`WINDOW_DAYS`, #F10) | slate (`#f8fafc`) |
-| `FleetErrorItem` | 환경 fleet 에러 표시자 1개 — `label`/`affected`(발생 호스트 수)/`total`(표본). 정상=0 발화(#E9), 카운트형이라 도넛 아닌 표시자. `_build_error_fleet` | `fleet_error_summary` | 위 창 | — |
-| `UtilizationBar` | `build_environment_overview` 안에서 3종 (CPU·메모리·디스크) 생성 — `pct`/`bar_color`(단색 푸른, 값 무관)/`dash_length`(SVG dasharray, mapper 비례 산술) | `environment_utilization(WINDOW_DAYS, end)` SQL — CPU·메모리·디스크 모두 capacity-weighted (sum(used)/sum(total), 자원 총량 가중 — 서버 1대=1표 아님) | 평가 윈도우 | 테마색1 `var(--color-title)`·`None` 회(`#cbd5e1`) |
-| `RiskDonutSegment` | `build_risk_donut_segments` — 5 카테고리 (under/over/idle/optimal/insufficient) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `report_aggregate(WINDOW_DAYS)` + net baseline 주입 -> `build_resource_stats` -> `classify_host` | 평가 윈도우 USE Method | `UTIL_GAUGE_COLOR` 테마 단색 (분류는 라벨이 전달, E8) |
-| `AttentionRow` (gap) | `to_gap_warning_item(raw, now)` — `badge_text`(경과 분 `{gap_min}분`) / `badge_class`(`attn-active`, 운영신호 통신끊김) | `metric_gap_warnings(gap_min, recent_h, limit)` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |
-| `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `active_causes`(발화 원인 os-neutral 라벨, `_CAUSE_LABEL_BY_TRIGGER` 파생 — 환경 요약 원인 집계 `_under_cause_summary` 단일 소스)·`recommendation_action`(자원별 독립 처방, `under_prescription` — 인과 결합이어도 관측된 under 자원 전부)·`root_cause_label`(진단 근거 전용, 처방을 거르지 않음)·`net_status_label`+`net_status_color`(네트워크 품질 전용 필드 — `action_targets_table` 전용)·`disk_io_status_label`+`disk_io_status_color`(디스크 I/O 상태, network 와 동형)·`spec_display`(정적 배정 사양 "4코어 · 8.00GB · 100GB", `shared.spec_display_line` 단일 진실 — `ServerListItem.spec_display` 와 동일 산식, 표 호스트 옆 노출). caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `report_aggregate(WINDOW_DAYS)` + `build_resource_stats` -> `rollup_host`(triggers) | 평가 윈도우 USE Method | blue (`#eff6ff`) |
+| `EnvironmentOverview` | `build_environment_overview` — 화면 축 6: 환경 요약 KPI(대수·온라인/오프라인·자원 합계·`os_distribution`·OS 지원 4분기 `os_eol_passed`(무상 패치 종료 — paid_only·ended 합산)/`os_eol_security_only`/`os_eol_unknown`/`os_eol_supported`) / 주요 워크로드(`role_distribution` 시그니처 카테고리 인스턴스 분포 — `SIGNATURE_CATEGORIES`, 호스트 dedup 아님·0 포함 + `workload_donut`·`workload_total`·`role_unknown_count`) / 활용률(`utilization` 평균 + `utilization_p95` 환경 보고서 소비, 표본 `util_sample_size`) / 포화 4도넛(`saturation_donuts` — CPU 포화·메모리 압박·디스크 I/O 포화·네트워크 혼잡) / 에러 fleet(`error_fleet` — MCE·OOM·EDAC·디스크·NIC 에러 발생 호스트 수) / 분류 도넛(`risk_donut`·`risk_donut_total`·`risk_high_count`) | `list_server_ids` + `get_servers` + `get_environment_utilization` + `get_report_aggregate` + `get_fleet_error_summary` + Redis `online:*` mget | 자원 적정성 창 (`WINDOW_DAYS`, #F10) | slate (`#f8fafc`) |
+| `FleetErrorItem` | 환경 fleet 에러 표시자 1개 — `label`/`affected`(발생 호스트 수)/`total`(표본). 정상=0 발화(#E9), 카운트형이라 도넛 아닌 표시자. `_build_error_fleet` | `get_fleet_error_summary` | 위 창 | — |
+| `UtilizationBar` | `build_environment_overview` 안에서 3종 (CPU·메모리·디스크) 생성 — `pct`/`bar_color`(단색 푸른, 값 무관)/`dash_length`(SVG dasharray, mapper 비례 산술) | `get_environment_utilization(WINDOW_DAYS, end)` SQL — CPU·메모리·디스크 모두 capacity-weighted (sum(used)/sum(total), 자원 총량 가중 — 서버 1대=1표 아님) | 평가 윈도우 | 테마색1 `var(--color-title)`·`None` 회(`#cbd5e1`) |
+| `RiskDonutSegment` | `build_risk_donut_segments` — 5 카테고리 (under/over/idle/optimal/insufficient) `key`/`label`/`color`/`count`/`dash_length`/`dash_offset` (multi-segment 누적 음수) | `get_report_aggregate(WINDOW_DAYS)` + net baseline 주입 -> `build_resource_stats` -> `classify_host` | 평가 윈도우 USE Method | `UTIL_GAUGE_COLOR` 테마 단색 (분류는 라벨이 전달, E8) |
+| `AttentionRow` (gap) | `to_gap_warning_item(raw, now)` — `badge_text`(경과 분 `{gap_min}분`) / `badge_class`(`attn-active`, 운영신호 통신끊김) | `get_metric_gap_warnings(gap_min, recent_h, limit)` 단일 SQL | 5min~24h 갭 | blue (`#eff6ff`) |
+| `CapacityWarningItem` | `to_capacity_warning_item(raw)` — `active_causes`(발화 원인 os-neutral 라벨, `_CAUSE_LABEL_BY_TRIGGER` 파생 — 환경 요약 원인 집계 `_under_cause_summary` 단일 소스)·`recommendation_action`(자원별 독립 처방, `under_prescription` — 인과 결합이어도 관측된 under 자원 전부)·`root_cause_label`(진단 근거 전용, 처방을 거르지 않음)·`net_status_label`+`net_status_color`(네트워크 품질 전용 필드 — `action_targets_table` 전용)·`disk_io_status_label`+`disk_io_status_color`(디스크 I/O 상태, network 와 동형)·`spec_display`(정적 배정 사양 "4코어 · 8.00GB · 100GB", `host_display.spec_display_line` 단일 진실 — `ServerListItem.spec_display` 와 동일 산식, 표 호스트 옆 노출). caller가 `under_provisioned` 필터링 -> EnvironmentOverview.under_provisioned_hosts (운영신호 아님, USE Method) | `get_report_aggregate(WINDOW_DAYS)` + `build_resource_stats` -> `rollup_host`(triggers) | 평가 윈도우 USE Method | blue (`#eff6ff`) |
 | `AttentionRow` (os_eol) | `to_os_eol_warning_item(raw, now)` — `resolve_os_eol`(endoflife 카탈로그) 무상 보안 패치 종료 시 반환 (운영신호) | `os_id`/`os_version`/`kernel_version` + endoflife 스냅샷 카탈로그 | endoflife.date 스냅샷 (Linux distro + Windows Server build) | blue (`#eff6ff`) |
-| `AttentionRow` (agent_unstable) | `to_agent_unstable_item(public_id, hostname, restart_count)` — caller가 임계 필터링 | `agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | blue (`#eff6ff`) |
-| `AttentionSignals` | `query_service.get_attention_signals` 묶음 (내부 `_assemble_attention` 조립) — 운영신호 3 카탈로그(gap·os_eol·agent_unstable). `has_any` property로 빈 카드 분기 | 위 3 builder(gap/os_eol/agent_unstable) | — | blue (`#eff6ff`) |
+| `AttentionRow` (agent_unstable) | `to_agent_unstable_item(public_id, hostname, restart_count)` — caller가 임계 필터링 | `get_agent_restart_counts_recent(since=now-1h)` SQL (`server_inventory_history` `agent_started_at` DISTINCT-1) | 1h fixed 윈도우 (Redis sliding 대체) | blue (`#eff6ff`) |
+| `AttentionSignals` | `QueryService.get_attention_signals` 묶음 (내부 `_assemble_attention` 조립) — 운영신호 3 카탈로그(gap·os_eol·agent_unstable). `has_any` property로 빈 카드 분기 | 위 3 builder(gap/os_eol/agent_unstable) | — | blue (`#eff6ff`) |
 
 신호 임계값 단일 정의 (mapper·service 모듈 상단):
 - `_USAGE_DANGER_PCT = 90` — disk_warning 공통 (mapper)
 - `_USAGE_WARN_PCT   = 75` — 위험도 분류 보조
 - `_UTIL_DONUT_CIRC` — `2*pi*_DONUT_RADIUS`(템플릿 SVG r 과 정합) 단일 진실 (mapper, E8)
-- `_DONUT_SEGMENT_DEFS` — 자원 적정성 5 카테고리 (분류 enum·색·조치 설명). 세그먼트 키가 곧 `Recommendation` 값이라 별도 매핑 dict 를 두지 않는다. 한국어 분류명은 `recommendation.LABEL_KO`, 배지 CSS 는 `mappers/shared.BADGE_CLASS` 단일 진실
+- `_DONUT_SEGMENT_DEFS` — 자원 적정성 5 카테고리 (분류 enum·색·조치 설명). 세그먼트 키가 곧 `Recommendation` 값이라 별도 매핑 dict 를 두지 않는다. 한국어 분류명은 `right_sizing.RECOMMENDATION_LABEL_KO`, 배지 CSS 는 `mappers/constants.BADGE_CLASS` 단일 진실
 - `_CAUSE_LABEL_BY_TRIGGER` — trigger key -> os-neutral 원인 라벨 (자원 부족 원인 집계 단일 진실, mapper)
 - `agent_restart_alert_threshold` — 1h 윈도우 재시작 임계 (WebSettings, 값은 `docs/reference/contracts/env.md`)
-- 디스크 용량·I/O 임계 — 본 목록 아님(운영신호가 아닌 USE Method 분류 축, `recommendation` 모듈 단일 진실)
-- `_eol_info` (mapper, shared) — endoflife.date 스냅샷 카탈로그(`os_eol_catalog.json`) 조회 + 경계 3개로 지원 단계 판정 단일 진실.
+- 디스크 용량·I/O 임계 — 본 목록 아님(운영신호가 아닌 USE Method 분류 축, `right_sizing` 모듈 단일 진실)
+- `_eol_info` (mapper, os_eol) — endoflife.date 스냅샷 카탈로그(`os_eol_catalog.json`) 조회 + 경계 3개로 지원 단계 판정 단일 진실.
 
   경계는 무엇이 끊기는지로 정의한다 — `support` 기능 업데이트, `eol` 무상 보안 패치, `extendedSupport` 유상 보안 패치. 벤더 용어(Windows Mainstream·Extended·ESU / RHEL Full·Maintenance·ELS)는 쓰지 않는다. Microsoft 의 "Extended Support" 가 여기서는 `security_only` 구간이라 카탈로그 필드명과 반대이기 때문이다.
 
@@ -105,7 +105,7 @@
   래퍼 둘. `resolve_os_eol`(발화용 — `paid_only`·`ended` 만 반환, attention 카드·보고서 요약. 유상 계약 여부는 수집할 수 없어 계약이 없다는 쪽으로 본다) / `lookup_os_eol`(표시용 — `OsEolInfo(eol_iso·support_iso·extended_support_iso·label·status)` 반환, 서버 목록·상세·보고서 상태 칼럼).
 
 활용률 게이지 색 카탈로그 (mapper 상수):
-- `UTIL_GAUGE_COLOR = "var(--color-title)"` (shared 단일 진실, attention `_UTIL_COLOR_GAUGE` alias) — 주색(테마색1). 활용률 정도는 게이지 길이(`dash_length`)로, 색은 값 무관 단일. Right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over)·서버목록 `.rec-over_provisioned` 배지가 동일 주색 공유 (테마 통일, static-assets.md "색 테마"). under(`#ef4444`)와 대비.
+- `UTIL_GAUGE_COLOR = "var(--color-title)"` (constants 단일 진실, attention `_UTIL_COLOR_GAUGE` alias) — 주색(테마색1). 활용률 정도는 게이지 길이(`dash_length`)로, 색은 값 무관 단일. Right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over)·서버목록 `.rec-over_provisioned` 배지가 동일 주색 공유 (테마 통일, static-assets.md "색 테마"). under(`#ef4444`)와 대비.
 - `_UTIL_COLOR_NONE = "#cbd5e1"` — 표본 부재 (회색).
 
 

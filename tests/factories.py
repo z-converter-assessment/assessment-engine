@@ -19,7 +19,7 @@ from assessment_engine.db.dtos.inbound import (
     TaskResultUpdate,
 )
 from assessment_engine.db.dtos.outbound import TaskRow
-from assessment_engine.service_classifier import compute_service_categories
+from assessment_engine.domain.service_classifier import compute_service_categories
 
 if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject

@@ -86,7 +86,7 @@ ORM 모델 / 식별자 규약(대리키·public_id) / 시계열 8테이블 자�
 - 호스트 식별·MQ 라우팅 단일 키 = `agent_id` (첫 실행 시 1회 생성·영구저장하는 불변 UUID). 부팅마다 NIC MAC 이 재발급되는 환경(OpenStack Windows VM)에서도 별도 재연결 로직 없이 같은 행을 upsert 한다. MQ queue `agent.tasks.{agent_id}` / routing key `task.install.{agent_id}` — 식별키를 바꾸면 큐·라우팅이 함께 바뀐다.
 - `composite_id`·`machine_id` 는 clone collision 진단용 감사 컬럼 — 식별·라우팅에 쓰지 않는다. URL 노출은 `public_id` 단독(#E4).
 - `diagnostic_jobs.job_type` (`customer_report`/`engineer_report` 둘만) + active partial UNIQUE = `(scope, input_hash, job_type)`. 발행 시점 정적 스냅샷을 `result` JSONB 에 보존. customer/engineer 모두 비동기 생성 (pending -> 워커 claim·running -> succeeded/failed). status·progress_stage·started_at·error_message + active partial UNIQUE 가 비동기 상태머신.
-- 보고서 = 발행 시점 정적 스냅샷 (재계산 0, 이력 동적변화 0). 비동기 생성 — emit 이 parent job pending enqueue 후 즉시 `?job={id}` 반환, 전용 워커 프로세스(`worker/report_worker.py`)가 job 을 claim 해 스냅샷 ViewModel 생성·`result` JSONB 저장 (생성 불가 시 failed). 더블클릭은 active UNIQUE 로 기존 job 합류. GET `?job={id}` = succeeded 면 정적 렌더, pending/running 이면 `report-poll.js` 폴링.
+- 보고서 = 발행 시점 정적 스냅샷 (재계산 0, 이력 동적변화 0). 비동기 생성 — emit 이 parent job pending enqueue 후 즉시 `?job={id}` 반환, 전용 워커 프로세스(`worker/report_loop.py`)가 job 을 claim 해 스냅샷 ViewModel 생성·`result` JSONB 저장 (생성 불가 시 failed). 더블클릭은 active UNIQUE 로 기존 job 합류. GET `?job={id}` = succeeded 면 정적 렌더, pending/running 이면 `report-poll.js` 폴링.
 - server scope N대(ids 2개+) 발행 = 워커가 개별 단일 보고서 N건 + selection 본문을 parent 1건 처리 단위로 생성 — child 전부 성공해야 parent succeeded (부분 누락 차단). ids 1개 = 단일. 양식 통일 — 단일/N대/환경 모두 환경 보고서 양식(`EnvironmentReportSummary`) 공유, selection·단일 전용 필드는 환경에서 None/빈 list.
 - 보고서 본문 구조·요약 섹션·운영신호 정책(표시는 os_eol 만)·이력 표시 상세 = `docs/explanation/products/environment-report.md`·`server-report.md`.
 
@@ -114,7 +114,7 @@ Protocol 인터페이스(`CollectRepository`/`QueryRepository`/`DiagnosticReposi
 
 본 절 결정:
 - hypertable 조회는 `WHERE collected_at >= ?` 술어 의무 — partition pruning. 누락 시 모든 chunk full scan. 차트·보고서 repo 메서드 모두 적용. continuous aggregate 조회는 `WHERE bucket >= ?`(동일 pruning).
-- 카운터 메트릭(CPU jiffies·disk/net bytes) 집계는 continuous aggregate + timescaledb_toolkit `counter_agg` 사전집계 단일 진실. counter reset(재부팅·agent재시작·wraparound)은 `counter_agg` 가 값-감소 기준 일률 처리 — 보고서 집계(`report_aggregate`·`report_*_baseline`·`report_cpu_breakdown`)에서 hand-rolled LAG + boot_time gate 부활 금지. 차트(`metric_trend`, 동적 버킷)는 목적상 raw 유지.
+- 카운터 메트릭(CPU jiffies·disk/net bytes) 집계는 continuous aggregate + timescaledb_toolkit `counter_agg` 사전집계 단일 진실. counter reset(재부팅·agent재시작·wraparound)은 `counter_agg` 가 값-감소 기준 일률 처리 — 보고서 집계(`get_report_aggregate`·`get_report_*_baseline`·`get_report_cpu_breakdown`)에서 hand-rolled LAG + boot_time gate 부활 금지. 차트(`get_metric_trend`, 동적 버킷)는 목적상 raw 유지.
 - raw SQL의 사용자 입력은 `text()` + bound parameter만. f-string으로 사용자 입력 직접 삽입 금지 — SQL injection + asyncpg statement cache 키 폭증. dispatch table whitelist 상수(Pydantic Literal → enum 매핑 정적 상수)는 f-string 허용.
 - 트랜잭션 경계: consumer는 1 메시지 = 1 트랜잭션 (`session_factory()` 컨텍스트), web 은 1 request = 1 세션 (`DbSessionDep`). autocommit 금지·세션 공유·중첩 금지.
 
@@ -152,7 +152,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 
 ### P1. Repository는 raw 데이터만 (절대)
 - raw 단위 그대로 outbound DTO (KB·bytes·jiffies·sectors). Python 레이어에서 delta·percent·단위 변환·임계값 분류·dedup·정렬 금지.
-- SQL 표현식 예외: 차트·보고서 집계 SQL 안에서 percent·delta·집계 가능 (`metric_trend`·`report_aggregate`). dispatch table whitelist 상수에만 적용, 사용자 입력 f-string 삽입 금지(#C5).
+- SQL 표현식 예외: 차트·보고서 집계 SQL 안에서 percent·delta·집계 가능 (`get_metric_trend`·`get_report_aggregate`). dispatch table whitelist 상수에만 적용, 사용자 입력 f-string 삽입 금지(#C5).
 
 ### P2. 서비스 계층이 표현 변환 단일 소스 (절대)
 - Service → mapper → ViewModel 흐름에서 모든 파생 계산 (단위 변환·델타·임계값 분류·dedup·정렬·합계·풀네임).
@@ -181,7 +181,7 @@ aio-pika 비동기 컨슈머(FastAPI 독립 프로세스) · 4 routing key 핸�
 
 Pagination 정책:
 - 목록 endpoint(`list_servers` 등 정적 row): page 기반 — `page=1`, `limit=20` (max 100). 라우터 Query Pydantic 검증.
-- 시계열·시간 흐름 endpoint(`metric_snapshots` / `GET /api/tasks` 등): cursor 기반 — `cursor: datetime | None` + `limit`. 시간 역순 스크롤. page 번호 의미 없음 (계속 새 데이터 들어옴).
+- 시계열·시간 흐름 endpoint(`get_metric_snapshots` / `GET /api/tasks` 등): cursor 기반 — `cursor: datetime | None` + `limit`. 시간 역순 스크롤. page 번호 의미 없음 (계속 새 데이터 들어옴).
 - 응답 envelope에 `total_count` / `has_more` 미포함 — `SELECT COUNT(*)` 별도 쿼리 비용 + UX는 빈 결과로 자연 종료 신호.
 - 신규 목록 endpoint 추가 시 위 두 패턴 중 하나 선택 — 정적 row면 page, 시간 흐름이면 cursor.
 
@@ -189,15 +189,15 @@ Pagination 정책:
 
 ## E3. 서비스 계층·ViewModel·Mapper (P2)
 
-표시 파생은 `mappers/` sub-package 에 모인다. 임계 도메인 둘의 자리 — UI badge 는 `mappers/shared.py`(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT`), USE Method right-sizing 은 도메인 모듈 `assessment_engine/recommendation.py`(web 공용 import).
+표시 파생은 `mappers/` sub-package 에 모인다. 임계 도메인 둘의 자리 — UI badge 는 `mappers/constants.py`(`_USAGE_DANGER_PCT`·`_USAGE_WARN_PCT`), USE Method right-sizing 은 도메인 모듈 `assessment_engine/domain/right_sizing.py`(web 공용 import).
 
 모듈 카탈로그·`enrich_*` idempotent·ViewModel 카탈로그·mapper 파생 필드·`cache_serializer._DETAIL_DISPLAY_FIELDS` 동기화: `docs/reference/web/services.md` · `docs/reference/web/view-models.md` 단일 진실.
 
 본 절 결정:
 - 두 임계 도메인(UI badge / USE Method) 혼용 금지.
 - 신규 ViewModel 파생 필드 추가 시 #F9 영향도 체크리스트 적용.
-- right-sizing 분류 단일 진실 = `recommendation.rollup_host(stats) -> HostAssessment` (자원 5개 per-resource USE + 인과 근본원인 종합). 배지 = `classify_host` = `host_status_to_recommendation(rollup_host().host_status)`. 네트워크 혼잡은 host under 아닌 별도 `network_congested` 플래그.
-- saturation 3축은 os-aware helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`) 단일 진실 경유 의무 — 임계 재계산·직접 해석 금지. `if raw.swap_used` 등 raw 직접 해석 금지. 윈도우 분류·환경·보고서(dual-gate)가 이 3축 verdict helper를 쓰고, 실시간 순간 스냅샷은 목적상 sibling single-gate helper(`cpu_saturation_index`·`mem_pressure_active`·`disk_io_saturation_index`·`net_signal_active`, 동일 `RS_*` 상수 재사용)를 경유한다 — 두 경로의 미세 원자료·경계 불일치는 의식적 유예(tradeoffs T20), 실시간 sibling helper 사용은 본 규범 위반 아님.
+- right-sizing 분류 단일 진실 = `right_sizing.rollup_host(stats) -> HostAssessment` (자원 5개 per-resource USE + 인과 근본원인 종합). 배지 = `classify_host` = `host_status_to_recommendation(rollup_host().host_status)`. 네트워크 혼잡은 host under 아닌 별도 `network_congested` 플래그.
+- saturation 3축은 os-aware helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`) 단일 진실 경유 의무 — 임계 재계산·직접 해석 금지. `if raw.swap_used` 등 raw 직접 해석 금지. 윈도우 분류·환경·보고서(dual-gate)가 이 3축 verdict helper를 쓰고, 실시간 순간 스냅샷은 목적상 sibling single-gate helper(`cpu_saturation_index`·`mem_pressure_active`·`disk_io_saturation_index`·`net_signal_active`, 동일 임계 상수 재사용)를 경유한다 — 두 경로의 미세 원자료·경계 불일치는 의식적 유예(tradeoffs T20), 실시간 sibling helper 사용은 본 규범 위반 아님.
 - triggers·stats 재사용 의무 — report 진단(`_build_diagnosis`, host.resources 상태·trigger 파생)·권고(`under_prescription(host)`)·attention 자원 부족 카드·서버목록·도넛이 `rollup_host` + `build_resource_stats` 공용 입력을 쓴다 (화면 간 분류 정합, 임계 재계산 0). 조건부 주입 축은 `build_resource_stats` 의 필수 키워드 인자로 올린다 — 새 호출 경로가 주입 여부를 결정하지 않고는 컴파일되지 않게 한다. 현행 비대칭(`disk_baseline` 은 보고서 경로만 주입)은 tradeoffs T24.
 - 분류 명세·판정 순서·합성 규칙·OS 분기·미관측(unmeasured) 처리·한계 단일 진실 = `docs/reference/right-sizing.md`. 임계 수치와 그 근거는 `docs/reference/right-sizing-thresholds.md`.
 
@@ -222,13 +222,13 @@ Pagination 정책:
 
 ## E7. 도메인 분류 책임 (P2)
 
-서비스 카테고리 분류는 도메인 모듈 `assessment_engine/service_classifier.py` 소관 — web·consumer 공용이고 web 역의존 0(`recommendation.py` 동급). 템플릿은 `service_badge_class` 필터로 category -> CSS 클래스 변환만 한다(P3). 메커니즘 상세 = `docs/reference/web/services.md`.
+서비스 카테고리 분류는 도메인 모듈 `assessment_engine/domain/service_classifier.py` 소관 — web·consumer 공용이고 web 역의존 0(`right_sizing.py` 동급). 템플릿은 `service_badge_class` 필터로 category -> CSS 클래스 변환만 한다(P3). 메커니즘 상세 = `docs/reference/web/services.md`.
 
 본 절 결정:
 - 카테고리 규약 단일 진실 = `SERVICE_CATALOG`(`CategoryDef`). 분류 키워드·포트·드롭다운·뱃지 CSS·템플릿 범례가 모두 본 카탈로그 파생 — 서비스 추가는 카탈로그 1곳만 수정. 분산 정의 부활 금지.
 - 서비스 분류는 이름·comm·포트 다중 신호를 정밀도 순으로 쓰고, 포트 신호는 해당 unit 에 귀속된 포트에만 적용 — 호스트 전체 포트로 unit 을 분류하지 않는다(services 탭 multi-service 오분류 방지).
 - 호스트 카테고리 집합은 ingest 사전계산값(`service_categories`)만 쓴다 — read 경로에서 재계산 금지 (화면 간 불일치 0). 메커니즘 상세는 `docs/reference/web/services.md`.
-- 본 `classify`(서비스 카테고리)와 `recommendation.classify_host`(USE Method right-sizing) 혼용 금지 — 다른 함수.
+- 본 `classify_service`(서비스 카테고리)와 `right_sizing.classify_host`(USE Method right-sizing) 혼용 금지 — 다른 함수.
 
 키워드 매칭·카탈로그 파생 / 다중 신호 우선순위 / opaque 이름 한계(T15) / 서비스 3단계 표시 계층: `docs/reference/web/services.md` "서비스 분류" 절.
 
@@ -387,9 +387,9 @@ secret 채널·설정 자동 검증: `docs/reference/contracts/env.md`.
 원칙: 보고서·대시보드·차트 모두 같은 평가 윈도우·시계열 옵션 카탈로그 참조 — 화면별 의미 분기 방지.
 
 본 절 결정:
-- right-sizing 평가 윈도우 단일 진실 = `recommendation.WINDOW_DAYS` (수치·근거는 `docs/reference/right-sizing-thresholds.md`). 보고서 라우터·서버 목록 분류·환경 개요 자원 적정성 카드·환경 자원 평가 페이지·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select) 모두 본 상수/동일 값 참조 — 분류는 화면 간 한 창 단일(#E3, 화면별 의미 분기 0). 변경 시 `_thresholds_reference.html` 표제도 동기화.
-- 윈도우 2분리 기준 (목적별, 임의값 0): (1) 분류·신뢰도·이용률·포화 입력 = 평가 윈도우 창 — p95·burst·steal·coverage·history_hours + 환경 개요 이용률·포화 도넛 전부 이 창(#E3 화면 간 정합, 분류와 한 창 통일). (2) 용량 runway = 가용 이력 전체 — 누적 신호라 길수록 정확, `report_aggregate` mount_span 이 하한 없이 `bucket <= :end` 로 실제 span 기반 산출(#C5 하한 술어 의식적 예외, tradeoffs T18). 앵커 = 라이브 now / 보고서 발행 시점. 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 15m, 평가 윈도우 무관). 실시간 현황 페이지(attention)는 순간 스냅샷(창 무관).
-- 다운사이즈 처방 이력 게이트 = 창 대비 관측 비율(`RS_DOWNSIZE_MIN_SUFFICIENCY`, `sample_sufficiency`) — 절대 시간 아님(WINDOW_DAYS 바뀌어도 문턱 불변, 미세 갭 흡수). 통계 정밀도 절대 바닥은 `RS_CONFIDENCE_MIN_HOURS`(하드 컷 아닌 신뢰도 하향 트리거).
+- right-sizing 평가 윈도우 단일 진실 = `right_sizing.WINDOW_DAYS` (수치·근거는 `docs/reference/right-sizing-thresholds.md`). 보고서 라우터·서버 목록 분류·환경 개요 자원 적정성 카드·환경 자원 평가 페이지·구간 선택 기본값(`DIAGNOSTIC_DEFAULT_TIME_RANGE`·보고서 발행 select) 모두 본 상수/동일 값 참조 — 분류는 화면 간 한 창 단일(#E3, 화면별 의미 분기 0). 변경 시 `_thresholds_reference.html` 표제도 동기화.
+- 윈도우 2분리 기준 (목적별, 임의값 0): (1) 분류·신뢰도·이용률·포화 입력 = 평가 윈도우 창 — p95·burst·steal·coverage·history_hours + 환경 개요 이용률·포화 도넛 전부 이 창(#E3 화면 간 정합, 분류와 한 창 통일). (2) 용량 runway = 가용 이력 전체 — 누적 신호라 길수록 정확, `get_report_aggregate` mount_span 이 하한 없이 `bucket <= :end` 로 실제 span 기반 산출(#C5 하한 술어 의식적 예외, tradeoffs T18). 앵커 = 라이브 now / 보고서 발행 시점. 서버 상세 차트는 실시간 모니터링이라 별도(globalRange 15m, 평가 윈도우 무관). 실시간 현황 페이지(attention)는 순간 스냅샷(창 무관).
+- 다운사이즈 처방 이력 게이트 = 창 대비 관측 비율(`DOWNSIZE_MIN_SUFFICIENCY`, `sample_sufficiency`) — 절대 시간 아님(WINDOW_DAYS 바뀌어도 문턱 불변, 미세 갭 흡수). 통계 정밀도 절대 바닥은 `CONFIDENCE_MIN_HOURS`(하드 컷 아닌 신뢰도 하향 트리거).
 - 환경 부하 추이(보고서 SSR 정적 차트) bucket 은 `AUTO_BUCKET[range]` 동적 — 발행 time_range 기준(예: 7d -> 3h, 24h -> 30m). 윈도우 변경 시 집계 단위 자동 추종 — 하드코딩 금지.
 - TimeRange/BucketSize Literal 단일 진실 = `db/repositories/query/types.TimeRange`/`BucketSize` + `_BUCKET_INFO` + `chart-utils.js`. 새 range·bucket 도입 시 backend Literal·SQL dispatch·JS 매핑·UI 토글 4곳 동시 갱신 의무.
 - range -> 자동 bucket 매핑(`AUTO_BUCKET`)은 backend `types.AUTO_BUCKET` 와 frontend `chart-utils.js` 두 곳 — 값 동기화 의무 (range별 적정 분해력 단일 의미). 신규 TimeRange 도입 시 두 곳 동시 신설. SSR 정적 차트(환경 부하 추이)는 backend 매핑, 동적 fetch 차트는 frontend 매핑 적용 — 둘이 어긋나면 같은 range 가 화면별 다른 bucket.

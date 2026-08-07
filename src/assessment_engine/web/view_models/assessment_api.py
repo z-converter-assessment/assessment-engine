@@ -15,7 +15,7 @@ from typing import Literal, NotRequired, TypedDict
 
 from pydantic import ConfigDict
 
-from assessment_engine.recommendation import Recommendation, ResourceStatus
+from assessment_engine.domain.right_sizing import Recommendation, ResourceStatus
 
 # extra=forbid — 매퍼가 계약 밖 키를 얹으면 검증 테스트가 잡는다. OpenAPI 로는 additionalProperties:false.
 _CONTRACT = ConfigDict(extra="forbid")

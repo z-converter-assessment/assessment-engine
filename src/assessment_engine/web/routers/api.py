@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query
 from assessment_engine.db.dtos.outbound import RebootEvent
 from assessment_engine.db.repositories.query.types import EnvironmentMetricType
 from assessment_engine.web.deps import QueryServiceDep, ServerIdDep
-from assessment_engine.web.services.query_service import (
+from assessment_engine.web.services.query import (
     AggFunc,
     BucketSize,
     MetricType,

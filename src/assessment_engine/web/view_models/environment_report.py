@@ -19,7 +19,7 @@ from assessment_engine.web.view_models.topology import NetworkTopology
 class ClassificationCount:
     """USE Method 분포 1 segment — 환경 보고서 전용 (양식 A/B 공통).
 
-    label 은 right-sizing 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 보고서 전역 동일 어휘.
+    label 은 right-sizing 한국어 분류명(right_sizing.RECOMMENDATION_LABEL_KO 단일 진실) — 보고서 전역 동일 어휘.
     pct: classification_dist 중 차지하는 % (mapper precompute, P3 회피).
     """
 
@@ -221,7 +221,7 @@ class EnvironmentReportSummary:
     # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].
     trend: list[JsonObject] = field(default_factory=list[JsonObject])
     # 개별 보고서 전용(single engineer) — 자원 포화 여부 3축(CPU 실행 큐/메모리 페이징/디스크 I/O) 시계열.
-    # trend 와 동일 발행 윈도우·bucket, 원자료·임계는 recommendation.cpu_saturated/mem_pressure_active/
+    # trend 와 동일 발행 윈도우·bucket, 원자료·임계는 right_sizing.cpu_saturated/mem_pressure_active/
     # disk_io_saturated 와 동일(서버 상세 단일 진실 이식). plain dict 이진 0/1(포화/정상) — 그 외 스코프는 빈 list.
     sat_trend: list[JsonObject] = field(default_factory=list[JsonObject])
     # 통합 조치 대상 표 — 자원 부족/과다 할당/유휴 한 표 (자원 평가 페이지와 동일 build_action_targets·정렬).

@@ -233,7 +233,7 @@ class NetworkWithIo:
     inventory_at: datetime | None
     os_family: str | None = None  # OS 분기 표시(conntrack N/A 등, #E6 data-os-family)
     # iface_id -> 최신 link_speed_bps(bit/s) — 인벤토리 speed_mbps null(virtio·Windows NT5.2) 폴백용
-    # (latest_link_speed 재사용, environment.py 와 동일 목적).
+    # (get_latest_link_speed 재사용, environment.py 와 동일 목적).
     link_speed_by_iface: dict[str, int] = field(default_factory=dict[str, int])
 
 
@@ -242,7 +242,7 @@ class EnvironmentUtilizationRaw:
     """환경(또는 선택 N대) capacity-weighted 평균 활용률 (sum(used) / sum(total)).
 
     윈도우 안 전 서버·전 시점 통합 비율 — CPU는 시간 delta 합, MEM/DISK는 total 가중(가상 mount 제외).
-    거대 VM이 큰 비중 = 물리 자원 관점(서버 동등 가중 아님). 산식 단일 진실 = repo environment_utilization.
+    거대 VM이 큰 비중 = 물리 자원 관점(서버 동등 가중 아님). 산식 단일 진실 = repo get_environment_utilization.
     """
 
     cpu_avg_pct: float | None
@@ -255,7 +255,7 @@ class EnvironmentUtilizationRaw:
 
 @dataclass(frozen=True, slots=True)
 class DiskIoBaselineRaw:
-    """report_disk_io_baseline — 서버별 디스크 I/O baseline + p95/peak. baseline=SUM(delta)/SUM(dt)."""
+    """get_report_disk_io_baseline — 서버별 디스크 I/O baseline + p95/peak. baseline=SUM(delta)/SUM(dt)."""
 
     iops_baseline: int | None
     throughput_kbps_baseline: float | None
@@ -267,7 +267,7 @@ class DiskIoBaselineRaw:
 
 @dataclass(frozen=True, slots=True)
 class NetIoBaselineRaw:
-    """report_net_io_baseline — 서버별 네트워크 I/O baseline + p95/peak."""
+    """get_report_net_io_baseline — 서버별 네트워크 I/O baseline + p95/peak."""
 
     rx_kbps_baseline: float | None
     tx_kbps_baseline: float | None
@@ -279,7 +279,10 @@ class NetIoBaselineRaw:
 
 @dataclass(frozen=True, slots=True)
 class SaturationRaw:
-    """latest_saturation — 신선 표본 실시간 포화 원자료 (os-aware). 미존재 server 는 빈 인스턴스(전 필드 None) 사용."""
+    """get_latest_saturation — 신선 표본 실시간 포화 원자료 (os-aware).
+
+    미존재 server 는 빈 인스턴스(전 필드 None) 사용.
+    """
 
     run_queue: float | None = None  # CPU 실행 큐 (Linux procs_running / Windows Processor Queue)
     await_ms: float | None = None  # 디스크 응답 (op_time delta / ops delta)
@@ -289,7 +292,7 @@ class SaturationRaw:
     # io_time 만 증가하면 구세대 virtio phantom busy 카운터 오탐), io_time delta 가 wall-time 초과(overflow, 카운터
     # 이상)도 미측정 None. 정상 활동이면 0%도 유효 실측.
     disk_io_util_pct: float | None = None
-    # 하드폴트 rate — os-aware 소스(Linux refault=paging_major / Windows Pages Input=paging_in, latest_saturation
+    # 하드폴트 rate — os-aware 소스(Linux refault=paging_major / Windows Pages Input=paging_in, get_latest_saturation
     # SQL 이 os_family 로 컬럼 선택. Windows 는 paging_major 컬럼 자체가 항상 NULL, 겸용 아님).
     paging_major_rate: float | None = None
     retrans_pct: float | None = None  # TCP 재전송율 %
@@ -304,7 +307,7 @@ class SaturationRaw:
 
 @dataclass(frozen=True, slots=True)
 class ErrorFleetRaw:
-    """latest_errors — 창내 하드웨어/디스크/네트워크 에러 카운트 (Errors 축, 정상 0). counter delta(max-min).
+    """get_latest_errors — 창내 하드웨어/디스크/네트워크 에러 카운트 (Errors 축, 정상 0). counter delta(max-min).
 
     measured=False(창 안 표본 없음)면 카운트 지표 전부 no_data. corrupted_bytes 는 gauge(현재값>0=존재).
     """
@@ -323,7 +326,7 @@ class ErrorFleetRaw:
 
 @dataclass(frozen=True, slots=True)
 class FleetErrorRaw:
-    """fleet_error_summary — 전 서버 에러축 영향 호스트 수 (환경 개요 fleet 에러 표시자). 창내 발생 호스트 count."""
+    """get_fleet_error_summary — 전 서버 에러축 영향 호스트 수 (환경 개요 fleet 에러 표시자). 창내 발생 호스트 count."""
 
     total: int = 0  # 창 안 표본 있는 호스트 수 (분모)
     mce_hosts: int = 0  # cpu.mce 발생 호스트 수
@@ -337,7 +340,7 @@ class FleetErrorRaw:
 class MountCapacityRaw:
     """마운트별 용량 사이징 raw (per-mount) — /api/assessment 디스크 축 입력.
 
-    runway/target 은 가용 이력 전체 span 산출(report_aggregate mount_calc 와 동일 산식, 임계 상수 단일 진실).
+    runway/target 은 가용 이력 전체 span 산출(get_report_aggregate mount_calc 와 동일 산식, 임계 상수 단일 진실).
     target_bytes = 소진 임박 시 목표 총 용량(바이트). None=안 참(유지). assess_mount_capacity 가 사이징 판정.
     """
 
@@ -362,7 +365,7 @@ class MemoryBreakdownRaw:
 
 @dataclass(frozen=True, slots=True)
 class CpuBreakdownRaw:
-    """CPU 분류 윈도우 평균 — user/system/iowait (시간 delta 기반 %, reset 정책 metric_trend 동일)."""
+    """CPU 분류 윈도우 평균 — user/system/iowait (시간 delta 기반 %, reset 정책 get_metric_trend 동일)."""
 
     user_pct: float | None
     system_pct: float | None
@@ -424,7 +427,7 @@ class ReportRowRaw:
     # Windows Memory saturation — Pages Input/sec rate p95 (Linux paging_major 등가 축, os-aware 소비)
     mem_pages_input_rate_p95: float | None = None
 
-    # Inventory 합계 산정용 — query_service.get_report가 totals 계산 시 사용
+    # Inventory 합계 산정용 — QueryService.get_report 가 totals 계산 시 사용
     cpu_cores: int | None = None
     mem_total_bytes: int | None = None
     block_devices: list[JsonObject] | None = None  # 합계 산정 위해 size_bytes 합산
@@ -450,9 +453,9 @@ class ReportRowRaw:
     # 축이라 다른 마운트일 수 있음(하나는 정적 최대%, 하나는 소진 추세 기준).
     disk_capacity_worst_mount: str | None = None
 
-    # Uptime + period 내 재부팅 횟수 — 별도 SQL(`report_uptime_stats`)에서 채움
+    # Uptime + period 내 재부팅 횟수 — 별도 SQL(`get_report_uptime_stats`)에서 채움
     reboot_count: int = 0
-    # period 내 에이전트 재시작 횟수 — 별도 SQL(`report_agent_restart_stats`), anchor+window 정합 (#F10).
+    # period 내 에이전트 재시작 횟수 — 별도 SQL(`get_report_agent_restart_stats`), anchor+window 정합 (#F10).
     agent_restart_count: int = 0
 
     # Disk I/O — baseline(평균) + p95 + peak (모든 device 시점별 합산 후 통계)
@@ -475,7 +478,7 @@ class ReportRowRaw:
     cpu_sufficiency: float | None = None
     mem_sufficiency: float | None = None
 
-    # --- rollup_host 입력 raw — report_aggregate 산출, build_resource_stats 가 ResourceStats 배선 ---
+    # --- rollup_host 입력 raw — get_report_aggregate 산출, build_resource_stats 가 ResourceStats 배선 ---
     cpu_steal_p95_pct: float | None = None  # steal% p95 (가상화 경합 — 충실도 편향 + 인과 분리)
     cpu_burst_ratio: float | None = None  # cpu p95/median (버스티 -> 통계 정밀도 하향)
     procs_blocked_p95: float | None = None  # D-state 블록 p95 (IO발 CPU 로드 분리 근본원인)

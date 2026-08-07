@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta, timezone
 
 from markupsafe import Markup
 
-from assessment_engine.service_classifier import BADGE_CLASS_BY_CATEGORY
+from assessment_engine.domain.service_classifier import BADGE_CLASS_BY_CATEGORY
 
 _KST = timezone(timedelta(hours=9))
 

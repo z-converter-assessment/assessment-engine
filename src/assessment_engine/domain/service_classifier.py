@@ -1,7 +1,6 @@
 """서비스 카테고리 분류·포트 매핑 — 단일 카탈로그 (E7).
 
-패키지 루트에 있는 이유 — consumer(ingest 사전계산)와 web(표시·필터)이 같은 카탈로그를 쓰고,
-web 역의존이 0 이라야 한다.
+consumer(ingest 사전계산)와 web(표시·필터)이 같은 카탈로그를 쓰고, web 역의존이 0 이라야 한다.
 
 `SERVICE_CATALOG` 가 카테고리별 분류 규약의 단일 진실. 분류·포트·드롭다운·뱃지 CSS 가
 모두 본 카탈로그에서 파생 (import 시점 1회). 서비스 추가 = 카탈로그 1곳만 수정.
@@ -27,7 +26,7 @@ class MatchedPort:
     """서비스 유닛에 매핑된 listen 포트 1개. `matched_ports`/`detect_listen_categories` 결과 단위.
 
     분류 도메인 개념이라 본 모듈(domain)에 정의 — web view_model(`ServiceItem.ports`)이 re-export 소비.
-    consumer(ingest)·web 양쪽이 web 역의존 없이 분류 단일 진실을 import (recommendation.py 도메인 패턴 정합).
+    consumer(ingest)·web 양쪽이 web 역의존 없이 분류 단일 진실을 import (right_sizing.py 도메인 패턴 정합).
     """
 
     proto: str
@@ -460,7 +459,7 @@ def _attributed_ports(unit: str, listen_ports: list[JsonObject], pid: int | None
     return result
 
 
-def classify(unit: str, listen_ports: list[JsonObject] | None = None, pid: int | None = None) -> str:
+def classify_service(unit: str, listen_ports: list[JsonObject] | None = None, pid: int | None = None) -> str:
     """서비스 unit -> 카테고리. 다중 신호 (name -> comm -> port), 미매칭 시 "unknown".
 
     listen_ports 미제공(목록 화면 등 경량 SELECT) 시 name 신호만 사용. pid 제공 시 services<->listen_ports
@@ -515,7 +514,7 @@ def matched_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = N
             continue
         # pid 없는 포트(소유 프로세스 부재) — 카테고리-일관 fallback
         if cat is None:
-            cat = classify(unit, listen_ports)
+            cat = classify_service(unit, listen_ports)
         if cat != "unknown" and _PORT_INDEX.get(port) == cat:
             result.append(MatchedPort(proto=proto, port=port))
             seen.add(key)
@@ -525,7 +524,7 @@ def matched_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = N
 def detect_listen_categories(listen_ports: list[JsonObject]) -> dict[str, list[MatchedPort]]:
     """listen 소켓을 카테고리로 직접 분류 — services unit 과 무관 (ADR 0032, T15 보완).
 
-    per-unit 분류(`classify`)가 pid join 으로 정확해진 뒤에도, 어떤 service unit 에도 속하지 않는
+    per-unit 분류(`classify_service`)가 pid join 으로 정확해진 뒤에도, 어떤 service unit 에도 속하지 않는
     listen 소켓(비-service 프로세스)은 여전히 이 경로가 comm(exe basename)·port 로 직접 잡는다 —
     "이 호스트가 무슨 워크로드를 listen 하나"의 host union 보완.
 
@@ -599,7 +598,7 @@ def is_baseline_socket(p: JsonObject) -> bool:
 def compute_service_categories(services: list[JsonObject] | None, listen_ports: list[JsonObject] | None) -> list[str]:
     """ingest 사전계산 — 호스트 "특징 워크로드" 카테고리 키 집합 (정렬·dedup, "unknown"·baseline 제외).
 
-    services unit 이름 분류(`classify`: name->comm->port)와 listen 소켓 직접 분류(`detect_listen_categories`).
+    services unit 이름 분류(`classify_service`: name->comm->port)와 listen 소켓 직접 분류(`detect_listen_categories`).
     baseline(OS 기본·관리 — SSH·NTP·RPC 등)은 제외 — 거의 전 호스트에 있어 특징 신호 아님(상세 live classify 는 유지).
     inventory upsert 시 1회 계산해 `server_inventory.service_categories` 저장 -> 목록·환경분포·필터 소비(화면 간 일치).
     """
@@ -609,7 +608,7 @@ def compute_service_categories(services: list[JsonObject] | None, listen_ports: 
         unit = s.get("unit") if isinstance(s, dict) else None
         if not unit or is_baseline_service(unit):
             continue
-        cat = classify(unit, listen_ports, s.get("pid"))
+        cat = classify_service(unit, listen_ports, s.get("pid"))
         if cat != "unknown":
             cats.add(cat)
     cats |= set(detect_listen_categories(non_baseline_ports).keys())

@@ -17,6 +17,7 @@ from assessment_engine.db.dtos.outbound import (
 from assessment_engine.web.services.mappers.attention import (
     to_gap_warning_item,
 )
+from assessment_engine.web.services.mappers.host_display import spec_display_line
 from assessment_engine.web.services.mappers.os_eol import (
     windows_legacy_version_from_build,
     windows_short_label_from_product_name,
@@ -34,9 +35,6 @@ from assessment_engine.web.services.mappers.server import (
     to_server_list_item,
     to_storage_detail,
     workload_category_counter,
-)
-from assessment_engine.web.services.mappers.shared import (
-    spec_display_line,
 )
 
 # --- 임계값·severity ------------------------------------------------------

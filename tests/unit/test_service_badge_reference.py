@@ -4,8 +4,8 @@
 기대값은 모두 SERVICE_CATALOG 에서 재파생 — 하드코딩 0 ([2.4]).
 """
 
-from assessment_engine.service_classifier import BADGE_CLASS_BY_CATEGORY, SERVICE_CATALOG
-from assessment_engine.web.services.mappers.shared import build_service_badge_reference
+from assessment_engine.domain.service_classifier import BADGE_CLASS_BY_CATEGORY, SERVICE_CATALOG
+from assessment_engine.web.services.mappers.service_reference import build_service_badge_reference
 
 
 def test_returns_catalog_rows_in_order():

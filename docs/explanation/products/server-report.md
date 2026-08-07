@@ -77,7 +77,7 @@ engineer view 의 진단·분류 칼럼이 USE Method 임계값 기반 자동 �
 
 ### 개별 서버 보고서 — engineer 심화 계층 (단일 deep-dive)
 
-N대 selection 은 서버 간 비교를 위해 행 단위 정량 표(양식 B)로 압축하지만, 단일 1대(`view=engineer`)는 비교 대상이 없어 그 1대를 카드 계층으로 펼친다 — 서버 인벤토리 -> 자원 적정성·운영 평가(통합 1표) -> Listen 포트 -> CPU/메모리/스토리지/네트워크 상세(이용률+포화축+마운트·인터페이스 세부) -> 에러 신호 -> 이용률 추이 + 포화 여부 추이(2열, engineer 전용 — 이용률은 CPU·메모리·디스크 사용률 연속선, 포화 여부는 CPU 실행 큐·메모리 페이징·디스크 I/O 3축 이진 0/1 상태를 lane 오프셋으로 나란히) 순(customer 는 서버 인벤토리 + 서비스 요약·주요 메트릭 뒤에 자원 적정성·운영 평가 표 1개만 — 심화 카드는 engineer 전용. 표 자체는 동일 패턴 공유, 컬럼 수만 차등). CPU 분류(user/system/iowait)·메모리 구성(used/available/cached/buffers)은 N대 표엔 없는 단일 전용 — repo `report_cpu_breakdown`·`report_memory_breakdown`(개별 server_id 단위). 양식 통일상 단일·selection·환경 모두 `EnvironmentReportSummary`(kind=`env_report`) 공유 — 단일 전용 필드(`server_inventory`·`memory_breakdown`·`cpu_breakdown`·`period_assessment`·`storage_tree`·`network_interfaces`)는 selection·환경에서 None/빈 list (#C1).
+N대 selection 은 서버 간 비교를 위해 행 단위 정량 표(양식 B)로 압축하지만, 단일 1대(`view=engineer`)는 비교 대상이 없어 그 1대를 카드 계층으로 펼친다 — 서버 인벤토리 -> 자원 적정성·운영 평가(통합 1표) -> Listen 포트 -> CPU/메모리/스토리지/네트워크 상세(이용률+포화축+마운트·인터페이스 세부) -> 에러 신호 -> 이용률 추이 + 포화 여부 추이(2열, engineer 전용 — 이용률은 CPU·메모리·디스크 사용률 연속선, 포화 여부는 CPU 실행 큐·메모리 페이징·디스크 I/O 3축 이진 0/1 상태를 lane 오프셋으로 나란히) 순(customer 는 서버 인벤토리 + 서비스 요약·주요 메트릭 뒤에 자원 적정성·운영 평가 표 1개만 — 심화 카드는 engineer 전용. 표 자체는 동일 패턴 공유, 컬럼 수만 차등). CPU 분류(user/system/iowait)·메모리 구성(used/available/cached/buffers)은 N대 표엔 없는 단일 전용 — repo `get_report_cpu_breakdown`·`get_report_memory_breakdown`(개별 server_id 단위). 양식 통일상 단일·selection·환경 모두 `EnvironmentReportSummary`(kind=`env_report`) 공유 — 단일 전용 필드(`server_inventory`·`memory_breakdown`·`cpu_breakdown`·`period_assessment`·`storage_tree`·`network_interfaces`)는 selection·환경에서 None/빈 list (#C1).
 
 자원 적정성·운영 평가 표(customer·engineer 공용 패턴, 컬럼 수만 차등) — 분류·진단(engineer)/근본원인(customer)·권고·신뢰도 + 시스템 에러(윈도우 내 OOM·MCE·메모리손상·net/disk 에러 발생 유무)·네트워크 상태(사이징과 별개 품질 판정)·OS 지원종료(4상태). engineer 만 재부팅·에이전트 재시작(윈도우 카운트) 2칼럼 추가. 세부 서버 목록(N대)의 동명 신호와 같은 산식 공유 — 화면 간 정합.
 
@@ -89,7 +89,7 @@ CPU/메모리/스토리지/네트워크 상세 카드(engineer 전용) — 윈�
 
 | 항목 | 내용 | source |
 |------|------|--------|
-| 평가 윈도우 | 서버 보고서 default = `recommendation.WINDOW_DAYS`, URL `?time_range=`(15m~30d) override | `recommendation.WINDOW_DAYS` 또는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` |
+| 평가 윈도우 | 서버 보고서 default = `right_sizing.WINDOW_DAYS`, URL `?time_range=`(15m~30d) override | `right_sizing.WINDOW_DAYS` 또는 `DIAGNOSTIC_DEFAULT_TIME_RANGE` |
 | Anchor 시점 | 현재 또는 발행 시점 | default now |
 | 분류(배지) | under_provisioned / over_provisioned / idle / optimal / insufficient_data | `classify_host`(배지) + `rollup_host`(근본원인) |
 | 권장 action | 자원별 독립 한국어 처방 (증설 검토·축소 검토·종료·통합 검토·적정 유지·표본 부족) | `under_prescription`/`recommend_action` -> `RECOMMENDATION_ACTION_KO` |
@@ -115,7 +115,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 
 ### 평가 윈도우
 
-- 서버 보고서 default = `recommendation.WINDOW_DAYS`. URL `?time_range=`(15m·1h·6h·24h·7d·14d·30d) override 가능. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
+- 서버 보고서 default = `right_sizing.WINDOW_DAYS`. URL `?time_range=`(15m·1h·6h·24h·7d·14d·30d) override 가능. 짧은 윈도우는 단발 부하·실시간 시연 검증, 긴 윈도우는 신뢰성 증가 최근 변동 반영 늦음.
 
 ### view 분기 의도
 
@@ -124,7 +124,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 | 목적 | 고객 의사결정 한 장 요약 | 정량 분석 + 자원 적정성 근거 |
 | 세부 목록 컬럼 | 상태·서버·구동서비스·OS·OS지원종료·인벤토리·운영이벤트·프로비저닝·링크 | 위 + 재부팅·에이전트 재시작 |
 | 정성 요약 | view 무관 단일 (환경 보고서 본문 공유) | 좌동 |
-| 위험도 표시 | 5분류 한국어 라벨(LABEL_KO) — 조치 필요 호스트만 강조 | 5분류 + 진단·근본원인 텍스트 |
+| 위험도 표시 | 5분류 한국어 라벨(RECOMMENDATION_LABEL_KO) — 조치 필요 호스트만 강조 | 5분류 + 진단·근본원인 텍스트 |
 | Print 우선 | 인쇄 PDF 대응 | 화면 분석 우선 |
 
 분기 메커니즘: 같은 endpoint·SQL·템플릿. `summary.view` 로 Jinja2 블록을 토글하고, 갈리는 건 조치 대상 선정(`_select_top_risks(rows, view)`)과 세부 목록 2칼럼뿐.
@@ -139,7 +139,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 
 ## 한계
 
-1. 분류 라벨 어휘가 운영자에게 항상 직관적이지 않음 — "over_provisioned"·"under_provisioned" 의미는 명시적 가이드 (`recommendation.py` 상수) 에 의존. 한국어 라벨이 한국어 사용자에게 더 명확하지만 영어 분류 식별자는 코드·메시지에 박힘.
+1. 분류 라벨 어휘가 운영자에게 항상 직관적이지 않음 — "over_provisioned"·"under_provisioned" 의미는 명시적 가이드 (`right_sizing.py` 상수) 에 의존. 한국어 라벨이 한국어 사용자에게 더 명확하지만 영어 분류 식별자는 코드·메시지에 박힘.
 2. 워크로드 역할 무관 임계 — DB·캐시·앱서버가 같은 자원별 임계를 공유한다 (값은 `docs/reference/right-sizing.md` 4절 단일 진실). DB 는 메모리 압박이 정상 운영일 수 있는데도 자원 부족으로 잡힐 가능성.
 3. anchor 임의 선택 가능 — 운영자가 특정 시점 (부하 spike 발생 직후 등) anchor 로 잡으면 분류가 그 윈도우 한정. 표준 14d default 외 사용 시 운영자가 의도 인지 의무.
 4. 정성 요약의 표현 한정 — 결정론 템플릿이라 운영자가 추가 컨텍스트 반영 불가.
@@ -154,7 +154,7 @@ engineer view 는 p95·peak·CPU%·MEM%·Saturation·변동성(peak/p95)·DISK/N
 - `docs/reference/db/timescaledb.md` — counter reset 정밀 식별
 - `docs/reference/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리
 - `docs/explanation/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 스냅샷 보존
-- `src/assessment_engine/recommendation.py` — 분류 임계값 상수 카탈로그
+- `src/assessment_engine/domain/right_sizing.py` — 분류 임계값 상수 카탈로그
 - `src/assessment_engine/web/services/query/report.py::ReportQueryMixin` — 선택 N대(`get_selection_report`)·단일(`get_single_server_report`) 스냅샷 조립
 - `src/assessment_engine/web/services/mappers/report.py::_build_diagnosis` — 진단 칼럼 우선순위 평가
 - `src/assessment_engine/web/templates/servers/report.html` — 선택 N대 보고서 (본문은 `reports/_env_report_body.html` 공유)

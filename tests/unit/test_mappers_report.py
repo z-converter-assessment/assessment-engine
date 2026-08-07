@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING, Any, get_args
 
 import pytest
 
-from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import (
     EnvironmentUtilizationRaw,
     ReportRowRaw,
     ServerDetail,
 )
-from assessment_engine.recommendation import Recommendation
+from assessment_engine.domain import right_sizing
+from assessment_engine.domain.right_sizing import Recommendation
 from assessment_engine.web.services.mappers.attention import (
     _UTIL_COLOR_GAUGE,
     _UTIL_COLOR_NONE,
@@ -24,6 +24,7 @@ from assessment_engine.web.services.mappers.attention import (
     to_capacity_warning_item,
     to_os_eol_warning_item,
 )
+from assessment_engine.web.services.mappers.constants import _DONUT_SEGMENT_DEFS
 from assessment_engine.web.services.mappers.os_eol import (
     _classify_eol,
     lookup_os_eol,
@@ -40,9 +41,6 @@ from assessment_engine.web.services.mappers.report import (
 )
 from assessment_engine.web.services.mappers.report_summary import build_report_summary_bullets
 from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
-from assessment_engine.web.services.mappers.shared import (
-    _DONUT_SEGMENT_DEFS,
-)
 
 if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
@@ -467,7 +465,7 @@ def test_environment_overview_utilization_dash_length(pct: float | None, expecte
 def test_risk_donut_segments_order_and_colors():
     """segments 는 _DONUT_SEGMENT_DEFS 순서 (자원 적정성 5 상태 정석) 고정.
 
-    label 은 recommendation.LABEL_KO 한국어 분류명 — 보고서·대시보드 통일 (영어 enum 미노출).
+    label 은 right_sizing.RECOMMENDATION_LABEL_KO 한국어 분류명 — 보고서·대시보드 통일 (영어 enum 미노출).
     """
     segs, total, under = build_risk_donut_segments(
         {
@@ -1069,8 +1067,8 @@ def test_report_row_item_disk_net_io_p95_peak_passthrough():
 # --- _build_recommendation_action (양식 A 권고 컬럼 단일 진실) -------------
 
 
-def _rs(**kw: Any) -> recommendation.ResourceStats:
-    base = recommendation.ResourceStats(
+def _rs(**kw: Any) -> right_sizing.ResourceStats:
+    base = right_sizing.ResourceStats(
         cpu_p95_pct=None,
         cpu_peak_pct=None,
         cpu_cores=None,
@@ -1081,21 +1079,21 @@ def _rs(**kw: Any) -> recommendation.ResourceStats:
     return dataclasses.replace(base, **kw)
 
 
-def _host(status: recommendation.HostStatus) -> recommendation.HostAssessment:
+def _host(status: right_sizing.HostStatus) -> right_sizing.HostAssessment:
     """신 모델 host_status 만 지정한 최소 HostAssessment (비-under 조치 테스트용 — resources 불요)."""
-    return recommendation.HostAssessment(resources={}, host_status=status)
+    return right_sizing.HostAssessment(resources={}, host_status=status)
 
 
 @pytest.mark.parametrize(
     ("status", "expected"),
     [
-        # 비-under·비-idle 은 상태별 고정 조치 (recommendation.recommend_action 도메인 단일 진실).
+        # 비-under·비-idle 은 상태별 고정 조치 (right_sizing.recommend_action 도메인 단일 진실).
         ("over", "축소 검토"),
         ("optimal", "적정 — 유지"),
         ("insufficient", "표본 부족 — 관측 지속"),
     ],
 )
-def test_recommendation_action_fixed_phrases(status: recommendation.HostStatus, expected: str):
+def test_recommendation_action_fixed_phrases(status: right_sizing.HostStatus, expected: str):
     assert _build_recommendation_action(_host(status), _rs()) == expected
 
 
@@ -1181,7 +1179,7 @@ def test_build_resource_stats_mem_total_mb_none_when_kb_none():
 
 
 def test_build_resource_stats_util_trend_rising_from_slopes():
-    """util_trend_rising 은 도메인 헬퍼로 slope -> bool 이진화 (임계 recommendation 단일)."""
+    """util_trend_rising 은 도메인 헬퍼로 slope -> bool 이진화 (임계 right_sizing 단일)."""
     # mem slope 가 임계(0.2%/day) 이상 -> 상승 (span 가드 통과 위해 history_hours >= 30)
     r1 = build_resource_stats(_raw(cpu_trend_slope=-0.1, mem_trend_slope=0.5, history_hours=40.0), disk_baseline=None)
     assert r1.util_trend_rising is True

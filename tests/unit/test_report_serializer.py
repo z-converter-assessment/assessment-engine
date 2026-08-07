@@ -14,11 +14,8 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from assessment_engine.web.services.mappers.environment_report import to_environment_report
-from assessment_engine.web.services.report_serializer import (
-    _report_row_from_dict,
-    env_report_from_dict,
-    env_report_to_dict,
-)
+from assessment_engine.web.services.report import env_report_from_dict, env_report_to_dict
+from assessment_engine.web.services.report.serializer import _report_row_from_dict
 from assessment_engine.web.view_models.attention import ActionTargets, AttentionSignals, EnvironmentOverview
 from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,

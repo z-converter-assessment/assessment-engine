@@ -253,7 +253,7 @@ def test_windows_metrics_saturation_measured_path() -> None:
 
     미측정 경로(위, value null)와 대비 — 엔진이 세 축을 os-aware 소비하려면 ingest 가 raw 값을 보존해야 한다.
     포화 신호는 cpu.run_queue gauge +
-    per-device disk.pending_operations + paging.operations counter raw 저장. rate/임계는 엔진 SQL/recommendation 몫.
+    per-device disk.pending_operations + paging.operations counter raw 저장. rate/임계는 엔진 SQL/right_sizing 몫.
     """
     payload = _windows_metrics()
     payload["system.cpu"]["cpu.run_queue"]["points"] = [

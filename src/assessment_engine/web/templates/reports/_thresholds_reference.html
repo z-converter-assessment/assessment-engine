@@ -62,7 +62,7 @@
   </table>
   </div>
 
-  <h3 style="margin-top:18px;">임계 상수 전체 (<code>recommendation.py</code> 단일 진실)</h3>
+  <h3 style="margin-top:18px;">임계 상수 전체 (<code>right_sizing.py</code> 단일 진실)</h3>
   <p class="text-md text-label" style="margin:0 0 10px; line-height:1.6;">
     아래는 코드 상수 그대로다 — 화면·API·보고서가 전부 이 값을 참조(재계산 0). 이름은 소스 코드와 1:1.
   </p>
@@ -71,35 +71,35 @@
     <thead><tr><th>상수</th><th>값</th><th>의미</th></tr></thead>
     <tbody>
       <tr><td><code>WINDOW_DAYS</code></td><td>14</td><td>평가 창(일) — AWS Compute Optimizer 기본 lookback</td></tr>
-      <tr><td><code>RS_CPU_UNDER_PCT</code></td><td>70</td><td>CPU 부족 트리거 임계(p95)</td></tr>
-      <tr><td><code>RS_CPU_SIZING_TARGET_PCT</code></td><td>70</td><td>CPU 사이징 목표 이용률</td></tr>
-      <tr><td><code>RS_CPU_SAT_HEADROOM</code></td><td>0.7</td><td>포화 주도 증설 시 실행 큐/코어를 포화선의 이 배수 아래로</td></tr>
-      <tr><td><code>RS_CPU_PERCORE_HOLD_PCT</code></td><td>85</td><td>per-core 다운사이즈/유휴 보류 임계(단일스레드 보호)</td></tr>
-      <tr><td><code>RS_CPU_STEAL_BIAS_PCT</code></td><td>5</td><td>steal p95 편향(biased 신뢰도) 임계</td></tr>
+      <tr><td><code>CPU_UNDER_PCT</code></td><td>70</td><td>CPU 부족 트리거 임계(p95)</td></tr>
+      <tr><td><code>CPU_SIZING_TARGET_PCT</code></td><td>70</td><td>CPU 사이징 목표 이용률</td></tr>
+      <tr><td><code>CPU_SAT_HEADROOM</code></td><td>0.7</td><td>포화 주도 증설 시 실행 큐/코어를 포화선의 이 배수 아래로</td></tr>
+      <tr><td><code>CPU_PERCORE_HOLD_PCT</code></td><td>85</td><td>per-core 다운사이즈/유휴 보류 임계(단일스레드 보호)</td></tr>
+      <tr><td><code>CPU_STEAL_BIAS_PCT</code></td><td>5</td><td>steal p95 편향(biased 신뢰도) 임계</td></tr>
       <tr><td><code>PROCS_RUNNING_PER_CORE_SATURATION</code></td><td>1.0</td><td>Linux CPU 포화(run queue/core)</td></tr>
       <tr><td><code>CPU_RUN_QUEUE_PER_CORE_SATURATION</code></td><td>2.0</td><td>Windows CPU 포화(Processor Queue/core, "윈도우 정규화 보정")</td></tr>
-      <tr><td><code>RS_MEM_UNDER_PCT</code></td><td>90</td><td>메모리 부족 트리거 임계(p95)</td></tr>
-      <tr><td><code>RS_MEM_SIZING_TARGET_PCT</code></td><td>80</td><td>메모리 사이징 목표(near-peak 착지)</td></tr>
-      <tr><td><code>RS_MEM_SATURATION_HEADROOM_PCT</code></td><td>30</td><td>페이징/OOM 발생 시 증설 headroom(현재+30%)</td></tr>
+      <tr><td><code>MEM_UNDER_PCT</code></td><td>90</td><td>메모리 부족 트리거 임계(p95)</td></tr>
+      <tr><td><code>MEM_SIZING_TARGET_PCT</code></td><td>80</td><td>메모리 사이징 목표(near-peak 착지)</td></tr>
+      <tr><td><code>MEM_SATURATION_HEADROOM_PCT</code></td><td>30</td><td>페이징/OOM 발생 시 증설 headroom(현재+30%)</td></tr>
       <tr><td><code>WIN_PAGES_INPUT_SATURATION</code></td><td>20.0</td><td>Windows 메모리 포화(Pages Input/sec p95)</td></tr>
-      <tr><td><code>RS_DISK_RUNWAY_DAYS</code></td><td>30</td><td>디스크 소진 임박 판정(runway)</td></tr>
-      <tr><td><code>RS_DISK_TARGET_RUNWAY_DAYS</code></td><td>365</td><td>디스크 확장 목표 수명(일)</td></tr>
-      <tr><td><code>RS_DISK_TREND_MIN_SPAN_DAYS</code></td><td>= WINDOW_DAYS(14)</td><td>성장률 외삽에 필요한 최소 관측 span</td></tr>
-      <tr><td><code>RS_DISK_NEAR_HORIZON_DAYS</code></td><td>30</td><td>짧은 span 일 때 근시 외삽 지평</td></tr>
-      <tr><td><code>RS_DISK_RATE_MIN_SPAN_DAYS</code></td><td>= RS_CONFIDENCE_MIN_HOURS/24(1.25)</td><td>fill-rate 외삽 절대 하한(span 이 이보다 짧으면 추세 미신뢰)</td></tr>
-      <tr><td><code>RS_DISK_HEADROOM_TARGET_PCT</code></td><td>70</td><td>자료 부족 + 임계 초과 시 확장 목표 착지 이용률</td></tr>
-      <tr><td><code>RS_DISK_STATIC_GUARD_PCT</code></td><td>85</td><td>디스크 용량 정적 가드(used%·inode%)</td></tr>
-      <tr><td><code>RS_DISKIO_AWAIT_MS</code></td><td>20</td><td>디스크 I/O 포화 임계(await p95, ms)</td></tr>
-      <tr><td><code>RS_DISKIO_UTIL_MIN</code></td><td>0.5</td><td>device 사용률 하한(await 신뢰 게이트 — 유휴 device 배제)</td></tr>
+      <tr><td><code>DISK_RUNWAY_DAYS</code></td><td>30</td><td>디스크 소진 임박 판정(runway)</td></tr>
+      <tr><td><code>DISK_TARGET_RUNWAY_DAYS</code></td><td>365</td><td>디스크 확장 목표 수명(일)</td></tr>
+      <tr><td><code>DISK_TREND_MIN_SPAN_DAYS</code></td><td>= WINDOW_DAYS(14)</td><td>성장률 외삽에 필요한 최소 관측 span</td></tr>
+      <tr><td><code>DISK_NEAR_HORIZON_DAYS</code></td><td>30</td><td>짧은 span 일 때 근시 외삽 지평</td></tr>
+      <tr><td><code>DISK_RATE_MIN_SPAN_DAYS</code></td><td>= CONFIDENCE_MIN_HOURS/24(1.25)</td><td>fill-rate 외삽 절대 하한(span 이 이보다 짧으면 추세 미신뢰)</td></tr>
+      <tr><td><code>DISK_HEADROOM_TARGET_PCT</code></td><td>70</td><td>자료 부족 + 임계 초과 시 확장 목표 착지 이용률</td></tr>
+      <tr><td><code>DISK_STATIC_GUARD_PCT</code></td><td>85</td><td>디스크 용량 정적 가드(used%·inode%)</td></tr>
+      <tr><td><code>DISKIO_AWAIT_MS</code></td><td>20</td><td>디스크 I/O 포화 임계(await p95, ms)</td></tr>
+      <tr><td><code>DISKIO_UTIL_MIN</code></td><td>0.5</td><td>device 사용률 하한(await 신뢰 게이트 — 유휴 device 배제)</td></tr>
       <tr><td><code>DISK_QUEUE_PER_DISK_SATURATION</code></td><td>2.0</td><td>Windows 디스크 I/O 포화 폴백(구세대 viostor, 큐 깊이)</td></tr>
-      <tr><td><code>RS_NET_RETRANS_PCT</code></td><td>1.0</td><td>네트워크 재전송률 혼잡 임계</td></tr>
-      <tr><td><code>RS_NET_DROP_PCT</code></td><td>0.5</td><td>네트워크 드롭률 혼잡 임계</td></tr>
-      <tr><td><code>RS_NET_MIN_TRAFFIC_KBPS</code></td><td>10.0</td><td>네트워크 품질판정 최소 트래픽 게이트(저트래픽 억제)</td></tr>
-      <tr><td><code>RS_CONNTRACK_SATURATION_RATIO</code></td><td>0.8</td><td>conntrack 고갈 임계</td></tr>
-      <tr><td><code>RS_CONFIDENCE_MIN_HOURS</code></td><td>30</td><td>통계 정밀도 절대 바닥(시간)</td></tr>
-      <tr><td><code>RS_DOWNSIZE_MIN_SUFFICIENCY</code></td><td>0.7</td><td>다운사이즈 처방 창 대비 관측 비율 문턱</td></tr>
-      <tr><td><code>RS_BURST_RATIO_MAX</code></td><td>2.0</td><td>버스티 판정(p95/median)</td></tr>
-      <tr><td><code>RS_UTIL_TREND_RISING_PCT_PER_DAY</code></td><td>0.2</td><td>상승 추세 판정(%/day)</td></tr>
+      <tr><td><code>NET_RETRANS_PCT</code></td><td>1.0</td><td>네트워크 재전송률 혼잡 임계</td></tr>
+      <tr><td><code>NET_DROP_PCT</code></td><td>0.5</td><td>네트워크 드롭률 혼잡 임계</td></tr>
+      <tr><td><code>NET_MIN_TRAFFIC_KBPS</code></td><td>10.0</td><td>네트워크 품질판정 최소 트래픽 게이트(저트래픽 억제)</td></tr>
+      <tr><td><code>CONNTRACK_SATURATION_RATIO</code></td><td>0.8</td><td>conntrack 고갈 임계</td></tr>
+      <tr><td><code>CONFIDENCE_MIN_HOURS</code></td><td>30</td><td>통계 정밀도 절대 바닥(시간)</td></tr>
+      <tr><td><code>DOWNSIZE_MIN_SUFFICIENCY</code></td><td>0.7</td><td>다운사이즈 처방 창 대비 관측 비율 문턱</td></tr>
+      <tr><td><code>BURST_RATIO_MAX</code></td><td>2.0</td><td>버스티 판정(p95/median)</td></tr>
+      <tr><td><code>UTIL_TREND_RISING_PCT_PER_DAY</code></td><td>0.2</td><td>상승 추세 판정(%/day)</td></tr>
       <tr><td><code>IDLE_CPU_P95_PCT</code></td><td>3</td><td>유휴 판정 CPU 상한</td></tr>
       <tr><td><code>IDLE_NET_MBPS</code></td><td>2</td><td>유휴 판정 네트워크 상한</td></tr>
       <tr><td><code>IDLE_DISK_IOPS</code></td><td>5</td><td>유휴 판정 디스크 baseline IOPS 상한</td></tr>
@@ -448,7 +448,7 @@ host_status(자원 적정성 분류)를 구동하는 saturation 2축(CPU 포화�
 <section class="card" style="margin-bottom:16px;">
   <h2 class="card-title">평가 윈도우</h2>
   <p class="text-md text-label" style="margin:0; line-height:1.6;">
-    자원 적정성 평가 표준은 <code>recommendation.WINDOW_DAYS</code> = 14일 (AWS Compute Optimizer 기본 lookback) — 보고서·서버 목록 분류·환경 개요 자원 이용·포화 7도넛·환경 자원 평가가 모두 이 14일 창으로 정합(화면 간 의미 분기 0).
+    자원 적정성 평가 표준은 <code>right_sizing.WINDOW_DAYS</code> = 14일 (AWS Compute Optimizer 기본 lookback) — 보고서·서버 목록 분류·환경 개요 자원 이용·포화 7도넛·환경 자원 평가가 모두 이 14일 창으로 정합(화면 간 의미 분기 0).
     보고서 발행·환경 자원 평가는 <code>15m / 1h / 6h / 24h / 7d / 14d / 30d</code> 구간·앵커 override 가능하며 분류·통계·세부 목록 모두 선택 구간으로 평가.
     실시간 현황 페이지만 최신 스냅샷(30초 갱신, 윈도우 아닌 순간값)이고, 서버 상세 차트는 실시간 모니터링이라 별도(기본 15분).
     데이터가 14일보다 짧으면 판정은 그대로 완결되고 신뢰도 단서("표본 부족", 30h 미만)가 자동으로 붙는다 — 별도 창 축소 없음. 버킷(집계 단위)은 구간별 자동 결정.

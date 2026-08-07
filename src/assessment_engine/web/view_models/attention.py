@@ -3,7 +3,7 @@
 from dataclasses import dataclass, field
 from datetime import datetime
 
-from assessment_engine.recommendation import Recommendation
+from assessment_engine.domain.right_sizing import Recommendation
 
 
 @dataclass
@@ -39,17 +39,17 @@ class CapacityWarningItem:
     hostname: str
     # 분류 — 통합 조치 대상 표에서 under/over/idle 한 표에 섞이므로 행별 분류 노출 (classify_host 파생).
     classification: Recommendation = "under_provisioned"  # 분류 enum 키
-    classification_label: str = "자원 부족"  # 표시 라벨 (LABEL_KO)
+    classification_label: str = "자원 부족"  # 표시 라벨 (RECOMMENDATION_LABEL_KO)
     badge_class: str = "rec-under_provisioned"  # 뱃지 CSS (BADGE_CLASS)
     classification_rank: int = 0  # 분류 칼럼 정렬값 (ACTION_PRIORITY — 자원 부족 0 > 과다 1 > 유휴 2)
     active_causes: list[str] = field(default_factory=list[str])
     services: dict[str, int] = field(default_factory=dict[str, int])
-    # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (shared.build_host_confidence_notes,
+    # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (assessment_display.build_host_confidence_notes,
     # 원칙2). 보고서 행과 동일 채널 — 카드가 list 렌더(P3). 발화 trigger(빨강)와 시각 구분.
     confidence_notes: list[str] = field(default_factory=list[str])
-    # 증설 권고 — 자원별 독립 처방(recommendation.under_prescription 단일 진실, ADR 0056). 자원 부족 표 권고 칼럼.
+    # 증설 권고 — 자원별 독립 처방(right_sizing.under_prescription 단일 진실, ADR 0056). 자원 부족 표 권고 칼럼.
     recommendation_action: str = ""
-    # 근본원인 — recommendation.root_cause_display 단일 진실. 단일 부족=자원명 / 인과 결합="메모리 (CPU 유발)" /
+    # 근본원인 — right_sizing.root_cause_display 단일 진실. 단일 부족=자원명 / 인과 결합="메모리 (CPU 유발)" /
     # 복수 독립="CPU·디스크 I/O" 나열. 부족 없으면 빈 문자열(표시 "—"). 처방을 거르지 않는 진단 근거 표시 축.
     root_cause_label: str = ""
     # 상위 N 절단 정렬용 심각도 점수 (mapper precompute) — swap(paging) 최우선 > 위반 자원 수 >

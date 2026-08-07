@@ -97,7 +97,7 @@
 ## 색 테마 — `:root` 변수 + 주색 단일 진실 (예외 0)
 - 테마 변수 = `app.css :root` 단일 선언. `--color-title`(#2563eb) = 주색 — `.btn-primary` 채움·`.toggle.active`·정렬 칼럼 강조·`.list-filter` 테두리·네비 진행바·스토리지 막대. 사이드바 계열은 `--sidebar-*` 변수군(바탕·글씨·hover·active). `--color-table-head`(#e5e7eb) = 전 테이블 제목행 하단 경계선. 색 변경 시 `app.css :root` 만 수정.
 - JS 차트 시리즈 주색도 본 변수 추종 — `chart-utils.js` `ChartUtils.themeColor()`(getComputedStyle 로 `--color-title` 읽기, 실패 시 #2563eb fallback). 페이지 차트 JS(cpu/metrics/memory/environment-metrics/environment-trend/detail/network-topology)가 hex 직박 대신 본 helper 참조. SVG 게이지는 presentation attribute 가 var 미지원이라 inline `style="stroke: ..."` 로 적용.
-- 데이터 시각화 주색도 동일 변수 — 환경 평균 활용률 도넛 게이지(`_UTIL_COLOR_GAUGE`, mappers/attention.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, mappers/shared.py) · 파일시스템 usage 막대(`_MOUNT_BAR_COLOR`, mappers/server.py) 모두 hex 대신 `var(--color-title)` 을 담아 테마 변경에 자동 추종.
+- 데이터 시각화 주색도 동일 변수 — 환경 평균 활용률 도넛 게이지(`_UTIL_COLOR_GAUGE`, mappers/attention.py) · right-sizing 과다프로비저닝(`_DONUT_SEGMENT_DEFS` over, mappers/constants.py) · 파일시스템 usage 막대(`_MOUNT_BAR_COLOR`, mappers/server.py) 모두 hex 대신 `var(--color-title)` 을 담아 테마 변경에 자동 추종.
 - under_provisioned = `#ef4444` (red-500) 대비 유지. 과다프로비저닝(여유)과 활용률 게이지가 같은 파랑 — 같은 화면 두 의미지만 테마 단색화를 위한 의식적 통일.
 - 네비게이션 = 좌측 사이드바(`--sidebar-*` 다크 슬레이트 바탕 + 밝은 글씨, `_sidebar.html` + `nav_groups` 글로벌). active 항목은 `--sidebar-active` 채움 + 우측 강조 테두리. 본문 링크(`a`)는 무채 #666666(밑줄 #b0b0b0).
 - 버튼 3종(`app.css`): `.btn-primary`(주색 채움, 모달 발행 등) / `.btn-select`(흰 바탕·표준 크기, 서버 선택 발행 버튼 — 회색 글씨·테두리(600), 비활성(`:disabled`)은 옅은 회색) / `.btn-action`(흰 톤·표준 크기·회색 글씨, 보조 액션 — 환경보고서 발행·실시간 메트릭·성능 추이·전체보기). 선택 N대 실시간 메트릭·성능 추이 버튼은 `.btn-select`(미선택 시 `:disabled`) — public_id navigate(`?ids=`).
@@ -184,7 +184,7 @@ base.html 컴포넌트와 동급의 표시 계층 단일 진실 — 페이지 �
 | 매크로 | 용도 | 정책 |
 |--------|------|------|
 | `empty_state(message)` | 발화/조건부 섹션이 비었을 때 placeholder (제목은 유지, 내용 없음 명시) | dumb — 분기·계산 0, 정적 message만 렌더 (P3). discoverability 원칙 #E9 단일 진실. |
-| `window_meta(window_label)` | 표제 메타 "최근 {라벨}" — 활용률·자원 적정성 표제 공통 | 라벨은 라우터가 `recommendation.WINDOW_DAYS`(#F10) 로 합성해 컨텍스트로 전달. 일수 하드코딩 반복 제거. |
+| `window_meta(window_label)` | 표제 메타 "최근 {라벨}" — 활용률·자원 적정성 표제 공통 | 라벨은 라우터가 `right_sizing.WINDOW_DAYS`(#F10) 로 합성해 컨텍스트로 전달. 일수 하드코딩 반복 제거. |
 
 ### Badge 카탈로그
 

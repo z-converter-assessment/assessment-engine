@@ -7,7 +7,7 @@ if TYPE_CHECKING:
 
 
 class AttentionQueryRepository(Protocol):
-    async def metric_gap_warnings(
+    async def get_metric_gap_warnings(
         self,
         gap_minutes: int,
         recent_hours: int,

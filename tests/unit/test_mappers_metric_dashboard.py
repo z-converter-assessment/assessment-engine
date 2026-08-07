@@ -1,10 +1,9 @@
-"""metrics_calculator — delta 기반 percent/rate 계산 (wire)."""
+"""metric_dashboard — delta 기반 percent/rate 계산 (wire)."""
 
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
-from assessment_engine.boot_time import is_counter_reset
 from assessment_engine.db.dtos.outbound import (
     DiskIoRaw,
     MetricPairRaw,
@@ -12,7 +11,8 @@ from assessment_engine.db.dtos.outbound import (
     NetIoRaw,
     SaturationRaw,
 )
-from assessment_engine.web.services.mappers.metrics_calculator import (
+from assessment_engine.domain.boot_time import is_counter_reset
+from assessment_engine.web.services.mappers.metric_dashboard import (
     _clip_to_remaining,
     _delta_rate,
     _group_by_dim,
@@ -197,7 +197,7 @@ def test_compute_cpu_windows_coalesce_null_components():
     assert snap.iowait_pct is None  # Windows iowait 미측정 보존
 
 
-# --- is_counter_reset helper (assessment_engine.boot_time) -----------------
+# --- is_counter_reset helper (assessment_engine.domain.boot_time) -----------------
 
 
 @pytest.mark.parametrize(

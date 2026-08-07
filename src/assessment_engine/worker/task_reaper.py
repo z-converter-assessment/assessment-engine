@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from loguru import logger
 
-from assessment_engine.worker.worker_lifecycle import sleep_or_stop
+from assessment_engine.worker.lifecycle import sleep_or_stop
 
 if TYPE_CHECKING:
     import asyncio

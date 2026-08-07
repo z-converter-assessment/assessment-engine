@@ -7,8 +7,8 @@ import dataclasses
 import json
 from datetime import datetime
 
+from assessment_engine.domain.service_classifier import MatchedPort
 from assessment_engine.json_types import JsonObject, json_list
-from assessment_engine.service_classifier import MatchedPort
 from assessment_engine.web.services.mappers.server import (
     DYNAMIC_PORT_MIN,
     enrich_server_detail,

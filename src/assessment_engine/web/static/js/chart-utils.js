@@ -3,7 +3,7 @@
 // Array.isArray 방어, 404 분기, suggestedMax 명명 상수)의 도구 모음.
 
 // -- 시간 범위 / 버킷 매핑 --
-// 14d는 right-sizing 윈도우(recommendation.WINDOW_DAYS)와 동일 — 보고서·대시보드·차트 일관.
+// 14d는 right-sizing 윈도우(right_sizing.WINDOW_DAYS)와 동일 — 보고서·대시보드·차트 일관.
 // 14일 → 6시간 버킷 자동 매핑 (14*24/6 = 56 데이터 포인트, 가독성·표시 부담 균형).
 /** @type {Record<string, string>} */
 const RANGE_LABEL  = { '15m':'15분', '1h':'1시간', '6h':'6시간', '24h':'1일', '7d':'7일', '14d':'14일', '30d':'30일' };

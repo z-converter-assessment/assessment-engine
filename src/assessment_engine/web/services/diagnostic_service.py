@@ -7,7 +7,7 @@
 - 발행 이력(list_reports) — customer + engineer 통합.
 - 추상 `DiagnosticRepository`만 의존 (F4).
 
-anchor 정규화(`normalize_anchor`)와 input_hash 계산(`compute_hash`)은 `diagnostic.report_result` 가 갖는다.
+anchor 정규화(`normalize_anchor`)와 input_hash 계산(`compute_hash`)은 `report/result.py` 가 갖는다.
 """
 
 from typing import TYPE_CHECKING
@@ -16,8 +16,8 @@ from loguru import logger
 
 from assessment_engine.db.dtos.inbound import DiagnosticJobCreate
 
-# 발행 result 조립·해시 helper 단일 진실은 diagnostic.report_result — 본 모듈은 호환 re-export.
-from assessment_engine.web.services.report_result import build_report_result, compute_hash
+# 발행 result 조립·해시 helper 단일 진실은 report/result.py.
+from assessment_engine.web.services.report import build_report_result, compute_hash
 
 if TYPE_CHECKING:
     from collections.abc import Callable

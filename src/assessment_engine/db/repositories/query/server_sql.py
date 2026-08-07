@@ -20,7 +20,7 @@ from assessment_engine.db.models.server_net_io import ServerNetIo
 from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 
 # 수집 상태 조회 윈도우 — "이 기간 내 metric 없음 = 수집 끊김(None 표시)" 기준 + C5 hypertable pruning 술어.
-# 수집 생존 신호용 운영 윈도우로 right-sizing 평가 윈도우(recommendation.WINDOW_DAYS)와 독립 — 연동 금지.
+# 수집 생존 신호용 운영 윈도우로 right-sizing 평가 윈도우(right_sizing.WINDOW_DAYS)와 독립 — 연동 금지.
 _COLLECTION_STATUS_WINDOW = timedelta(days=7)
 
 
@@ -131,7 +131,7 @@ class SqlServerQueryRepository(_BaseQueryMixin):
         result = await self.session.execute(select(ServerInventory).where(ServerInventory.id.in_(server_ids)))
         return [self._row_to_server_detail(r) for r in result.scalars().all()]
 
-    async def list_all_server_public_ids(self) -> list[str]:
+    async def list_server_public_ids(self) -> list[str]:
         result = await self.session.execute(select(ServerInventory.public_id).order_by(ServerInventory.id))
         return list(result.scalars().all())
 
@@ -252,7 +252,7 @@ class SqlServerQueryRepository(_BaseQueryMixin):
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
 
-    async def latest_metric_at(self) -> datetime | None:
+    async def get_latest_metric_at(self) -> datetime | None:
         """fleet 전체 최신 메트릭 수집 시각 — 상단 바 데이터 최신성(#C5 window 술어로 partition pruning).
 
         server_inventory.last_seen_at(인벤토리 하트비트, 저빈도)이 아닌 메트릭 collected_at 기준 — 실수집 신선도.

@@ -488,7 +488,7 @@ export interface paths {
          * Right Sizing Thresholds
          * @description Right-sizing 분류 임계값 reference 페이지 — 환경 엔지니어 보고서에서 link 로 분리.
          *
-         *     `recommendation` 모듈 단일 진실의 분류·USE 축·입력·임계·근거 표 + 출처 설명.
+         *     `right_sizing` 모듈 단일 진실의 분류·USE 축·입력·임계·근거 표 + 출처 설명.
          *     보고서·진단 양쪽이 참조하는 reference 자료 — 본 페이지에서만 한 번 정의 (T13).
          */
         get: operations["right_sizing_thresholds_reference_get"];

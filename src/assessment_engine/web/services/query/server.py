@@ -3,14 +3,14 @@
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget, safe_set
+from assessment_engine.domain import right_sizing
 from assessment_engine.web.services.cache_serializer import (
     server_detail_from_json,
     server_detail_to_json,
 )
 from assessment_engine.web.services.mappers.metric import to_collection_status_item
-from assessment_engine.web.services.mappers.metrics_calculator import build_error_signals
+from assessment_engine.web.services.mappers.metric_dashboard import build_error_signals
 from assessment_engine.web.services.mappers.os_eol import (
     lookup_os_eol,
 )
@@ -61,8 +61,8 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
             return {}
         return await self.repo.resolve_server_ids(public_ids)
 
-    async def list_all_server_public_ids(self) -> list[str]:
-        return await self.repo.list_all_server_public_ids()
+    async def list_server_public_ids(self) -> list[str]:
+        return await self.repo.list_server_public_ids()
 
     async def _is_online(self, server_id: int) -> bool:
         flag = await safe_get(self.redis, get_web_settings().redis_key_online.format(server_id))
@@ -88,20 +88,20 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         # USE Method 분류 — 보고서·right-sizing과 동일 윈도우·입력(net 포함).
         page_server_ids = [dto.id for dto in dtos]
         now = datetime.now(UTC)
-        raws_period = await self.repo.report_aggregate(
+        raws_period = await self.repo.get_report_aggregate(
             page_server_ids,
-            period_days=recommendation.WINDOW_DAYS,
+            period_days=right_sizing.WINDOW_DAYS,
             end=now,
         )
         # net baseline 주입 — build_resource_stats 의 유휴 판정이 net 사용 (도넛·보고서와 정합).
-        raws_period = await self._with_net_baseline(raws_period, page_server_ids, recommendation.WINDOW_DAYS, now)
+        raws_period = await self._with_net_baseline(raws_period, page_server_ids, right_sizing.WINDOW_DAYS, now)
         raws_by_id: dict[int, ReportRowRaw] = {r.server_id: r for r in raws_period}
 
         last_tasks = await latest_task_summaries(self.repo, page_server_ids)
 
         # 운영 이벤트 — 전체 기간 에러 발생 호스트 집합(벌크 1회, N+1 회피). since=epoch 전기간은 환경 개요
-        # 운영 이벤트 카드(fleet_error_summary 를 epoch 호출)와 동일 창 — 개요-목록 정합(#F10 화면 간 의미 단일).
-        error_hosts = await self.repo.fleet_error_hosts(page_server_ids, datetime(1970, 1, 1, tzinfo=UTC))
+        # 운영 이벤트 카드(get_fleet_error_summary 를 epoch 호출)와 동일 창 — 개요-목록 정합(#F10 화면 간 의미 단일).
+        error_hosts = await self.repo.get_fleet_error_hosts(page_server_ids, datetime(1970, 1, 1, tzinfo=UTC))
 
         items: list[ServerListItem] = []
         if online_flags is None:
@@ -167,8 +167,8 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         """
         end_dt = end or datetime.now(UTC)
         sid = detail.id
-        uptime = await self.repo.report_uptime_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
-        restart = await self.repo.report_agent_restart_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
+        uptime = await self.repo.get_report_uptime_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
+        restart = await self.repo.get_report_agent_restart_stats([sid], _DETAIL_ALL_TIME_DAYS, end_dt)
         # 인벤토리 표시 — 미래 EOL 도 노출(lookup, today-gate 없음). 판정 4단계를 그대로 문구로 옮긴다.
         info = lookup_os_eol(detail.os_id, detail.os_version, detail.kernel_version, end_dt.date())
         os_eol_label = None
@@ -192,13 +192,13 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         ServerDetailResponse 캐시(inventory)와 분리 — 14일 집계라 매 요청 산출(목록 분류와 동일 입력·창, #E3).
         """
         end_dt = end or datetime.now(UTC)
-        raws = await self.repo.report_aggregate([server_id], period_days=recommendation.WINDOW_DAYS, end=end_dt)
+        raws = await self.repo.get_report_aggregate([server_id], period_days=right_sizing.WINDOW_DAYS, end=end_dt)
         if not raws:
             return None
-        raws = await self._with_net_baseline(raws, [server_id], recommendation.WINDOW_DAYS, end_dt)
+        raws = await self._with_net_baseline(raws, [server_id], right_sizing.WINDOW_DAYS, end_dt)
         # 에러축(E) — 창 통일(14일). 실시간 카드 24h 와 분리, 분류 카드 창(WINDOW_DAYS)에 맞춤.
-        win_days = recommendation.WINDOW_DAYS
-        err = await self.repo.latest_errors(server_id, end_dt - timedelta(days=win_days))
+        win_days = right_sizing.WINDOW_DAYS
+        err = await self.repo.get_latest_errors(server_id, end_dt - timedelta(days=win_days))
         errors = build_error_signals(err, window_label=f"최근 {win_days}일", os_family=raws[0].os_family)
         return build_period_assessment(
             # 서버 세부 카드는 net baseline 만 주입한다 — disk 활동 축은 보고서 경로에서만 채워진다.

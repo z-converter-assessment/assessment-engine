@@ -11,7 +11,7 @@
   - 사이징(증설/감축) 판정은 CPU · Memory · Disk 용량 3자원만. Disk IO 는 "포화 여부"만 표시(증설 숫자 미산출),
     Network 는 별도 혼잡 플래그로만 노출.
   - Errors 는 사이징에 섞지 않고 health(고장) 신호로 따로 보여준다.
-- 평가 창: 14일(`recommendation.WINDOW_DAYS`). 대부분의 임계는 그 창의 p95(상위 5% 순간 스파이크를 잘라낸
+- 평가 창: 14일(`right_sizing.WINDOW_DAYS`). 대부분의 임계는 그 창의 p95(상위 5% 순간 스파이크를 잘라낸
   값)로 비교한다. 용량 runway 만 가용 이력 전체를 쓴다(누적 신호라 길수록 정확).
   - AWS Compute Optimizer 기본 lookback 과 같은 값이고, 7일·30일은 라우터 override 로 지원한다.
   - 일·주 단위 주기성(주중·주말)을 평탄화하기에 충분한 최단 구간이다. 1~3일이면 일시 부하·정기 백업을

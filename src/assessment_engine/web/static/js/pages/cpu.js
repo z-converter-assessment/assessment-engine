@@ -35,7 +35,7 @@ function renderCoreGrid(cores) {
   section.style.display = '';
   grid.innerHTML = list
     .map((c) => {
-      const hi = c.hot;  // 서버 precompute (RS_CPU_PERCORE_HOLD_PCT 단일 진실) — 클라 임계 재선언 없음(P4).
+      const hi = c.hot;  // 서버 precompute (CPU_PERCORE_HOLD_PCT 단일 진실) — 클라 임계 재선언 없음(P4).
       return (
         `<div class="core-chip"><span class="core-chip-label">core${c.core_id}</span>` +
         `<span class="core-chip-val${hi ? ' hi' : ''}">${pct(c.usage_pct)}</span></div>`

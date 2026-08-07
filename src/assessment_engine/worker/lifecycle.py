@@ -1,6 +1,6 @@
 """백그라운드 워커 공용 lifecycle 유틸 (F11 graceful shutdown 단일 진실).
 
-report_worker(보고서 생성)·task_reaper(install 마감 정리) 루프가 공유 — sleep_or_stop(대기 단축)·
+report_loop(보고서 생성)·task_reaper(install 마감 정리) 루프가 공유 — sleep_or_stop(대기 단축)·
 graceful_drain(SIGTERM 시 진행 중 1건 drain, 초과 시 cancel)을 한 곳에서 정의해 두 워커의 종료 동작이
 구조적으로 일치. `signal.signal`·`os._exit` 미사용(F11) — asyncio-native stop_event + wait_for.
 """

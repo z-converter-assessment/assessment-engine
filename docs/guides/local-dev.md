@@ -81,7 +81,7 @@ make eol
 
 실패해도 기존 카탈로그가 그대로 남아 운영에 영향이 없다. 워크플로에 최신 여부를 확인하는 게이트는 없다 — 원본이 외부라 재생성 결과가 달라지는 것이 정상이고, 그것을 실패로 처리하면 우리 잘못이 아닌 이유로 통합이 막힌다.
 
-판정 규약은 `src/assessment_engine/web/services/mappers/shared.py` 의 `_eol_info` 가 갖는다.
+판정 규약은 `src/assessment_engine/web/services/mappers/os_eol.py` 의 `_eol_info` 가 갖는다.
 
 ---
 
