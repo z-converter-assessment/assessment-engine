@@ -8,10 +8,17 @@
 from collections import Counter
 from typing import TYPE_CHECKING
 
-from assessment_engine import recommendation
+from assessment_engine.domain import right_sizing
+from assessment_engine.domain.service_classifier import SIGNATURE_CATEGORIES, detect_listen_categories
 from assessment_engine.json_types import json_list
-from assessment_engine.service_classifier import SIGNATURE_CATEGORIES, detect_listen_categories
 from assessment_engine.web.services.device_filters import disk_total_bytes, is_virtual_interface
+from assessment_engine.web.services.mappers.assessment_display import build_host_confidence_notes
+from assessment_engine.web.services.mappers.constants import (
+    _VARIANCE_BURST_RATIO,
+    BADGE_CLASS,
+    OS_FAMILY_LABEL_KO,
+    RISK_LEVEL_ORDER,
+)
 from assessment_engine.web.services.mappers.os_eol import (
     lookup_os_eol,
     os_eol_display,
@@ -24,13 +31,6 @@ from assessment_engine.web.services.mappers.server import (
     infer_role,
     workload_category_counter,
     workload_services_by_category,
-)
-from assessment_engine.web.services.mappers.shared import (
-    _VARIANCE_BURST_RATIO,
-    BADGE_CLASS,
-    OS_FAMILY_LABEL_KO,
-    RISK_LEVEL_ORDER,
-    build_host_confidence_notes,
 )
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib
 from assessment_engine.web.view_models.report import (
@@ -124,20 +124,20 @@ def sort_rows_for_report(items: list[ReportRowItem]) -> list[ReportRowItem]:
     )
 
 
-def _build_recommendation_action(host: recommendation.HostAssessment, stats: recommendation.ResourceStats) -> str:
-    """recommendation 분류 -> "권고" 컬럼 단일 문구. 조치 semantic 은 recommendation 단일 진실 (신 모델 host 기반).
+def _build_recommendation_action(host: right_sizing.HostAssessment, stats: right_sizing.ResourceStats) -> str:
+    """Recommendation 분류 -> "권고" 컬럼 단일 문구. 조치 semantic 은 right_sizing 단일 진실 (host 기반).
 
     under_provisioned 는 근본원인 기반 처방(`under_prescription`, root_cause 정합·삼중 처방 방지),
     그 외는 도메인 조치 층(유휴는 강도로 즉시 종료/통합). customer "조치 필요 호스트"(high)엔 optimal 미노출.
     """
-    rec = recommendation.host_status_to_recommendation(host.host_status)
+    rec = right_sizing.host_status_to_recommendation(host.host_status)
     if rec == "under_provisioned":
-        return recommendation.under_prescription(host)
-    return recommendation.recommend_action(rec, stats)
+        return right_sizing.under_prescription(host)
+    return right_sizing.recommend_action(rec, stats)
 
 
 def _build_diagnosis(
-    host: recommendation.HostAssessment,
+    host: right_sizing.HostAssessment,
     raw: ReportRowRaw,
     cpu_variance: float | None,
     mem_variance: float | None,
@@ -181,13 +181,13 @@ def _build_diagnosis(
         cpu_variance is not None
         and cpu_variance >= _VARIANCE_BURST_RATIO
         and raw.cpu_peak_pct is not None
-        and raw.cpu_peak_pct > recommendation.BURST_PEAK_FLOOR_CPU_PCT
+        and raw.cpu_peak_pct > right_sizing.BURST_PEAK_FLOOR_CPU_PCT
     )
     mem_burst = (
         mem_variance is not None
         and mem_variance >= _VARIANCE_BURST_RATIO
         and raw.mem_peak_pct is not None
-        and raw.mem_peak_pct > recommendation.BURST_PEAK_FLOOR_MEM_PCT
+        and raw.mem_peak_pct > right_sizing.BURST_PEAK_FLOOR_MEM_PCT
     )
     if cpu_burst or mem_burst:
         return "부하 변동 큼"
@@ -275,9 +275,9 @@ def to_report_row_item(
     `now`로 uptime_days 계산 (now - boot_time) + OS EOL 판정 기준 시각(now.date()) — 정적 스냅샷이라
     렌더 시점 "오늘" 아닌 보고서 발행 기준(anchor/generated_at)으로 고정(#C1 스냅샷 불변).
     표시 파생 (role / recommendation / risk_level / badge_class / os_display / internal_ip[0])은 모두 여기서.
-    USE Method 분류(`recommendation`)는 양식 B(엔지니어용)·`risk_level`은 양식 A(고객용) KPI/표 노출.
+    USE Method 분류(`right_sizing`)는 양식 B(엔지니어용)·`risk_level`은 양식 A(고객용) KPI/표 노출.
     `diagnosis`는 양식 B "판단" 컬럼 자동 해석.
-    has_operational_event — 호출자가 보고서 창(window) 기준 latest_errors 로 사전 판정해 주입(세부 서버
+    has_operational_event — 호출자가 보고서 창(window) 기준 get_latest_errors 로 사전 판정해 주입(세부 서버
     목록 전용, N+1 회피 위해 여기선 조회 안 함).
     """
     info = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
@@ -286,7 +286,7 @@ def to_report_row_item(
     # 보고서 경로는 `_assemble_report_raws` 가 disk baseline 을 채워 온 raw 를 받는다 (유일한 주입 경로).
     stats = build_resource_stats(raw, disk_baseline=raw.disk_iops_baseline)
     # rollup_host 1회 산출 — badge·진단·권고·confidence 전부 이 종합에서 파생한다 (화면 간 분류 정합).
-    host = recommendation.rollup_host(stats)
+    host = right_sizing.rollup_host(stats)
     # 네트워크 상태 — 사이징과 별개 품질 판정(정상/혼잡/미측정). assess_network status 를 라벨로.
     net_status_label = _NET_STATUS_LABEL.get(host.resources["network"].status, "미측정")
     workload_groups, listen_ports_detail = _build_workload_display(raw)
@@ -294,9 +294,9 @@ def to_report_row_item(
     workload_categories = list(workload_category_counter(raw.services, raw.listen_ports).keys())
     signature_workload_categories = [c for c in workload_categories if c in SIGNATURE_CATEGORIES]
     workload_services = workload_services_by_category(raw.services, raw.listen_ports)
-    rec = recommendation.host_status_to_recommendation(host.host_status)
+    rec = right_sizing.host_status_to_recommendation(host.host_status)
     # P4 — 포화 축 미관측(예: Windows perflib 미발행/구세대 viostor) confidence 단서 (포화 축 한정 단일 진실).
-    is_partial = recommendation.host_saturation_unmeasured(host)
+    is_partial = right_sizing.host_saturation_unmeasured(host)
     risk_level, risk_label, risk_badge_class = _RISK_FROM_RECOMMENDATION[rec]
     uptime_days: int | None = None
     if raw.boot_time is not None:
@@ -351,11 +351,11 @@ def to_report_row_item(
         mem_peak_pct=raw.mem_peak_pct,
         cpu_run_queue_p95=raw.cpu_run_queue_p95,
         mem_swap_paging=raw.mem_swap_paging,
-        root_cause_label=recommendation.root_cause_display(host),
+        root_cause_label=right_sizing.root_cause_display(host),
         net_status_label=net_status_label,
         net_congested=host.network_congested,
         recommendation=rec,
-        recommendation_label=recommendation.LABEL_KO[rec],
+        recommendation_label=right_sizing.RECOMMENDATION_LABEL_KO[rec],
         badge_class=BADGE_CLASS[rec],
         risk_level=risk_level,
         risk_label=risk_label,

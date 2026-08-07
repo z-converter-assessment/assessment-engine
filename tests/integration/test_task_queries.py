@@ -1,4 +1,4 @@
-"""Task 조회·UPDATE 통합 테스트 (ADR 0007).
+"""Task 조회·UPDATE 통합 테스트.
 
 검증:
 - collect_repo.complete_task — result 컬럼 UPDATE
@@ -6,7 +6,7 @@
 - collect_repo.expire_all_overdue_tasks — deadline 경과 pending 전역 failure(timeout) 전이 (reaper)
 - query_repo.get_task_by_public_id — 단일 + JOIN server_inventory (target_public_id·target_hostname)
 - query_repo.list_recent_tasks — created_at 역순 + cursor pagination (E2)
-- query_repo.latest_tasks_by_servers — DISTINCT ON (target_server_id) 서버별 최신 1건
+- query_repo.get_latest_tasks_by_servers — DISTINCT ON (target_server_id) 서버별 최신 1건
 
 부분 UNIQUE `uq_tasks_pending_per_server_type` 동작은 별도 — 본 테스트는 조회 메서드만.
 """
@@ -267,7 +267,7 @@ async def test_list_recent_tasks_cursor_pagination(
     assert all(r.created_at < cursor for r in second)
 
 
-# --- latest_tasks_by_servers ----------------------------------------------
+# --- get_latest_tasks_by_servers ----------------------------------------------
 
 
 async def test_latest_tasks_by_servers_distinct_on(
@@ -282,13 +282,13 @@ async def test_latest_tasks_by_servers_distinct_on(
     p2_only = await _insert_task(collect_repo, s2, _AGENT_B, task_type="t-only")
     await collect_repo.session.flush()
 
-    latest = await query_repo.latest_tasks_by_servers([s1, s2])
+    latest = await query_repo.get_latest_tasks_by_servers([s1, s2])
     assert latest[s1].public_id == p1_new  # s1 의 가장 최근 1건만
     assert latest[s2].public_id == p2_only
 
 
 async def test_latest_tasks_by_servers_empty_input(query_repo: SqlQueryRepository) -> None:
-    assert await query_repo.latest_tasks_by_servers([]) == {}
+    assert await query_repo.get_latest_tasks_by_servers([]) == {}
 
 
 # --- expire_overdue_tasks (scoped) ----------------------------------------

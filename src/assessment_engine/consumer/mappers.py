@@ -16,7 +16,7 @@ from assessment_engine.db.dtos.inbound import (
     ServerInventoryCreate,
     ServerMetricCreate,
 )
-from assessment_engine.service_classifier import compute_service_categories
+from assessment_engine.domain.service_classifier import compute_service_categories
 
 if TYPE_CHECKING:
     from assessment_engine.consumer.schemas import (
@@ -272,13 +272,13 @@ def _build_pressure(pr_ns: Namespace | None) -> list[PressureEntry]:
 # --- inventory ---
 
 
-def _svc_dicts(data: InventoryInput) -> list[JsonObject] | None:
+def _service_dicts(data: InventoryInput) -> list[JsonObject] | None:
     if data.services is None:
         return None
     return [{"unit": s.unit, "sub": s.sub, "pid": s.pid, "exe": s.exe} for s in data.services]
 
 
-def _lp_dicts(data: InventoryInput) -> list[JsonObject]:
+def _listen_port_dicts(data: InventoryInput) -> list[JsonObject]:
     return [
         {"proto": p.proto, "addr": p.addr, "port": p.port, "uid": p.uid, "pid": p.pid, "comm": p.comm}
         for p in data.listen_ports
@@ -290,7 +290,7 @@ def _sparse(d: JsonObject) -> JsonObject:
     return {k: v for k, v in d.items() if v is not None}
 
 
-def _bd_layout(b: BlockDeviceInfo) -> JsonObject:
+def _block_device_layout(b: BlockDeviceInfo) -> JsonObject:
     """block_device 레이아웃 상세 (reproduction) — non-None 키만. assessment_api 가 read 시 d.get 으로 소비."""
     return _sparse(
         {
@@ -324,7 +324,7 @@ def _bd_layout(b: BlockDeviceInfo) -> JsonObject:
     )
 
 
-def _ni_layout(n: NetInterfaceInfo) -> JsonObject:
+def _net_interface_layout(n: NetInterfaceInfo) -> JsonObject:
     """net_interface 레이아웃 상세 (reproduction) — non-None 키만. routes 는 dict 로 평탄화."""
     return _sparse(
         {
@@ -337,7 +337,7 @@ def _ni_layout(n: NetInterfaceInfo) -> JsonObject:
     )
 
 
-def _vg_layout(v: LvmVgInfo) -> JsonObject:
+def _lvm_vg_layout(v: LvmVgInfo) -> JsonObject:
     """lvm_vg 레이아웃 상세 (reproduction) — non-None 키만."""
     return _sparse({"vg_uuid": v.vg_uuid, "extent_size_bytes": v.extent_size_bytes, "pv_ids": v.pv_ids})
 
@@ -345,8 +345,8 @@ def _vg_layout(v: LvmVgInfo) -> JsonObject:
 def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
     # 분류 입력 = 저장 dict 그대로. read 경로가 저장된 services·listen_ports 로 live classify 하므로
     # 여기서 키를 줄이면(특히 listen_ports.pid) pid join 이 끊겨 같은 호스트가 화면마다 다른 카테고리가 된다.
-    services = _svc_dicts(data)
-    listen_ports = _lp_dicts(data)
+    services = _service_dicts(data)
+    listen_ports = _listen_port_dicts(data)
     return ServerInventoryCreate(
         agent_id=str(data.agent_id),
         composite_id=data.composite_id,
@@ -374,7 +374,7 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
                 "parent": b.parent,
                 "id": b.id,
                 "id_type": b.id_type,
-                **_bd_layout(b),
+                **_block_device_layout(b),
             }
             for b in data.block_devices
         ],
@@ -395,7 +395,7 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
                     for a in n.addresses
                 ],
                 "gateway": n.gateway,
-                **_ni_layout(n),
+                **_net_interface_layout(n),
             }
             for n in data.net_interfaces
         ],
@@ -406,7 +406,7 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
                 "free_bytes": v.free_bytes,
                 "data_percent": v.data_percent,
                 "metadata_percent": v.metadata_percent,
-                **_vg_layout(v),
+                **_lvm_vg_layout(v),
             }
             for v in data.lvm_vgs
         ],

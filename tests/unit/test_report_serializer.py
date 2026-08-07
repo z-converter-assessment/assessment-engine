@@ -14,11 +14,8 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from assessment_engine.web.services.mappers.environment_report import to_environment_report
-from assessment_engine.web.services.report_serializer import (
-    _report_row_from_dict,
-    env_report_from_dict,
-    env_report_to_dict,
-)
+from assessment_engine.web.services.report import env_report_from_dict, env_report_to_dict
+from assessment_engine.web.services.report.serializer import _report_row_from_dict
 from assessment_engine.web.view_models.attention import ActionTargets, AttentionSignals, EnvironmentOverview
 from assessment_engine.web.view_models.environment_report import (
     CpuBreakdown,
@@ -248,7 +245,7 @@ def test_report_row_roundtrip_drops_removed_legacy_fields():
 
 
 def test_action_targets_roundtrip_drops_removed_metrics_fields():
-    """과거 스냅샷의 action.hosts[].metrics·action.metric_labels(ADR 0056 이전, CapacityMetric 폐기)가
+    """과거 스냅샷의 action.hosts[].metrics·action.metric_labels(이전, CapacityMetric 폐기)가
 
     복원을 깨지 않는다 — top_risks 와 동일 `_drop_unknown_fields` 경로.
     """

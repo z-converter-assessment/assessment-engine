@@ -1,15 +1,15 @@
 """환경 보고서 mapper — ReportSummary + 기존 helper 결과를 EnvironmentReportSummary 로 합성 (P2).
 
 server scope 보고서와 분리된 high-level 양식 — 분류 분포·OS 분포·top risk·view 별 요약.
-색·라벨 단일 진실: `assessment_engine.recommendation`.
+색·라벨 단일 진실: `assessment_engine.domain.right_sizing`.
 """
 
 from collections import Counter
 from typing import TYPE_CHECKING
 
-from assessment_engine import recommendation
-from assessment_engine.service_classifier import SIGNATURE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
-from assessment_engine.web.services.mappers.shared import (
+from assessment_engine.domain import right_sizing
+from assessment_engine.domain.service_classifier import SIGNATURE_CATEGORIES, SINGLE_INSTANCE_CATEGORIES
+from assessment_engine.web.services.mappers.constants import (
     _CAUSE_LABEL_BY_TRIGGER,
     DIAGNOSTIC_RANGE_LABEL_KR,
     OS_FAMILY_LABEL_KO,
@@ -17,9 +17,7 @@ from assessment_engine.web.services.mappers.shared import (
     UTIL_GAUGE_COLOR,
     ReportView,
 )
-from assessment_engine.web.services.mappers.shared import (
-    _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS,
-)
+from assessment_engine.web.services.mappers.constants import _DONUT_SEGMENT_DEFS as _PROVISIONING_SEGMENT_DEFS
 from assessment_engine.web.services.mappers.topology import build_network_topology
 from assessment_engine.web.view_models.environment_report import (
     AttentionHostItem,
@@ -47,7 +45,7 @@ if TYPE_CHECKING:
     )
     from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
 
-# `_PROVISIONING_SEGMENT_DEFS` 단일 진실 = mappers/shared.py (#E8).
+# `_PROVISIONING_SEGMENT_DEFS` 단일 진실 = mappers/constants.py (#E8).
 # 본 모듈은 import alias 만 — 환경 보고서·대시보드 도넛·보고서 row 색 통일 (T13).
 
 # view 별 Top N — customer/engineer 모두 전수 노출 (운영 검토 list, N 잘림 없음).
@@ -66,13 +64,13 @@ def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCoun
     return [
         ClassificationCount(
             key=key,
-            # 표시 라벨 = right-sizing 한국어 분류명 단일 진실(LABEL_KO). 영어 enum 노출 금지·평행 어휘 금지.
-            label=recommendation.LABEL_KO[key],
+            # 표시 라벨 = right-sizing 한국어 분류명 단일 진실(RECOMMENDATION_LABEL_KO). 영어 enum 노출 금지·평행 어휘 금지.
+            label=right_sizing.RECOMMENDATION_LABEL_KO[key],
             count=counts.get(key, 0),
             # 색 = 게이지 테마 단색 통일 (분류 막대 — 라벨이 의미 전달). _PROVISIONING_SEGMENT_DEFS 다색 미사용.
             color=UTIL_GAUGE_COLOR,
-            # desc = 조치 방향만 (label 분류명과 어휘 중복 회피). 조치 단일 진실 = recommendation 도메인.
-            description=recommendation.RECOMMENDATION_ACTION_KO[key],
+            # desc = 조치 방향만 (label 분류명과 어휘 중복 회피). 조치 단일 진실 = right_sizing 도메인.
+            description=right_sizing.RECOMMENDATION_ACTION_KO[key],
         )
         for key, _color, _description in _PROVISIONING_SEGMENT_DEFS
     ]
@@ -228,7 +226,7 @@ def _count_os(details: list[ServerDetail]) -> list[OsCount]:
 def _build_env_metrics(overview: EnvironmentOverview) -> list[JsonObject]:
     """환경 현황 메트릭 6축 (P2) — 이용률 3 + 포화 3(CPU·메모리·디스크 I/O). 대시보드 '자원 이용·포화' 도넛의 부분집합(대시보드는 포화 4로 네트워크 혼잡 포함, 보고서는 앞 3축만 — 네트워크는 rate 기준선 없어 제외).
 
-    이용률(CPU/메모리/디스크) = environment_utilization capacity-weighted avg(+p95). 포화(CPU 포화·메모리 압박·
+    이용률(CPU/메모리/디스크) = get_environment_utilization capacity-weighted avg(+p95). 포화(CPU 포화·메모리 압박·
     디스크 I/O 포화) = 자원 적정성 창 포화 호스트 수 / 표본(overview.saturation_donuts, 대시보드와 동일 판정).
     절대 처리량 총량(네트워크·디스크 I/O rate)은 기준선 없어 건강 판단 어려워 제외 — 활용·포화가 환경 건강 정석.
     plain dict list — 스냅샷 직렬화 시 trend 와 동일하게 복원 불요. 값 부재는 "—" placeholder (#E9).
@@ -347,7 +345,7 @@ def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImmine
     for r in rows:
         if r.disk_capacity_runway_days is None:
             continue
-        if r.disk_capacity_runway_days >= recommendation.RS_DISK_RUNWAY_DAYS:
+        if r.disk_capacity_runway_days >= right_sizing.DISK_RUNWAY_DAYS:
             continue
         if not r.disk_capacity_driving_mount:
             continue
@@ -365,7 +363,7 @@ def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImmine
     return out
 
 
-# 자원 부족 원인 표시 순서 — shared._CAUSE_LABEL_BY_TRIGGER 삽입순 파생(단일 진실, 병렬 리터럴 목록 제거).
+# 자원 부족 원인 표시 순서 — constants._CAUSE_LABEL_BY_TRIGGER 삽입순 파생(단일 진실, 병렬 리터럴 목록 제거).
 _UNDER_CAUSE_ORDER = tuple(_CAUSE_LABEL_BY_TRIGGER.values())
 
 
@@ -397,9 +395,9 @@ def _env_summary_bullets(
     optimal = classified.get("optimal", 0)
     insufficient = classified.get("insufficient_data", 0)
 
-    # 분류 어휘 LABEL_KO 단일 진실(분포 막대·표와 동일 어휘). 운영 신호는 OS 지원 종료만(C1) —
+    # 분류 어휘 RECOMMENDATION_LABEL_KO 단일 진실(분포 막대·표와 동일 어휘). 운영 신호는 OS 지원 종료만(C1) —
     # gap/agent_unstable 전역 신호는 window 의미 불일치로 보고서·요약 미표시.
-    ko = recommendation.LABEL_KO
+    ko = right_sizing.RECOMMENDATION_LABEL_KO
     resource = (
         f"vCPU {overview.total_vcpus} | 메모리 {overview.total_memory_gb:.1f} GB | 디스크 {overview.total_disk_gb} GB"
     )

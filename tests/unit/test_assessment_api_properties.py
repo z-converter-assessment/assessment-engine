@@ -2,7 +2,7 @@
 
 수천 가짓수의 합성 ReportRowRaw + per-mount 용량을 build_assessment_entry/envelope 에 먹여, 어떤 입력에도
 계약(assessment-api.md 4절)이 깨지지 않음을 검증한다: JSON 직렬화 가능·필수 키·사이징 never-worse(under->증설/
-over->감축)·recommended never-null·분류/신뢰도 enum·근본원인 축 정합. 도메인 커널 property(test_recommendation_
+over->감축)·recommended never-null·분류/신뢰도 enum·근본원인 축 정합. 도메인 커널 property(test_right_sizing_
 properties)가 rollup_host 를 덮고, 본 스위트는 그 위 API 표현 계층(dict 계약)을 덮는다.
 """
 
@@ -15,9 +15,9 @@ from hypothesis import strategies as st
 from hypothesis.strategies import DrawFn
 from pydantic import TypeAdapter
 
-from assessment_engine import recommendation
 from assessment_engine.contract import API_CONTRACT_VERSION
 from assessment_engine.db.dtos.outbound import MountCapacityRaw, ReportRowRaw
+from assessment_engine.domain import right_sizing
 from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.assessment_api import (
     build_assessment_entry,
@@ -205,7 +205,7 @@ def test_entry_contract_invariants(raw: ReportRowRaw, mounts: list[MountCapacity
 
     # 5. assessment enum + data_quality 불변식
     asmt = entry["assessment"]
-    assert asmt["classification"] in recommendation.LABEL_KO, asmt
+    assert asmt["classification"] in right_sizing.RECOMMENDATION_LABEL_KO, asmt
     assert asmt["confidence"] in ("low", "medium", "high"), asmt
     dq = asmt["data_quality"]
     assert dq["sufficient"] is (asmt["confidence"] == "high")
@@ -368,7 +368,7 @@ def test_sizing_axes_key_sets_differ_by_axis():
     ],
 )
 def test_right_sizing_action_target_key_is_omitted_when_absent(
-    kind: recommendation.ResourceKind,
+    kind: right_sizing.ResourceKind,
     sizing_target: int | None,
     expected_target_key: str | None,
 ):
@@ -376,7 +376,7 @@ def test_right_sizing_action_target_key_is_omitted_when_absent(
 
     사이징 축이 아닌 자원(network·disk_io)은 목표 키 자체가 없다 — 크기로 푸는 조치가 아니기 때문이다.
     """
-    action = _action(kind, recommendation.ResourceAssessment(kind, "under", sizing_target=sizing_target), "increase")
+    action = _action(kind, right_sizing.ResourceAssessment(kind, "under", sizing_target=sizing_target), "increase")
 
     target_keys = set(action) - {"resource", "op", "target_display"}
     assert target_keys == ({expected_target_key} if expected_target_key else set())

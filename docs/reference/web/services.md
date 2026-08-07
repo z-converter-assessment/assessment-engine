@@ -4,18 +4,18 @@
 
 | 모듈 | 책임 |
 |------|------|
-| `query_service.py` (+ `query/` 패키지) | Redis 캐시 + repository 오케스트레이션. SSR/JSON 양 경로에 일관된 ViewModel·Summary 반환. `QueryService` 는 6 도메인 mixin (`query/` 하위 server·metric·attention·environment·report·task) 을 multiple inheritance 로 결합 — repo 계층 `db/repositories/query/` 와 동형. 공유 helper(`_online_map`·`_with_net_baseline`)는 `query/_base.py` |
+| `query/` 패키지 (`service.py` 결합 + 도메인 mixin) | Redis 캐시 + repository 오케스트레이션. SSR/JSON 양 경로에 일관된 ViewModel·Summary 반환. `QueryService` 는 6 도메인 mixin (`query/` 하위 server·metric·attention·environment·report·task) 을 multiple inheritance 로 결합 — repo 계층 `db/repositories/query/` 와 동형. 공유 helper(`_online_map`·`_with_net_baseline`)는 `query/_base.py` |
 | `task_service.py` | Task 발행 (DB INSERT + Redis SET). 트랜잭션 경계 + `IntegrityError` -> `TaskDuplicatePendingError` 변환. 본 모듈 상단 `HttpZdmPackageResolver` (ZDM 패키지 sha256·size 동적 조회 — install 발행 의존성) |
-| `mappers/` (sub-package) | Outbound DTO + Detail -> ViewModel 변환 단일 진실 (P2). `server.py`(상세·목록 ViewModel + `infer_role`) / `metric.py` / `attention.py` / `report.py`(보고서 표 행·KPI 집계) / `report_summary.py`(자동 분석 요약 불릿) / `period_assessment.py`(서버 세부 '최근 N일' 자원별 카드) / `task.py` / `shared.py` (공용 임계 상수 + ReportView Literal + `_DONUT_SEGMENT_DEFS` + `UTIL_GAUGE_COLOR` + `spec_display_line`(정적 사양 한 줄)) / `os_eol.py` (endoflife 스냅샷 카탈로그 + `_eol_info`(경계 3개 -> 지원 단계 4상태 판정)·`resolve_os_eol`·`lookup_os_eol` + Windows 표시 라벨 + distro 필터 옵션) / `resource_stats.py` (`ReportRowRaw` -> `recommendation.ResourceStats` 도메인 입력 어댑터 — 표시 파생 0) / `metrics_calculator.py` (CPU/Disk/Net delta + Mem/Swap 시점값 -> Snapshot) / `environment_report.py` (환경 보고서 합성) / `report_history.py` (보고서 이력 row) / `topology.py` (네트워크 토폴로지 — Cytoscape 집계 그래프 elements + 서브넷별 서버 목록 `SubnetGroup`) / JSON API 응답 매퍼 3종 (`api_reference.py` OpenAPI 스펙 -> API 목록 · `assessment_api.py` `/api/assessment` per-server 계약 dict · `right_sizing_api.py` per-server 프로비저닝 판정 dict — E6 타입계약 원천, 분류·근거는 도메인 단일 진실(`rollup_host` 등) 재사용) |
+| `mappers/` (sub-package) | Outbound DTO + Detail -> ViewModel 변환 단일 진실 (P2). `server.py`(상세·목록 ViewModel + `infer_role`) / `metric.py` / `attention.py` / `report.py`(보고서 표 행·KPI 집계) / `report_summary.py`(자동 분석 요약 불릿) / `period_assessment.py`(서버 세부 '최근 N일' 자원별 카드) / `task.py` / `constants.py` (값 카탈로그 — 공용 임계 상수 + ReportView Literal + `_DONUT_SEGMENT_DEFS` + `UTIL_GAUGE_COLOR` + 라벨·정렬 순서) / `assessment_display.py` (right_sizing 판정 -> 표시·계약 원자 — `saturation_axis_displays`(화면 형식화)·`saturation_block`(API raw numeric)·신뢰도 노트) / `host_display.py` (호스트 raw -> 표시 파생 — `primary_ip`·`spec_display_line`(정적 사양 한 줄)) / `service_reference.py` (임계값 참고 페이지 서비스 뱃지 범례 — `SERVICE_CATALOG` 파생) / `os_eol.py` (endoflife 스냅샷 카탈로그 + `_eol_info`(경계 3개 -> 지원 단계 4상태 판정)·`resolve_os_eol`·`lookup_os_eol` + Windows 표시 라벨 + distro 필터 옵션) / `resource_stats.py` (`ReportRowRaw` -> `right_sizing.ResourceStats` 도메인 입력 어댑터 — 표시 파생 0) / `metric_dashboard.py` (CPU/Disk/Net delta + Mem/Swap 시점값 -> Snapshot) / `environment_report.py` (환경 보고서 합성) / `report_history.py` (보고서 이력 row) / `topology.py` (네트워크 토폴로지 — Cytoscape 집계 그래프 elements + 서브넷별 서버 목록 `SubnetGroup`) / JSON API 응답 매퍼 3종 (`api_reference.py` OpenAPI 스펙 -> API 목록 · `assessment_api.py` `/api/assessment` per-server 계약 dict · `right_sizing_api.py` per-server 프로비저닝 판정 dict — E6 타입계약 원천, 분류·근거는 도메인 단일 진실(`rollup_host` 등) 재사용) |
 | `diagnostic_service.py` | 보고서 발행 enqueue(비동기 parent job) + 동기 저장(워커 child 경로) + job 상태 전이(claim/finish/recover) + 발행 이력. `DiagnosticRepository` protocol 만 의존 |
-| `report_generator.py` | pending job -> 보고서 ViewModel 생성 디스패치 (워커·발행 경로 공유 단일 진실). 보고서 교차참조 helper `attention_for_host`/`attention_by_host` 정의 |
-| `report_result.py` | `diagnostic_jobs.result` JSONB 구조·키 상수 + 조립 helper. serializer 와 나눈 이유는 의존 방향 — 여기는 ViewModel 을 import 하지 않는다 |
-| `report_serializer.py` | 발행 시점 정적 스냅샷 serde — ViewModel <-> `diagnostic_jobs.result` JSONB |
+| `report/generator.py` | pending job -> 보고서 ViewModel 생성 디스패치 (워커·발행 경로 공유 단일 진실). 보고서 교차참조 helper `attention_for_host`/`attention_by_host` 정의 |
+| `report/result.py` | `diagnostic_jobs.result` JSONB 구조·키 상수 + 조립 helper. serializer 와 나눈 이유는 의존 방향 — 여기는 ViewModel 을 import 하지 않는다 |
+| `report/serializer.py` | 발행 시점 정적 스냅샷 serde — ViewModel <-> `diagnostic_jobs.result` JSONB |
 | `cache_serializer.py` | Redis serde — `ServerDetailResponse` / `MetricDashboard`. 역직렬화 후 `enrich_*` 재호출 (idempotent) |
-| `serialization.py` | `cache_serializer`·`report_serializer` 공용 직렬화 계약 (datetime -> ISO, dataclass -> dict) |
+| `serialization.py` | `cache_serializer`·`report/serializer` 공용 직렬화 계약 (datetime -> ISO, dataclass -> dict) |
 | `unit_converter.py` | KB->GB / sectors->KB/s / usage_pct 단위 변환 |
 | `device_filters.py` | block_device `type`·fstype·net_interface `kind` 기반 계층 술어 단일 진실 — `is_physical_disk`(type=="disk")·`is_lvm_disk`(lvm/raid/crypt/mpath/dynamic)·`is_partition`(=="part")·`is_swap`(=="swap")·`is_virtual_interface`(kind not in physical/bond_master)·`is_data_volume`(fstype·mountpoint — 가상fs·/boot 제외) + `disk_total_bytes`/`swap_total_bytes` (block_device type 합산 단일 산식 — Windows PhysicalDrive 도 type=disk 발행이라 양 OS 공통, fallback 없음). 부모-자식 조인은 노드 `parent`(부모 id) |
-| `service_classifier.py` (도메인 `assessment_engine/`, web·consumer 공용 — `recommendation.py` 동급) | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`/`remote`/`file`/`mail`/`infra` — 원칙·경계 규칙은 아래 "카테고리 경계" 절) + 포트 매핑 + 카테고리 집합 사전계산(`compute_service_categories`, ingest 가 `service_categories` 저장). 단일 카탈로그(`SERVICE_CATALOG`) 파생. `MatchedPort` 정의 — 소비자는 본 모듈에서 직접 import 한다 |
+| `service_classifier.py` (도메인 `assessment_engine/domain/`, web·consumer 공용 — `right_sizing.py` 동급) | 서비스 -> 카테고리 (`web`/`db`/`cache`/`mq`/`container`/`monitor`/`remote`/`file`/`mail`/`infra` — 원칙·경계 규칙은 아래 "카테고리 경계" 절) + 포트 매핑 + 카테고리 집합 사전계산(`compute_service_categories`, ingest 가 `service_categories` 저장). 단일 카탈로그(`SERVICE_CATALOG`) 파생. `MatchedPort` 정의 — 소비자는 본 모듈에서 직접 import 한다 |
 
 ## 서비스 분류 — 3단계 표시 계층
 
@@ -57,14 +57,14 @@
 
 `SERVICE_CATALOG`(`CategoryDef` 튜플)이 카테고리별 규약의 단일 진실 — `name_keywords`(unit·comm 공용 substring) / `port_names`(서비스명 -> well-known 포트) / `badge_class`. 파생물은 import 시점 1회 계산: `_NAME_INDEX`(분류 키워드) · `_NAME_PORTS`(서비스명 -> 포트) · `_PORT_INDEX`(port -> category) · `SERVICE_CATEGORIES`(드롭다운·범례) · `BADGE_CLASS_BY_CATEGORY`(templating filter import). 서비스 추가 = 카탈로그 1곳만 수정.
 
-`classify(unit, listen_ports=None)` — 다중 신호, 정밀도 우선순위:
+`classify_service(unit, listen_ports=None)` — 다중 신호, 정밀도 우선순위:
 1. unit 이름 키워드 (최고 정밀 — 소프트웨어 정체성)
 2. comm 키워드 (이름 미스매치 흡수 — Windows SCM 이름과 exe basename 불일치 등)
 3. listen 포트 (프로토콜 사실관계 — 1433 -> db)
 
-우선순위 근거: 소프트웨어 정체성(name/comm)이 프로토콜(port)보다 카테고리 정밀도가 높다 (haproxy가 5432를 프록시해도 web). port는 name/comm 무정보 시 fallback. `listen_ports` 미제공 시 name 신호만 (per-unit 상세 표시 등 listen_ports 없는 호출). 목록 뱃지는 `classify` 직접 호출이 아니라 ingest 사전계산 `service_categories` 소비.
+우선순위 근거: 소프트웨어 정체성(name/comm)이 프로토콜(port)보다 카테고리 정밀도가 높다 (haproxy가 5432를 프록시해도 web). port는 name/comm 무정보 시 fallback. `listen_ports` 미제공 시 name 신호만 (per-unit 상세 표시 등 listen_ports 없는 호출). 목록 뱃지는 `classify_service` 직접 호출이 아니라 ingest 사전계산 `service_categories` 소비.
 
-`classify` 의 comm/port 신호는 `_attributed_ports`(comm~name 또는 name well-known 포트로 unit에 귀속된 포트)에만 적용 — per-unit(services 탭) 표시용이라 multi-service 오분류 방지가 우선. 단 per-unit 분류만으론 이름이 comm과 무관한 opaque 서비스를 못 잡는다(agent 가 services 와 listen_ports 를 잇는 pid join key 미발행 — T15).
+`classify_service` 의 comm/port 신호는 `_attributed_ports`(comm~name 또는 name well-known 포트로 unit에 귀속된 포트)에만 적용 — per-unit(services 탭) 표시용이라 multi-service 오분류 방지가 우선. 단 per-unit 분류만으론 이름이 comm과 무관한 opaque 서비스를 못 잡는다(agent 가 services 와 listen_ports 를 잇는 pid join key 미발행 — T15).
 
 호스트 워크로드 union (agent 불변 전제의 최선):
 - `detect_listen_categories(listen_ports)` — listen 소켓을 services unit 과 무관하게 직접 분류(comm 키워드 우선, 없으면 port). listen 소켓의 comm(exe basename)·port 는 지저분한 service 이름과 달리 깨끗·안정(OS·인스턴스명·로케일 무관) 식별자라, "이 호스트가 무슨 워크로드를 listen 하나"를 직접 탐지. Windows opaque SCM 이름(`MSSQL$무엇`)을 1433/`sqlservr` 로 우회.
@@ -79,7 +79,7 @@
 
 `infer_role(services, listen_ports=None)` = `workload_category_counter` 최빈 카테고리.
 
-주의: 본 절 `classify`는 service_classifier 의 서비스 카테고리 분류. 아래 "Recommendation 분류"의 `classify_host`/`rollup_host`(USE Method right-sizing)와 다른 함수 — 혼동 금지.
+주의: 본 절 `classify_service`는 service_classifier 의 서비스 카테고리 분류. 아래 "Recommendation 분류"의 `classify_host`/`rollup_host`(USE Method right-sizing)와 다른 함수 — 혼동 금지.
 
 ## 디바이스 계층 — block_devices[] 평면 DAG (parent-by-id)
 
@@ -96,15 +96,15 @@
 적용 경계 — 저장은 모두 유지, 표시 경계에서만 필터:
 - 디스크: `compute_disk_io`(스냅샷) + `to_storage_detail`(인벤토리 물리 디스크). I/O rate 차트는 물리 device 스코프 — 집계 계층(`server_disk_io_5m` cagg) 사전필터.
 - 인터페이스: `compute_net_io`(스냅샷). 차트·집계의 물리 인터페이스 선별은 표시 계층이 아니라 repo SQL 이 한다.
-- 마운트: `mappers/server.py`·`metrics_calculator.py` 가 파이썬 경계, 나머지는 repo SQL.
+- 마운트: `mappers/server.py`·`metric_dashboard.py` 가 파이썬 경계, 나머지는 repo SQL.
 
 IP 필터 보류: `ip_internal`/`ip_external`은 평면 IP 목록만 발행돼(인터페이스 매핑 부재) 가상/물리 구분이 주소 형식만으론 불가 — docker 사설 IP와 물리 사설 IP가 같은 대역(192.168/10/172.16/fd00 ULA). 링크로컬(`fe80::/10`·`169.254/16`)·루프백 정도만 형식 필터 가능하나 이득이 작아, agent가 IP-인터페이스 매핑을 발행하기 전까지 IP는 필터하지 않는다 (인터페이스 IO 필터는 device 이름이 명확해 유지).
 
 ## Recommendation 분류 — USE Method 출처
 
-도메인 모듈: `assessment_engine/recommendation.py` (web·diagnostic 양쪽 import). `WINDOW_DAYS` 평가 윈도우(#F10)·USE Method 임계값 모두 본 모듈 코드 단일 진실(모듈 상단 명명 상수).
+도메인 모듈: `assessment_engine/domain/right_sizing.py` (web·diagnostic 양쪽 import). `WINDOW_DAYS` 평가 윈도우(#F10)·USE Method 임계값 모두 본 모듈 코드 단일 진실(모듈 상단 명명 상수).
 
-UI badge 임계값(`mappers/shared.py` `_USAGE_DANGER_PCT`/`_USAGE_WARN_PCT`)과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
+UI badge 임계값(소재는 `view-models.md` "신호 임계값 단일 정의")과는 별 도메인 — 시점 사용량 시각 신호 vs 통계 right-sizing 결정.
 
 right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기)의 명세 단일 진실은 `docs/reference/right-sizing.md`, 임계 수치·벤더 출처는 `docs/reference/right-sizing-thresholds.md`, 운영자 카탈로그는 `right_sizing_thresholds.html`. web 계층 책임은 소비만 (P2/P4):
 - 표시 계층은 임계를 다시 계산하지 않는다. 분류 결과의 triggers 와 os-aware helper 를 그대로 받아 한국어 라벨로만 바꾼다.
@@ -112,12 +112,12 @@ right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기)의 명세 
 
 ## 환경 개요 상단 요약 — environment_overview (`/`)
 
-환경 개요(`/`)는 `EnvironmentOverview` 만 노출 — 환경 요약 KPI(OS 지원 4상태 포함)·주요 워크로드·자원 적정성 막대·자원 이용/포화 도넛·시스템 에러. 운영신호 3 카탈로그(`AttentionSignals` — 통신끊김/OS지원종료/에이전트재시작)는 독립 라이브 카드로 렌더되지 않고 보고서 경로에서만 소비된다 (#E9, view-models.md "환경 개요 상단 요약" 절). 라이브 운영 현황은 별도 `/environment/realtime`(`get_environment_realtime` — 서버별 순간 스냅샷, 갱신 흐름은 본 문서 "실시간 현황" 절). 평균 활용률·자원 적정성 현황은 `recommendation.WINDOW_DAYS`(#F10) 윈도우 — 분류와 한 창 통일. 홈 카드 레이아웃은 `docs/explanation/products/dashboard.md` 단일 진실. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 조립부 `_assemble_overview` 를 attention/trend 제외 경량 재사용, 서버별 표는 `build_action_targets` 로 전 서버·전 분류를 절단 없이 산출). 자원 부족 상세 표의 소유는 `/environment/assessment`.
+환경 개요(`/`)는 `EnvironmentOverview` 만 노출 — 환경 요약 KPI(OS 지원 4상태 포함)·주요 워크로드·자원 적정성 막대·자원 이용/포화 도넛·시스템 에러. 운영신호 3 카탈로그(`AttentionSignals` — 통신끊김/OS지원종료/에이전트재시작)는 독립 라이브 카드로 렌더되지 않고 보고서 경로에서만 소비된다 (#E9, view-models.md "환경 개요 상단 요약" 절). 라이브 운영 현황은 별도 `/environment/realtime`(`get_environment_realtime` — 서버별 순간 스냅샷, 갱신 흐름은 본 문서 "실시간 현황" 절). 평균 활용률·자원 적정성 현황은 `right_sizing.WINDOW_DAYS`(#F10) 윈도우 — 분류와 한 창 통일. 홈 카드 레이아웃은 `docs/explanation/products/dashboard.md` 단일 진실. 가변 윈도우·앵커로 적정성을 따로 보는 전용 페이지는 `/environment/assessment` (`get_environment_assessment(time_range, anchor)` — 개요 조립부 `_assemble_overview` 를 attention/trend 제외 경량 재사용, 서버별 표는 `build_action_targets` 로 전 서버·전 분류를 절단 없이 산출). 자원 부족 상세 표의 소유는 `/environment/assessment`.
 
 | 영역 | service 메서드 | repo SQL | 시간 축 | 분류 |
 |------|----------------|----------|---------|------|
-| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `environment_utilization(WINDOW_DAYS, end)` + `report_aggregate(WINDOW_DAYS)` + `fleet_error_summary` + Redis online mget | 창 USE Method + 창 평균 활용률 (capacity-weighted) | `_assemble_overview`: `build_resource_stats` -> `classify_host`(프로비저닝 도넛) + `cpu/mem/disk_io_saturated`·`assess_network`(포화 4도넛) + `to_capacity_warning_item`(under_provisioned 상세, os-aware triggers) |
-| get_attention_signals (보고서 교차참조) | `get_attention_signals` | gap `metric_gap_warnings(gap_min=5, recent_h=24)` + os_eol `report_aggregate` raws `resolve_os_eol` + agent `agent_restart_counts_recent(now-1h)` | 신호별 상이 | gap "한때 살아있다 끊김" / os_eol 무상 보안 패치가 끊긴 OS(Linux distro + Windows build) / agent restart_count >= `agent_restart_alert_threshold`(WebSettings, 기본 3) |
+| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `get_environment_utilization(WINDOW_DAYS, end)` + `get_report_aggregate(WINDOW_DAYS)` + `get_fleet_error_summary` + Redis online mget | 창 USE Method + 창 평균 활용률 (capacity-weighted) | `_assemble_overview`: `build_resource_stats` -> `classify_host`(프로비저닝 도넛) + `cpu/mem/disk_io_saturated`·`assess_network`(포화 4도넛) + `to_capacity_warning_item`(under_provisioned 상세, os-aware triggers) |
+| get_attention_signals (보고서 교차참조) | `get_attention_signals` | gap `get_metric_gap_warnings(gap_min=5, recent_h=24)` + os_eol `get_report_aggregate` raws `resolve_os_eol` + agent `get_agent_restart_counts_recent(now-1h)` | 신호별 상이 | gap "한때 살아있다 끊김" / os_eol 무상 보안 패치가 끊긴 OS(Linux distro + Windows build) / agent restart_count >= `agent_restart_alert_threshold`(WebSettings, 기본 3) |
 
 운영신호 카탈로그(`AttentionSignals`)는 위 3개 — public `get_attention_signals` 가 내부 `_assemble_attention` 으로 조립, 보고서 `attention_for_host` 로 소비. 중복 회피 분리 소유: capacity(under_provisioned)는 environment_overview, days_until_full 은 보고서 스토리지 컬럼.
 
@@ -126,15 +126,15 @@ right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기)의 명세 
 - partition pruning binding 통일: gap SQL의 `recent_hours`가 동적 binding (`(:recent_h * interval '1 hour')`) — service 인자와 SQL 결합을 SQL 본문 hardcode로 묵시화하지 않음 (#F3·#F9).
 - ViewModel·mapper 카탈로그: `docs/reference/web/view-models.md` "환경 개요 상단 요약" 절.
 
-## 환경 성능 추이 (live) — `metric_trend` 풀세트
+## 환경 성능 추이 (live) — `get_metric_trend` 풀세트
 
 `/environment/metrics` (환경 단위 `/environment` 그룹). 전체 환경 대상 8차트 live(시계열, 4자원 카드 CPU2·메모리2·스토리지2·네트워크2). `?ids=public_ids` 면 선택 N대 한정(목록 selection 버튼 -> navigate, 제목 "선택 N대 성능 추이"). 실시간 현황(모니터링)은 `/environment/realtime` 로 분리 — 시계열 추이와 별개 용도.
 
 | 영역 | service/repo | 비고 |
 |------|--------------|------|
-| 8차트 | `get_environment_metric_chart(server_ids=None)` -> `metric_trend(server_ids?, collapse=True)` (`EnvironmentMetricType` 9종 부분집합, 전체 `MetricType` 30종 중 — `db/repositories.md`) | live fetch `GET /api/servers/environment/metrics-chart`(`ids` 면 N대 resolve), range 토글(기본 15m). 발행/스냅샷 아님. 컨트롤(버킷/구간/앵커/적용)은 카드 밖 좌상단 단일 — 앵커는 '적용' 버튼으로 반영, 구간 select 는 즉시 |
+| 8차트 | `get_environment_metric_chart(server_ids=None)` -> `get_metric_trend(server_ids?, collapse=True)` (`EnvironmentMetricType` 9종 부분집합, 전체 `MetricType` 30종 중 — `db/repositories.md`) | live fetch `GET /api/servers/environment/metrics-chart`(`ids` 면 N대 resolve), range 토글(기본 15m). 발행/스냅샷 아님. 컨트롤(버킷/구간/앵커/적용)은 카드 밖 좌상단 단일 — 앵커는 '적용' 버튼으로 반영, 구간 select 는 즉시 |
 
-서버 상세 성능 추이(`metrics.js`, 9차트 4자원 카드 CPU2·메모리3·스토리지2·네트워크2)와 동일 함수(`metric_trend`) — 환경은 `collapse=True`(dimension 합산 단일선), 상세는 `collapse=False, server_ids=[1대]`(device/iface/mount 보존, 단 스토리지 용량 추이만 전체+마운트별 둘 다 fetch). server_ids=[1대] 는 per_ts 합산 대상이 1서버라 시점값=그 서버값 -> 환경 선택 1대 = 서버 상세 동일. `data-selection-ids` 있으면 fetch 에 `ids` 전달. 서버 상세 성능 추이(`metrics.js`)·자원별 상세 탭(`cpu.js`/`memory.js`/`storage.js`/`network.js`)·환경 성능 추이 세 스코프가 신호 카탈로그(CPU 사용률+실행 큐, 메모리 사용률+구성+압박 여부, 스토리지 처리량+용량, 네트워크 I/O+이상 여부)와 레이아웃(`.perf-grid`/`.perf-item`, 화면 2열/인쇄도 2열 portrait 1페이지, `static-assets.md` "차트 컨트롤" 절) 단일 진실 공유 — CPU 분류(User/System/I·O Wait/Nice)·CPU/메모리/디스크 PSI·디스크 IOPS·await·네트워크 PPS·TCP 재전송율·패킷 드롭율은 세 스코프 모두에서 제외됐다(이기종 장치 합산은 비교 기준선 없어 해석 불가, PSI 는 Windows 미발행이라 "환경/서버 상세 모아보기" 단위에서 오인 소지, 존재 판정성 신호는 이진/카운트로 통일이 더 이해하기 쉬움). 환경 스코프만 존재하는 추가 차이: CPU 실행 큐·메모리 페이징 압박·디스크 I/O·네트워크 이상은 "판정 crossing 서버 수"(count, `cpu.saturation_hosts`/`mem.paging_pressure_hosts`/`disk.saturation_hosts`/`net.congested_hosts`)인 반면 서버 상세(개별 탭·`metrics.js` 공통)는 서버 1대 단일 시계열이라 실행 큐는 연속값 그대로(`cpu.run_queue`), 메모리 압박·네트워크 이상은 이진 0/1(`mem.paging_pressure`/`net.congested`) — 스코프에 맞는 표현 단위만 다르고 원자료·임계·판정 로직(recommendation.mem_pressure_active/assess_network)은 동일. 스토리지는 사용률(`fs.usage_percent`, capacity-weighted sum(used)/sum(used+free)*100)로 표시 — 절대 총량(GB)은 서버마다 프로비저닝 용량이 제각각이라 위험도를 못 읽어 CPU·메모리와 같은 0~100% 척도로 통일(환경은 y축 100% 고정, 서버 상세는 마운트별 밴드 차이 흡수 위해 하단 0%만 고정하고 상단 자동). 페이지 하단은 `_reference_link.html` 푸터(내용은 `docs/reference/web/routers.md` `/reference` 행).
+서버 상세 성능 추이(`metrics.js`, 9차트 4자원 카드 CPU2·메모리3·스토리지2·네트워크2)와 동일 함수(`get_metric_trend`) — 환경은 `collapse=True`(dimension 합산 단일선), 상세는 `collapse=False, server_ids=[1대]`(device/iface/mount 보존, 단 스토리지 용량 추이만 전체+마운트별 둘 다 fetch). server_ids=[1대] 는 per_ts 합산 대상이 1서버라 시점값=그 서버값 -> 환경 선택 1대 = 서버 상세 동일. `data-selection-ids` 있으면 fetch 에 `ids` 전달. 서버 상세 성능 추이(`metrics.js`)·자원별 상세 탭(`cpu.js`/`memory.js`/`storage.js`/`network.js`)·환경 성능 추이 세 스코프가 신호 카탈로그(CPU 사용률+실행 큐, 메모리 사용률+구성+압박 여부, 스토리지 처리량+용량, 네트워크 I/O+이상 여부)와 레이아웃(`.perf-grid`/`.perf-item`, 화면 2열/인쇄도 2열 portrait 1페이지, `static-assets.md` "차트 컨트롤" 절) 단일 진실 공유 — CPU 분류(User/System/I·O Wait/Nice)·CPU/메모리/디스크 PSI·디스크 IOPS·await·네트워크 PPS·TCP 재전송율·패킷 드롭율은 세 스코프 모두에서 제외됐다(이기종 장치 합산은 비교 기준선 없어 해석 불가, PSI 는 Windows 미발행이라 "환경/서버 상세 모아보기" 단위에서 오인 소지, 존재 판정성 신호는 이진/카운트로 통일이 더 이해하기 쉬움). 환경 스코프만 존재하는 추가 차이: CPU 실행 큐·메모리 페이징 압박·디스크 I/O·네트워크 이상은 "판정 crossing 서버 수"(count, `cpu.saturation_hosts`/`mem.paging_pressure_hosts`/`disk.saturation_hosts`/`net.congested_hosts`)인 반면 서버 상세(개별 탭·`metrics.js` 공통)는 서버 1대 단일 시계열이라 실행 큐는 연속값 그대로(`cpu.run_queue`), 메모리 압박·네트워크 이상은 이진 0/1(`mem.paging_pressure`/`net.congested`) — 스코프에 맞는 표현 단위만 다르고 원자료·임계·판정 로직(right_sizing.mem_pressure_active/assess_network)은 동일. 스토리지는 사용률(`fs.usage_percent`, capacity-weighted sum(used)/sum(used+free)*100)로 표시 — 절대 총량(GB)은 서버마다 프로비저닝 용량이 제각각이라 위험도를 못 읽어 CPU·메모리와 같은 0~100% 척도로 통일(환경은 y축 100% 고정, 서버 상세는 마운트별 밴드 차이 흡수 위해 하단 0%만 고정하고 상단 자동). 페이지 하단은 `_reference_link.html` 푸터(내용은 `docs/reference/web/routers.md` `/reference` 행).
 
 ### 실시간 현황 (live) — `/environment/realtime`
 
@@ -142,4 +142,4 @@ right-sizing 분류(5분류·판정 순서·합성 규칙·OS 분기)의 명세 
 
 화면 구성과 축 선정 근거(무엇을 도넛으로 묶고 무엇을 뺐나)는 `docs/explanation/products/dashboard.md` "실시간 현황" 절 단일 진실.
 
-측정 의미론은 여기가 소유한다. 이용률 도넛은 capacity-weighted 라 단순 산술평균이 아니고 `environment_utilization` 과 같은 정의다 (CPU = sum(usage%·cores)/sum(cores), mem = sum(used)/sum(total)). 디스크 축 둘은 물리 disk 만 본다(`_PHYS_DISK_SQL_FILTER` fail-closed) — Windows `aggregate:system` 같은 합성 pseudo-device 를 섞으면 진짜 물리 device 의 카운터 이상이 그 값에 은폐된다. 둘 다 ops 델타 > 0 을 요구하는데, 연산 0건인데 io_time 만 증가하면 구세대 virtio 의 phantom busy 카운터라 미측정으로 둔다. 응답지연은 저활동 device(`RS_DISKIO_UTIL_MIN` 미만)도 미측정이다.
+측정 의미론은 여기가 소유한다. 이용률 도넛은 capacity-weighted 라 단순 산술평균이 아니고 `get_environment_utilization` 과 같은 정의다 (CPU = sum(usage%·cores)/sum(cores), mem = sum(used)/sum(total)). 디스크 축 둘은 물리 disk 만 본다(`_PHYS_DISK_SQL_FILTER` fail-closed) — Windows `aggregate:system` 같은 합성 pseudo-device 를 섞으면 진짜 물리 device 의 카운터 이상이 그 값에 은폐된다. 둘 다 ops 델타 > 0 을 요구하는데, 연산 0건인데 io_time 만 증가하면 구세대 virtio 의 phantom busy 카운터라 미측정으로 둔다. 응답지연은 저활동 device(`DISKIO_UTIL_MIN` 미만)도 미측정이다.

@@ -115,14 +115,8 @@ ZDM 패키지 contract:
 4. ZDM 좌표는 모달 일괄 입력 — N대 호스트가 서로 다른 ZDM 서버를 가리키는 시나리오 미지원. 발행 단위로 동일 ZDM IP/User 적용.
 5. stdout/stderr UTF-8 가정 — 호스트 OS locale에 따라 깨짐 가능. agent worker가 binary으로 받고 latin-1 fallback 적용.
 
-## 관련 문서·코드
+## 관련 문서
 
 - `docs/reference/contracts/agent-data.md` "J1. task.result" 절 — 메시지 schema·필드 카탈로그
 - `docs/reference/rabbitmq.md` — exchange·queue·routing key 토폴로지
-- `src/assessment_engine/web/services/task_service.py` — Task 발행
-- `src/assessment_engine/web/routers/tasks.py` — POST /api/tasks/install · GET 조회
-- `src/assessment_engine/consumer/task_policy.py` — success/failure 판정 정책 (task_policy 우선, exit_code allowlist 폴백)
-- `src/assessment_engine/worker/task_reaper.py` — 마감 경과 pending 전역 timeout 전이
-- `src/assessment_engine/consumer/handlers/` — task.result 핸들러 (9 컬럼 UPDATE)
-- `src/assessment_engine/web/static/js/pages/list-table.js` — list "ZDM Install" column polling
-- `src/assessment_engine/web/templates/base.html` — task modal (stdout/stderr 확장)
+- 구현 위치(발행 서비스·라우터·핸들러·reaper)는 `docs/reference/web/services.md`·`routers.md`·`consumer.md` 카탈로그가 갖는다

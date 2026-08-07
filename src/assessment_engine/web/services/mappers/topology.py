@@ -21,8 +21,8 @@ import ipaddress
 from collections import defaultdict
 from typing import TYPE_CHECKING, NamedTuple, cast
 
+from assessment_engine.domain.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.json_types import JsonObject, json_list
-from assessment_engine.service_classifier import SIGNATURE_CATEGORIES
 from assessment_engine.web.services.device_filters import is_virtual_interface
 from assessment_engine.web.view_models.topology import NetworkTopology, SubnetGroup, SubnetHost
 

@@ -44,13 +44,13 @@
 | 인벤토리 카드 4개 | 등록 서버(+오프라인) / 총 vCPU / 총 메모리 / 총 디스크 | inventory 합산 |
 | OS 구성 | 환경 요약(customer)·환경 현황(engineer) 카드 안 소제목 — OS family Windows/Linux 분포(0대 포함 #E9) | `os_family_dist` |
 | 서비스 구성 (별도 카드) | 시그니처 워크로드 카테고리별 뱃지. engineer 는 카테고리별 서비스명·개수까지, customer 는 카테고리+개수만. count 0 카테고리는 미노출 | `_aggregate_service_catalog` |
-| 분류 분포 | 자원 적정성 5분류 카운트 막대 (한국어 분류명 LABEL_KO, 영어 enum 미노출) | `classify_host`(호스트별) 결과 카운트 |
+| 분류 분포 | 자원 적정성 5분류 카운트 막대 (한국어 분류명 RECOMMENDATION_LABEL_KO, 영어 enum 미노출) | `classify_host`(호스트별) 결과 카운트 |
 
 ### view 분기 — customer (양식 A)
 
 목적: 컨설턴트가 고객 미팅·내부 보고에 들고 가는 한 장짜리 환경 자원 요약.
 
-- 분류 어휘 = 자원 적정성 한국어 분류명(LABEL_KO) 단일 — 요약·분포·조치 표 동일, 영어 enum·평행 어휘 없음.
+- 분류 어휘 = 자원 적정성 한국어 분류명(RECOMMENDATION_LABEL_KO) 단일 — 요약·분포·조치 표 동일, 영어 enum·평행 어휘 없음.
 - 환경 요약: 인벤토리(등록 서버·총 vCPU/메모리/디스크) + 메트릭(CPU/메모리/디스크 평균) + OS 구성(Linux/Windows, 0대 포함 #E9) metric-card 소제목 — 카드는 `.env-stat-card` 너비·높이 통일. 서비스 구성은 별도 카드. engineer 환경 현황과 동일 구조.
 - 자원 적정성 평가: 분류 분포(조치 방향) + 효율화 검토 대상(과다·유휴·종료 자원 합) + 조치 필요 호스트(자원 부족, high 만). 분모는 등록 서버 전수이고, 시계열 누적이 부족해 분류가 불가한 서버는 표본 부족 카테고리로 분포 안에서 드러난다.
 - 운영 신호: OS 지원 종료 카드만 (2축 정책, 디스크 capacity 는 자원 적정성 평가가 흡수).
@@ -60,10 +60,10 @@
 
 ### view 분기 — engineer (양식 B)
 
-목적: 운영자·엔지니어가 환경 단위 정량 패턴 분석 + 자원 적정성 근거 검증. customer 와 동일 어휘(LABEL_KO) + 정량 상세.
+목적: 운영자·엔지니어가 환경 단위 정량 패턴 분석 + 자원 적정성 근거 검증. customer 와 동일 어휘(RECOMMENDATION_LABEL_KO) + 정량 상세.
 
 - 요약: customer 와 동일 (view 무관 단일 `_env_summary_bullets`) — 등록 서버(+vCPU/메모리/디스크) / 온라인·오프라인 / 분류 분포 / 자원 부족(원인별) / OS 지원 종료.
-- 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 / OS 구성 소제목. 메트릭 = metric-card 6축 — 이용률 3(CPU·메모리 = capacity-weighted avg + p95 부기, 디스크 용량) + 포화 3(CPU 포화·메모리 압박·디스크 I/O 포화, 발화 호스트 수/표본). 대시보드 '자원 이용·포화' 도넛의 부분집합 — 절대 처리량(네트워크·디스크 I/O rate)은 기준선이 없어 건강 판단이 어려워 제외. 디스크 p95 는 시점별 capacity 합이 Windows 디바이스(major/minor) 인식 불완전으로 신뢰 불가라 의도 제외(repo `environment_utilization` SQL 주석 단일 진실). 인벤토리/메트릭/OS 카드 `.env-stat-card` 높이 통일. 에이전트 버전은 보고서 헤더 메타.
+- 환경 현황 카드: 인벤토리(등록 서버·총 vCPU/메모리/디스크) / 메트릭 / OS 구성 소제목. 메트릭 = metric-card 6축 — 이용률 3(CPU·메모리 = capacity-weighted avg + p95 부기, 디스크 용량) + 포화 3(CPU 포화·메모리 압박·디스크 I/O 포화, 발화 호스트 수/표본). 대시보드 '자원 이용·포화' 도넛의 부분집합 — 절대 처리량(네트워크·디스크 I/O rate)은 기준선이 없어 건강 판단이 어려워 제외. 디스크 p95 는 시점별 capacity 합이 Windows 디바이스(major/minor) 인식 불완전으로 신뢰 불가라 의도 제외(repo `get_environment_utilization` SQL 주석 단일 진실). 인벤토리/메트릭/OS 카드 `.env-stat-card` 높이 통일. 에이전트 버전은 보고서 헤더 메타.
 - 환경 부하 추이(시계열 CPU/메모리/디스크, 발행 윈도우 정적 스냅샷) + 네트워크 토폴로지(정적 서브넷 요약 표 — 서브넷 대역·호스트 수만, 인터랙티브 Cytoscape 그래프는 화면 토폴로지 페이지 `/environment/topology` 전용) — 한 카드 2열. 둘 다 engineer 전용.
 - 자원 적정성 평가: 분류 분포(소제목 "자원 적정성 분포") + 서버별 자원 적정성(전 서버 통합 표, `action_targets_table` — 환경 자원 평가 페이지와 칼럼 동일: 호스트·사양(CPU·메모리·디스크)·분류(근본원인 병합)·권고(`recommendation_action`, 자원별 독립 처방)·네트워크 상태·디스크 I/O 상태·신뢰도). 조치 호스트 노출은 이 한 표가 단일 진실(별도 효율화 표 없음 — customer view 만 "효율화 검토 대상"/"조치 필요 호스트" 2표로 분리).
 - 세부 서버 목록: 환경 보고서는 미표시 (전수 인쇄 폭주 회피 — 조치 대상은 효율화/자원 부족 표가 담음). 선택 N대 보고서(selection)만 표시.
@@ -83,7 +83,7 @@
 |------|------|------|
 | 등록 서버 | 등록 대수 + 총 vCPU·메모리·디스크 | 항상 |
 | 온라인·오프라인 | 온라인 N대 / 오프라인 M대 | 항상 |
-| 분류 분포 | 자원 적정성 5분류 한국어 라벨(LABEL_KO)별 카운트 (표본 부족은 0이면 생략) | 항상 |
+| 분류 분포 | 자원 적정성 5분류 한국어 라벨(RECOMMENDATION_LABEL_KO)별 카운트 (표본 부족은 0이면 생략) | 항상 |
 | 자원 부족 원인 또는 효율화 여지 | 자원 부족이 있으면 원인 축별 집계, 없고 과다·유휴가 있으면 그 합 | 자원 부족 우선, 둘 다 0이면 생략 |
 | OS 지원 종료 | 지원 종료 호스트 수 | 해당 시 |
 
@@ -106,13 +106,13 @@ OS 지원 종료 3대
 
 Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverage_gap 으로 부분 평가한다 (임계·신호원은 `docs/reference/right-sizing.md`).
 
-분류 표시 (customer·engineer 공통): 자원 적정성 한국어 분류명(LABEL_KO) 단일. 내부 risk_level(high/attention/normal)은 조치 필요 호스트 선정·강조용으로만 쓰고, 화면 라벨로 노출하지 않는다 (영어 enum·평행 어휘 금지).
+분류 표시 (customer·engineer 공통): 자원 적정성 한국어 분류명(RECOMMENDATION_LABEL_KO) 단일. 내부 risk_level(high/attention/normal)은 조치 필요 호스트 선정·강조용으로만 쓰고, 화면 라벨로 노출하지 않는다 (영어 enum·평행 어휘 금지).
 
 운영 신호 (2축 분리): 자원 적정성 평가(축1, 디스크 capacity·IO 포함)와 별개로 AttentionSignals 3종(통신 끊김·OS 지원 종료·에이전트 재시작)이 운영 신호 축. 보고서는 그중 OS 지원 종료만 카드로 표시(통신 끊김·에이전트 재시작은 윈도우 의미 불일치로 전역 카드 미표시 — 에이전트 재시작은 engineer 호스트 상세 컬럼).
 
 ### 평가 윈도우
 
-`recommendation.WINDOW_DAYS` 를 쓴다 — 화면·보고서가 분류와 한 창을 공유한다(#F10). 길이와 근거는
+화면·보고서가 분류와 한 창을 공유한다 (#F10). 길이와 근거는
 `docs/reference/right-sizing-thresholds.md` "무엇을 어떻게 평가하나" 절.
 
 ### 규칙 기반 한정
@@ -146,14 +146,11 @@ Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverag
 4. 정성 요약의 표현 한정 — 결정론 템플릿이라 운영자가 추가 컨텍스트 (예: "이 서버는 신규 도입 한 달째"·"비용 절감 우선") 를 요약에 반영 불가.
 5. 인쇄 색상 — 브라우저 인쇄 시 색 처리가 브라우저별 다름. 흑백 PDF 에서 위험도 색이 비슷해 보일 수 있음. `print` CSS 에서 별도 처리.
 
-## 관련 문서·코드
+## 관련 문서
 
 - `docs/reference/web/routers.md` — 보고서 라우터·view 분기
 - `docs/reference/web/services.md` "Recommendation 분류" — USE Method 임계값 출처
 - `docs/reference/web/static-assets.md` "report.html print CSS" — 인쇄 색 처리
 - `docs/explanation/tradeoffs.md` T13 — 보고서 = diagnostic_jobs 스냅샷 보존
-- `src/assessment_engine/recommendation.py` — 분류 임계값·`WINDOW_DAYS`
-- `src/assessment_engine/web/services/query/report.py::ReportQueryMixin.get_environment_report` — 환경 스냅샷 조립
-- `src/assessment_engine/web/services/mappers/environment_report.py` — 환경 현황 메트릭·요약 불릿·조치 대상 선정
-- `src/assessment_engine/web/templates/reports/environment.html` (본문 `reports/_env_report_body.html`) — 환경 보고서 템플릿
+- 구현 위치(조립 서비스·매퍼·템플릿)는 `docs/reference/web/services.md`·`view-models.md` 카탈로그가 갖는다
 - `docs/explanation/products/server-report.md` — 서버 단위 산출물 (cross-reference)

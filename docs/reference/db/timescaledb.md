@@ -1,6 +1,6 @@
 # TimescaleDB · 차트 SQL 패턴
 
-정책: CLAUDE.md #C1·#C4·#C5. 본 문서는 hypertable 구성·차트 SQL 패턴·report_aggregate 단일 진실.
+정책: CLAUDE.md #C1·#C4·#C5. 본 문서는 hypertable 구성·차트 SQL 패턴·get_report_aggregate 단일 진실.
 
 ## hypertable 구성
 
@@ -13,9 +13,9 @@
 
 hypertable·continuous aggregate 를 포함한 모든 스키마 변경은 Alembic revision 단일 경로다 — 절차와 `create_hypertable`·`CREATE EXTENSION` 수동 보강 의무는 `docs/guides/migrate.md`. web/consumer/worker lifespan 은 스키마를 만들지 않고 이미 적용된 것으로 가정한다.
 
-## 차트 SQL 패턴 — 단일 함수 `metric_trend`
+## 차트 SQL 패턴 — 단일 함수 `get_metric_trend`
 
-모든 차트(환경 성능 추이·선택 N대·서버 상세·대시보드 부하 추이·보고서 추이)는 단일 함수 `metric_trend`가 산출한다. `metric_chart`(서버 상세)는 `metric_trend(collapse=False, server_ids=[1대])`에 위임하는 thin wrapper. metric_type별 분기(CPU 시간 delta percent·시점값 mem/run_queue/PSI gauge·누적 카운터 rate disk/net·fs.usage_percent)는 `metric_trend` 내부 SQL 분기로 흡수.
+모든 차트(환경 성능 추이·선택 N대·서버 상세·대시보드 부하 추이·보고서 추이)는 단일 함수 `get_metric_trend`가 산출한다. `get_metric_chart`(서버 상세)는 `get_metric_trend(collapse=False, server_ids=[1대])`에 위임하는 thin wrapper. metric_type별 분기(CPU 시간 delta percent·시점값 mem/run_queue/PSI gauge·누적 카운터 rate disk/net·fs.usage_percent)는 `get_metric_trend` 내부 SQL 분기로 흡수.
 
 ### 통일 산식
 
@@ -69,11 +69,11 @@ cagg 정의에는 WHERE 절이 없어 전 device/interface 를 담는다. 물리
 `_PHYS_DISK_SQL_FILTER`/`_PHYS_IFACE_SQL_FILTER`(`query/types.py`) 상관 서브쿼리를 붙여 건다 — 필터 규약이
 바뀌어도 cagg 재생성이 필요 없다.
 
-## 보고서 집계 — `report_aggregate`
+## 보고서 집계 — `get_report_aggregate`
 
 USE Method (Brendan Gregg) 기반 N서버 x period_days 통계. CTE 구성과 산식은 `db/repositories/query/report_sql.py` 단일 진실이고, 본 절은 코드만 봐서는 안 서는 판단 근거만 담는다.
 
-- 입력은 raw hypertable 이 아니라 cagg 5종이다 — `server_metrics_5m`(CPU·mem·run_queue·blocked·steal·paging·oom·retrans·conntrack) / `server_filesystem_5m`(마운트 used%·inode%·runway) / `server_disk_io_5m`(await·iops baseline) / `server_net_io_5m`(drop·retrans 분모) / `server_cpu_core_5m`(per-core p95). `report_disk_io_baseline`·`report_net_io_baseline`·`report_memory_breakdown`·`report_cpu_breakdown` 도 같은 cagg 를 본다.
+- 입력은 raw hypertable 이 아니라 cagg 5종이다 — `server_metrics_5m`(CPU·mem·run_queue·blocked·steal·paging·oom·retrans·conntrack) / `server_filesystem_5m`(마운트 used%·inode%·runway) / `server_disk_io_5m`(await·iops baseline) / `server_net_io_5m`(drop·retrans 분모) / `server_cpu_core_5m`(per-core p95). `get_report_disk_io_baseline`·`get_report_net_io_baseline`·`get_report_memory_breakdown`·`get_report_cpu_breakdown` 도 같은 cagg 를 본다.
 - 최종 SELECT 가 `server_inventory` 를 좌변에 두고 통계 CTE 를 전부 LEFT JOIN 하는 이유는 metric 이 한 건도 없는 서버까지 행으로 돌려보내기 위해서다 — 그 행은 service 가 `insufficient_data` 로 분류한다.
 - sufficiency 분모 `period_days * 288` 은 5분 버킷이 하루 288개라는 데서 온다. 실측 버킷 수를 이 기대치로 나눈 비율이 다운사이즈 처방 이력 게이트 입력이다 (#F10).
 - `mount_span` CTE 만 하한 술어 없이 `bucket <= :end` 로 돈다 — partition pruning(#C5) 의 의식적 예외이고 근거는 `docs/explanation/tradeoffs.md` T18.

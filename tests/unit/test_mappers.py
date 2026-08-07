@@ -17,6 +17,7 @@ from assessment_engine.db.dtos.outbound import (
 from assessment_engine.web.services.mappers.attention import (
     to_gap_warning_item,
 )
+from assessment_engine.web.services.mappers.host_display import spec_display_line
 from assessment_engine.web.services.mappers.os_eol import (
     windows_legacy_version_from_build,
     windows_short_label_from_product_name,
@@ -34,9 +35,6 @@ from assessment_engine.web.services.mappers.server import (
     to_server_list_item,
     to_storage_detail,
     workload_category_counter,
-)
-from assessment_engine.web.services.mappers.shared import (
-    spec_display_line,
 )
 
 # --- 임계값·severity ------------------------------------------------------
@@ -353,7 +351,7 @@ def test_enrich_server_detail_idempotent():
     assert resp.key_listen_ports == key_ports_before
 
 
-# --- workload 합집합 (ADR 0032) — services 이름 + listen 소켓 탐지 -------------
+# --- workload 합집합 — services 이름 + listen 소켓 탐지 -------------
 
 
 def test_workload_counter_listen_only_rescues_opaque_name():

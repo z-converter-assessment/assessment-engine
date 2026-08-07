@@ -116,7 +116,7 @@ def QUERY_SEED() -> dict[str, Any]:  # noqa: N802  seed 상수처럼 쓰는 팩�
     """`InMemoryQueryRepository` 에 넣을 반환값. 호출마다 새 객체를 만든다.
 
     호스트 3대로 화면 분기를 태운다 — 온라인 linux, 오프라인, windows. 이보다 늘리면 스냅샷이
-    커지기만 하고 새로 타는 분기가 없다(분류 분기는 `report_aggregate` 시드가 가른다).
+    커지기만 하고 새로 타는 분기가 없다(분류 분기는 `get_report_aggregate` 시드가 가른다).
     """
     from tests.builders import report_row_raw
 
@@ -125,13 +125,13 @@ def QUERY_SEED() -> dict[str, Any]:  # noqa: N802  seed 상수처럼 쓰는 팩�
         "list_server_ids": [1, 2, 3],
         "resolve_server_id": 1,
         "resolve_server_ids": {public_id(n): n for n in (1, 2, 3)},
-        "list_all_server_public_ids": [public_id(n) for n in (1, 2, 3)],
+        "list_server_public_ids": [public_id(n) for n in (1, 2, 3)],
         "get_servers": details,
         "get_server": details[0],
         "list_servers": [_server_summary(n) for n in (1, 2, 3)],
         "get_network": _network(1),
         "get_storage": _storage(1),
-        "report_aggregate": [
+        "get_report_aggregate": [
             report_row_raw(server_id=1, public_id=public_id(1), hostname="host-1", cpu_p95_pct=82.0, mem_p95_pct=91.0),
             report_row_raw(server_id=2, public_id=public_id(2), hostname="host-2", cpu_p95_pct=2.0, mem_p95_pct=8.0),
             report_row_raw(server_id=3, public_id=public_id(3), hostname="host-3", os_family="windows"),

@@ -99,7 +99,7 @@ Self-audit 메타 인용 제외:
   - aio-pika: `async with message.process(requeue=False)` 컨텍스트 안에서 모든 await 완료 (#F11).
 - [1.2] 추상화는 정석 위치에만. `BaseSettings` · repository protocol · `*Service` 외 ad-hoc abstract 0건.
 - [1.3] composition root 외 위치에서 `Settings()` 인스턴스 생성 0건 (#F4 6 위치만). 검사: `rg 'Settings\(\)|WebSettings\(\)|ConsumerSettings\(\)|DiagnosticSettings\(\)' src/`.
-- [1.4] 중복 함수·중복 상수 0건. 같은 의미는 단일 모듈 (UI badge 임계 = `mappers/shared.py` / USE Method 임계 = `recommendation.py`). 두 도메인 혼용 0건 (#E3).
+- [1.4] 중복 함수·중복 상수 0건. 같은 의미는 단일 모듈. 임계 도메인 둘(UI badge / USE Method) 혼용 0건 (#E3).
 - [1.5] 죽은 코드 0건 — unused import · unreachable branch · 호출처 없는 public 함수. `ruff` · IDE inspection 통과.
 - [1.6] 명명 · 매직 넘버. 약식 접미사(`_data` · `_temp` · `_v2` · `_new` · `_old` · `_fix`) 0건. 임계·시간·크기·HTTP status 는 명명 상수 또는 enum(`Literal` · `IntEnum`). 단 0/1/-1 · `LIMIT 1` 같은 자명한 경우 예외.
 
@@ -117,7 +117,7 @@ Self-audit 메타 인용 제외:
 | F6 실패 | `rg 'except Exception' src/` · timeout 인자 없는 외부 호출 · 영구 오류 재시도 |
 | F7 로깅 | `rg '\bprint\(|sys\.stdout\.write|^import logging' src/` · except 밖 `logger.exception()` · payload 로깅 |
 | F8 시크릿 | 신규 비밀 필드의 `SecretStr` · 응답·캐시·로그·예외의 PII |
-| F10 F11 | 평가 윈도우가 `recommendation.WINDOW_DAYS` 단일 참조 · 새 TimeRange 는 4곳 동시 갱신 · `rg 'signal\.signal|os\._exit' src/` |
+| F10 F11 | 평가 윈도우가 `right_sizing.WINDOW_DAYS` 단일 참조 · 새 TimeRange 는 4곳 동시 갱신 · `rg 'signal\.signal|os\._exit' src/` |
 | B C5 E1 | `rg 'extra="(forbid|allow)"' src/` · hypertable 조회의 `collected_at` 술어 · 템플릿 계산(`+`·`*`·`length`·`sort`·`selectattr`) · 차트 JS 5 의무 규약 |
 
 주석 (1):
@@ -158,7 +158,7 @@ Self-audit 메타 인용 제외:
 - [2.1] 추가한 모든 public 함수·메서드에 단위 또는 통합 테스트 존재. private(`_prefix`)은 public 경유 간접 검증. 자가 판단 대신 `make test-cov` 로 해당 파일 미커버 줄을 본다.
 - [2.2] 추가·변경한 모든 라우터에 통합 테스트 — happy path + 핵심 분기(422 형식 · 404 미존재 · trigger 별 분기). 화면 응답은 `tests/http/` 스냅샷이 함께 고정한다.
 - [2.3] 변경한 기존 함수·핸들러의 기존 테스트가 여전히 의미를 갖는가 — signature·동작 변경 반영. 통과만 시키는 mock 보강 0건.
-- [2.4] 변경·추가한 임계 상수(`mappers/shared.py` · `recommendation.py` · `_USAGE_DANGER_PCT` 등) 테스트 하드코딩 0건 — 모두 import.
+- [2.4] 변경·추가한 임계 상수(#E3 두 도메인) 테스트 하드코딩 0건 — 모두 import.
 - [2.5] 삭제한 public 함수·라우터의 deprecated 테스트 0건. Alembic revision 추가 시 라운드트립 검증은 `docs/guides/migrate.md` "신규 마이그레이션 작성 워크플로우" 4단계 수행.
 
 정석 (5):

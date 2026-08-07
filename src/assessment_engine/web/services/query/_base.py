@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from redis.asyncio import Redis
 
     from assessment_engine.db.dtos.outbound import NetIoBaselineRaw, ReportRowRaw, ServerDetail
-    from assessment_engine.db.repositories.query.repository import QueryRepository
+    from assessment_engine.db.repositories.query import QueryRepository
 
 
 def _net_baseline_fields(net: NetIoBaselineRaw | None) -> dict[str, float | None]:
@@ -60,7 +60,7 @@ class _BaseQueryServiceMixin:
     async def _with_net_baseline(
         self, raws: list[ReportRowRaw], server_ids: list[int], period_days: float, end: datetime
     ) -> list[ReportRowRaw]:
-        """raws(report_aggregate)에 net I/O baseline 을 얹은 새 list.
+        """raws(get_report_aggregate)에 net I/O baseline 을 얹은 새 list.
 
         `assemble_overview`·under_hosts 분류가 `build_resource_stats`(net 반영)를 타려면 raw 에 net
         baseline 이 채워져 있어야 한다. 미주입(net None) 시 유휴 판정이 구조적으로 빠져
@@ -70,7 +70,7 @@ class _BaseQueryServiceMixin:
         net 이 통째로 빠진 채 조용히 진행된다.
         """
         # period_days 는 15m 창(=0.0104일)까지 내려가는 float 이고 repo 는 timedelta(days=)로 그대로 받는다.
-        net_io = await self.repo.report_net_io_baseline(
+        net_io = await self.repo.get_report_net_io_baseline(
             server_ids,
             period_days,
             end,

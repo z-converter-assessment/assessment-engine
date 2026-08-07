@@ -25,7 +25,7 @@
   <td class="text-label">{{ s.os_display }}</td>
   {# OS 지원 단계 — 일관 텍스트, 종료·무상종료(빨강)/보안패치만(amber)/미상(보라)만 강조. 미매칭은 '지원 중' 단정 대신 '미상'. #}
   <td data-sort="{{ s.os_eol_sort }}">
-    {# 라벨·색·툴팁·정렬 가중치는 mappers.shared.os_eol_display 단일 진실 (P2·P3). #}
+    {# 라벨·색·툴팁·정렬 가중치는 mappers.os_eol.os_eol_display 단일 진실 (P2·P3). #}
     <span class="{{ s.os_eol_css }} text-sm" style="font-weight:600;" title="{{ s.os_eol_title }}">{{ s.os_eol_label }}</span>
   </td>
   <td>

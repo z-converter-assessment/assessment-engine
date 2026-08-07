@@ -18,11 +18,11 @@ from typing import Any
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from assessment_engine.json_types import JsonObject
-from assessment_engine.service_classifier import (
+from assessment_engine.domain.service_classifier import (
     SERVICE_CATALOG,
     compute_service_categories,
 )
+from assessment_engine.json_types import JsonObject
 from assessment_engine.web.services.mappers.server import workload_category_counter
 from tests.hypothesis_scale import examples
 

@@ -5,7 +5,7 @@
 런타임 호출은 그 대가로 외부 서비스의 장애와 스키마 변경을 우리 가용성 안으로 들인다.
 갱신은 이 스크립트를 다시 돌려 카탈로그를 재커밋하는 것이다.
 
-갱신 절차는 `docs/guides/local-dev.md`, 매칭 규약은 `mappers/shared.py` 의 `_eol_info` 가 갖는다.
+갱신 절차는 `docs/guides/local-dev.md`, 매칭 규약은 `mappers/os_eol.py` 의 `_eol_info` 가 갖는다.
 
 사용: make eol
 """
@@ -18,7 +18,7 @@ from pathlib import Path
 from loguru import logger
 
 # endoflife.date 가 제공하는 전체 product 중 운영 환경에 등장 가능한 distro 만 싣는다.
-# 여기 slug 는 agent 가 보내는 os_id 와 대체로 같고, 어긋나는 것만 shared._OS_ID_TO_EOL_PRODUCT 가 매핑한다.
+# 여기 slug 는 agent 가 보내는 os_id 와 대체로 같고, 어긋나는 것만 os_eol._OS_ID_TO_EOL_PRODUCT 가 매핑한다.
 _LINUX_PRODUCTS = [
     "debian",
     "ubuntu",

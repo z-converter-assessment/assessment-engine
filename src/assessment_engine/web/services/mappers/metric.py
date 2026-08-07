@@ -1,7 +1,7 @@
 """메트릭 표시 mapper — CollectionStatus / MetricSeries → ViewModel (P2).
 
 메트릭 대시보드 본체 (Cpu/Mem/Swap/DiskIo/NetIo/MountDash snapshot) 합성은
-`web/services/mappers/metrics_calculator.py` 책임이라 본 모듈 범위 밖.
+`web/services/mappers/metric_dashboard.py` 책임이라 본 모듈 범위 밖.
 """
 
 from typing import TYPE_CHECKING

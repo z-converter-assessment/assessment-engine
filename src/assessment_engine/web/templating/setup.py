@@ -14,7 +14,7 @@ from fastapi.templating import Jinja2Templates
 from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
 )
-from assessment_engine.web.services.mappers.shared import (
+from assessment_engine.web.services.mappers.constants import (
     _USAGE_DANGER_PCT,
     _USAGE_WARN_PCT,
     DIAGNOSTIC_RANGE_LABEL_KR,
@@ -65,7 +65,7 @@ def _engine_version() -> str:
 ENGINE_VERSION: str = _engine_version()
 env_globals["engine_version"] = ENGINE_VERSION
 
-# 스케줄러 자동 발행 기본 기간 라벨 — F10 단일 진실 (recommendation.WINDOW_DAYS 와 정합).
+# 스케줄러 자동 발행 기본 기간 라벨 — F10 단일 진실 (right_sizing.WINDOW_DAYS 와 정합).
 # 진단 카드 자동 발행 안내 문구에서 노출 — 상수 변경 시 라벨도 자동 갱신.
 env_globals["diagnostic_default_range_label"] = DIAGNOSTIC_RANGE_LABEL_KR.get(
     DIAGNOSTIC_DEFAULT_TIME_RANGE,

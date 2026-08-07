@@ -3,7 +3,7 @@
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from assessment_engine import recommendation
+from assessment_engine.domain import right_sizing
 from assessment_engine.web.services.mappers.attention import (
     to_agent_unstable_item,
     to_gap_warning_item,
@@ -15,7 +15,7 @@ from assessment_engine.web.view_models.attention import AttentionRow, AttentionS
 
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import MetricGapWarningRaw, ReportRowRaw
-    from assessment_engine.db.repositories.query.repository import QueryRepository
+    from assessment_engine.db.repositories.query import QueryRepository
 
 # 운영신호(attention) 카탈로그 항목 한도 + gap 윈도우 — 단건 get_attention_signals 와 대시보드 묶음 공유.
 _ATTENTION_LIMIT_EACH = 5
@@ -30,7 +30,7 @@ def _assemble_attention(
     now: datetime,
     limit_each: int | None,
 ) -> AttentionSignals:
-    """gap/os_eol/agent_unstable 3 카탈로그 조립 — raws_period(report_aggregate) 재사용.
+    """gap/os_eol/agent_unstable 3 카탈로그 조립 — raws_period(get_report_aggregate) 재사용.
 
     agent_unstable: 1h 윈도우 재시작 임계 초과(server_inventory_history agent_started_at DISTINCT-1).
     """
@@ -73,7 +73,7 @@ async def attention_signals(
     디스크(capacity·IO)는 USE Method classify 통합 — 본 catalog 에서 제외 (중복 회피).
     조립은 _assemble_attention 단일 진실. 실시간 현황 페이지·보고서가 본 메서드 공유.
 
-    raws 재사용(B2): 보고서 경로가 이미 산출한 report_aggregate raws 를 넘기면 내부 재조회를 생략한다.
+    raws 재사용(B2): 보고서 경로가 이미 산출한 get_report_aggregate raws 를 넘기면 내부 재조회를 생략한다.
     os_eol(os_id/version/kernel)·agent_unstable(public_id/hostname)만 읽어 창 독립이므로 어느 윈도우
     raws 든 정합 — 넘기면 환경 보고서의 aggregate 2회가 1회로. 미전달(None)이면 14일 창 자체 조회.
     """
@@ -82,11 +82,11 @@ async def attention_signals(
     ref = end if end is not None else datetime.now(UTC)
     # limit_each=None 이면 gap 도 전수(LIMIT NULL) — 운영신호 카드 3 카탈로그 모두 전수 출력.
     # 보고서는 gap 미표시(C1)라 전수여도 결과만 버려질 뿐(소량, 무해).
-    gap_raws = await repo.metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
+    gap_raws = await repo.get_metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
     if raws is None:
         server_ids = await repo.list_server_ids()
         raws = (
-            await repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=ref)
+            await repo.get_report_aggregate(server_ids, period_days=right_sizing.WINDOW_DAYS, end=ref)
             if server_ids
             else []
         )
@@ -94,7 +94,7 @@ async def attention_signals(
         server_ids = [r.server_id for r in raws]
     restart_counts: dict[int, int] = {}
     if server_ids:
-        restart_counts = await repo.agent_restart_counts_recent(server_ids, ref - timedelta(hours=1))
+        restart_counts = await repo.get_agent_restart_counts_recent(server_ids, ref - timedelta(hours=1))
     return _assemble_attention(raws, gap_raws, restart_counts, ref, limit_each)
 
 

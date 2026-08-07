@@ -3,7 +3,6 @@ from typing import TYPE_CHECKING, Any, cast
 from sqlalchemy import CursorResult, Row, Table, UniqueConstraint, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from assessment_engine.boot_time import boot_time_changed
 from assessment_engine.db.models.server_cpu_core import ServerCpuCore
 from assessment_engine.db.models.server_disk_error import ServerDiskError
 from assessment_engine.db.models.server_disk_io import ServerDiskIo
@@ -15,6 +14,7 @@ from assessment_engine.db.models.server_net_io import ServerNetIo
 from assessment_engine.db.models.server_pressure import ServerPressure
 from assessment_engine.db.models.task import Task
 from assessment_engine.db.repositories.collect import MetricInsertResult
+from assessment_engine.domain.boot_time import boot_time_changed
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence

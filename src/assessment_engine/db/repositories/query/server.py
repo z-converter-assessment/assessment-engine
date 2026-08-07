@@ -24,7 +24,7 @@ class ServerQueryRepository(Protocol):
         """N개 server_id → ServerDetail 단일 SQL. 순서는 DB 임의 — caller 정렬 책임."""
         ...
 
-    async def list_all_server_public_ids(self) -> list[str]:
+    async def list_server_public_ids(self) -> list[str]:
         """전체 등록 서버 public_id (UUID) — 환경 단위 보고서 URL 합성에 사용. order: id ASC."""
         ...
 
@@ -42,6 +42,6 @@ class ServerQueryRepository(Protocol):
         """등록 서버 정수 PK 모음 — ID만 필요한 batch 호출용 (risk_top 등). disks JSONB 같은 큰 컬럼 미포함 (T8)."""
         ...
 
-    async def latest_metric_at(self) -> datetime | None:
+    async def get_latest_metric_at(self) -> datetime | None:
         """fleet 전체 최신 메트릭 수집 시각 — 상단 바 데이터 최신성(메트릭 collected_at 기준)."""
         ...

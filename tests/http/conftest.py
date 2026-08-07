@@ -28,7 +28,7 @@ from httpx import ASGITransport, AsyncClient
 
 from assessment_engine.web.deps import get_diagnostic_service, get_service
 from assessment_engine.web.main import app
-from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.services.query import QueryService
 from tests.fakes import FakeRedis, InMemoryQueryRepository
 from tests.http.seed import QUERY_SEED, normalize
 

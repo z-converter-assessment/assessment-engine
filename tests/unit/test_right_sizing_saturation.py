@@ -6,18 +6,18 @@ OS별 raw 신호를 통일 축으로 정규화하는 3 helper 의 판정·미관
 
 from typing import TYPE_CHECKING, Any
 
-from assessment_engine.recommendation import (
+from assessment_engine.domain.right_sizing import (
+    CONNTRACK_SATURATION_RATIO,
     CPU_RUN_QUEUE_PER_CORE_SATURATION,
+    DISK_HEADROOM_TARGET_PCT,
     DISK_QUEUE_PER_DISK_SATURATION,
+    DISK_RUNWAY_DAYS,
+    DISK_STATIC_GUARD_PCT,
+    DISKIO_AWAIT_MS,
+    NET_DROP_PCT,
+    NET_MIN_TRAFFIC_KBPS,
+    NET_RETRANS_PCT,
     PROCS_RUNNING_PER_CORE_SATURATION,
-    RS_CONNTRACK_SATURATION_RATIO,
-    RS_DISK_HEADROOM_TARGET_PCT,
-    RS_DISK_RUNWAY_DAYS,
-    RS_DISK_STATIC_GUARD_PCT,
-    RS_DISKIO_AWAIT_MS,
-    RS_NET_DROP_PCT,
-    RS_NET_MIN_TRAFFIC_KBPS,
-    RS_NET_RETRANS_PCT,
     WIN_PAGES_INPUT_SATURATION,
     ConfidenceNote,
     HostAssessment,
@@ -76,7 +76,7 @@ def _win(**overrides: Any) -> ResourceStats:
 def test_mem_saturated_linux_uses_page_out_not_static_swap():
     # Linux 메모리 포화 = active page-out(mem_swap_paging). 정적 스왑 점유는 아예 입력이 아니다 —
     # swappiness 가 여유 RAM 에서도 유휴 페이지를 스왑아웃하므로 점유는 압박을 뜻하지 않는다.
-    # Gate0 dual-gate: 이용률 p95 >= RS_MEM_UNDER_PCT(90) AND 페이징일 때만 포화.
+    # Gate0 dual-gate: 이용률 p95 >= MEM_UNDER_PCT(90) AND 페이징일 때만 포화.
     assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=False)) is False
     assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=True)) is True
 
@@ -112,10 +112,10 @@ def test_cpu_saturated_os_aware():
 
 
 def test_disk_io_saturated_os_aware():
-    assert disk_io_saturated(_stats(disk_await_p95_ms=RS_DISKIO_AWAIT_MS + 1)) is True
+    assert disk_io_saturated(_stats(disk_await_p95_ms=DISKIO_AWAIT_MS + 1)) is True
     assert disk_io_saturated(_stats(disk_await_p95_ms=None)) is None
     # Windows await 있으면 await 우선
-    assert disk_io_saturated(_win(disk_await_p95_ms=RS_DISKIO_AWAIT_MS + 1)) is True
+    assert disk_io_saturated(_win(disk_await_p95_ms=DISKIO_AWAIT_MS + 1)) is True
     # Windows await 미배선 -> 큐 깊이 폴백
     assert disk_io_saturated(_win(disk_queue_p95=DISK_QUEUE_PER_DISK_SATURATION)) is True
     assert disk_io_saturated(_win(disk_queue_p95=1.0)) is False
@@ -141,11 +141,11 @@ def test_cpu_saturation_index_os_aware():
 
 
 def test_disk_io_saturation_index_await_priority_queue_fallback():
-    # await 우선(양 OS 통일) — await/RS_DISKIO_AWAIT_MS. 임계값이면 지수 1.0.
-    assert disk_io_saturation_index(RS_DISKIO_AWAIT_MS, None, "linux") == 1.0
-    assert disk_io_saturation_index(40.0, None, "linux") == 40.0 / RS_DISKIO_AWAIT_MS
+    # await 우선(양 OS 통일) — await/DISKIO_AWAIT_MS. 임계값이면 지수 1.0.
+    assert disk_io_saturation_index(DISKIO_AWAIT_MS, None, "linux") == 1.0
+    assert disk_io_saturation_index(40.0, None, "linux") == 40.0 / DISKIO_AWAIT_MS
     # await 있으면 Windows 라도 await 우선(큐 무시).
-    assert disk_io_saturation_index(40.0, 100.0, "windows") == 40.0 / RS_DISKIO_AWAIT_MS
+    assert disk_io_saturation_index(40.0, 100.0, "windows") == 40.0 / DISKIO_AWAIT_MS
     # await None + Windows -> 큐 깊이 폴백 / DISK_QUEUE_PER_DISK_SATURATION.
     assert disk_io_saturation_index(None, DISK_QUEUE_PER_DISK_SATURATION, "windows") == 1.0
     assert disk_io_saturation_index(None, 4.0, "windows") == 4.0 / DISK_QUEUE_PER_DISK_SATURATION
@@ -161,14 +161,14 @@ def test_disk_io_saturation_index_await_priority_queue_fallback():
 def test_net_signal_active_low_traffic_gate():
     """실시간 네트워크 혼잡 신호(4-1) — assess_network 와 동일 임계·저트래픽 게이트.
 
-    retrans/drop 은 트래픽 < RS_NET_MIN_TRAFFIC_KBPS 면 억제(저트래픽 소수 이벤트 지배 방지),
+    retrans/drop 은 트래픽 < NET_MIN_TRAFFIC_KBPS 면 억제(저트래픽 소수 이벤트 지배 방지),
     conntrack 은 트래픽 무관 절대 신호라 게이트 제외.
     """
-    hi = RS_NET_MIN_TRAFFIC_KBPS + 1.0
-    lo = RS_NET_MIN_TRAFFIC_KBPS - 1.0
-    over_retrans = RS_NET_RETRANS_PCT + 1.0
-    over_drop = RS_NET_DROP_PCT + 0.5
-    over_ct = RS_CONNTRACK_SATURATION_RATIO + 0.05
+    hi = NET_MIN_TRAFFIC_KBPS + 1.0
+    lo = NET_MIN_TRAFFIC_KBPS - 1.0
+    over_retrans = NET_RETRANS_PCT + 1.0
+    over_drop = NET_DROP_PCT + 0.5
+    over_ct = CONNTRACK_SATURATION_RATIO + 0.05
     # 트래픽 충분 + retrans/drop 초과 -> 발화
     assert net_signal_active(over_retrans, None, None, hi) is True
     assert net_signal_active(None, over_drop, None, hi) is True
@@ -292,7 +292,7 @@ def test_assess_mount_capacity_none_when_total_unknown():
 
 def test_assess_mount_capacity_byte_filling_exact_target():
     # 소진 임박(runway < 30) + 목표 있음 -> increase, exact, rec=max(current, ceil(target/GiB)).
-    ms = assess_mount_capacity(100 * _GIB, 200 * _GIB, RS_DISK_RUNWAY_DAYS - 1, None, None, None)
+    ms = assess_mount_capacity(100 * _GIB, 200 * _GIB, DISK_RUNWAY_DAYS - 1, None, None, None)
     assert isinstance(ms, MountSizing)
     assert ms.current_gib == 100
     assert ms.recommended_gib == 200
@@ -303,19 +303,19 @@ def test_assess_mount_capacity_byte_filling_exact_target():
 
 def test_assess_mount_capacity_byte_filling_floor_when_no_target():
     # 소진 임박인데 목표 산출 불가 -> floor: max(current, ceil(current / (headroom%/100))).
-    ms = assess_mount_capacity(100 * _GIB, None, RS_DISK_RUNWAY_DAYS - 1, None, None, None)
+    ms = assess_mount_capacity(100 * _GIB, None, DISK_RUNWAY_DAYS - 1, None, None, None)
     assert ms is not None
     assert ms.action == "increase"
     assert ms.estimate_quality == "floor"
     import math
 
-    assert ms.recommended_gib == max(100, math.ceil(100 / (RS_DISK_HEADROOM_TARGET_PCT / 100)))
+    assert ms.recommended_gib == max(100, math.ceil(100 / (DISK_HEADROOM_TARGET_PCT / 100)))
     assert ms.recommended_gib == 143
 
 
 def test_assess_mount_capacity_static_guard_byte_filling():
     # runway None + used_pct >= 정적 가드(85) -> byte_filling. 목표 있으면 increase exact.
-    ms = assess_mount_capacity(100 * _GIB, 150 * _GIB, None, RS_DISK_STATIC_GUARD_PCT, None, None)
+    ms = assess_mount_capacity(100 * _GIB, 150 * _GIB, None, DISK_STATIC_GUARD_PCT, None, None)
     assert ms is not None
     assert ms.action == "increase"
     assert ms.estimate_quality == "exact"
@@ -324,7 +324,7 @@ def test_assess_mount_capacity_static_guard_byte_filling():
 
 def test_assess_mount_capacity_inode_filling_keeps_with_note():
     # inode 소진(byte 미충족) -> keep + advisory note(용량 확장으로 안 풀림). recommended == current.
-    ms = assess_mount_capacity(100 * _GIB, 200 * _GIB, None, 50.0, RS_DISK_RUNWAY_DAYS - 1, None)
+    ms = assess_mount_capacity(100 * _GIB, 200 * _GIB, None, 50.0, DISK_RUNWAY_DAYS - 1, None)
     assert ms is not None
     assert ms.action == "keep"
     assert ms.estimate_quality == "exact"

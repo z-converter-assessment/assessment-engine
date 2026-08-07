@@ -200,7 +200,7 @@ async function loadNetChart() {
   }
 }
 
-/* -- 네트워크 이상 여부 추이 (이진 0/1 스텝 — recommendation.assess_network 의 network_congested 와 동일 판정) --
+/* -- 네트워크 이상 여부 추이 (이진 0/1 스텝 — right_sizing.assess_network 의 network_congested 와 동일 판정) --
  * 재전송율(>1%)·드롭율(>0.5%, 둘 다 저트래픽 게이트)·conntrack 고갈(>=0.8, 게이트 없음) OR 판정을 버킷별
  * bool_or 로 0/1 통일. backend net.congested(서버 상세 단일 시계열, 환경 net.congested_hosts 와 동일
  * 원자료·임계). TCP 재전송율·패킷 드롭율 2개 % 라인이 시각적으로 거의 겹쳐 구분 안 되던 문제도 해결.

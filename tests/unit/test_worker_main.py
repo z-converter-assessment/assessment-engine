@@ -40,7 +40,7 @@ def wired(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     async def close() -> None:
         order.append("redis closed")
 
-    monkeypatch.setattr(worker_main, "run_report_worker", report_loop)
+    monkeypatch.setattr(worker_main, "run_report_loop", report_loop)
     monkeypatch.setattr(worker_main, "run_task_reaper", reaper_loop)
     monkeypatch.setattr(worker_main, "dispose_engine", dispose)
     monkeypatch.setattr(worker_main, "close_pool", close)
@@ -69,7 +69,7 @@ async def test_child_failure_still_closes_resources_then_propagates(monkeypatch:
         await asyncio.sleep(0)
         raise RuntimeError("report loop died")
 
-    monkeypatch.setattr(worker_main, "run_report_worker", dying_loop)
+    monkeypatch.setattr(worker_main, "run_report_loop", dying_loop)
 
     with pytest.raises(RuntimeError, match="report loop died"):
         await worker_main.main()

@@ -1,4 +1,4 @@
-"""report_generator — parent job -> 보고서 생성 디스패치 (비동기 워커·발행 공유 단일 진실).
+"""report/generator — parent job -> 보고서 생성 디스패치 (비동기 워커·발행 공유 단일 진실).
 
 scope/ids 분기, N대 child fan-out, 생성 불가(ReportGenerationError), 부분 실패 예외 전파를 검증.
 env_report_to_dict(실제 ViewModel 직렬화)는 디스패치 테스트 범위 밖이라 stub 으로 우회.
@@ -10,13 +10,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from assessment_engine.web.services import report_generator
-from assessment_engine.web.services.query_service import QueryService
-from assessment_engine.web.services.report_generator import (
+from assessment_engine.web.services.query import QueryService
+from assessment_engine.web.services.report import (
+    REPORT_KIND_ENV,
     ReportGenerationError,
     build_report_result_for_job,
+    generator,
 )
-from assessment_engine.web.services.report_result import REPORT_KIND_ENV
 from tests.builders import report_row_raw, server_detail
 from tests.fakes import FakeRedis, InMemoryQueryRepository
 
@@ -43,7 +43,7 @@ def _stub_serializer(monkeypatch: pytest.MonkeyPatch):
     def _stub(vm: object) -> JsonObject:
         return {"vm": "snap"}
 
-    monkeypatch.setattr(report_generator, "env_report_to_dict", _stub)
+    monkeypatch.setattr(generator, "env_report_to_dict", _stub)
 
 
 async def test_environment_scope_generates_result():
@@ -158,7 +158,7 @@ async def test_build_child_prefetched_reports_matches_per_server():
     메서드를 부르는가" 를 고정해 버려서, 그 배치를 바꾸는 리팩토링이 동작을 보존해도 깨진다.
     """
     service = _service_with(
-        report_aggregate=[
+        get_report_aggregate=[
             report_row_raw(server_id=1, public_id="pa", hostname="host-a"),
             report_row_raw(server_id=2, public_id="pb", hostname="host-b"),
         ],
@@ -179,7 +179,7 @@ async def test_build_child_prefetched_reports_matches_per_server():
 async def test_build_child_prefetched_reports_missing_server_yields_none():
     """sid_map 에 없는 public_id 는 (pid, None) — 미존재 서버 skip."""
     service = _service_with(
-        report_aggregate=[report_row_raw(server_id=1, public_id="pa", hostname="host-a")],
+        get_report_aggregate=[report_row_raw(server_id=1, public_id="pa", hostname="host-a")],
         get_servers=[_seed_detail(1, "host-a")],
         resolve_server_ids={"pa": 1},
     )
@@ -209,7 +209,7 @@ async def test_report_trend_uses_valid_metric_types():
         return []
 
     repo = MagicMock()
-    repo.metric_trend = _mt
+    repo.get_metric_trend = _mt
     svc = QueryService(repo, MagicMock())
     await svc._build_report_trend("24h", datetime(2026, 1, 1, tzinfo=UTC), [1])
 

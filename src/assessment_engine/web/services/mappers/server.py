@@ -7,18 +7,18 @@
 from collections import Counter
 from typing import TYPE_CHECKING, Literal
 
-from assessment_engine import recommendation
-from assessment_engine.json_types import JsonObject, json_list, json_str_list
-from assessment_engine.service_classifier import (
+from assessment_engine.domain import right_sizing
+from assessment_engine.domain.service_classifier import (
     SIGNATURE_CATEGORIES,
     SINGLE_INSTANCE_CATEGORIES,
     MatchedPort,
-    classify,
+    classify_service,
     detect_listen_categories,
     is_baseline_service,
     is_baseline_socket,
     matched_ports,
 )
+from assessment_engine.json_types import JsonObject, json_list, json_str_list
 from assessment_engine.web.services.device_filters import (
     disk_total_bytes,
     is_data_volume,
@@ -27,7 +27,9 @@ from assessment_engine.web.services.device_filters import (
     is_virtual_interface,
     swap_total_bytes,
 )
-from assessment_engine.web.services.mappers.metrics_calculator import compute_net_io
+from assessment_engine.web.services.mappers.constants import _USAGE_DANGER_PCT, _USAGE_WARN_PCT
+from assessment_engine.web.services.mappers.host_display import spec_display_line
+from assessment_engine.web.services.mappers.metric_dashboard import compute_net_io
 from assessment_engine.web.services.mappers.os_eol import (
     lookup_os_eol,
     os_eol_display,
@@ -36,11 +38,6 @@ from assessment_engine.web.services.mappers.os_eol import (
     windows_short_label_from_product_name,
 )
 from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
-from assessment_engine.web.services.mappers.shared import (
-    _USAGE_DANGER_PCT,
-    _USAGE_WARN_PCT,
-    spec_display_line,
-)
 from assessment_engine.web.services.unit_converter import bytes_to_gb, bytes_to_gib, usage_pct
 from assessment_engine.web.templating.filters import storagesize  # 사이즈 라벨 단일 규약 (트리·페이지 통일)
 from assessment_engine.web.view_models.environment_report import (
@@ -226,7 +223,7 @@ def _to_service_item(s: JsonObject, listen_ports: list[JsonObject] | None = None
     return ServiceItem(
         unit=unit,
         sub=s.get("sub", ""),
-        category=classify(unit, listen_ports, s.get("pid")),
+        category=classify_service(unit, listen_ports, s.get("pid")),
         ports=matched_ports(unit, listen_ports, s.get("pid")) if listen_ports else [],
         display_name=unit.removesuffix(".service"),
     )
@@ -327,7 +324,7 @@ def to_server_list_item(
 ) -> ServerListItem:
     """ServerSummary -> ServerListItem. raw_period(ReportRowRaw)가 있으면 권장 조치 분류 채움.
 
-    분류 라벨은 recommendation.LABEL_KO, provisioning_class 는 Recommendation enum 값 그대로 (P2 단일 진실).
+    분류 라벨은 right_sizing.RECOMMENDATION_LABEL_KO, provisioning_class 는 Recommendation enum 값 그대로 (P2 단일 진실).
     raw_period=None이면 미분류 — 빈 문자열 (페이지 2+ 등 raws_period 부재).
     today 주어지면 OS 지원 단계 판정(lookup_os_eol) — 카탈로그 매칭 여부로 판정 결과와 "미상(판정 불가)" 분리.
     카탈로그 미수록(oracle 외 tencent 등)·미매칭을 "지원 중"으로 단정하지 않는다.
@@ -345,7 +342,7 @@ def to_server_list_item(
     storage_total_gb = round(_disk_gb, 1) if _disk_gb is not None else None
 
     _mem_gib = bytes_to_gib(dto.mem_total_bytes)  # 1자리 반올림 — ServerListItem.mem_total_gb 용
-    # 정적 사양 한 줄 — spec_display_line 단일 진실(shared.py, 환경 자원 평가 compact 표와 공유).
+    # 정적 사양 한 줄 — spec_display_line 단일 진실(host_display.py, 환경 자원 평가 compact 표와 공유).
     spec_display = spec_display_line(dto.cpu_cores, dto.mem_total_bytes, dto.block_devices)
 
     # 서비스 뱃지 — 시그니처 워크로드만(SIGNATURE_CATEGORIES, 환경 개요 도넛과 동일 기준). file·mail·infra·remote
@@ -364,12 +361,12 @@ def to_server_list_item(
         # rollup_host 1회 산출 -> 분류 배지(classify_host 내부도 rollup_host 경유). 네트워크 혼잡(orthogonal,
         # host_status 미구동)은 목록 배지에서 뺀다 — 분류 칼럼에 붙어 분류의 일부처럼 보이나 실은 별개 트리거
         # (재전송·드롭 임계)라 화면만으로 근거를 확인할 수 없었다. 필요 시 서버 상세에서 확인.
-        host = recommendation.rollup_host(build_resource_stats(raw_period, disk_baseline=None))
-        rec = recommendation.host_status_to_recommendation(host.host_status)
+        host = right_sizing.rollup_host(build_resource_stats(raw_period, disk_baseline=None))
+        rec = right_sizing.host_status_to_recommendation(host.host_status)
         seg_key = rec
-        # 라벨은 한국어 분류명(recommendation.LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시. 색은 목록이
+        # 라벨은 한국어 분류명(right_sizing.RECOMMENDATION_LABEL_KO 단일 진실) — 서버목록 칼럼 한글 표시. 색은 목록이
         # provisioning_class 기반 under-only 강조(#E, _server_rows.html)라 분류색 미사용(다색 배지는 상세/보고서).
-        rec_label = recommendation.LABEL_KO[seg_key]
+        rec_label = right_sizing.RECOMMENDATION_LABEL_KO[seg_key]
 
     return ServerListItem(
         id=dto.id,
@@ -830,7 +827,7 @@ def enrich_server_detail(detail: ServerDetailResponse) -> ServerDetailResponse:
             ServiceItem(unit=rep.unit, sub=rep.sub, category=category, ports=ports, display_name=rep.display_name)
         )
 
-    # listen-only 워크로드 보충 (ADR 0032 union) — services 이름이 못 잡았지만 listen 소켓이
+    # listen-only 워크로드 보충 (union) — services 이름이 못 잡았지만 listen 소켓이
     # 증거하는 카테고리를 합성 뱃지로 추가. opaque 한 Windows SCM 이름을 1433/sqlservr 같은
     # 깨끗한 listen 신호로 구제. unit/display_name 없음 (특정 service 에 귀속 불가, T15).
     known_categories = {s.category for s in known}
@@ -885,7 +882,7 @@ def workload_category_counter(
     services: list[JsonObject] | None,
     listen_ports: list[JsonObject] | None = None,
 ) -> Counter[str]:
-    """호스트 워크로드 카테고리 카운터 — services 이름 분류와 listen 소켓 탐지의 합집합 (ADR 0032).
+    """호스트 워크로드 카테고리 카운터 — services 이름 분류와 listen 소켓 탐지의 합집합.
 
     services 이름 분류는 인스턴스 카운트(서버목록 뱃지와 일관). 단 런타임 스택(container)은
     구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → container 1).
@@ -899,7 +896,7 @@ def workload_category_counter(
         unit = s.get("unit") if isinstance(s, dict) else None
         if not unit or is_baseline_service(unit):
             continue
-        cat = classify(unit, listen_ports, s.get("pid"))
+        cat = classify_service(unit, listen_ports, s.get("pid"))
         if cat == "unknown":
             continue
         # 런타임 스택(container)은 구성 요소가 여러 서비스로 떠도 호스트당 1 (docker+containerd → 1).
@@ -929,7 +926,7 @@ def workload_services_by_category(
         unit = s.get("unit")
         if not unit or is_baseline_service(unit):
             continue
-        cat = classify(unit, listen_ports, s.get("pid"))
+        cat = classify_service(unit, listen_ports, s.get("pid"))
         if cat == "unknown":
             continue
         by_cat.setdefault(cat, []).append(s.get("display_name") or unit)

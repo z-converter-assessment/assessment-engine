@@ -10,21 +10,18 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Query, Request
 
-from assessment_engine import recommendation
 from assessment_engine.db.repositories.query.types import (
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
     TimeRange,
 )
-from assessment_engine.service_classifier import SERVICE_CATEGORIES
+from assessment_engine.domain import right_sizing
+from assessment_engine.domain.service_classifier import SERVICE_CATEGORIES
 from assessment_engine.web.deps import QueryServiceDep
 from assessment_engine.web.routers._back import BackUrl, safe_back, self_back, self_back_of
 from assessment_engine.web.routers._fragment import RealtimeFragment, ResultFragment, RowsFragment
+from assessment_engine.web.services.mappers.constants import DIAGNOSTIC_RANGE_LABEL_KR, PROVISIONING_CLASS_OPTIONS
 from assessment_engine.web.services.mappers.os_eol import DISTRO_FILTER_OPTIONS
-from assessment_engine.web.services.mappers.shared import (
-    DIAGNOSTIC_RANGE_LABEL_KR,
-    PROVISIONING_CLASS_OPTIONS,
-)
-from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.services.query import QueryService
 from assessment_engine.web.settings import get_web_settings
 from assessment_engine.web.templating import templates
 
@@ -56,7 +53,7 @@ async def environment_metrics(
         name="servers/environment_metrics.html",
         context={
             "active_nav": "performance",
-            "window_days": recommendation.WINDOW_DAYS,
+            "window_days": right_sizing.WINDOW_DAYS,
             "generated_at": datetime.now(UTC),
             "back_url": safe_back(back, "/"),
             "self_back": self_back_of("/environment/metrics", f"ids={selection_ids}" if selection_ids else ""),
@@ -192,7 +189,7 @@ async def overview(
         # 페이지 렌더(새로고침) 시각 — 우측 상단 표시용. UTC 전달, 템플릿 kst 필터로 표시(#F2).
         "generated_at": datetime.now(UTC),
         # 자원 적정성·이용·포화 도넛 공통 창 라벨 — WINDOW_DAYS 파생(14일). 분류·이용률·포화 한 창(#E3 정합).
-        "classification_window_label": f"{recommendation.WINDOW_DAYS}일",
+        "classification_window_label": f"{right_sizing.WINDOW_DAYS}일",
         "active_nav": "overview",
         "self_back": self_back_of("/"),
     }

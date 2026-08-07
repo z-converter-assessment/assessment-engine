@@ -12,18 +12,18 @@
 import re
 from typing import TYPE_CHECKING
 
-from assessment_engine.boot_time import is_counter_reset
-from assessment_engine.recommendation import (
+from assessment_engine.domain.boot_time import is_counter_reset
+from assessment_engine.domain.right_sizing import (
+    CONNTRACK_SATURATION_RATIO,
+    CPU_PERCORE_HOLD_PCT,
     CPU_RUN_QUEUE_PER_CORE_SATURATION,
+    CPU_STEAL_BIAS_PCT,
     DISK_QUEUE_PER_DISK_SATURATION,
+    DISKIO_AWAIT_MS,
+    NET_DROP_PCT,
+    NET_RETRANS_PCT,
     PROCS_BLOCKED_DSTATE_SATURATION,
     PROCS_RUNNING_PER_CORE_SATURATION,
-    RS_CONNTRACK_SATURATION_RATIO,
-    RS_CPU_PERCORE_HOLD_PCT,
-    RS_CPU_STEAL_BIAS_PCT,
-    RS_DISKIO_AWAIT_MS,
-    RS_NET_DROP_PCT,
-    RS_NET_RETRANS_PCT,
     WIN_PAGES_INPUT_SATURATION,
     cpu_saturation_index,
     disk_io_saturation_index,
@@ -278,10 +278,10 @@ def build_saturation_signals(
                 label="Steal",
                 state="measured" if steal_pct is not None else "no_data",
                 value=round(steal_pct, 1) if steal_pct is not None else None,
-                threshold=float(RS_CPU_STEAL_BIAS_PCT),
+                threshold=float(CPU_STEAL_BIAS_PCT),
                 unit="%",
-                saturated=(steal_pct >= RS_CPU_STEAL_BIAS_PCT) if steal_pct is not None else None,
-                detail=f"가상화 경합(steal%), 임계 {RS_CPU_STEAL_BIAS_PCT:g}%",
+                saturated=(steal_pct >= CPU_STEAL_BIAS_PCT) if steal_pct is not None else None,
+                detail=f"가상화 경합(steal%), 임계 {CPU_STEAL_BIAS_PCT:g}%",
             )
         )
     cpu.append(_psi_signal("cpu_psi", "PSI", sat.psi_cpu, win, psi_ok))
@@ -338,10 +338,10 @@ def build_saturation_signals(
                 label="응답 지연",
                 state="measured",
                 value=round(sat.await_ms, 1),
-                threshold=float(RS_DISKIO_AWAIT_MS),
+                threshold=float(DISKIO_AWAIT_MS),
                 unit="ms",
                 saturated=(di_idx >= 1.0) if di_idx is not None else None,
-                detail=f"IO 응답 지연 await, 임계 {RS_DISKIO_AWAIT_MS:g}ms",
+                detail=f"IO 응답 지연 await, 임계 {DISKIO_AWAIT_MS:g}ms",
             )
         ]
     elif win and sat.pending_ops is not None:
@@ -378,14 +378,14 @@ def build_saturation_signals(
             label="conntrack",
             state="measured" if ct_ratio is not None else "no_data",
             value=round(ct_ratio * 100, 1) if ct_ratio is not None else None,
-            threshold=RS_CONNTRACK_SATURATION_RATIO * 100,
+            threshold=CONNTRACK_SATURATION_RATIO * 100,
             unit="%",
-            saturated=(ct_ratio >= RS_CONNTRACK_SATURATION_RATIO) if ct_ratio is not None else None,
-            detail=f"연결 테이블 사용률, 임계 {RS_CONNTRACK_SATURATION_RATIO * 100:.0f}%",
+            saturated=(ct_ratio >= CONNTRACK_SATURATION_RATIO) if ct_ratio is not None else None,
+            detail=f"연결 테이블 사용률, 임계 {CONNTRACK_SATURATION_RATIO * 100:.0f}%",
         )
     net = [
-        _ratio_signal("net_retrans", "재전송", sat.retrans_pct, RS_NET_RETRANS_PCT, "TCP 재전송율"),
-        _ratio_signal("net_drop", "드롭", sat.drop_pct, RS_NET_DROP_PCT, "패킷 드롭율"),
+        _ratio_signal("net_retrans", "재전송", sat.retrans_pct, NET_RETRANS_PCT, "TCP 재전송율"),
+        _ratio_signal("net_drop", "드롭", sat.drop_pct, NET_DROP_PCT, "패킷 드롭율"),
         conntrack_sig,
     ]
 
@@ -600,8 +600,8 @@ def compute_cpu_cores(pairs: list[CpuCoreRaw]) -> list[CpuCoreSnapshot]:
             continue
         idle_pct = max(0.0, (cur.cpu_idle_s - prev.cpu_idle_s) / delta_total * 100)
         usage = round(max(0.0, 100.0 - idle_pct), 1)
-        # hot precompute — 임계 단일 진실(RS_CPU_PERCORE_HOLD_PCT). 클라(cpu.js)는 플래그만 읽어 P4 임계 재선언 제거.
-        result.append(CpuCoreSnapshot(core_id=int(core_id), usage_pct=usage, hot=usage >= RS_CPU_PERCORE_HOLD_PCT))
+        # hot precompute — 임계 단일 진실(CPU_PERCORE_HOLD_PCT). 클라(cpu.js)는 플래그만 읽어 P4 임계 재선언 제거.
+        result.append(CpuCoreSnapshot(core_id=int(core_id), usage_pct=usage, hot=usage >= CPU_PERCORE_HOLD_PCT))
     return result
 
 

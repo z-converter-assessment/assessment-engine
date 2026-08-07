@@ -51,7 +51,7 @@ if TYPE_CHECKING:
         TaskRow,
     )
     from assessment_engine.db.repositories.collect import CollectRepository
-    from assessment_engine.db.repositories.query.repository import QueryRepository
+    from assessment_engine.db.repositories.query import QueryRepository
     from assessment_engine.db.repositories.query.types import (
         AggFunc,
         BucketSize,
@@ -72,25 +72,25 @@ class InMemoryQueryRepository:
             return cast("T", self._seed[name])
         return default
 
-    async def agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]:
-        return self._value("agent_restart_counts_recent", {})
+    async def get_agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]:
+        return self._value("get_agent_restart_counts_recent", {})
 
-    async def environment_utilization(
+    async def get_environment_utilization(
         self,
         period_days: float,
         end: datetime,
         server_ids: list[int] | None = None,
     ) -> EnvironmentUtilizationRaw:
         return self._value(
-            "environment_utilization",
+            "get_environment_utilization",
             EnvironmentUtilizationRaw(cpu_avg_pct=None, mem_avg_pct=None, disk_avg_pct=None, sample_size=0),
         )
 
-    async def fleet_error_hosts(self, server_ids: list[int], since: datetime) -> set[int]:
-        return self._value("fleet_error_hosts", set())
+    async def get_fleet_error_hosts(self, server_ids: list[int], since: datetime) -> set[int]:
+        return self._value("get_fleet_error_hosts", set())
 
-    async def fleet_error_summary(self, server_ids: list[int], since: datetime) -> FleetErrorRaw:
-        return self._value("fleet_error_summary", FleetErrorRaw())
+    async def get_fleet_error_summary(self, server_ids: list[int], since: datetime) -> FleetErrorRaw:
+        return self._value("get_fleet_error_summary", FleetErrorRaw())
 
     async def get_collection_status(self, server_id: int) -> CollectionStatus | None:
         return self._value("get_collection_status", None)
@@ -110,29 +110,29 @@ class InMemoryQueryRepository:
     async def get_task_by_public_id(self, public_id: str) -> TaskRow | None:
         return self._value("get_task_by_public_id", None)
 
-    async def latest_dashboard(self, server_id: int) -> DashboardRaw | None:
-        return self._value("latest_dashboard", None)
+    async def get_latest_dashboard(self, server_id: int) -> DashboardRaw | None:
+        return self._value("get_latest_dashboard", None)
 
-    async def latest_errors(self, server_id: int, since: datetime) -> ErrorFleetRaw:
-        return self._value("latest_errors", ErrorFleetRaw())
+    async def get_latest_errors(self, server_id: int, since: datetime) -> ErrorFleetRaw:
+        return self._value("get_latest_errors", ErrorFleetRaw())
 
-    async def latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]:
-        return self._value("latest_link_speed", {})
+    async def get_latest_link_speed(self, server_ids: list[int], since: datetime) -> dict[int, dict[str, int]]:
+        return self._value("get_latest_link_speed", {})
 
-    async def latest_metric_at(self) -> datetime | None:
-        return self._value("latest_metric_at", None)
+    async def get_latest_metric_at(self) -> datetime | None:
+        return self._value("get_latest_metric_at", None)
 
-    async def latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
-        return self._value("latest_saturation", {})
+    async def get_latest_saturation(self, server_ids: list[int], since: datetime) -> dict[int, SaturationRaw]:
+        return self._value("get_latest_saturation", {})
 
-    async def latest_tasks_by_servers(
+    async def get_latest_tasks_by_servers(
         self,
         server_ids: list[int],
     ) -> dict[int, TaskRow]:
-        return self._value("latest_tasks_by_servers", {})
+        return self._value("get_latest_tasks_by_servers", {})
 
-    async def list_all_server_public_ids(self) -> list[str]:
-        return self._value("list_all_server_public_ids", [])
+    async def list_server_public_ids(self) -> list[str]:
+        return self._value("list_server_public_ids", [])
 
     async def list_recent_tasks(
         self,
@@ -153,7 +153,7 @@ class InMemoryQueryRepository:
     ) -> list[ServerSummary]:
         return self._value("list_servers", [])
 
-    async def metric_chart(
+    async def get_metric_chart(
         self,
         server_id: int,
         metric_type: MetricType,
@@ -164,25 +164,25 @@ class InMemoryQueryRepository:
         end: datetime | None = None,
         collapse: bool = False,
     ) -> list[MetricSeries]:
-        return self._value("metric_chart", [])
+        return self._value("get_metric_chart", [])
 
-    async def metric_gap_warnings(
+    async def get_metric_gap_warnings(
         self,
         gap_minutes: int,
         recent_hours: int,
         limit: int | None,
     ) -> list[MetricGapWarningRaw]:
-        return self._value("metric_gap_warnings", [])
+        return self._value("get_metric_gap_warnings", [])
 
-    async def metric_snapshots(
+    async def get_metric_snapshots(
         self,
         server_id: int,
         cursor: datetime | None,
         limit: int,
     ) -> list[MetricSeries]:
-        return self._value("metric_snapshots", [])
+        return self._value("get_metric_snapshots", [])
 
-    async def metric_trend(
+    async def get_metric_trend(
         self,
         metric_type: MetricType | EnvironmentMetricType,
         start: datetime,
@@ -193,97 +193,97 @@ class InMemoryQueryRepository:
         dimension: str | None = None,
         collapse: bool = True,
     ) -> list[MetricSeries]:
-        return self._value("metric_trend", [])
+        return self._value("get_metric_trend", [])
 
-    async def reboot_events(
+    async def get_reboot_events(
         self,
         server_id: int,
         start: datetime,
         end: datetime,
     ) -> list[RebootEvent]:
-        return self._value("reboot_events", [])
+        return self._value("get_reboot_events", [])
 
-    async def report_agent_restart_stats(
+    async def get_report_agent_restart_stats(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
     ) -> dict[int, int]:
-        return self._value("report_agent_restart_stats", {})
+        return self._value("get_report_agent_restart_stats", {})
 
-    async def report_aggregate(
+    async def get_report_aggregate(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
     ) -> list[ReportRowRaw]:
-        return self._value("report_aggregate", [])
+        return self._value("get_report_aggregate", [])
 
-    async def report_cpu_breakdown(
+    async def get_report_cpu_breakdown(
         self,
         server_id: int,
         period_days: float,
         end: datetime,
     ) -> CpuBreakdownRaw:
-        return self._value("report_cpu_breakdown", CpuBreakdownRaw(user_pct=None, system_pct=None, iowait_pct=None))
+        return self._value("get_report_cpu_breakdown", CpuBreakdownRaw(user_pct=None, system_pct=None, iowait_pct=None))
 
-    async def report_cpu_breakdown_batch(
+    async def get_report_cpu_breakdown_batch(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
     ) -> dict[int, CpuBreakdownRaw]:
-        return self._value("report_cpu_breakdown_batch", {})
+        return self._value("get_report_cpu_breakdown_batch", {})
 
-    async def report_disk_io_baseline(
+    async def get_report_disk_io_baseline(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
     ) -> dict[int, DiskIoBaselineRaw]:
-        return self._value("report_disk_io_baseline", {})
+        return self._value("get_report_disk_io_baseline", {})
 
-    async def report_memory_breakdown(
+    async def get_report_memory_breakdown(
         self,
         server_id: int,
         period_days: float,
         end: datetime,
     ) -> MemoryBreakdownRaw:
         return self._value(
-            "report_memory_breakdown",
+            "get_report_memory_breakdown",
             MemoryBreakdownRaw(used_pct=None, available_pct=None, cached_pct=None, buffers_pct=None),
         )
 
-    async def report_memory_breakdown_batch(
+    async def get_report_memory_breakdown_batch(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
     ) -> dict[int, MemoryBreakdownRaw]:
-        return self._value("report_memory_breakdown_batch", {})
+        return self._value("get_report_memory_breakdown_batch", {})
 
-    async def report_mount_capacity_batch(
+    async def get_report_mount_capacity_batch(
         self,
         server_ids: list[int],
         end: datetime,
     ) -> dict[int, list[MountCapacityRaw]]:
-        return self._value("report_mount_capacity_batch", {})
+        return self._value("get_report_mount_capacity_batch", {})
 
-    async def report_net_io_baseline(
+    async def get_report_net_io_baseline(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
     ) -> dict[int, NetIoBaselineRaw]:
-        return self._value("report_net_io_baseline", {})
+        return self._value("get_report_net_io_baseline", {})
 
-    async def report_uptime_stats(
+    async def get_report_uptime_stats(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
     ) -> dict[int, int]:
-        return self._value("report_uptime_stats", {})
+        return self._value("get_report_uptime_stats", {})
 
     async def resolve_server_id(self, public_id: str) -> int | None:
         """유일하게 인자를 보는 메서드 — 미존재 식별자의 404 분기가 여기서 갈린다.

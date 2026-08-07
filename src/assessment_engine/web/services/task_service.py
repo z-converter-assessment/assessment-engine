@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
     from assessment_engine.db.repositories.collect import CollectRepository
-    from assessment_engine.db.repositories.query.repository import QueryRepository
+    from assessment_engine.db.repositories.query import QueryRepository
     from assessment_engine.json_types import JsonObject
 
 _TASK_TYPE_INSTALL = "zconverter_install"
@@ -48,7 +48,7 @@ _TASK_QUEUE_MAX_LEN = 100
 
 
 def _resolve_install_dispatch(os_family: str) -> tuple[str, str, str | None]:
-    """os_family -> (package_path, install_type, install_script). ADR 0019 / ADR 0020.
+    """os_family -> (package_path, install_type, install_script).
 
     Linux  = .tar.gz extract + install.sh exec.
     Windows = single .exe 직접 실행 (extract 없음, install.script null).

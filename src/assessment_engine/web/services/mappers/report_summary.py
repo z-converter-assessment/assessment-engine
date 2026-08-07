@@ -3,7 +3,7 @@
 행 변환(`report.py`)이 호스트 하나를 표의 한 줄로 만든다면, 여기는 여러 호스트를 훑어 "무엇이 문제인가"를
 문장 몇 개로 줄인다. 소비자는 발행된 보고서 한 곳이고, 양식(customer/engineer)에 따라 신호 선택이 갈린다.
 
-임계 판정은 전부 `recommendation` helper 를 경유한다 — 문장을 만들자고 여기서 임계를 다시 해석하면
+임계 판정은 전부 `right_sizing` helper 를 경유한다 — 문장을 만들자고 여기서 임계를 다시 해석하면
 같은 호스트가 표와 요약에서 다르게 읽힌다 (#E3).
 """
 
@@ -11,14 +11,10 @@ from collections import defaultdict
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING
 
-from assessment_engine import recommendation
+from assessment_engine.domain import right_sizing
+from assessment_engine.web.services.mappers.constants import _REBOOT_UNSTABLE_COUNT, _VARIANCE_BURST_RATIO, ReportView
 from assessment_engine.web.services.mappers.os_eol import resolve_os_eol
 from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
-from assessment_engine.web.services.mappers.shared import (
-    _REBOOT_UNSTABLE_COUNT,
-    _VARIANCE_BURST_RATIO,
-    ReportView,
-)
 
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import ReportRowRaw
@@ -61,7 +57,7 @@ def build_report_summary_bullets(
         disk_sat_raws = [
             r
             for r in raws
-            if recommendation.disk_io_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
+            if right_sizing.disk_io_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
         ]
         if disk_sat_raws:
             phrase = _top_phrase([r.hostname for r in disk_sat_raws])
@@ -72,7 +68,7 @@ def build_report_summary_bullets(
         mount_hosts = [
             f"{r.hostname}({r.disk_capacity_driving_mount or '?'} {int(r.disk_capacity_runway_days)}일)"
             for r in raws
-            if recommendation.assess_disk_capacity(build_resource_stats(r, disk_baseline=r.disk_iops_baseline)).status
+            if right_sizing.assess_disk_capacity(build_resource_stats(r, disk_baseline=r.disk_iops_baseline)).status
             == "filling"
             and r.disk_capacity_runway_days is not None
         ]
@@ -85,7 +81,7 @@ def build_report_summary_bullets(
         bullets.append(f"재부팅 빈번 {len(reboot_hosts)}대 ({_top_phrase(reboot_hosts)}).")
 
     if view == "engineer":
-        # 역할별 평균 CPU — 엔지니어가 자원 집약 역할 식별. 고객 보고서엔 정보 과다. (#F10 recommendation 상수)
+        # 역할별 평균 CPU — 엔지니어가 자원 집약 역할 식별. 고객 보고서엔 정보 과다. (#F10 right_sizing 상수)
         role_cpu: defaultdict[str, list[float]] = defaultdict(list)
         for r in rows:
             if r.cpu_p95_pct is not None:
@@ -93,7 +89,7 @@ def build_report_summary_bullets(
         if role_cpu:
             top_cpu_role = max(role_cpu, key=lambda k: sum(role_cpu[k]) / len(role_cpu[k]))
             top_cpu_avg = sum(role_cpu[top_cpu_role]) / len(role_cpu[top_cpu_role])
-            if top_cpu_avg >= recommendation.CPU_UPSIZE_P95_PCT:
+            if top_cpu_avg >= right_sizing.CPU_UNDER_PCT:
                 bullets.append(f"{top_cpu_role} 계열 서버의 평균 CPU p95가 {top_cpu_avg:.0f}%로 높게 관찰됨.")
 
         # CPU 포화 — os-aware cpu_saturated(Linux load/cores / Windows run queue/cores). 분류 cpu_saturation trigger
@@ -103,7 +99,7 @@ def build_report_summary_bullets(
             sat_hosts = [
                 r.hostname
                 for r in raws
-                if recommendation.cpu_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
+                if right_sizing.cpu_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
             ]
             if sat_hosts:
                 bullets.append(
@@ -118,7 +114,7 @@ def build_report_summary_bullets(
             if r.cpu_variance_ratio is not None
             and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
             and r.cpu_peak_pct is not None
-            and r.cpu_peak_pct > recommendation.BURST_PEAK_FLOOR_CPU_PCT
+            and r.cpu_peak_pct > right_sizing.BURST_PEAK_FLOOR_CPU_PCT
         ]
         if var_hosts:
             bullets.append(

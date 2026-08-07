@@ -13,21 +13,21 @@ from typing import Any, get_args
 
 import pytest
 
-from assessment_engine import recommendation
-from assessment_engine.web.services.mappers.shared import _DONUT_SEGMENT_DEFS, BADGE_CLASS
+from assessment_engine.domain import right_sizing
+from assessment_engine.web.services.mappers.constants import _DONUT_SEGMENT_DEFS, BADGE_CLASS
 
 # (이름, 매핑, Literal 별칭) — 폴백 없이 인덱싱하는 dict 전부.
 EXHAUSTIVE_MAPS: list[tuple[str, dict[Any, Any], Any]] = [
-    ("_HOST_STATUS_TO_REC", recommendation._HOST_STATUS_TO_REC, recommendation.HostStatus),
-    ("LABEL_KO", recommendation.LABEL_KO, recommendation.Recommendation),
-    ("CLASSIFICATION_ORDER", recommendation.CLASSIFICATION_ORDER, recommendation.Recommendation),
-    ("RECOMMENDATION_ACTION_KO", recommendation.RECOMMENDATION_ACTION_KO, recommendation.Recommendation),
-    ("BADGE_CLASS", BADGE_CLASS, recommendation.Recommendation),
-    ("RS_TRIGGER_LABEL_KO", recommendation.RS_TRIGGER_LABEL_KO, recommendation.TriggerKind),
-    ("RS_RESOURCE_KIND_LABEL_KO", recommendation.RS_RESOURCE_KIND_LABEL_KO, recommendation.ResourceKind),
-    ("_UNDER_ACTION_BASE", recommendation._UNDER_ACTION_BASE, recommendation.ResourceKind),
-    ("RS_STATUS_LABEL_KO", recommendation.RS_STATUS_LABEL_KO, recommendation.ResourceStatus),
-    ("RS_HOST_STATUS_LABEL_KO", recommendation.RS_HOST_STATUS_LABEL_KO, recommendation.HostStatus),
+    ("_HOST_STATUS_TO_REC", right_sizing._HOST_STATUS_TO_REC, right_sizing.HostStatus),
+    ("RECOMMENDATION_LABEL_KO", right_sizing.RECOMMENDATION_LABEL_KO, right_sizing.Recommendation),
+    ("CLASSIFICATION_ORDER", right_sizing.CLASSIFICATION_ORDER, right_sizing.Recommendation),
+    ("RECOMMENDATION_ACTION_KO", right_sizing.RECOMMENDATION_ACTION_KO, right_sizing.Recommendation),
+    ("BADGE_CLASS", BADGE_CLASS, right_sizing.Recommendation),
+    ("TRIGGER_LABEL_KO", right_sizing.TRIGGER_LABEL_KO, right_sizing.TriggerKind),
+    ("RESOURCE_KIND_LABEL_KO", right_sizing.RESOURCE_KIND_LABEL_KO, right_sizing.ResourceKind),
+    ("_UNDER_ACTION_BASE", right_sizing._UNDER_ACTION_BASE, right_sizing.ResourceKind),
+    ("STATUS_LABEL_KO", right_sizing.STATUS_LABEL_KO, right_sizing.ResourceStatus),
+    ("HOST_STATUS_LABEL_KO", right_sizing.HOST_STATUS_LABEL_KO, right_sizing.HostStatus),
 ]
 
 
@@ -44,7 +44,7 @@ def test_trigger_literals_match_what_the_domain_emits():
     import ast
     from pathlib import Path
 
-    source = (Path(recommendation.__file__)).read_text(encoding="utf-8")
+    source = (Path(right_sizing.__file__)).read_text(encoding="utf-8")
     emitted: set[str] = set()
     for node in ast.walk(ast.parse(source)):
         # triggers.append("...")
@@ -62,11 +62,11 @@ def test_trigger_literals_match_what_the_domain_emits():
         if isinstance(node, ast.keyword) and node.arg == "triggers" and isinstance(node.value, ast.List):
             emitted.update(str(e.value) for e in node.value.elts if isinstance(e, ast.Constant))
 
-    assert emitted == set(get_args(recommendation.TriggerKind.__value__))
+    assert emitted == set(get_args(right_sizing.TriggerKind.__value__))
 
 
 def test_donut_segment_order_is_the_dropdown_order():
     """세그먼트 순서가 곧 서버 목록 드롭다운 option 순서다 — 정렬을 끼워 넣으면 DOM 이 바뀐다."""
-    from assessment_engine.web.services.mappers.shared import PROVISIONING_CLASS_OPTIONS
+    from assessment_engine.web.services.mappers.constants import PROVISIONING_CLASS_OPTIONS
 
     assert [key for key, _, _ in _DONUT_SEGMENT_DEFS] == [key for key, _ in PROVISIONING_CLASS_OPTIONS]

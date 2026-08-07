@@ -4,7 +4,6 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
-from assessment_engine import recommendation
 from assessment_engine.db.dtos.outbound import (
     EnvironmentUtilizationRaw,
     FleetErrorRaw,
@@ -14,6 +13,7 @@ from assessment_engine.db.dtos.outbound import (
     ServerDetail,
 )
 from assessment_engine.db.repositories.query.types import DIAGNOSTIC_RANGE_DAYS, TimeRange
+from assessment_engine.domain import right_sizing
 from assessment_engine.json_types import JsonObject, json_list
 from assessment_engine.web.services.mappers.assessment_api import build_assessment_entry
 from assessment_engine.web.services.mappers.attention import (
@@ -50,7 +50,7 @@ def assemble_overview(
     full_under: bool = False,
     error_summary: FleetErrorRaw | None = None,
 ) -> EnvironmentOverview:
-    """report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count.
+    """get_report_aggregate raws -> USE Method 분류 도넛 + under_provisioned 상세, online_by_id -> online_count.
 
     분류는 `build_resource_stats`(net 반영) 단일 진실 — 호출자가 `_with_net_baseline` 로 raw 에 net
     baseline 을 주입한 뒤 호출한다 (get_report 세부행과 동일 입력 -> 유휴 정합).
@@ -68,17 +68,17 @@ def assemble_overview(
         # 호출자마다 raw 의 disk baseline 주입 여부가 다르다 — 보고서 경로만 채워 오고 환경 개요는
         # 비어 있다. 여기서 None 으로 고정하면 보고서 화면 분류가 바뀌므로 raw 가 실은 것을 그대로 쓴다.
         stats = build_resource_stats(raw, disk_baseline=raw.disk_iops_baseline)
-        rec = recommendation.classify_host(stats)
+        rec = right_sizing.classify_host(stats)
         risk_counts[rec] = risk_counts.get(rec, 0) + 1
         if rec == "under_provisioned":
             under_hosts.append(to_capacity_warning_item(raw))
-        if recommendation.cpu_saturated(stats):
+        if right_sizing.cpu_saturated(stats):
             cpu_sat += 1
-        if recommendation.mem_saturated(stats):
+        if right_sizing.mem_saturated(stats):
             mem_sat += 1
-        if recommendation.disk_io_saturated(stats):
+        if right_sizing.disk_io_saturated(stats):
             disk_sat += 1
-        if recommendation.assess_network(stats).status == "congested":
+        if right_sizing.assess_network(stats).status == "congested":
             net_cong += 1
     online_count = sum(1 for d in details if online_by_id.get(d.id))
     # 포화 도넛 표본 = 윈도우 내 metric 발행 호스트 수(util.sample_size). util 부재 시 분류된 호스트 수로 폴백.
@@ -140,13 +140,13 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         if not server_ids:
             return EnvironmentAssessment(overview=_empty_overview())
         details = await self.repo.get_servers(server_ids)
-        raws_period = await self.repo.report_aggregate(
+        raws_period = await self.repo.get_report_aggregate(
             server_ids,
             period_days=period_days,
             end=end,
         )
         raws_period = await self._with_net_baseline(raws_period, server_ids, period_days, end)
-        util = await self.repo.environment_utilization(period_days=period_days, end=end)
+        util = await self.repo.get_environment_utilization(period_days=period_days, end=end)
         online_by_id = await self._online_map(server_ids, details, end)
         overview = self._assemble_overview(details, util, raws_period, online_by_id)
         # 통합 조치 대상 표 — 자원 부족/과다 할당/유휴 를 한 표에 (build_action_targets 단일 진실).
@@ -164,7 +164,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
     ) -> JsonObject:
         """외부/자동화 소비용 right-sizing 판정 — 필터(hostname·ip·public_id·순서쌍) 매칭 서버의 자원 3축 + 네트워크.
 
-        분류·근거·신뢰도·권고 전부 보고서/자원평가와 동일 산식(report_aggregate -> rollup_host). 윈도우는
+        분류·근거·신뢰도·권고 전부 보고서/자원평가와 동일 산식(get_report_aggregate -> rollup_host). 윈도우는
         window_days 종료 end 기준(자원 적정성 표준 14일 기본). 데이터가 창보다 짧으면 신뢰도가 자동 하향.
         필터 미지정이면 전체 서버.
 
@@ -181,7 +181,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         raws: list[ReportRowRaw] = []
         online_by_id: dict[int, bool] = {}
         if matched_ids:
-            raws = await self.repo.report_aggregate(
+            raws = await self.repo.get_report_aggregate(
                 matched_ids,
                 period_days=window_days,
                 end=end,
@@ -209,7 +209,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
     ) -> tuple[list[ServerDetail], set[str], list[str], list[str], list[str]]:
         """필터(hostname/ip/public_id/순서쌍) -> 매칭 서버 details + 안전 경고. get_right_sizing/get_assessment 공용.
 
-        매칭/호스트명 충돌 판정은 경량 inventory(get_servers)로 — 비싼 report_aggregate 이전 pushdown(B3).
+        매칭/호스트명 충돌 판정은 경량 inventory(get_servers)로 — 비싼 get_report_aggregate 이전 pushdown(B3).
         반환: (matched_details, ambiguous_set, ambiguous_in_filter, unresolved_pairs, unmatched_filters).
         ambiguous_set = 환경 내 2대+ 공유 hostname(per-server hostname_ambiguous 판정용).
         """
@@ -283,16 +283,16 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         mounts_by_id: dict[int, list[MountCapacityRaw]] = {}
         link_speeds: dict[int, dict[str, int]] = {}
         if matched_ids:
-            raws = await self.repo.report_aggregate(
+            raws = await self.repo.get_report_aggregate(
                 matched_ids,
                 period_days=window_days,
                 end=end,
             )
             raws = await self._with_net_baseline(raws, matched_ids, window_days, end)
             online_by_id = await self._online_map(matched_ids, matched_details, end)
-            mounts_by_id = await self.repo.report_mount_capacity_batch(matched_ids, end)
+            mounts_by_id = await self.repo.get_report_mount_capacity_batch(matched_ids, end)
             # inventory speed_mbps null(virtio/Windows NT5.2) 폴백용 최신 link.speed (agent 확정 규약).
-            link_speeds = await self.repo.latest_link_speed(matched_ids, end - timedelta(days=window_days))
+            link_speeds = await self.repo.get_latest_link_speed(matched_ids, end - timedelta(days=window_days))
         servers = [
             build_assessment_entry(
                 raw,
@@ -321,7 +321,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         detail_by_id = {d.id: d for d in details}
         fresh_threshold = now - timedelta(seconds=get_web_settings().redis_ttl_online)
         # 실시간 포화 원자료(CPU 실행큐·디스크 queue/await·메모리 paging) — 신선 표본 1쿼리 벌크(전용 경량 쿼리).
-        sat_map = await self.repo.latest_saturation(server_ids, fresh_threshold)
+        sat_map = await self.repo.get_latest_saturation(server_ids, fresh_threshold)
         online = 0
         snapshots: list[JsonObject] = []
         last_collected = None
@@ -347,17 +347,15 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                     "cpu_pct": m.cpu.usage_pct if m.cpu else None,
                     "mem_pct": mem.usage_pct if mem else None,
                     # 실시간 포화 지수 (os-aware, >=1 포화) — 부하 상위 "실행 큐"·"응답 지연" 랭킹.
-                    "cpu_sat_index": recommendation.cpu_saturation_index(sat.run_queue, d.cpu_cores, d.os_family),
-                    "disk_sat_index": recommendation.disk_io_saturation_index(
-                        sat.await_ms, sat.pending_ops, d.os_family
-                    ),
+                    "cpu_sat_index": right_sizing.cpu_saturation_index(sat.run_queue, d.cpu_cores, d.os_family),
+                    "disk_sat_index": right_sizing.disk_io_saturation_index(sat.await_ms, sat.pending_ops, d.os_family),
                     # 디스크 I/O 이용률(worst device busy%, USE Method Utilization 축) — 응답지연(Saturation)과 별개.
                     "disk_util_pct": sat.disk_io_util_pct,
                     # 페이징 rate(major fault/s)·네트워크 rate(kB/s) — 부하 상위 랭킹 raw + 포화 도넛(불리언) 입력.
                     "paging_rate": sat.paging_major_rate,
                     "net_kbps": net_rate,
-                    "mem_pressure": recommendation.mem_pressure_active(sat.paging_major_rate, d.os_family),
-                    "net_congested": recommendation.net_signal_active(
+                    "mem_pressure": right_sizing.mem_pressure_active(sat.paging_major_rate, d.os_family),
+                    "net_congested": right_sizing.net_signal_active(
                         sat.retrans_pct, sat.drop_pct, sat.conntrack_ratio, net_rate
                     ),
                     # capacity-weighted 평균 도넛용 가중치 (cpu=코어 가중, mem=절대 총량 sum/sum).
@@ -382,14 +380,14 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             return _empty_overview()
         details = await self.repo.get_servers(server_ids)
         # 분류 raws — 14일 표준 창(서버 목록·보고서 정합). net baseline 도 동일 창.
-        raws_period = await self.repo.report_aggregate(server_ids, period_days=recommendation.WINDOW_DAYS, end=now)
-        raws_period = await self._with_net_baseline(raws_period, server_ids, recommendation.WINDOW_DAYS, now)
+        raws_period = await self.repo.get_report_aggregate(server_ids, period_days=right_sizing.WINDOW_DAYS, end=now)
+        raws_period = await self._with_net_baseline(raws_period, server_ids, right_sizing.WINDOW_DAYS, now)
         # 이용률·포화 도넛 6개 모두 자원 적정성 창(14일) 기준 — 분류·포화·이용률 한 창으로 통일(#E3 화면 간 정합).
-        util = await self.repo.environment_utilization(period_days=recommendation.WINDOW_DAYS, end=now)
+        util = await self.repo.get_environment_utilization(period_days=right_sizing.WINDOW_DAYS, end=now)
         online_by_id = await self._online_map(server_ids, details, now)
         # fleet 에러 표시자 — 전체 기간 조회(에러는 드문 이벤트라 창 제한 부적합).
         # #C5 pruning 의식적 예외(에러 delta 저비용 집계).
-        errors = await self.repo.fleet_error_summary(server_ids, datetime(1970, 1, 1, tzinfo=UTC))
+        errors = await self.repo.get_fleet_error_summary(server_ids, datetime(1970, 1, 1, tzinfo=UTC))
         return self._assemble_overview(details, util, raws_period, online_by_id, error_summary=errors)
 
     async def get_topology(self) -> NetworkTopology:
@@ -413,7 +411,7 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
         details = await self.repo.get_servers(server_ids)
         online_by_id = await self._online_map(server_ids, details, now)
         online_count = sum(1 for v in online_by_id.values() if v)
-        last_collected = await self.repo.latest_metric_at()
+        last_collected = await self.repo.get_latest_metric_at()
         return FleetStatus(online_count=online_count, total_count=len(server_ids), last_collected_at=last_collected)
 
     async def search_hosts(self, q: str, limit: int = 8) -> list[HostSearchItem]:

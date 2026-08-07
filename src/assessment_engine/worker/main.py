@@ -21,11 +21,11 @@ from assessment_engine.db.repositories.query.repository_sql import SqlQueryRepos
 from assessment_engine.db.session import dispose_engine, get_session_factory
 from assessment_engine.log_config import setup_logging
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
-from assessment_engine.web.services.query_service import QueryService
-from assessment_engine.worker.report_worker import run_report_worker
+from assessment_engine.web.services.query import QueryService
+from assessment_engine.worker.lifecycle import graceful_drain
+from assessment_engine.worker.report_loop import run_report_loop
 from assessment_engine.worker.settings import get_worker_settings
 from assessment_engine.worker.task_reaper import run_task_reaper
-from assessment_engine.worker.worker_lifecycle import graceful_drain
 
 if TYPE_CHECKING:
     from collections.abc import AsyncGenerator
@@ -56,7 +56,7 @@ async def main() -> None:
         diagnostic_repo_factory=SqlDiagnosticRepository,
     )
     report_task = asyncio.create_task(
-        run_report_worker(
+        run_report_loop(
             diag_service=diag_service,
             query_service_factory=_query_service_factory,
             poll_interval_sec=get_worker_settings().report_worker_poll_interval_sec,

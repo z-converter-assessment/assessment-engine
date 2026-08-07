@@ -26,8 +26,8 @@ from assessment_engine.web.routers._report_snapshot import (
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.mappers.api_reference import build_api_reference
 from assessment_engine.web.services.mappers.report_history import to_report_history_item
-from assessment_engine.web.services.mappers.shared import build_service_badge_reference
-from assessment_engine.web.services.report_result import normalize_anchor
+from assessment_engine.web.services.mappers.service_reference import build_service_badge_reference
+from assessment_engine.web.services.report import normalize_anchor
 from assessment_engine.web.templating import templates
 
 reports_router = APIRouter(prefix="/reports", tags=["pages"])
@@ -208,7 +208,7 @@ async def right_sizing_thresholds(
 ):
     """Right-sizing 분류 임계값 reference 페이지 — 환경 엔지니어 보고서에서 link 로 분리.
 
-    `recommendation` 모듈 단일 진실의 분류·USE 축·입력·임계·근거 표 + 출처 설명.
+    `right_sizing` 모듈 단일 진실의 분류·USE 축·입력·임계·근거 표 + 출처 설명.
     보고서·진단 양쪽이 참조하는 reference 자료 — 본 페이지에서만 한 번 정의 (T13).
     """
     back_url = safe_back(back, "/")

@@ -9,7 +9,7 @@ BOOT_TIME_JITTER_TOLERANCE(=5초) 경계에서 동작을 encode.
 
 from datetime import UTC, datetime, timedelta
 
-from assessment_engine.boot_time import (
+from assessment_engine.domain.boot_time import (
     BOOT_TIME_JITTER_TOLERANCE,
     boot_time_changed,
     is_counter_reset,

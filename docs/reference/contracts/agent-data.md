@@ -7,7 +7,7 @@
 버전: 에이전트와 주고받는 계약 버전은 엔진 레포 `contract.AGENT_CONTRACT_VERSION`(현 `"1.0"`, major.minor)이다 — wire 4종(agent -> engine)과 task.install(engine -> agent)이 이 값을 공유한다. 결과 보고가 명령과 짝이라 함께 움직인다. 외부 시스템에 나가는 평가 API·export 는 진화 궤도가 달라 별도 상수(`contract.API_CONTRACT_VERSION`)를 쓴다. 에이전트는 4종 메시지를 `"1.0"` 으로 emit 한다. 게이트는 major(점 앞 정수)만 비교. task.install 은 이 버전을 실어 보내 에이전트가 실행 전 major 게이트한다.
 
 설계 원칙:
-- 2레이어 분리 — Layer 1(wire) = 자원 네임스페이스별 raw counter/gauge 사실만. Layer 2(engine) = USE Method 해석(`recommendation.py`). USE(이용률·포화·오류 판정)를 wire 에 넣지 않는다.
+- 2레이어 분리 — Layer 1(wire) = 자원 네임스페이스별 raw counter/gauge 사실만. Layer 2(engine) = USE Method 해석(`right_sizing.py`). USE(이용률·포화·오류 판정)를 wire 에 넣지 않는다.
 - agent = stateless. emit 시점 raw 누적 스냅샷만 싣고, rate·delta·util·await·ratio 파생은 전부 엔진.
 - null 의미론 — 값(0 포함) = 실측 성공. null = 측정불가·미지원(OS 개념 부재 또는 측정 인프라/권한 없음). 추측·대체값 금지. 배열 지표는 측정된 축만 싣는다.
 - counter = monotonic 누적(엔진이 delta 산출). gauge = 순간값(직접 소비).

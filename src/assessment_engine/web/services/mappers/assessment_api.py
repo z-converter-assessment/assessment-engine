@@ -3,23 +3,23 @@
 계약 단일 진실: docs/reference/contracts/assessment-api.md. decision-first 2계층 —
 identity/reproduction/sizing(axes[])/assessment 가 1급, diagnostics 는 선택 소비.
 
-분류/사이징/근본원인은 도메인 단일 진실(rollup_host + recommendation) 재사용 — 화면/right-sizing API 와 값 정합.
+분류/사이징/근본원인은 도메인 단일 진실(right_sizing.rollup_host) 재사용 — 화면/right-sizing API 와 값 정합.
 reproduction 은 인벤토리(os 서술자·boot·nonblock_mounts 컬럼 + block_devices/net_interfaces/lvm_vgs JSONB)를
 계약 OUTPUT 형태로 reshape. sizing 은 near-peak 메모리 + p95 CPU + per-mount 디스크(도메인 assess_*).
 """
 
 from typing import TYPE_CHECKING, cast
 
-from assessment_engine import recommendation
 from assessment_engine.contract import API_CONTRACT_VERSION
+from assessment_engine.domain import right_sizing
 from assessment_engine.json_types import JsonObject, json_list
-from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
-from assessment_engine.web.services.mappers.shared import (
+from assessment_engine.web.services.mappers.assessment_display import (
     build_host_confidence_notes,
-    primary_ip,
     resource_confidence_notes,
     saturation_block,
 )
+from assessment_engine.web.services.mappers.host_display import primary_ip
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.view_models.assessment_api import (
     Assessment,
     AssessmentIdentity,
@@ -178,7 +178,7 @@ def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) 
 
 
 # --- sizing (axes[]) ---------------------------------------
-def _axis_size(current: float, ra: recommendation.ResourceAssessment, stats: recommendation.ResourceStats):
+def _axis_size(current: float, ra: right_sizing.ResourceAssessment, stats: right_sizing.ResourceStats):
     """cpu/memory 축 판정 -> (recommended, action, estimate_quality). recommended never-null(current 폴백).
 
     under: 정확 목표 있으면 exact, floor 있으면 floor, 둘 다 없으면 uncertain(방어).
@@ -193,7 +193,7 @@ def _axis_size(current: float, ra: recommendation.ResourceAssessment, stats: rec
             return ra.sizing_floor, "increase", "floor"
         return current, "keep", "uncertain"
     if status == "over":
-        if recommendation.downsize_prescribable(ra, stats) and ra.sizing_target is not None:
+        if right_sizing.downsize_prescribable(ra, stats) and ra.sizing_target is not None:
             return ra.sizing_target, "decrease", "exact"
         return current, "keep", "exact"
     if status in ("unmeasured", "insufficient"):
@@ -211,13 +211,13 @@ def _device_ref(raw: ReportRowRaw, mountpoint: str | None) -> str | None:
 
 def _sizing(
     raw: ReportRowRaw,
-    stats: recommendation.ResourceStats,
-    host: recommendation.HostAssessment,
+    stats: right_sizing.ResourceStats,
+    host: right_sizing.HostAssessment,
     mounts: list[MountCapacityRaw],
 ) -> JsonObject:
     """사이징 축 배열 — cpu/memory(호스트 1축) + disk(마운트별 N축). 소비자 전 원소 순회 + max(current,recommended)."""
     axes: list[JsonObject] = []
-    sizing_axes: tuple[tuple[recommendation.ResourceKind, str, int | None], ...] = (
+    sizing_axes: tuple[tuple[right_sizing.ResourceKind, str, int | None], ...] = (
         ("cpu", "vcpus", stats.cpu_cores),
         ("memory", "mib", stats.mem_total_mb),
     )
@@ -237,7 +237,7 @@ def _sizing(
             }
         )
     for m in mounts:
-        s = recommendation.assess_mount_capacity(
+        s = right_sizing.assess_mount_capacity(
             m.total_bytes,
             m.target_bytes,
             m.byte_runway_days,
@@ -267,12 +267,12 @@ def _sizing(
 
 
 # --- assessment --------------------------------------------
-def _assessment(host: recommendation.HostAssessment) -> Assessment:
+def _assessment(host: right_sizing.HostAssessment) -> Assessment:
     """호스트 종합 판정 — classification(도메인 Recommendation, 계약 enum 과 동일 값) + confidence + data_quality.
 
     confidence: insufficient_data -> low / 하향 사유 있으면 medium / 없으면 high. 불변식(high 아니면 notes 최소 1).
     """
-    rec = recommendation.host_status_to_recommendation(host.host_status)
+    rec = right_sizing.host_status_to_recommendation(host.host_status)
     notes = build_host_confidence_notes(host)
     if rec == "insufficient_data":
         confidence = "low"
@@ -307,7 +307,7 @@ def _diag_util(kind: str, raw: ReportRowRaw) -> DiagUtilization:
 
 
 def _diag_resource(
-    kind: str, ra: recommendation.ResourceAssessment, raw: ReportRowRaw, stats: recommendation.ResourceStats
+    kind: str, ra: right_sizing.ResourceAssessment, raw: ReportRowRaw, stats: right_sizing.ResourceStats
 ) -> JsonObject:
     axis = "disk" if kind == "disk_capacity" else kind
     return {
@@ -319,7 +319,7 @@ def _diag_resource(
     }
 
 
-def _root_cause_axis(host: recommendation.HostAssessment):
+def _root_cause_axis(host: right_sizing.HostAssessment):
     """근본원인 축 소문자 enum (disk_capacity -> disk) | null."""
     rc = host.root_cause
     if rc is None:
@@ -327,12 +327,10 @@ def _root_cause_axis(host: recommendation.HostAssessment):
     return "disk" if rc == "disk_capacity" else rc
 
 
-def _diagnostics(
-    raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment
-) -> JsonObject:
+def _diagnostics(raw: ReportRowRaw, stats: right_sizing.ResourceStats, host: right_sizing.HostAssessment) -> JsonObject:
     return {
         "root_cause": _root_cause_axis(host),
-        "root_cause_detail": recommendation.root_cause_display(host) or None,
+        "root_cause_detail": right_sizing.root_cause_display(host) or None,
         "resources": [_diag_resource(k, host.resources[k], raw, stats) for k in _DIAG_AXES],
         "advisory": {
             # 디스크 I/O 티어 힌트 단일 권위(호스트 단위) — 엔진에 per-device await 없어 per-disk 미제공.
@@ -356,7 +354,7 @@ def build_assessment_entry(
     """
     # 계약 API 는 net baseline 만 주입받는다 — disk 활동 축은 미관측(보고서 경로 전용).
     stats = build_resource_stats(raw, disk_baseline=None)
-    host = recommendation.rollup_host(stats)
+    host = right_sizing.rollup_host(stats)
     return {
         "identity": _identity(raw, is_online, hostname_ambiguous),
         "reproduction": _reproduction(raw, link_speeds),

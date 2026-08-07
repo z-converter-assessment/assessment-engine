@@ -28,8 +28,7 @@ from assessment_engine.web.routers._report_snapshot import (
     render_job_progress,
 )
 from assessment_engine.web.services.diagnostic_service import DiagnosticService
-from assessment_engine.web.services.report_generator import attention_by_host, attention_for_host
-from assessment_engine.web.services.report_result import normalize_anchor
+from assessment_engine.web.services.report import attention_by_host, attention_for_host, normalize_anchor
 from assessment_engine.web.templating import templates
 
 # 단일 보고서는 서버 단위(/servers/{id}/report), N대 선택 보고서는 보고서 그룹(/reports/servers) — URL 명사 분리.

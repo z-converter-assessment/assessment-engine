@@ -54,7 +54,7 @@ metrics 핸들러는 `repo.ensure_server_id(agent_id, placeholder)`로 한 번�
 
 placeholder는 `mappers.build_placeholder_inventory`가 생성. metrics envelope 이 싣고 오는 값(agent_id·composite_id·machine_id·agent_version·os_family·collected_at·boot_time·agent_started_at)만 실값이고, metrics 메시지에 hostname 필드가 없어 hostname 은 agent_id 로 채운다. 나머지 정적 정보(OS 상세·CPU·메모리·디스크·네트워크·서비스)는 None/빈 배열. 다음 진짜 inventory 도착 시 ON CONFLICT DO UPDATE로 풀 정보 자동 덮어씀 (`agent_id` UNIQUE 제약).
 
-metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 metric 7개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 `server_metrics` 만 보유(자식 시계열은 동일 `(server_id, collected_at)` 로 참조) → server_metrics 는 공용 도메인 helper `assessment_engine.boot_time.is_counter_reset` 이 두 시점 boot_time 비교(측정 지터 허용치 안이면 동일 부팅)로 재부팅 시 delta 건너뛰기, 자식은 `GREATEST(delta,0)` 로 흡수 (CLAUDE.md B1). 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
+metrics 저장 자체는 `repo.record_metrics(server_id, dto)`가 metric 7개 시계열 테이블 INSERT를 facade로 묶어 처리. `boot_time`·`agent_started_at`은 `server_metrics` 만 보유(자식 시계열은 동일 `(server_id, collected_at)` 로 참조) → server_metrics 는 공용 도메인 helper `assessment_engine.domain.boot_time.is_counter_reset` 이 두 시점 boot_time 비교(측정 지터 허용치 안이면 동일 부팅)로 재부팅 시 delta 건너뛰기, 자식은 `GREATEST(delta,0)` 로 흡수 (CLAUDE.md B1). 반환 `MetricInsertResult`의 각 행 수는 handler 로그에 노출되어 운영 관측 가능.
 
 → metrics drop 0. inventory one-shot 정책으로 인한 영구 미등록 시나리오 해소. 에이전트 변경 없이 엔진 단독 안전망.
 
@@ -70,7 +70,7 @@ aio-pika async context manager. 블록 정상 종료 → ack, 예외 발생 → 
 
 ### DB 재시도 정책
 
-3회 시도, `2 ** attempt` full jitter 백오프. 1 실패 → [0,2s] sleep → 2, 2 실패 → [0,4s] sleep → 3, 3 실패 → 즉시 raise(sleep 없음). 마지막 시도는 루프 밖에 있어 "재시도 소진" 분기가 코드에 없다. 재시도 대상은 일시 장애 — `_is_retryable_db_exc` 가 예외 타입(`OperationalError`·`InterfaceError`)과 SQLSTATE 두 축 중 하나만 걸려도 재시도로 판정한다. SQLSTATE 축은 class `08`(connection exception) 전 코드 + `40001` serialization_failure + `40P01` deadlock_detected + `57P01`·`57P02`·`57P03`(서버 종료·크래시 복구·기동 중). 타입만으로 가르지 못하는 이유는 asyncpg dialect 의 예외 번역표에 sqlalchemy `OperationalError` 로 가는 항목이 없어 커넥션 유실·서버 재기동·deadlock 이 base `DBAPIError` 로만 래핑되기 때문. asyncpg 의 connect·command timeout 은 `asyncio.TimeoutError` 로 올라와 `DBAPIError` 에 감싸이지 않으므로 별도 분기가 같은 백오프를 탄다. deadlock 은 동시 신규서버 insert 시 hypertable chunk 생성 레이스로 발생하며 victim rollback 후 재시도가 흡수한다. `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6). full jitter 는 동시 재연결 쏠림(thundering herd) 방지. 재시도 창은 큐 TTL 안에 들어가 단기 DB 장애 회복을 커버한다(값은 `docs/reference/rabbitmq.md` 큐 정책 표). error 핸들러는 DB 접근이 없어 해당 큐 TTL 과 무관.
+3회 시도, `2 ** attempt` full jitter 백오프. 1 실패 → [0,2s] sleep → 2, 2 실패 → [0,4s] sleep → 3, 3 실패 → 즉시 raise(sleep 없음). 마지막 시도는 루프 밖에 있어 "재시도 소진" 분기가 코드에 없다. 재시도 대상은 일시 장애 — `_is_retryable_db_failure` 가 예외 타입(`OperationalError`·`InterfaceError`)과 SQLSTATE 두 축 중 하나만 걸려도 재시도로 판정한다. SQLSTATE 축은 class `08`(connection exception) 전 코드 + `40001` serialization_failure + `40P01` deadlock_detected + `57P01`·`57P02`·`57P03`(서버 종료·크래시 복구·기동 중). 타입만으로 가르지 못하는 이유는 asyncpg dialect 의 예외 번역표에 sqlalchemy `OperationalError` 로 가는 항목이 없어 커넥션 유실·서버 재기동·deadlock 이 base `DBAPIError` 로만 래핑되기 때문. asyncpg 의 connect·command timeout 은 `asyncio.TimeoutError` 로 올라와 `DBAPIError` 에 감싸이지 않으므로 별도 분기가 같은 백오프를 탄다. deadlock 은 동시 신규서버 insert 시 hypertable chunk 생성 레이스로 발생하며 victim rollback 후 재시도가 흡수한다. `IntegrityError`·영구 `DBAPIError`(`ProgrammingError`/`DataError` 등)는 즉시 raise → nack → DLQ (F6). full jitter 는 동시 재연결 쏠림(thundering herd) 방지. 재시도 창은 큐 TTL 안에 들어가 단기 DB 장애 회복을 커버한다(값은 `docs/reference/rabbitmq.md` 큐 정책 표). error 핸들러는 DB 접근이 없어 해당 큐 TTL 과 무관.
 
 ---
 

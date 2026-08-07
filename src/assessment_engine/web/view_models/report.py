@@ -112,7 +112,7 @@ class ReportRowItem:
     # over/idle/optimal/insufficient 는 고정 문구.
     recommendation_action: str = ""
 
-    # 근본원인 라벨 — rollup_host 인과 종합(recommendation.root_cause_display). 보고서 "근본원인" 칼럼(고객·엔지니어
+    # 근본원인 라벨 — rollup_host 인과 종합(right_sizing.root_cause_display). 보고서 "근본원인" 칼럼(고객·엔지니어
     # 공통 근거 요약). CapacityWarningItem.root_cause_label 과 동일 단일 진실 (화면 간 정합).
     root_cause_label: str = ""
 
@@ -131,7 +131,7 @@ class ReportRowItem:
     # 로 precompute, 템플릿은 본 bool 만 분기 (P3).
     is_partial: bool = False
 
-    # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (shared.build_host_confidence_notes).
+    # 분류 confidence 단서 — 포화 축 미관측 + 표본 부족 통합 라벨 (assessment_display.build_host_confidence_notes).
     # 분류는 가진 데이터로 완결(원칙1), 신뢰도 저하 요인만 본 채널로 분리 노출(원칙2). 템플릿은 list 렌더만 (P3).
     confidence_notes: list[str] = field(default_factory=list[str])
 
@@ -154,13 +154,13 @@ class ReportRowItem:
     # os_eol_status: "ended"/"paid_only"/"security_only"/"full"/"unknown"(카탈로그 미수록·미매칭 — 판정 불가).
     os_eol: str = ""
     os_eol_status: str = ""
-    # 표시 파생 — mappers.shared.os_eol_display 단일 진실 (P2). 템플릿은 분기 없이 꺼내 쓴다.
+    # 표시 파생 — mappers.os_eol.os_eol_display 단일 진실 (P2). 템플릿은 분기 없이 꺼내 쓴다.
     os_eol_label: str = ""
     os_eol_css: str = ""
     os_eol_title: str = ""
     os_eol_sort: int = 0
     # 운영 이벤트 — 보고서 창(window) 내 에러 발생 유무(OOM kill·MCE·메모리 손상·net/disk 에러 5축 중 1+).
-    # ServerListItem.has_operational_event(전기간)과 달리 이 보고서의 window_days 창에 한정(latest_errors,
+    # ServerListItem.has_operational_event(전기간)과 달리 이 보고서의 window_days 창에 한정(get_latest_errors,
     # since=window_start) — 세부 서버 목록(N대 선택 보고서 전용)만 채움, 환경 전체 보고서는 N+1 회피로 미채움.
     has_operational_event: bool = False
 

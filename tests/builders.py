@@ -34,7 +34,7 @@ _DEFAULT_DISK: dict[str, Any] = {"name": "sda", "size_bytes": 50 * 10**9, "type"
 
 
 def report_row_raw(**overrides: Any) -> ReportRowRaw:
-    """`report_aggregate` 가 돌려주는 행 하나. 키는 DTO 필드명 그대로 받는다.
+    """`get_report_aggregate` 가 돌려주는 행 하나. 키는 DTO 필드명 그대로 받는다.
 
     baseline 은 "관측은 됐으나 어느 축도 발화하지 않은 호스트" 다 — 신호 축은 전부 None 이고
     인벤토리·용량만 채워져 있다. 발화시킬 축만 override 로 준다.

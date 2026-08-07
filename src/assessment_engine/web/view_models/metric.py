@@ -51,7 +51,7 @@ class PeriodResource:
     sat_over: int  # 포화 임계 이상 개수
     has_util: bool  # 이용률 컬럼 노출 여부 (네트워크 False — 처리량=활동 축, 용량% 없음)
     detail_slug: str  # 상세 탭 경로 slug (cpu/memory/storage/network) — 카드 내 자원별 상세 버튼
-    # 자원별 판정 — rollup_host 자원별 status(RS_STATUS_LABEL_KO). 호스트 배지(종합)가 어느 자원발인지 소제목
+    # 자원별 판정 — rollup_host 자원별 status(STATUS_LABEL_KO). 호스트 배지(종합)가 어느 자원발인지 소제목
     # 옆에 표기 (부족=빨강 / 과다=파랑 / 혼잡=주황 / 정상·유휴·미측정=회색). 정상은 muted, 문제 자원만 색으로 부각.
     verdict_label: str
     verdict_color: str
@@ -72,7 +72,7 @@ class PeriodResource:
 class PeriodAssessment:
     """서버 세부 '최근 N일' 카드 — 자원별 이용률+포화 2축 + 에러축(USE 완결) right-sizing 분류 기준 (14일 창).
 
-    실시간 카드(순간 도넛+활동)와 분리 — 이쪽은 분류·판정 근거(창=recommendation.WINDOW_DAYS). SSR precompute.
+    실시간 카드(순간 도넛+활동)와 분리 — 이쪽은 분류·판정 근거(창=right_sizing.WINDOW_DAYS). SSR precompute.
     """
 
     resources: list[PeriodResource]  # [cpu, mem, disk, net]
@@ -149,8 +149,8 @@ class CpuCoreSnapshot:
 
     core_id: int
     usage_pct: float | None
-    # 코어 하이라이트 플래그 — usage_pct >= RS_CPU_PERCORE_HOLD_PCT(85, 단일스레드 병목 임계). 서버 precompute 로
-    # 클라(cpu.js)의 임계 재선언(P4 위반) 제거 — 임계 단일 진실은 recommendation.RS_CPU_PERCORE_HOLD_PCT.
+    # 코어 하이라이트 플래그 — usage_pct >= CPU_PERCORE_HOLD_PCT(85, 단일스레드 병목 임계). 서버 precompute 로
+    # 클라(cpu.js)의 임계 재선언(P4 위반) 제거 — 임계 단일 진실은 right_sizing.CPU_PERCORE_HOLD_PCT.
     hot: bool = False
 
 
@@ -162,7 +162,7 @@ class MemSnapshot:
     cached_bytes: int | None
     buffered_bytes: int | None
     usage_pct: float | None
-    # stacked bar 표시용 비율 — metrics_calculator 산출값이고 클라가 다시 계산하지 않는다.
+    # stacked bar 표시용 비율 — metric_dashboard 산출값이고 클라가 다시 계산하지 않는다.
     # 메모리 구성 모델: Used + Available = 100, Cached/Buffers 는 Available 안 회수 가능 세부.
     # bar 구획 = used(usage_pct) | cached_pct | buffers_pct | free_pct, 합 = 100.
     cached_pct: float | None = None

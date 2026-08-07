@@ -3,7 +3,7 @@
 이 API 는 외부 자동화가 파싱해 프로비저닝을 결정하므로 계약이 깨지면 안 된다:
 - saturation·network 신호는 raw number(표시 문자열 아님).
 - recommendation 은 구조 {summary, kind, actions[], suppressed[]} — actions 는 관측된 under 자원 전부(자원별
-  독립, 억제 없음. ADR 0055). suppressed 는 항상 빈 배열(구 스키마 호환).
+  독립, 억제 없음). suppressed 는 항상 빈 배열(구 스키마 호환).
 - 사이징 목표는 타입 키(target_cores/_mb/_gb)로 파싱 가능.
 """
 
@@ -123,7 +123,7 @@ def test_saturation_unmeasured_is_null():
 def test_recommendation_structure_independent_actions_despite_causal_link():
     """under: kind=provision, actions 는 인과 결합(memory 근본원인)이어도 관측된 under 자원 전부(memory·cpu·
 
-    disk_io) 포함 — ADR 0055 자원별 독립 처방. suppressed 는 항상 빈 배열(구 스키마 호환 필드).
+    disk_io) 포함 — 자원별 독립 처방. suppressed 는 항상 빈 배열(구 스키마 호환 필드).
     """
     e = build_right_sizing_entry(_under_mem_root(), is_online=True)
     assert e["classification"] == "under_provisioned"
@@ -223,12 +223,12 @@ def test_evidence_labels_no_raw_enum_leak():
     """모든 도메인 trigger key 가 한국어 라벨로 변환 — mem_oom·net_* raw 영어 enum 누출 회귀 가드.
 
     _evidence_labels 가 _CAUSE_LABEL_BY_TRIGGER(6키) 미커버 trigger 를 raw 로 흘려 OOM·네트워크
-    근거가 사용자에게 'mem_oom'·'net_retrans' 로 뜨던 회귀를 막는다(도메인 RS_TRIGGER_LABEL_KO 폴백).
+    근거가 사용자에게 'mem_oom'·'net_retrans' 로 뜨던 회귀를 막는다(도메인 TRIGGER_LABEL_KO 폴백).
     """
-    from assessment_engine.recommendation import RS_TRIGGER_LABEL_KO
+    from assessment_engine.domain.right_sizing import TRIGGER_LABEL_KO
     from assessment_engine.web.services.mappers.right_sizing_api import _evidence_labels
 
-    all_triggers = list(RS_TRIGGER_LABEL_KO)
+    all_triggers = list(TRIGGER_LABEL_KO)
     labels = _evidence_labels(all_triggers)
     leaked = [k for k, lbl in zip(all_triggers, labels, strict=True) if k == lbl]
     assert not leaked, f"raw enum 누출: {leaked}"

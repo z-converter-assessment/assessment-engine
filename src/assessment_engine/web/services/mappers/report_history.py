@@ -3,7 +3,7 @@
 from typing import TYPE_CHECKING, Any
 
 from assessment_engine.json_types import json_list, json_obj
-from assessment_engine.web.services.mappers.shared import DIAGNOSTIC_RANGE_LABEL_KR
+from assessment_engine.web.services.mappers.constants import DIAGNOSTIC_RANGE_LABEL_KR
 
 if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import DiagnosticJobRecord

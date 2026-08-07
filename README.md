@@ -51,7 +51,7 @@
  |  - SSR  : dashboard / detail / env+server report + history       |
  |  - REST : assessment / right-sizing / tasks / exports / metrics  |
  |  - charts : client-side fetch of REST (no push)                  |
- |  - rule-based right-sizing (recommendation.py, USE Method)       |
+ |  - rule-based right-sizing (right_sizing.py, USE Method)         |
  |  - report emit -> diagnostic_jobs (pending; worker generates)    |
  |  - publishes task.install (assessment.tasks exchange)            |
  |  - plain HTTP ; prod TLS at external ingress                     |
@@ -100,7 +100,7 @@
 | 애플리케이션 | Python 3.14 · FastAPI · pydantic · uvicorn · aio-pika · SQLAlchemy async · asyncpg · Jinja2 · loguru · httpx |
 | DB / 캐시 / 브로커 | TimescaleDB (PostgreSQL 16) · Redis 7 · RabbitMQ 3.13 |
 | Schema 관리 | Alembic 단일 진실 |
-| 진단 | 규칙 기반 right-sizing (USE Method, 도메인 모듈 `recommendation.py` — web·repository 공용) |
+| 진단 | 규칙 기반 right-sizing (USE Method, 도메인 모듈 `domain/right_sizing.py` — web·repository 공용) |
 | 관측 | loguru `LOG_FORMAT=text\|json` (구조화 로그) |
 | 패키징 | uv (빌드 백엔드 `uv_build`). 릴리즈 산출물 = Docker image (GHCR, 서명·SBOM·provenance) |
 | 정적 자원 | Chart.js · Cytoscape.js (네트워크 토폴로지) — 둘 다 vendored (`static/js/vendor/`, 내부망 offline) · 외부 `.js` + `defer` |

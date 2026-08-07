@@ -3,21 +3,21 @@
 화면 표시(ViewModel)와 별개 채널이나 분류·근거·신뢰도·권고는 전부 도메인 단일 진실(rollup_host·
 recommendation 처방) 재사용 — 화면(보고서·자원평가)과 값 정합(재계산 0). 포화 신호는 표시 문자열이 아니라
 stats 원자료·임계 상수로 numeric(파싱 계약).
-자원 3축(CPU/메모리/디스크) 사이징 + 네트워크는 별도 품질 플래그(사이징 아님, ADR 0052 정합).
+자원 3축(CPU/메모리/디스크) 사이징 + 네트워크는 별도 품질 플래그(사이징 아님).
 """
 
 from typing import TYPE_CHECKING
 
-from assessment_engine import recommendation
+from assessment_engine.domain import right_sizing
 from assessment_engine.web.services.device_filters import disk_total_bytes
-from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
-from assessment_engine.web.services.mappers.shared import (
-    _CAUSE_LABEL_BY_TRIGGER,
+from assessment_engine.web.services.mappers.assessment_display import (
     build_host_confidence_notes,
-    primary_ip,
     resource_confidence_notes,
     saturation_block,
 )
+from assessment_engine.web.services.mappers.constants import _CAUSE_LABEL_BY_TRIGGER
+from assessment_engine.web.services.mappers.host_display import primary_ip
+from assessment_engine.web.services.mappers.resource_stats import build_resource_stats
 from assessment_engine.web.services.unit_converter import bytes_to_gb
 
 if TYPE_CHECKING:
@@ -41,18 +41,18 @@ _STATUS_LABEL_KO: dict[str, str] = {
 }
 
 
-def _evidence_labels(triggers: list[recommendation.TriggerKind]) -> list[str]:
+def _evidence_labels(triggers: list[right_sizing.TriggerKind]) -> list[str]:
     """trigger key -> 통일 한국어 근거 라벨. _CAUSE_LABEL_BY_TRIGGER(자원부족 축) 우선, 미커버 키는
 
-    도메인 RS_TRIGGER_LABEL_KO 폴백 — mem_oom·net_retrans/drop/conntrack 이 raw enum 으로 누출되지 않게.
+    도메인 TRIGGER_LABEL_KO 폴백 — mem_oom·net_retrans/drop/conntrack 이 raw enum 으로 누출되지 않게.
     """
-    return [_CAUSE_LABEL_BY_TRIGGER.get(t) or recommendation.RS_TRIGGER_LABEL_KO.get(t, t) for t in triggers]
+    return [_CAUSE_LABEL_BY_TRIGGER.get(t) or right_sizing.TRIGGER_LABEL_KO.get(t, t) for t in triggers]
 
 
-def _sizeable_recommendation(kind: recommendation.ResourceKind, ra: recommendation.ResourceAssessment) -> str | None:
+def _sizeable_recommendation(kind: right_sizing.ResourceKind, ra: right_sizing.ResourceAssessment) -> str | None:
     """자원 1개 사이징 권고 문구 — under/over(사이징 관련 상태)에만. 도메인 resource_prescription 단일 진실."""
     if ra.status in ("under", "over", "io_bound", "filling") or ra.sizing_target is not None:
-        text = recommendation.resource_prescription(kind, ra)
+        text = right_sizing.resource_prescription(kind, ra)
         return text or None
     return None
 
@@ -69,7 +69,7 @@ def _net_signal(value: float | None, threshold: float, *, inclusive: bool = Fals
 
 
 def _cpu_resource(
-    raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment
+    raw: ReportRowRaw, stats: right_sizing.ResourceStats, host: right_sizing.HostAssessment
 ) -> JsonObject:
     ra = host.resources["cpu"]
     return {
@@ -87,7 +87,7 @@ def _cpu_resource(
 
 
 def _memory_resource(
-    raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment
+    raw: ReportRowRaw, stats: right_sizing.ResourceStats, host: right_sizing.HostAssessment
 ) -> JsonObject:
     ra = host.resources["memory"]
     return {
@@ -105,7 +105,7 @@ def _memory_resource(
 
 
 def _disk_resource(
-    raw: ReportRowRaw, stats: recommendation.ResourceStats, host: recommendation.HostAssessment
+    raw: ReportRowRaw, stats: right_sizing.ResourceStats, host: right_sizing.HostAssessment
 ) -> JsonObject:
     cap = host.resources["disk_capacity"]
     io = host.resources["disk_io"]
@@ -141,7 +141,7 @@ def _disk_resource(
     }
 
 
-def _action(kind: recommendation.ResourceKind, ra: recommendation.ResourceAssessment, op: str) -> RsAction:
+def _action(kind: right_sizing.ResourceKind, ra: right_sizing.ResourceAssessment, op: str) -> RsAction:
     """조치 1건 — 자원·연산·목표 표시. 목표 수치는 자원 종류별 키(target_cores/_mb/_gb)로 직접 파싱 가능.
 
     사이징 축이 아닌 자원(network·disk_io)과 목표 미상은 그 키 자체가 없다 — 계약이 명시한 생략이다.
@@ -150,7 +150,7 @@ def _action(kind: recommendation.ResourceKind, ra: recommendation.ResourceAssess
     action: RsAction = {
         "resource": kind,
         "op": op,
-        "target_display": recommendation.resource_prescription(kind, ra) or None,
+        "target_display": right_sizing.resource_prescription(kind, ra) or None,
     }
     target = ra.sizing_target
     if target is None:
@@ -165,7 +165,7 @@ def _action(kind: recommendation.ResourceKind, ra: recommendation.ResourceAssess
 
 
 def _recommendation(
-    host: recommendation.HostAssessment, stats: recommendation.ResourceStats, rec: recommendation.Recommendation
+    host: right_sizing.HostAssessment, stats: right_sizing.ResourceStats, rec: right_sizing.Recommendation
 ) -> RsRecommendation:
     """종합 권고 구조 (파싱용 견고 포맷) — 이 하나만 보고 조치를 결정한다.
 
@@ -182,10 +182,10 @@ def _recommendation(
         else []
     )
     if rec == "under_provisioned":
-        kinds = recommendation.prescribed_under_kinds(host)  # 관측된 under 자원 전부(사이징 축만) — 억제 없음.
+        kinds = right_sizing.prescribed_under_kinds(host)  # 관측된 under 자원 전부(사이징 축만) — 억제 없음.
         actions = [_action(k, host.resources[k], "increase") for k in kinds] + io_advisory
         return {
-            "summary": recommendation.under_prescription(host),
+            "summary": right_sizing.under_prescription(host),
             "kind": "provision",
             "actions": actions,
             "suppressed": [],
@@ -195,19 +195,19 @@ def _recommendation(
             _action(k, host.resources[k], "decrease")
             for k in ("cpu", "memory")
             if host.resources[k].status == "over"
-            and recommendation.downsize_prescribable(host.resources[k], stats)
+            and right_sizing.downsize_prescribable(host.resources[k], stats)
             and host.resources[k].sizing_target is not None
         ]
         # 다운사이즈 게이트 미충족이면 actions=[](분류는 과다지만 구체 처방 보류). io_bound advisory 는 별개로 붙임.
         return {
-            "summary": recommendation.recommend_action(rec, stats),
+            "summary": right_sizing.recommend_action(rec, stats),
             "kind": "downsize",
             "actions": actions + io_advisory,
             "suppressed": [],
         }
     _kind = {"idle": "decommission", "insufficient_data": "insufficient", "optimal": "maintain"}.get(rec, "maintain")
     return {
-        "summary": recommendation.recommend_action(rec, stats),
+        "summary": right_sizing.recommend_action(rec, stats),
         "kind": _kind,
         "actions": io_advisory,
         "suppressed": [],
@@ -222,8 +222,8 @@ def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambigu
     """
     # 계약 API 는 net baseline 만 주입받는다 — disk 활동 축은 미관측(보고서 경로 전용).
     stats = build_resource_stats(raw, disk_baseline=None)
-    host = recommendation.rollup_host(stats)
-    rec = recommendation.host_status_to_recommendation(host.host_status)
+    host = right_sizing.rollup_host(stats)
+    rec = right_sizing.host_status_to_recommendation(host.host_status)
     net = host.resources["network"]
     return {
         "hostname": raw.hostname,
@@ -233,8 +233,8 @@ def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambigu
         "os_family": raw.os_family,
         "online": is_online,
         "classification": rec,
-        "classification_label": recommendation.LABEL_KO[rec],
-        "root_cause": recommendation.root_cause_display(host) or None,
+        "classification_label": right_sizing.RECOMMENDATION_LABEL_KO[rec],
+        "root_cause": right_sizing.root_cause_display(host) or None,
         # 종합 권고 — 견고한 구조(파싱 대상). actions=관측된 under 자원 전부(독립). per-resource 타겟과 정합.
         "recommendation": _recommendation(host, stats, rec),
         "confidence_notes": build_host_confidence_notes(host),
@@ -249,10 +249,10 @@ def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambigu
             "congested": host.network_congested,
             # 품질 신호 3종(사이징 아닌 별도 축) — 값·임계·초과. 하나라도 초과면 congested. monitoring 표준 임계.
             "signals": {
-                "retransmit_pct": _net_signal(raw.net_retrans_pct, recommendation.RS_NET_RETRANS_PCT),
-                "drop_pct": _net_signal(raw.net_drop_pct, recommendation.RS_NET_DROP_PCT),
+                "retransmit_pct": _net_signal(raw.net_retrans_pct, right_sizing.NET_RETRANS_PCT),
+                "drop_pct": _net_signal(raw.net_drop_pct, right_sizing.NET_DROP_PCT),
                 "conntrack_ratio": _net_signal(
-                    raw.conntrack_ratio, recommendation.RS_CONNTRACK_SATURATION_RATIO, inclusive=True
+                    raw.conntrack_ratio, right_sizing.CONNTRACK_SATURATION_RATIO, inclusive=True
                 ),
             },
             "detail": net.detail or None,

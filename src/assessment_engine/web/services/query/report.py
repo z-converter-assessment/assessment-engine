@@ -4,7 +4,6 @@ from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, cast
 
-from assessment_engine import recommendation
 from assessment_engine.cache.redis import safe_get, safe_mget
 from assessment_engine.db.dtos.outbound import (
     CpuBreakdownRaw,
@@ -22,6 +21,7 @@ from assessment_engine.db.repositories.query.types import (
     BucketSize,
     TimeRange,
 )
+from assessment_engine.domain import right_sizing
 from assessment_engine.web.services.device_filters import disk_total_bytes
 from assessment_engine.web.services.mappers.attention import build_action_targets
 from assessment_engine.web.services.mappers.environment_report import (
@@ -29,7 +29,7 @@ from assessment_engine.web.services.mappers.environment_report import (
     build_saturation_trend,
     to_environment_report,
 )
-from assessment_engine.web.services.mappers.metrics_calculator import build_error_signals
+from assessment_engine.web.services.mappers.metric_dashboard import build_error_signals
 from assessment_engine.web.services.mappers.period_assessment import build_period_assessment
 from assessment_engine.web.services.mappers.report import (
     build_role_distribution,
@@ -66,7 +66,7 @@ from assessment_engine.web.view_models.report import ReportRowItem, ReportSummar
 
 if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
-    from assessment_engine.web.services.mappers.shared import ReportView
+    from assessment_engine.web.services.mappers.constants import ReportView
     from assessment_engine.web.view_models.environment_report import EnvironmentReportSummary
 
 
@@ -74,7 +74,7 @@ if TYPE_CHECKING:
 class _ChildPrefetch:
     """N대 fan-out generator 가 배치 조회한 1대분 — get_single_server_report 주입 (A5).
 
-    raws·detail·breakdown 만 배치(report_aggregate·get_servers·breakdown 1회). trend·online redis 는
+    raws·detail·breakdown 만 배치(get_report_aggregate·get_servers·breakdown 1회). trend·online redis 는
     서버별이라 get_single_server_report 내부 유지(AsyncSession 동시 await 금지로 배치/gather 불가).
     """
 
@@ -133,19 +133,21 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
 
-        public_ids = await self.repo.list_all_server_public_ids()
+        public_ids = await self.repo.list_server_public_ids()
         sid_map = await self.repo.resolve_server_ids(public_ids) if public_ids else {}
         server_ids = [sid_map[p] for p in public_ids if p in sid_map]
 
         raws_window: list[ReportRowRaw] = []
         if server_ids:
             details = await self.repo.get_servers(server_ids)
-            # raws 1회 조립 후 get_report·overview·조치 대상 공유 (A2: report_aggregate/net_io 중복 제거).
+            # raws 1회 조립 후 get_report·overview·조치 대상 공유 (A2: get_report_aggregate/net_io 중복 제거).
             # overview(평균 활용률·분류 도넛)도 선택 time_range 윈도우+anchor 기준 — 선택 N대 보고서와 동일 경로.
             raws_window = await self._assemble_report_raws(server_ids, period_days, end_dt)
             base = await self.get_report(server_ids, period_days, end=end_dt, view=view, raws=raws_window)
             online_by_id = await self._online_map(server_ids, details, end_dt)
-            util = await self.repo.environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
+            util = await self.repo.get_environment_utilization(
+                period_days=period_days, end=end_dt, server_ids=server_ids
+            )
             overview = assemble_overview(details, util, raws_window, online_by_id)
         else:
             overview = _empty_overview()
@@ -189,7 +191,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
     ) -> EnvironmentReportSummary | None:
         """선택 N대 보고서 — 환경 보고서 양식(`get_environment_report`)의 N대 scope 변형 (대상만 선택 서버 한정).
 
-        평균 활용률은 environment_utilization 을 server_ids 로 N대 한정 호출 (전체 환경과 동일
+        평균 활용률은 get_environment_utilization 을 server_ids 로 N대 한정 호출 (전체 환경과 동일
         capacity-weighted SQL). attention 은 N대 호스트로 필터. 미존재/빈 선택 시 None.
         """
         # period_days 는 time_range 에서 내부 도출 (환경 보고서와 동일 — 호출자 불일치 여지 0).
@@ -203,16 +205,16 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         if not details:
             return None
 
-        # raws 1회 조립 후 get_report·overview·under_hosts 공유 (A2: report_aggregate/net_io 중복 제거).
+        # raws 1회 조립 후 get_report·overview·under_hosts 공유 (A2: get_report_aggregate/net_io 중복 제거).
         raws_window = await self._assemble_report_raws(server_ids, period_days, end_dt)
         # fetch_operational_events=True — 세부 서버 목록(N대 선택 전용, "운영 이벤트" 열)에 필요. N 이
-        # 사용자 선택분이라 작아 latest_errors per-server 조회가 안전(환경 전체는 기본 False 로 미조회).
+        # 사용자 선택분이라 작아 get_latest_errors per-server 조회가 안전(환경 전체는 기본 False 로 미조회).
         base = await self.get_report(
             server_ids, period_days, end=end_dt, view=view, raws=raws_window, fetch_operational_events=True
         )
         online_by_id = await self._online_map(server_ids, details, end_dt)
         # 평균 활용률 — capacity-weighted (자원 총량 가중). 전체 환경과 동일 SQL, server_ids 로 N대 한정.
-        util = await self.repo.environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
+        util = await self.repo.get_environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
         overview = assemble_overview(details, util, raws_window, online_by_id)
 
         # 운영 신호 — 선택 N대 raws_window 재사용(B2). os_eol/agent 는 창 독립이라 선택 raws 로 산출 후
@@ -222,7 +224,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             await attention_signals(self.repo, end=end_dt, limit_each=None, raws=raws_window), hostnames
         )
 
-        # 환경 시계열 추이 — 선택 N대 한정 (metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
+        # 환경 시계열 추이 — 선택 N대 한정 (get_metric_trend server_ids). 환경 보고서와 동일 버킷 정책.
         trend = await self._build_report_trend(time_range, end_dt, server_ids)
 
         return to_environment_report(
@@ -272,15 +274,16 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             detail = fetched[0] if fetched else None
             if detail is None:
                 return None
-            # raws 1회 조립 후 get_report·under_hosts 공유 (A2: report_aggregate 중복 제거 + net·worst_mount
+            # raws 1회 조립 후 get_report·under_hosts 공유 (A2: get_report_aggregate 중복 제거 + net·worst_mount
             # 주입으로 단일 보고서 under 분류가 세부 행과 정합 — 기존 single 은 net 미주입이었음).
             raws_window = await self._assemble_report_raws([server_id], period_days, end_dt)
         details = [detail]
-        # fetch_operational_events=True — 단일 서버라 N=1, latest_errors 1건 추가 조회는 안전(N+1 무관).
+        # fetch_operational_events=True — 단일 서버라 N=1, get_latest_errors 1건 추가 조회는 안전(N+1 무관).
         base = await self.get_report(
             [server_id], period_days, end=end_dt, view=view, raws=raws_window, fetch_operational_events=True
         )
-        # N대 fan-out 은 라우터가 1회 수집한 attention 주입 — 루프마다 전역 집계(report_aggregate 전체서버) 재계산 회피.
+        # N대 fan-out 은 라우터가 1회 수집한 attention 주입 —
+        # 루프마다 전역 집계(get_report_aggregate 전체서버) 재계산 회피.
         if attention is None:
             attention = await attention_signals(self.repo, end=end_dt, limit_each=None)
 
@@ -326,17 +329,17 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             if prefetch is not None:
                 mem_raw, cpu_raw = prefetch.mem_raw, prefetch.cpu_raw
             else:
-                mem_raw = await self.repo.report_memory_breakdown(server_id, period_days, end_dt)
-                cpu_raw = await self.repo.report_cpu_breakdown(server_id, period_days, end_dt)
+                mem_raw = await self.repo.get_report_memory_breakdown(server_id, period_days, end_dt)
+                cpu_raw = await self.repo.get_report_cpu_breakdown(server_id, period_days, end_dt)
             summary.memory_breakdown = build_memory_breakdown(mem_raw)
             summary.cpu_breakdown = build_cpu_breakdown(cpu_raw)
 
             # 자원 적정성·포화·에러(U+S+E) — 서버 상세·자원 상세 탭과 동일 단일 진실(build_period_assessment,
-            # query/server.py::get_period_assessment 와 동일 호출 패턴). latest_errors 는 get_report 내부에서도
+            # query/server.py::get_period_assessment 와 동일 호출 패턴). get_latest_errors 는 get_report 내부에서도
             # 호출되지만(has_operational_event 용) 그 결과는 폐기되므로 N=1 이라 안전하게 한 번 더 조회한다.
             raw0 = raws_window[0]
             win_days = int(period_days)
-            err = await self.repo.latest_errors(server_id, end_dt - timedelta(days=period_days))
+            err = await self.repo.get_latest_errors(server_id, end_dt - timedelta(days=period_days))
             errors = build_error_signals(err, window_label=f"최근 {win_days}일", os_family=raw0.os_family)
             summary.period_assessment = build_period_assessment(
                 build_resource_stats(raw0, disk_baseline=raw0.disk_iops_baseline),
@@ -372,7 +375,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
     ) -> list[tuple[str, EnvironmentReportSummary | None]]:
         """N대 child 단일 보고서 — 공통 데이터(raws·details·breakdown) 배치 1회 조회 후 서버별 조립 (A5).
 
-        get_single_server_report 를 prefetch 주입으로 N회 호출 — report_aggregate(6N->6)·get_servers(N->1)·
+        get_single_server_report 를 prefetch 주입으로 N회 호출 — get_report_aggregate(6N->6)·get_servers(N->1)·
         breakdown(3N->3) 배치 절감. trend·online redis 는 서버별이라 내부 유지(AsyncSession 동시 await 금지).
         반환 [(public_id, summary|None)] — 미존재 서버는 None.
         """
@@ -385,8 +388,8 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         mem_by_id: dict[int, MemoryBreakdownRaw] = {}
         cpu_by_id: dict[int, CpuBreakdownRaw] = {}
         if view == "engineer":
-            mem_by_id = await self.repo.report_memory_breakdown_batch(sids, period_days, anchor_at)
-            cpu_by_id = await self.repo.report_cpu_breakdown_batch(sids, period_days, anchor_at)
+            mem_by_id = await self.repo.get_report_memory_breakdown_batch(sids, period_days, anchor_at)
+            cpu_by_id = await self.repo.get_report_cpu_breakdown_batch(sids, period_days, anchor_at)
 
         results: list[tuple[str, EnvironmentReportSummary | None]] = []
         for pid in server_public_ids:
@@ -418,9 +421,9 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         """
         bucket = cast("BucketSize", AUTO_BUCKET.get(time_range, "1h"))
         trend_start = end_dt - TIME_RANGE_TD[time_range]
-        cpu_series = await self.repo.metric_trend("cpu.usage_percent", trend_start, end_dt, bucket, server_ids)
-        mem_series = await self.repo.metric_trend("mem.usage_percent", trend_start, end_dt, bucket, server_ids)
-        disk_series = await self.repo.metric_trend("fs.usage_percent", trend_start, end_dt, bucket, server_ids)
+        cpu_series = await self.repo.get_metric_trend("cpu.usage_percent", trend_start, end_dt, bucket, server_ids)
+        mem_series = await self.repo.get_metric_trend("mem.usage_percent", trend_start, end_dt, bucket, server_ids)
+        disk_series = await self.repo.get_metric_trend("fs.usage_percent", trend_start, end_dt, bucket, server_ids)
         return build_metric_trend(cpu_series, mem_series, disk_series)
 
     async def _build_report_saturation_trend(
@@ -433,42 +436,42 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         """
         bucket = cast("BucketSize", AUTO_BUCKET.get(time_range, "1h"))
         trend_start = end_dt - TIME_RANGE_TD[time_range]
-        cpu_series = await self.repo.metric_trend("cpu.saturation", trend_start, end_dt, bucket, server_ids)
-        mem_series = await self.repo.metric_trend("mem.paging_pressure", trend_start, end_dt, bucket, server_ids)
-        disk_series = await self.repo.metric_trend("disk.saturation", trend_start, end_dt, bucket, server_ids)
+        cpu_series = await self.repo.get_metric_trend("cpu.saturation", trend_start, end_dt, bucket, server_ids)
+        mem_series = await self.repo.get_metric_trend("mem.paging_pressure", trend_start, end_dt, bucket, server_ids)
+        disk_series = await self.repo.get_metric_trend("disk.saturation", trend_start, end_dt, bucket, server_ids)
         return build_saturation_trend(cpu_series, mem_series, disk_series)
 
     async def _assemble_report_raws(
         self, server_ids: list[int], period_days: float, end_dt: datetime
     ) -> list[ReportRowRaw]:
-        """report_aggregate + 4 baseline(uptime·agent_restart·disk_io·net_io) 주입 raws.
+        """get_report_aggregate + 4 baseline(uptime·agent_restart·disk_io·net_io) 주입 raws.
 
         보고서 3경로(env·selection·single)가 get_report 세부 행·under_hosts 분류·overview 에 동일
-        raws 를 공유 — report_aggregate/net_io 중복 호출 제거 + build_resource_stats(#E3) 입력 일치로
+        raws 를 공유 — get_report_aggregate/net_io 중복 호출 제거 + build_resource_stats(#E3) 입력 일치로
         유휴 분류 정합(세부 행·under·도넛 동일 입력). worst_mount used%·용량 임박(구동 마운트·runway)은
-        report_aggregate 가 단독으로 산출한다 (별도 쿼리 없음).
+        get_report_aggregate 가 단독으로 산출한다 (별도 쿼리 없음).
         """
-        raws = await self.repo.report_aggregate(
+        raws = await self.repo.get_report_aggregate(
             server_ids,
             period_days,
             end_dt,
         )
-        uptime_stats = await self.repo.report_uptime_stats(
+        uptime_stats = await self.repo.get_report_uptime_stats(
             server_ids,
             period_days,
             end_dt,
         )
-        agent_restart_stats = await self.repo.report_agent_restart_stats(
+        agent_restart_stats = await self.repo.get_report_agent_restart_stats(
             server_ids,
             period_days,
             end_dt,
         )
-        disk_io = await self.repo.report_disk_io_baseline(
+        disk_io = await self.repo.get_report_disk_io_baseline(
             server_ids,
             period_days,
             end_dt,
         )
-        net_io = await self.repo.report_net_io_baseline(
+        net_io = await self.repo.get_report_net_io_baseline(
             server_ids,
             period_days,
             end_dt,
@@ -487,7 +490,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
     async def get_report(
         self,
         server_ids: list[int],
-        period_days: float = recommendation.WINDOW_DAYS,
+        period_days: float = right_sizing.WINDOW_DAYS,
         end: datetime | None = None,
         view: ReportView = "customer",
         raws: list[ReportRowRaw] | None = None,
@@ -499,12 +502,12 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         (role/recommendation/badge_class/os_display) 채움. KPI도 service 책임.
         is_online은 Redis mget 일괄 (N+1 회피, fail-open 시 last_seen_at fallback).
         view는 summary_bullets 분기에만 사용 (양식 A/B로 행동 시그널 vs 엔지니어 시그널 분리).
-        fetch_operational_events — True 면 서버별 latest_errors(보고서 window 기준)로 has_operational_event
+        fetch_operational_events — True 면 서버별 get_latest_errors(보고서 window 기준)로 has_operational_event
         판정(세부 서버 목록 전용, get_selection_report 만 True). 기본 False — 환경 전체 보고서(server_ids
         최대 수백)까지 켜면 서버별 쿼리 N+1 이라 반드시 작은 N(선택 보고서)에만 명시적으로 켠다.
         """
         end_dt = end or datetime.now(UTC)
-        # raws 주입 시 재사용(보고서 3경로가 under_hosts 분류·overview 와 공유 — report_aggregate/net_io
+        # raws 주입 시 재사용(보고서 3경로가 under_hosts 분류·overview 와 공유 — get_report_aggregate/net_io
         # 중복 호출 제거), 없으면 자체 조립(단독 라우트·dashboard 호환).
         if raws is None:
             raws = await self._assemble_report_raws(server_ids, period_days, end_dt)
@@ -519,7 +522,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             online = bool(raw.last_seen_at and raw.last_seen_at > threshold) if flags is None else flags[i] is not None
             has_event = False
             if fetch_operational_events:
-                err = await self.repo.latest_errors(raw.server_id, window_start)
+                err = await self.repo.get_latest_errors(raw.server_id, window_start)
                 has_event = bool(
                     err.mce_count
                     or err.oom_count

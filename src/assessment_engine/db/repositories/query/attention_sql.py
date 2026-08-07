@@ -7,7 +7,7 @@ from assessment_engine.db.repositories.query._base import _BaseQueryMixin
 
 
 class SqlAttentionQueryRepository(_BaseQueryMixin):
-    async def metric_gap_warnings(
+    async def get_metric_gap_warnings(
         self,
         gap_minutes: int,
         recent_hours: int,

@@ -264,7 +264,7 @@ async function loadCompChart() {
   } catch(e) { console.error(e); }
 }
 
-/* -- 메모리 압박 여부 추이 (이진 0/1 스텝 — recommendation.mem_pressure_active 와 동일 판정) --
+/* -- 메모리 압박 여부 추이 (이진 0/1 스텝 — right_sizing.mem_pressure_active 와 동일 판정) --
  * Linux(refault 임계 >0)·Windows(Pages Input/sec 임계 20/s) 를 버킷별 bool_or 로 0/1 통일 — OS 무관 같은
  * 잣대(판정 결과)로 비교 가능. backend mem.paging_pressure(서버 상세 단일 시계열, 환경 mem.paging_pressure_hosts
  * 와 동일 원자료·임계).

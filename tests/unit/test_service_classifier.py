@@ -2,11 +2,11 @@
 
 import pytest
 
-from assessment_engine.service_classifier import (
+from assessment_engine.domain.service_classifier import (
     BADGE_CLASS_BY_CATEGORY,
     SERVICE_CATALOG,
     SERVICE_CATEGORIES,
-    classify,
+    classify_service,
     matched_ports,
 )
 
@@ -32,12 +32,12 @@ from assessment_engine.service_classifier import (
     ],
 )
 def test_classify(unit: str, expected: str):
-    assert classify(unit) == expected
+    assert classify_service(unit) == expected
 
 
 def test_classify_case_insensitive():
-    assert classify("NGINX.service") == "web"
-    assert classify("PostgreSQL.service") == "db"
+    assert classify_service("NGINX.service") == "web"
+    assert classify_service("PostgreSQL.service") == "db"
 
 
 @pytest.mark.parametrize(
@@ -64,7 +64,7 @@ def test_classify_case_insensitive():
     ],
 )
 def test_classify_extended_catalog(unit: str, expected: str):
-    assert classify(unit) == expected
+    assert classify_service(unit) == expected
 
 
 @pytest.mark.parametrize(
@@ -80,13 +80,13 @@ def test_classify_extended_catalog(unit: str, expected: str):
 )
 def test_detect_listen_categories_extended_ports(port: int, expected: str):
     # 호스트 레벨 port 신호 — comm 부재(Windows 권한 부족 등)에도 포트로 분류.
-    from assessment_engine.service_classifier import detect_listen_categories
+    from assessment_engine.domain.service_classifier import detect_listen_categories
 
     result = detect_listen_categories([{"proto": "tcp", "port": port, "comm": None}])
     assert list(result.keys()) == [expected]
 
 
-# --- classify: Windows SCM 이름 (이름 신호로 흡수, ADR 0032) ------------------
+# --- classify: Windows SCM 이름 (이름 신호로 흡수) ------------------
 
 
 @pytest.mark.parametrize(
@@ -98,7 +98,7 @@ def test_detect_listen_categories_extended_ports(port: int, expected: str):
     ],
 )
 def test_classify_windows_scm_name(unit: str, expected: str):
-    assert classify(unit) == expected
+    assert classify_service(unit) == expected
 
 
 # --- classify: comm 신호 (이름 미스매치 흡수) --------------------------------
@@ -108,13 +108,13 @@ def test_classify_comm_signal_name_variant():
     """name 이 comm 의 substring 이면 귀속 후 comm 키워드로 분류 (mongo <- mongod)."""
     # name "mongo" 는 키워드 미매치(키워드는 mongod/mongodb), comm "mongod" 가 name 을 포함 -> 귀속 -> db
     listen = [{"proto": "tcp", "port": 27017, "comm": "mongod"}]
-    assert classify("mongo", listen) == "db"
+    assert classify_service("mongo", listen) == "db"
 
 
 def test_classify_comm_unattributable_stays_unknown():
     """이름이 comm 과 완전 무관하면 귀속 불가 -> unknown (T15 한계)."""
     listen = [{"proto": "tcp", "port": 1433, "comm": "sqlservr.exe"}]
-    assert classify("MyCompanyDB", listen) == "unknown"
+    assert classify_service("MyCompanyDB", listen) == "unknown"
 
 
 # --- classify: port 신호 ----------------------------------------------------
@@ -127,19 +127,19 @@ def test_classify_port_signal_via_wellknown_name():
     listen = [{"proto": "tcp", "port": 6379, "comm": "valkey-server"}]
     # name "valkey" vs comm "valkey-server": comm in name? no. name in comm? "valkey" in "valkey-server" yes -> 귀속
     # comm "valkey-server" 키워드 매치 없음 -> port 6379 -> cache
-    assert classify("valkey", listen) == "cache"
+    assert classify_service("valkey", listen) == "cache"
 
 
 def test_classify_priority_name_over_port():
     """name 신호가 port 와 충돌하면 name 우선 (haproxy 가 5432 프록시해도 web)."""
     listen = [{"proto": "tcp", "port": 5432, "comm": "haproxy"}]
-    assert classify("haproxy.service", listen) == "web"
+    assert classify_service("haproxy.service", listen) == "web"
 
 
 def test_classify_listen_ports_none_name_only():
     """listen_ports 미제공 시 name 신호만 — 현행 동작 보존."""
-    assert classify("nginx.service") == "web"
-    assert classify("MyCompanyDB") == "unknown"
+    assert classify_service("nginx.service") == "web"
+    assert classify_service("MyCompanyDB") == "unknown"
 
 
 # --- matched_ports --------------------------------------------------------
@@ -194,7 +194,7 @@ def test_matched_ports_empty_listen():
     assert matched_ports("nginx.service", []) == []
 
 
-# --- pid 정확 join (comm~name / well-known 폴백과 구별, ADR 0032) -------------
+# --- pid 정확 join (comm~name / well-known 폴백과 구별) -------------
 
 
 def test_matched_ports_pid_join_attributes_unrelated_comm_and_port():
@@ -257,28 +257,28 @@ def test_matched_ports_pid_join_dedupe_proto_port():
 def test_classify_pid_join_enables_port_signal():
     """name 무정보라도 pid 로 귀속된 소켓 포트(1433)로 db 분류 — pid 미제공이면 미귀속 unknown."""
     listen = [{"proto": "tcp", "port": 1433, "pid": 100, "comm": "opaque"}]
-    assert classify("app.service", listen, pid=100) == "db"
+    assert classify_service("app.service", listen, pid=100) == "db"
     # 대조: pid 미제공이면 comm "opaque" 무관 + 1433 name well-known 아님 -> 미귀속 -> unknown
-    assert classify("app.service", listen) == "unknown"
+    assert classify_service("app.service", listen) == "unknown"
 
 
 def test_classify_pid_join_enables_comm_signal():
     """pid 귀속 소켓의 comm 키워드(sqlservr)로 db 분류 — name/port 무정보에도 pid join 이 comm 신호 열어줌."""
     # comm "sqlservr" 는 db 키워드, port 는 비표준(9999) -> comm 신호만으로 db.
     listen = [{"proto": "tcp", "port": 9999, "pid": 100, "comm": "sqlservr"}]
-    assert classify("app.service", listen, pid=100) == "db"
+    assert classify_service("app.service", listen, pid=100) == "db"
     # 대조: pid 미제공이면 comm 이 name "app" 과 무관 + 9999 미등록 -> unknown
-    assert classify("app.service", listen) == "unknown"
+    assert classify_service("app.service", listen) == "unknown"
 
 
 def test_classify_pid_join_ignores_other_pid_socket():
     """다른 pid 소켓은 comm/port 가 분류 신호여도 무시 — 확정 귀속만 신호."""
     listen = [{"proto": "tcp", "port": 1433, "pid": 200, "comm": "sqlservr"}]
     # 요청 pid=100 과 소켓 pid=200 불일치 -> 귀속 0 -> 신호 없음 -> unknown
-    assert classify("app.service", listen, pid=100) == "unknown"
+    assert classify_service("app.service", listen, pid=100) == "unknown"
 
 
-# --- 카탈로그 파생 일관성 (drift 회귀, ADR 0032) -----------------------------
+# --- 카탈로그 파생 일관성 (drift 회귀) -----------------------------
 
 
 def test_catalog_categories_match_derived():
@@ -309,7 +309,7 @@ def test_catalog_ports_no_cross_category_collision():
 
 def test_compute_categories_port_only_workload():
     """이름·comm 미상이라도 listen 포트(6379)로 cache 식별 — 목록 뱃지 버그 케이스."""
-    from assessment_engine.service_classifier import compute_service_categories
+    from assessment_engine.domain.service_classifier import compute_service_categories
 
     cats = compute_service_categories(None, [{"proto": "tcp", "port": 6379, "comm": "opaquebin"}])
     assert cats == ["cache"]
@@ -317,7 +317,7 @@ def test_compute_categories_port_only_workload():
 
 def test_compute_categories_name_listen_union_sorted_dedup():
     """services 이름 분류와 listen 탐지의 합집합, 정렬·dedup·unknown 제외."""
-    from assessment_engine.service_classifier import compute_service_categories
+    from assessment_engine.domain.service_classifier import compute_service_categories
 
     cats = compute_service_categories(
         [{"unit": "nginx.service"}, {"unit": "sshd.service"}],  # web + sshd(remote, baseline 제외)
@@ -327,7 +327,7 @@ def test_compute_categories_name_listen_union_sorted_dedup():
 
 
 def test_compute_categories_empty():
-    from assessment_engine.service_classifier import compute_service_categories
+    from assessment_engine.domain.service_classifier import compute_service_categories
 
     assert compute_service_categories(None, []) == []
     assert compute_service_categories([], None) == []
@@ -335,7 +335,7 @@ def test_compute_categories_empty():
 
 def test_compute_categories_matches_workload_counter_keyset():
     """저장 집합 키셋 == workload_category_counter 키셋 (분류 로직 단일 진실 — 화면 간 일치 보장)."""
-    from assessment_engine.service_classifier import compute_service_categories
+    from assessment_engine.domain.service_classifier import compute_service_categories
     from assessment_engine.web.services.mappers.server import workload_category_counter
 
     services = [{"unit": "nginx.service"}, {"unit": "docker.service"}, {"unit": "containerd.service"}]
@@ -347,7 +347,7 @@ def test_compute_categories_matches_workload_counter_keyset():
 
 def test_compute_categories_excludes_baseline_keeps_workload():
     """baseline(OS 기본·관리 — SSH·NTP·RPC) 제외, 특징 워크로드(cache·DNS 서버)만 저장 카테고리."""
-    from assessment_engine.service_classifier import compute_service_categories
+    from assessment_engine.domain.service_classifier import compute_service_categories
 
     cats = compute_service_categories(
         [

@@ -21,7 +21,7 @@ from assessment_engine.consumer.handlers import (
     make_metrics_handler,
     make_task_result_handler,
 )
-from assessment_engine.consumer.handlers._common import _format_validation_err, _sanitize_log_text
+from assessment_engine.consumer.handlers._common import _format_validation_error, _sanitize_log_text
 from assessment_engine.consumer.schemas import MetricsInput
 from assessment_engine.consumer.settings import get_consumer_settings
 from tests.fakes import FakeMessage, FakeRedis, FakeSessionFactory, InMemoryCollectRepository
@@ -266,7 +266,7 @@ def test_format_validation_err_keeps_paths_not_values():
     with pytest.raises(ValidationError) as excinfo:
         MetricsInput.model_validate({"message_id": marker})
 
-    detail = _format_validation_err(excinfo.value)
+    detail = _format_validation_error(excinfo.value)
 
     assert marker not in detail
     assert "message_id=" in detail
@@ -278,7 +278,7 @@ def test_format_validation_err_caps_field_count():
     with pytest.raises(ValidationError) as excinfo:
         MetricsInput.model_validate({})
 
-    detail = _format_validation_err(excinfo.value, limit=2)
+    detail = _format_validation_error(excinfo.value, limit=2)
 
     assert "more" in detail
     assert detail.count("=") <= 4  # count= + 2 필드 + more 접미

@@ -10,7 +10,7 @@ HTTP 경계 스냅샷(`tests/http/`)이 화면을 고정한다면 여기는 그 
 from datetime import UTC, datetime
 from typing import Any, cast
 
-from assessment_engine.web.services.query_service import QueryService
+from assessment_engine.web.services.query import QueryService
 from tests.builders import report_row_raw, server_detail
 from tests.fakes import FakeRedis, InMemoryQueryRepository
 
@@ -27,7 +27,7 @@ def _three_hosts() -> dict[str, Any]:
         "list_server_ids": [1, 2, 3],
         "resolve_server_ids": {"p1": 1, "p2": 2, "p3": 3},
         "get_servers": [server_detail(n, f"host-{n}") for n in (1, 2, 3)],
-        "report_aggregate": [
+        "get_report_aggregate": [
             report_row_raw(server_id=1, public_id="p1", hostname="host-1", cpu_p95_pct=88.0, mem_p95_pct=93.0),
             report_row_raw(server_id=2, public_id="p2", hostname="host-2", cpu_p95_pct=1.0, mem_p95_pct=4.0),
             report_row_raw(server_id=3, public_id="p3", hostname="host-3"),
@@ -62,7 +62,7 @@ async def test_get_report_classifies_each_host():
 
 async def test_get_report_empty_when_no_servers():
     """서버가 없으면 빈 표 — 예외가 아니라 값으로 돌려준다(화면이 empty_state 를 그린다)."""
-    service = _service(list_server_ids=[], get_servers=[], report_aggregate=[])
+    service = _service(list_server_ids=[], get_servers=[], get_report_aggregate=[])
 
     result = await service.get_report([], period_days=14, end=ANCHOR)
 

@@ -1,4 +1,4 @@
-"""TaskResultInput Pydantic 단위 테스트 (ADR 0007).
+"""TaskResultInput Pydantic 단위 테스트.
 
 검증 항목:
 - success / failure 경로 양쪽 Literal 통과
@@ -106,7 +106,7 @@ def test_failure_reason_max_length() -> None:
 
 
 def test_boot_time_nullable_allowed() -> None:
-    """ADR 0007 D1 — worker 컨텍스트 분리로 task.result 는 boot_time/agent_started_at null 발행."""
+    """D1 — worker 컨텍스트 분리로 task.result 는 boot_time/agent_started_at null 발행."""
     payload = make_task_result_payload(boot_time=None, agent_started_at=None)
     data = _validate(payload)
     assert data.boot_time is None
@@ -125,7 +125,7 @@ def test_boot_time_value_also_allowed() -> None:
 
 
 def test_composite_id_nullable_for_task_result() -> None:
-    """ADR 0027 — worker 컨텍스트는 composite hash 미산출. task.result 한정 composite_id nullable override.
+    """— worker 컨텍스트는 composite hash 미산출. task.result 한정 composite_id nullable override.
 
     결과 매칭은 task_id 로 하므로 composite_id 불필요 — agent worker 가 키 자체를 안 보내도 수용.
     """
@@ -137,7 +137,7 @@ def test_composite_id_nullable_for_task_result() -> None:
 
 
 def test_agent_id_nullable_for_task_result() -> None:
-    """ADR 0049 — worker 컨텍스트는 식별자 미산출. task.result 한정 agent_id nullable override.
+    """— worker 컨텍스트는 식별자 미산출. task.result 한정 agent_id nullable override.
 
     다른 메시지 타입은 agent_id required. worker 는 결과를 task_id 로 매칭하므로 agent_id 생략 수용.
     """
@@ -157,7 +157,7 @@ def test_agent_id_value_accepted_for_task_result() -> None:
     assert str(data.agent_id) == "00000000-0000-4000-8000-0000000000c1"
 
 
-# --- ADR 0007 회귀 가드 (옛 구조 거부 / status permissive 완화) --------------
+# --- 회귀 가드 (옛 구조 거부 / status permissive 완화) --------------
 
 
 def test_legacy_message_type_underscore_rejected() -> None:

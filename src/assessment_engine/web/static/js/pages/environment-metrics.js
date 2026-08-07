@@ -177,7 +177,7 @@ async function loadCpuChart(range, anchor) {
   updateMaxLabel('cpu-max', computePeriodMax(safeAvg), v => v.toFixed(1)+'%', null);
 }
 
-// 실행 큐 포화 서버 수 — recommendation.cpu_saturation_index 와 동일 임계 판정을 SQL 로 이식(backend
+// 실행 큐 포화 서버 수 — right_sizing.cpu_saturation_index 와 동일 임계 판정을 SQL 로 이식(backend
 // cpu.saturation_hosts, NULL dimension 단일선). Linux procs_running(임계1.0)·Windows Processor Queue
 // Length(임계2.0) — 판정 crossing 서버 수(count). 메모리 압박 서버 수와 일관된 표현(강도 지수보다 "몇 대"가
 // 도메인 지식 없이 바로 읽힘) — "윈도우 정규화 보정".
@@ -231,7 +231,7 @@ async function loadCpuSaturationChart(range, anchor) {
   updateMaxLabel('cpusat-max', computePeriodMax(safe), v => v.toFixed(0)+'대', null);
 }
 
-// 디스크 I/O 포화 서버 수 — disk.io_saturation(worst-device MAX 단일선)과 동일 임계(RS_DISKIO_AWAIT_MS)를
+// 디스크 I/O 포화 서버 수 — disk.io_saturation(worst-device MAX 단일선)과 동일 임계(DISKIO_AWAIT_MS)를
 // 서버별로 적용한 판정 crossing 서버 수(count, NULL dimension). CPU 실행 큐·메모리 페이징과 동형 — "가장
 // 나쁜 곳 1개"보다 "몇 대가 영향받았는지"가 더 유용. 물리 disk only + 카운터 신뢰 조건은 backend 단일 진실.
 /**
@@ -301,7 +301,7 @@ async function loadMemChart(range, anchor) {
   updateMaxLabel('mem-max', computePeriodMax(safeAvg), v => v.toFixed(1)+'%', null);
 }
 
-// 메모리 압박 서버 수 — recommendation.mem_pressure_active(mem_saturated dual-gate 의 실제 페이징 판정
+// 메모리 압박 서버 수 — right_sizing.mem_pressure_active(mem_saturated dual-gate 의 실제 페이징 판정
 // 신호원) 동일 원자료·임계(backend mem.paging_pressure_hosts, NULL dimension 단일선). Linux(refault, 임계
 // "> 0")·Windows(Pages Input/sec, 임계 20/s) 판정 crossing 서버 수 — 정규화 지수 아닌 count(분모 왜곡 없음).
 // mem.psi(판정 비관여 참고치, Windows 미발행) 대체 — 실제 분류에 쓰는 신호라 정합성 높음, "윈도우 정규화 보정".
@@ -401,7 +401,7 @@ async function loadNetIoChart(range, anchor) {
   updateMaxLabel('netio-tx-max', computePeriodMax(safeTx), fmtKbChart, null, 'TX 최대');
 }
 
-// 네트워크 이상 서버 수 — recommendation.assess_network 의 실제 판정(network_congested: 재전송율>1%·
+// 네트워크 이상 서버 수 — right_sizing.assess_network 의 실제 판정(network_congested: 재전송율>1%·
 // 드롭율>0.5%(저트래픽 게이트)·conntrack 고갈>=0.8 OR)과 동일 원자료·임계를 SQL 로 이식(backend
 // net.congested_hosts, NULL dimension 단일선). 재전송율·드롭율 두 % 라인이 시각적으로 거의 겹쳐 구분이 안
 // 되던 문제를 판정 crossing 서버 수(count)로 통합 — cpu/mem/disk 포화 서버 수와 동형.

@@ -3,18 +3,15 @@
 보고서 표(`report.py`)와 주제가 다르다. 저쪽은 여러 호스트를 한 표에 세우는 행 변환이고, 여기는 호스트
 하나를 자원 축으로 펼치는 카드다. 소비자도 갈린다 — 서버 세부 탭과 단일 서버 보고서가 이 카드를 쓴다.
 
-판정은 전부 `recommendation` 도메인 helper 를 경유한다. 임계를 여기서 다시 해석하면 같은 호스트가
+판정은 전부 `right_sizing` 도메인 helper 를 경유한다. 임계를 여기서 다시 해석하면 같은 호스트가
 목록·보고서·카드에서 다른 상태로 보인다 (#E3).
 """
 
 from typing import TYPE_CHECKING
 
-from assessment_engine import recommendation
-from assessment_engine.web.services.mappers.shared import (
-    _DONUT_SEGMENT_DEFS,
-    SaturationAxisDisplay,
-    saturation_axis_displays,
-)
+from assessment_engine.domain import right_sizing
+from assessment_engine.web.services.mappers.assessment_display import SaturationAxisDisplay, saturation_axis_displays
+from assessment_engine.web.services.mappers.constants import _DONUT_SEGMENT_DEFS
 from assessment_engine.web.view_models.metric import (
     PeriodAssessment,
     PeriodErrorRow,
@@ -32,7 +29,7 @@ def _pct_str(v: float | None) -> str:
 
 
 # 자원별 status -> (소제목 옆 verdict 라벨, 색). 문제 자원(부족·용량임박·I/O병목=빨강 / 혼잡=주황 / 과다=파랑)만
-# 색으로 부각, 정상·유휴·미측정은 muted 회색. 라벨은 카드용 간결형(RS_STATUS_LABEL_KO 동계열).
+# 색으로 부각, 정상·유휴·미측정은 muted 회색. 라벨은 카드용 간결형(STATUS_LABEL_KO 동계열).
 _VERDICT_LABEL = {
     "under": "부족",
     "over": "과다",
@@ -93,33 +90,33 @@ def _extra_row(
     return PeriodSignalRow(label=label, value=value, threshold=threshold, over=over, measured=val is not None)
 
 
-def _confidence_rows(stats: recommendation.ResourceStats) -> list[PeriodSignalRow]:
-    """관측 시간·표본 충분성 — host-level 신뢰도 입력(_base_confidence 공용, ADR 0052). 자원마다 별 신뢰도
+def _confidence_rows(stats: right_sizing.ResourceStats) -> list[PeriodSignalRow]:
+    """관측 시간·표본 충분성 — host-level 신뢰도 입력(_base_confidence 공용). 자원마다 별 신뢰도
 
     카드에 반복 노출하는 게 설계 의도(per-resource ConfidenceNote) — 값 자체는 host 공통이라 자원 간 동일.
     """
-    rec = recommendation
+    rec = right_sizing
     hours = stats.history_hours
     suff = stats.sample_sufficiency
     return [
         PeriodSignalRow(
             label="관측 시간",
             value=(f"{hours:.0f}h" if hours is not None else "N/A"),
-            threshold=f"최소 {rec.RS_CONFIDENCE_MIN_HOURS:g}h",
+            threshold=f"최소 {rec.CONFIDENCE_MIN_HOURS:g}h",
             measured=hours is not None,
-            over=hours is not None and hours < rec.RS_CONFIDENCE_MIN_HOURS,
+            over=hours is not None and hours < rec.CONFIDENCE_MIN_HOURS,
         ),
         PeriodSignalRow(
             label="표본 충분성",
             value=(f"{suff * 100:.0f}%" if suff is not None else "N/A"),
-            threshold=f"최소 {rec.RS_DOWNSIZE_MIN_SUFFICIENCY * 100:g}%",
+            threshold=f"최소 {rec.DOWNSIZE_MIN_SUFFICIENCY * 100:g}%",
             measured=suff is not None,
-            over=suff is not None and suff < rec.RS_DOWNSIZE_MIN_SUFFICIENCY,
+            over=suff is not None and suff < rec.DOWNSIZE_MIN_SUFFICIENCY,
         ),
     ]
 
 
-def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
+def _cpu_extra_groups(stats: right_sizing.ResourceStats) -> list[PeriodExtraGroup]:
     """CPU 상세 탭 "신뢰도" 카드 — U/S 2축 헤드라인 수치를 얼마나 믿을지 보완하는 원신호, 성격별 2그룹(#E9 완전
 
     노출). 대등한 두 독립 축이 아니라 전부 "신뢰도" 우산 아래 성격 구분 — 부하 신호도 사이징/근본원인 판정
@@ -128,7 +125,7 @@ def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
     "부하 신호" = 피크·코어별 최대·D-state 블록 (피크는 임계 없는 정보성, over 항상 False). "통계 신뢰도" =
     버스트·steal 편향·관측 시간·표본 충분성 — confidence/근본원인 판정에 쓰이는 실제 임계 재사용(재계산 0).
     """
-    rec = recommendation
+    rec = right_sizing
     percore = stats.cpu_percore_p95_max
     burst = stats.cpu_burst_ratio
     steal = stats.cpu_steal_p95_pct
@@ -138,8 +135,8 @@ def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
             "코어별 최대 p95",
             percore,
             "%",
-            rec.RS_CPU_PERCORE_HOLD_PCT,
-            over=percore is not None and percore >= rec.RS_CPU_PERCORE_HOLD_PCT,
+            rec.CPU_PERCORE_HOLD_PCT,
+            over=percore is not None and percore >= rec.CPU_PERCORE_HOLD_PCT,
         ),
         _extra_row(
             "D-state 블록 p95",
@@ -154,15 +151,15 @@ def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
             "버스트 비율(p95/median)",
             burst,
             "x",
-            rec.RS_BURST_RATIO_MAX,
-            over=burst is not None and burst > rec.RS_BURST_RATIO_MAX,
+            rec.BURST_RATIO_MAX,
+            over=burst is not None and burst > rec.BURST_RATIO_MAX,
         ),
         _extra_row(
             "Steal 편향 p95",
             steal,
             "%",
-            rec.RS_CPU_STEAL_BIAS_PCT,
-            over=steal is not None and steal >= rec.RS_CPU_STEAL_BIAS_PCT,
+            rec.CPU_STEAL_BIAS_PCT,
+            over=steal is not None and steal >= rec.CPU_STEAL_BIAS_PCT,
         ),
         *_confidence_rows(stats),
     ]
@@ -172,7 +169,7 @@ def _cpu_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
     ]
 
 
-def _mem_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
+def _mem_extra_groups(stats: right_sizing.ResourceStats) -> list[PeriodExtraGroup]:
     """메모리 상세 탭 "신뢰도" 카드 — CPU와 동일 개념(U/S 헤드라인 보완 원신호, 성격별 2그룹, #E9 완전 노출).
 
     "부하 신호" = near-peak 사용률(버킷별 max 의 p95, 비탄력 피크 사이징 기준 — assess_memory 사이징에 이미
@@ -186,17 +183,17 @@ def _mem_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGr
     ]
 
 
-def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
+def _storage_extra_groups(stats: right_sizing.ResourceStats) -> list[PeriodExtraGroup]:
     """스토리지 상세 탭 "신뢰도" 카드 — CPU/메모리와 동일 개념. 스토리지는 용량(disk_capacity)+I/O(disk_io)
 
     두 축 통합이라 "부하 신호"에 양쪽 원신호를 함께 담는다(#E9 완전 노출).
 
-    "부하 신호" = 용량 소진 잔여일수(bytes·inode, RS_DISK_RUNWAY_DAYS 미만이면 임박)·inode 사용률(정적 가드
-    RS_DISK_STATIC_GUARD_PCT, byte 사용률과 대칭)·IOPS 활동량(baseline, 임계 없는 정보성 — 유휴 device 구분용)·
+    "부하 신호" = 용량 소진 잔여일수(bytes·inode, DISK_RUNWAY_DAYS 미만이면 임박)·inode 사용률(정적 가드
+    DISK_STATIC_GUARD_PCT, byte 사용률과 대칭)·IOPS 활동량(baseline, 임계 없는 정보성 — 유휴 device 구분용)·
     확장 목표 용량(1년 수명, 사이징 참고). "통계 신뢰도" = CPU/메모리와 동일 host-level 입력(_confidence_rows).
-    disk_io 의 virtio 편향(biased=True, ADR 0052)은 상시 True 라 표시 노이즈 -> host 신뢰도 노트와 동일하게 생략.
+    disk_io 의 virtio 편향(biased=True)은 상시 True 라 표시 노이즈 -> host 신뢰도 노트와 동일하게 생략.
     """
-    rec = recommendation
+    rec = right_sizing
 
     def _runway_row(label: str, val: float | None) -> PeriodSignalRow:
         """runway=None 에 원인 둘이 섞여 있어 "N/A" 단독으로는 어느 쪽인지 못 읽는다 — 구분 표기.
@@ -204,25 +201,25 @@ def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExt
         (1) 관측 span 부족(mount_calc 의 rate_min_span 미달) -> 아직 추세를 못 낸 것(진짜 미상).
         (2) span 은 충분한데 free 가 늘거나 그대로(줄지 않음) -> 추세상 안 채워짐(무한대, 안정).
         두 span 을 별도 SQL로 안 쪼개고 host-level history_hours(같은 agent, 거의 동일 수집 시작점이라
-        근사 유효)로 구분 — 정확한 마운트별 span 이 필요해지면 report_aggregate 에 별도 컬럼 추가 검토.
+        근사 유효)로 구분 — 정확한 마운트별 span 이 필요해지면 get_report_aggregate 에 별도 컬럼 추가 검토.
 
-        threshold("최소 30일") 는 RS_DISK_RUNWAY_DAYS(값이 이 밑이면 위험) 표기라 val 이 실수일 때만 의미
-        있음 — N/A/안정 상태 문자열엔 그 대신 실제 관측 문턱(RS_CONFIDENCE_MIN_HOURS, "관측 시간" 신뢰도
-        행과 동일 단일 진실)을 시간 단위로 명시 — 숫자가 우연히 같은 RS_DISK_RUNWAY_DAYS(일)와 혼동 방지.
+        threshold("최소 30일") 는 DISK_RUNWAY_DAYS(값이 이 밑이면 위험) 표기라 val 이 실수일 때만 의미
+        있음 — N/A/안정 상태 문자열엔 그 대신 실제 관측 문턱(CONFIDENCE_MIN_HOURS, "관측 시간" 신뢰도
+        행과 동일 단일 진실)을 시간 단위로 명시 — 숫자가 우연히 같은 DISK_RUNWAY_DAYS(일)와 혼동 방지.
         """
-        stable = stats.history_hours is not None and stats.history_hours >= rec.RS_CONFIDENCE_MIN_HOURS
+        stable = stats.history_hours is not None and stats.history_hours >= rec.CONFIDENCE_MIN_HOURS
         if val is not None:
             value = f"{val:.0f}일"
-            threshold = f"최소 {rec.RS_DISK_RUNWAY_DAYS:g}일"
+            threshold = f"최소 {rec.DISK_RUNWAY_DAYS:g}일"
         elif stable:
             value, threshold = "안정 (추세 없음)", ""
         else:
-            value, threshold = "N/A (관측 부족)", f"최소 {rec.RS_CONFIDENCE_MIN_HOURS:g}h 관측"
+            value, threshold = "N/A (관측 부족)", f"최소 {rec.CONFIDENCE_MIN_HOURS:g}h 관측"
         return PeriodSignalRow(
             label=label,
             value=value,
             threshold=threshold,
-            over=val is not None and val < rec.RS_DISK_RUNWAY_DAYS,
+            over=val is not None and val < rec.DISK_RUNWAY_DAYS,
             measured=val is not None or stable,
         )
 
@@ -234,8 +231,8 @@ def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExt
             "inode 사용률",
             inode_used,
             "%",
-            rec.RS_DISK_STATIC_GUARD_PCT,
-            over=inode_used is not None and inode_used >= rec.RS_DISK_STATIC_GUARD_PCT,
+            rec.DISK_STATIC_GUARD_PCT,
+            over=inode_used is not None and inode_used >= rec.DISK_STATIC_GUARD_PCT,
         ),
         _extra_row("IOPS 활동량(baseline)", stats.disk_iops_baseline, " IOPS"),
         _extra_row("확장 목표 용량(1년 수명)", stats.disk_capacity_target_gb, "GB"),
@@ -246,11 +243,11 @@ def _storage_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExt
     ]
 
 
-def _network_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExtraGroup]:
+def _network_extra_groups(stats: right_sizing.ResourceStats) -> list[PeriodExtraGroup]:
     """네트워크 상세 탭 "신뢰도" 카드 — CPU/메모리/스토리지와 동일 개념(#E9 완전 노출).
 
     "부하 신호" = 트래픽 baseline(net_avg_kbytes_per_s, 임계 없는 정보성) — assess_network 의 저트래픽 게이트
-    (RS_NET_MIN_TRAFFIC_KBPS 미만이면 재전송·드롭 비율을 혼잡 판정에서 억제)가 왜 발동했는지 근거로 유용.
+    (NET_MIN_TRAFFIC_KBPS 미만이면 재전송·드롭 비율을 혼잡 판정에서 억제)가 왜 발동했는지 근거로 유용.
     "통계 신뢰도" = CPU/메모리/스토리지와 동일 host-level 입력(_confidence_rows).
     """
     load_rows = [_extra_row("트래픽 baseline", stats.net_avg_kbytes_per_s, " kB/s")]
@@ -261,7 +258,7 @@ def _network_extra_groups(stats: recommendation.ResourceStats) -> list[PeriodExt
 
 
 def build_period_assessment(
-    stats: recommendation.ResourceStats,
+    stats: right_sizing.ResourceStats,
     errors: list[ErrorSignal] | None = None,
     *,
     disk_worst_mount: str | None = None,
@@ -269,7 +266,7 @@ def build_period_assessment(
 ) -> PeriodAssessment:
     """서버 세부 '최근 N일' 카드 — 자원별 이용률(p95) + 포화(os-aware) 2축 + 에러축(E) (P2 precompute).
 
-    이용률 = p95 사용률 vs 사이징 목표 임계(RS_*, 14일 p95 도메인 — 실시간 순간과 분리). 포화 = saturation_axis_
+    이용률 = p95 사용률 vs 사이징 목표 임계(right_sizing, 14일 p95 도메인 — 실시간 순간과 분리). 포화 = saturation_axis_
     displays(CPU/메모리/디스크 3축, 단일 진실) + 네트워크는 stats retrans/drop/conntrack. 판정(over)은 os-aware
     helper 경유(임계 재계산 0). 에러축(E)은 전 자원 통합(USE 완결). 실시간 카드(순간)와 별 창 — 분류·판정 근거.
 
@@ -278,7 +275,7 @@ def build_period_assessment(
     ReportRowRaw.disk_capacity_worst_mount 를 직접 전달. 실시간 카드 도넛(disk_usage_pct, 전체 마운트 가중평균)
     과 다른 산식이라는 걸 화면에서 바로 알 수 있게 함(#E9 "의도된 차이" 명시 요청 반영).
     """
-    rec = recommendation
+    rec = right_sizing
     axes = saturation_axis_displays(stats)  # [cpu, mem, disk]
     sat_labels = ["실행 큐", "페이징", "응답 지연"]  # 실시간 카드 라벨과 통일
 
@@ -310,8 +307,8 @@ def build_period_assessment(
             measured=val is not None,
         )
 
-    cpu_u = [_u("P95 사용률", stats.cpu_p95_pct, rec.RS_CPU_UNDER_PCT)]
-    mem_u = [_u("P95 사용률", stats.mem_p95_pct, rec.RS_MEM_UNDER_PCT)]
+    cpu_u = [_u("P95 사용률", stats.cpu_p95_pct, rec.CPU_UNDER_PCT)]
+    mem_u = [_u("P95 사용률", stats.mem_p95_pct, rec.MEM_UNDER_PCT)]
     # 스토리지 "사용률"만 다른 자원(P95 host 집계)과 달리 worst-mount 산식(가장 채워진 마운트 1개) — 실시간
     # 도넛(전체 마운트 가중평균)과 값이 다를 수 있어 라벨·값에 worst-mount 임을 명시(#E9 의도된 차이 표기).
     disk_util_val = stats.disk_used_pct
@@ -322,8 +319,8 @@ def build_period_assessment(
         PeriodSignalRow(
             label="사용률 (worst mount)",
             value=disk_util_value,
-            threshold=f"임계 {rec.RS_DISK_STATIC_GUARD_PCT:g}%",
-            over=disk_util_val is not None and disk_util_val >= rec.RS_DISK_STATIC_GUARD_PCT,
+            threshold=f"임계 {rec.DISK_STATIC_GUARD_PCT:g}%",
+            over=disk_util_val is not None and disk_util_val >= rec.DISK_STATIC_GUARD_PCT,
             measured=disk_util_val is not None,
         )
     ]
@@ -331,13 +328,13 @@ def build_period_assessment(
     mem_s = [_s(sat_labels[1], axes[1])]
     disk_s = [_s(sat_labels[2], axes[2])]
     net_s = [
-        _net("재전송", stats.net_retrans_pct, rec.RS_NET_RETRANS_PCT, "%"),
-        _net("드롭", stats.net_drop_pct, rec.RS_NET_DROP_PCT, "%"),
+        _net("재전송", stats.net_retrans_pct, rec.NET_RETRANS_PCT, "%"),
+        _net("드롭", stats.net_drop_pct, rec.NET_DROP_PCT, "%"),
         PeriodSignalRow(
             label="conntrack",
             value=(f"{stats.conntrack_ratio:.2f}" if stats.conntrack_ratio is not None else "N/A"),
-            threshold=f"임계 {rec.RS_CONNTRACK_SATURATION_RATIO:g}",
-            over=stats.conntrack_ratio is not None and stats.conntrack_ratio >= rec.RS_CONNTRACK_SATURATION_RATIO,
+            threshold=f"임계 {rec.CONNTRACK_SATURATION_RATIO:g}",
+            over=stats.conntrack_ratio is not None and stats.conntrack_ratio >= rec.CONNTRACK_SATURATION_RATIO,
             measured=stats.conntrack_ratio is not None,
         ),
     ]
@@ -349,10 +346,10 @@ def build_period_assessment(
     # verdict=자원별 status(어느 자원발인지). 문제 자원만 색, 정상·유휴·미측정은 muted.
     host = rec.rollup_host(stats)
     seg_key = rec.host_status_to_recommendation(host.host_status)
-    cls_label = rec.LABEL_KO[seg_key]
+    cls_label = rec.RECOMMENDATION_LABEL_KO[seg_key]
     cls_color = next(c for k, c, _ in _DONUT_SEGMENT_DEFS if k == seg_key)
 
-    def _rstat(kind: recommendation.ResourceKind) -> recommendation.ResourceStatus:
+    def _rstat(kind: right_sizing.ResourceKind) -> right_sizing.ResourceStatus:
         return host.resources[kind].status if kind in host.resources else "unmeasured"
 
     # 스토리지 = 용량(disk_capacity) + 성능/IO(disk_io) 독립 2축 — 배지 1개로 합치면(우선순위 승자만 노출)

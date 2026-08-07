@@ -1,10 +1,10 @@
 # Right-sizing 분류 — 명세·판정 순서·OS 분기·한계
 
-> 분류 단일 진실 = `recommendation.rollup_host(stats) -> HostAssessment`(자원 5개 per-resource 판정 + 근본원인 종합).
+> 분류 단일 진실 = `right_sizing.rollup_host(stats) -> HostAssessment`(자원 5개 per-resource 판정 + 근본원인 종합).
 > 표시 배지 = `classify_host(stats)` = `host_status_to_recommendation(rollup_host(stats).host_status)`.
 > 본 문서는 그 명세(정의·판정 순서·게이트 구조·OS 분기·신뢰도·한계)의 단일 진실이다. 임계 수치·벤더 출처는
 > `right-sizing-thresholds.md` 정본.
-> 코드 상수: `src/assessment_engine/recommendation.py`(`RS_*`). 사용자 노출 요약: `reports/_thresholds_reference.html`.
+> 코드 상수: `src/assessment_engine/domain/right_sizing.py`. 사용자 노출 요약: `reports/_thresholds_reference.html`.
 > 변경 시 본 문서·`right-sizing-thresholds.md`·코드 상수·`_thresholds_reference.html` 동시 갱신(#F9).
 
 ## 1. 목적·범위
@@ -60,7 +60,7 @@ I/O -> CPU. 판별 신호 = 메모리 포화(dual-gate 페이징, 메모리발) 
 ## 4. 트리거 카탈로그 (신호 -> 판정 경로)
 
 임계 수치·벤더 출처 정본은 `right-sizing-thresholds.md` — 본 절은 trigger key 가 어느 USE 축에서 어떤 게이트로
-발화하는지의 대응만 담는다. 상수는 `recommendation.py` 단일 진실(`RS_*`).
+발화하는지의 대응만 담는다. 상수는 `right_sizing.py` 단일 진실.
 
 | 신호(trigger key) | USE 축 | 판정 경로·게이트 |
 |-------------------|--------|------------------|
@@ -94,13 +94,13 @@ I/O -> CPU. 판별 신호 = 메모리 포화(dual-gate 페이징, 메모리발) 
 
 신뢰도는 분류와 별개 출력 — 측정 불확실성을 종류별로 가른다(`ConfidenceNote`):
 
-- 통계 정밀도(low_precision): 이력이 최소 시간(`RS_CONFIDENCE_MIN_HOURS`) 미만이거나 버스티(p95/median 비가 임계 초과).
+- 통계 정밀도(low_precision): 이력이 최소 시간(`CONFIDENCE_MIN_HOURS`) 미만이거나 버스티(p95/median 비가 임계 초과).
 - 커버리지(coverage_gap): 필요 포화 축 미측정(is_partial). 측정된 축만으로 분류 + "포화 수치 미관측" 마커.
 - 충실도(biased): virtio 오염(steal p95 임계 초과, 게스트 await 하이퍼바이저 간섭) — 표본 늘려도 안 줄어드는 편향.
 - 정상성(nonstationary): 이용률 상승 추세 — forward-looking 결정(다운사이즈·용량 runway)에만.
 
 다운사이즈 "처방"은 over 분류가 저사용이면 늘 뜨나, 구체 처방은 신뢰도 높음(정밀·커버리지·충실도 온전) AND 상승
-추세 아님 AND 창 관측 충분(`RS_DOWNSIZE_MIN_SUFFICIENCY`)일 때만. 미충족이면 과다 표시하되 권고는 "관찰만". 잘못된
+추세 아님 AND 창 관측 충분(`DOWNSIZE_MIN_SUFFICIENCY`)일 때만. 미충족이면 과다 표시하되 권고는 "관찰만". 잘못된
 다운사이즈가 최악이라 위험 방향은 넉넉한 이력을 요구.
 
 ## 7. 근거(triggers) 재사용

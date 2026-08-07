@@ -55,9 +55,9 @@ Inbound entry dataclass 는 이 규칙 밖이다 — `collect_sql` 의 `vars(ent
 | DTO | 용도 |
 |-----|------|
 | `ReportRowRaw` | 보고서 한 행 raw stats — service mapper(`to_report_row_item`)가 `ReportRowItem` ViewModel로 변환 |
-| `DiskIoBaselineRaw` / `NetIoBaselineRaw` | server별 I/O baseline + p95/peak (`report_disk_io_baseline`/`report_net_io_baseline` 반환, service 가 baseline 을 합성해 새 raw 를 만든다 — outbound DTO 는 frozen 이라 제자리 수정이 없다) |
+| `DiskIoBaselineRaw` / `NetIoBaselineRaw` | server별 I/O baseline + p95/peak (`get_report_disk_io_baseline`/`get_report_net_io_baseline` 반환, service 가 baseline 을 합성해 새 raw 를 만든다 — outbound DTO 는 frozen 이라 제자리 수정이 없다) |
 | `RebootEvent` | server_inventory_history에서 boot_time/agent_started_at 변경 시점 (`kind`: reboot/restart) |
-| `MountCapacityRaw` | 마운트별 용량 사이징 입력 (`report_mount_capacity_batch` 반환) — total/target bytes·runway·used%·inode. assessment API disk 축(per-mount) 산출 |
+| `MountCapacityRaw` | 마운트별 용량 사이징 입력 (`get_report_mount_capacity_batch` 반환) — total/target bytes·runway·used%·inode. assessment API disk 축(per-mount) 산출 |
 | `MemoryBreakdownRaw` / `CpuBreakdownRaw` | 개별 보고서 구성 윈도우 평균 — 메모리 used/available/cached/buffers, CPU user/system/iowait |
 | `MetricGapWarningRaw` | metric 발행 갭 운영신호 후보 (public_id·hostname·last_metric_at) |
 | `DiagnosticJobRecord` | 보고서 발행 job 단건 — 라우터 조회 응답·발행 이력 표현. status 에 따라 `result` 또는 `error_message` 한쪽만 채움 |
