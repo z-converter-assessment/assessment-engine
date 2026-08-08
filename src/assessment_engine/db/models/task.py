@@ -32,7 +32,7 @@ class Task(Base):
         PG_UUID(as_uuid=False), nullable=False, server_default=func.gen_random_uuid(), unique=True
     )
     target_server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
-    # 발행 대상 호스트 식별자 (agent_id UUID) — 감사·라우팅 대상 기록. MQ 큐/라우팅 키와 동일 값.
+
     target_agent_id: Mapped[str] = mapped_column(PG_UUID(as_uuid=False), nullable=False, index=True)
 
     task_type: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -41,7 +41,7 @@ class Task(Base):
     # pending -> success / failure. agent 무응답 시 deadline_at 경과로 failure(timeout) 전이.
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
-    # 응답 마감 (install 발행 시 now + install_task_deadline_sec, 그 외 null). 경과 pending 은
+
     # reaper·재발행 양 경로가 failure(timeout) 로 전이 (부분 UNIQUE 해소).
     deadline_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     # task 종료 시각 — result 메시지 값 그대로 저장 (DB now() 미사용).
@@ -56,6 +56,6 @@ class Task(Base):
     stdout_tail: Mapped[str | None] = mapped_column(Text)
     stderr_tail: Mapped[str | None] = mapped_column(Text)
     # task_policy — agent worker 의 실제 설치 성공 판정(데몬 기동+등록 점검). 종료 판정 1순위 raw 보존.
-    # exit_code 보다 우선 (non-zero exit 이어도 policy True 면 success, exit 0 이어도 policy False 면 failure).
+
     # nullable: agent 미보고 시 null -> exit_code 폴백.
     task_policy: Mapped[bool | None] = mapped_column(Boolean)

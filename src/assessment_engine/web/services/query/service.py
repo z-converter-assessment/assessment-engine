@@ -5,7 +5,6 @@ repo 계층 `db/repositories/query/repository_sql.py` 와 동형 — 도메인 m
 새 메서드 추가 시 해당 도메인 mixin 갱신 의무 — 본 조합 클래스는 결합만.
 """
 
-# api.py 편의 re-export — 원 소속 types.py (라우터가 query 패키지 경유 import 유지).
 from assessment_engine.db.repositories.query.types import AggFunc, BucketSize, MetricType, TimeRange
 from assessment_engine.web.services.query.attention import AttentionQueryMixin
 from assessment_engine.web.services.query.environment import EnvironmentQueryMixin

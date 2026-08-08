@@ -1,12 +1,9 @@
 name: alembic-check
 
-# ORM 모델을 고치고 마이그레이션을 안 만든 경우를 검출한다. 절차는 docs/guides/migrate.md.
 
 on:
-  # paths 조건 없이 항상 발화 — required status check 가 paths skip 으로 N/A 되어 머지가 막히는 함정 회피.
   pull_request:
     branches: [main, develop]
-  # 머지 후 develop 재검증 — 사유는 ci.yml 의 같은 자리.
   push:
     branches: [develop]
 
@@ -24,7 +21,6 @@ jobs:
 
     services:
       postgres:
-        # 운영과 같은 이미지 — TimescaleDB·pgvector·postgis 를 한 이미지에 담은 변형이다.
         image: timescale/timescaledb-ha:pg16
         env:
           POSTGRES_DB: assessment_ci

@@ -22,7 +22,6 @@ class ServerInventoryHistory(Base):
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
 
-    # server_inventory mirror — 식별자(composite_id·machine_id·public_id) 제외, server_id로 충분
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 

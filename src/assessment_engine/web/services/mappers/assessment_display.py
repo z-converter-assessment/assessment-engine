@@ -28,12 +28,11 @@ class SaturationAxisDisplay:
     value: str
     threshold: str
     measured: bool
-    # 단일 게이트 — 이 신호값이 자기 임계를 넘었는가. dual-gate 종합 판정(이용률 AND 포화)은 cpu_saturated 등 별도.
+
     crossed: bool = False
 
 
 def saturation_axis_displays(stats: right_sizing.ResourceStats) -> list[SaturationAxisDisplay]:
-    """포화 3축 os-aware 표시값 — [cpu, mem, disk] 순 (호출부가 위치로 인덱싱한다)."""
     rec = right_sizing
     cores = stats.cpu_cores
     await_ms = stats.disk_await_p95_ms
@@ -45,9 +44,7 @@ def saturation_axis_displays(stats: right_sizing.ResourceStats) -> list[Saturati
             SaturationAxisDisplay(
                 "CPU 포화",
                 "Processor Queue Length / core",
-                f"W {rq:.2f}"
-                if rq is not None
-                else "N/A",  # W/L 태그 — 두 OS 신호가 의미·임계가 달라 값만으론 구분이 안 된다
+                f"W {rq:.2f}" if rq is not None else "N/A",
                 f">= {rec.CPU_RUN_QUEUE_PER_CORE_SATURATION:g}",
                 rq is not None,
                 crossed=rq is not None and rq >= rec.CPU_RUN_QUEUE_PER_CORE_SATURATION,
@@ -99,14 +96,8 @@ def saturation_axis_displays(stats: right_sizing.ResourceStats) -> list[Saturati
 
 
 def build_host_confidence_notes(host: right_sizing.HostAssessment) -> list[str]:
-    """호스트 confidence 단서 라벨 — 자원별 ConfidenceNote 를 호스트 단위로 OR 종합.
-
-    biased(virtio 구조 편향)는 disk_io 가 상시 True 라 노트에서 빼고 다운사이즈 게이트 안에서만 쓴다.
-    '창 대비 관측 부족'은 절대 관측량 바닥(low_precision)과 별개 축이다 — 선택 창을 다 못 덮으면
-    (예: 14일 창에 2일 데이터) sample_sufficiency 가 낮아 발화한다.
-    """
     notes: list[str] = []
-    if right_sizing.host_saturation_unmeasured(host):  # 포화 축(cpu·mem·disk_io) 한정 — 용량·네트워크 제외
+    if right_sizing.host_saturation_unmeasured(host):
         notes.append("포화 수치 미관측")
     if any(r.confidence.low_precision for r in host.resources.values()):
         notes.append("표본 부족")
@@ -116,7 +107,6 @@ def build_host_confidence_notes(host: right_sizing.HostAssessment) -> list[str]:
 
 
 def resource_confidence_notes(c: right_sizing.ConfidenceNote) -> list[str]:
-    """자원별 신뢰도 하향 사유 — biased 제외 기준은 build_host_confidence_notes 와 같다."""
     notes: list[str] = []
     if c.low_precision:
         notes.append("표본 부족")
@@ -169,7 +159,7 @@ def saturation_block(kind: str, stats: right_sizing.ResourceStats) -> JsonObject
             "measured": sat is not None,
             "saturated": sat,
         }
-    # disk_io — await 우선(양 OS), 구세대 viostor 만 큐 폴백.
+
     if stats.disk_await_p95_ms is not None:
         return _saturation_dict(
             "await",

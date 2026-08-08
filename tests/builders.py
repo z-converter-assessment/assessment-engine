@@ -1,16 +1,3 @@
-"""outbound DTO 빌더 — 테스트가 공유하는 기본값 세계의 단일 진실.
-
-`tests/factories.py` 는 wire 계약 형태의 inbound 데이터를 만든다. 이 모듈은 repository 가 돌려주는
-outbound DTO 를 만든다 — 계약이 아니라 조회 결과라 필드가 많고 대부분 nullable 이다.
-
-기본값을 한 곳에 두는 이유는 분류 입력 때문이다. `rollup_host` 는 포화 3축·steal·run-queue·이력 길이를
-함께 읽어 판정하므로, 파일마다 기본값이 다르면 같은 이름의 테스트가 서로 다른 baseline 위에서 통과한다.
-파일별 특수 사정(관심 있는 축만 채우기)은 override 로 표현하고 baseline 자체는 나누지 않는다.
-
-호출마다 새 인스턴스를 만든다. 모듈 상수를 만들어 `dataclasses.replace` 로 파생하면 list·dict 필드가
-원본과 참조를 공유해서, 제자리 변형(`_with_net_baseline` 등)이 다음 테스트로 샌다.
-"""
-
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -34,11 +21,6 @@ _DEFAULT_DISK: dict[str, Any] = {"name": "sda", "size_bytes": 50 * 10**9, "type"
 
 
 def report_row_raw(**overrides: Any) -> ReportRowRaw:
-    """`get_report_aggregate` 가 돌려주는 행 하나. 키는 DTO 필드명 그대로 받는다.
-
-    baseline 은 "관측은 됐으나 어느 축도 발화하지 않은 호스트" 다 — 신호 축은 전부 None 이고
-    인벤토리·용량만 채워져 있다. 발화시킬 축만 override 로 준다.
-    """
     base: dict[str, Any] = {
         "server_id": 1,
         "public_id": "a",
@@ -67,7 +49,6 @@ def report_row_raw(**overrides: Any) -> ReportRowRaw:
 
 
 def server_detail(server_id: int, hostname: str, **overrides: Any) -> Any:
-    """`ServerDetail` outbound DTO. 필수 필드를 전부 채운 최소 인벤토리 한 대."""
     from datetime import timedelta
 
     from assessment_engine.db.dtos.outbound import ServerDetail

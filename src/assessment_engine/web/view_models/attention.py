@@ -30,28 +30,28 @@ class CapacityWarningItem:
 
     public_id: str
     hostname: str
-    # under/over/idle 이 한 표에 섞이므로 분류를 행마다 싣는다.
+
     classification: Recommendation = "under_provisioned"
     classification_label: str = "자원 부족"
     badge_class: str = "rec-under_provisioned"
-    # 정렬값 = right_sizing.CLASSIFICATION_ORDER. 0(자원 부족)은 표의 빨강 강조 기준이다.
+
     classification_rank: int = 0
     active_causes: list[str] = field(default_factory=list[str])
     services: dict[str, int] = field(default_factory=dict[str, int])
     confidence_notes: list[str] = field(default_factory=list[str])
-    # 처방과 진단 근거는 별개 축이다 — root_cause 가 인과로 좁혀도 권고는 관측된 부족 자원 전부를 싣는다.
+
     recommendation_action: str = ""
     root_cause_label: str = ""
-    # 상위 N 절단용 정렬 점수.
+
     severity_score: float = 0.0
-    # 네트워크·디스크 I/O 는 분류를 구동하지 않는 orthogonal flag 라 분류 필드와 별도 축이다.
+
     net_status_label: str = ""
     net_status_color: str = ""
     # root_cause_label 은 under_provisioned 호스트의 인과 기여분만 노출해 CPU·메모리는 정상인데
-    # 디스크만 io_bound 인 호스트가 안 드러난다 — 그래서 분류 무관 전용 필드로 뺀다.
+
     disk_io_status_label: str = ""
     disk_io_status_color: str = ""
-    # 배정 사양("4코어 · 8.00GB · 100GB") — 권고와 현재 배정을 같은 행에서 비교하려고 싣는다.
+
     spec_display: str = ""
 
 
@@ -65,7 +65,7 @@ class AttentionCatalogEntry:
     label: str
     count: int
     active: bool
-    description: str = ""  # 임계 근거 보조 문구 (">= 85%" 등)
+    description: str = ""
 
 
 @dataclass
@@ -81,7 +81,6 @@ class AttentionSignals:
 
     @property
     def catalog(self) -> list[AttentionCatalogEntry]:
-        """발화 0건 카테고리도 포함한다 (#E9)."""
         return [
             AttentionCatalogEntry("통신 끊김", len(self.gap_warnings), bool(self.gap_warnings)),
             AttentionCatalogEntry("OS 지원종료", len(self.os_eol_warnings), bool(self.os_eol_warnings)),
@@ -121,7 +120,7 @@ class RiskDonutSegment:
     dash_length: float
     dash_offset: float
     description: str = ""
-    pct: float = 0.0  # 분류 막대 너비 %
+    pct: float = 0.0
 
 
 @dataclass
@@ -138,29 +137,29 @@ class EnvironmentOverview:
     total_vcpus: int
     total_memory_gb: float
     total_disk_gb: int
-    os_distribution: dict[str, int] = field(default_factory=dict[str, int])  # count DESC
-    # 카테고리별 인스턴스 수 — 호스트 dedup 아님. 0 인 카테고리도 남긴다 (#E9).
+    os_distribution: dict[str, int] = field(default_factory=dict[str, int])
+
     role_distribution: dict[str, int] = field(default_factory=dict[str, int])
     workload_donut: list[RiskDonutSegment] = field(default_factory=list[RiskDonutSegment])
     workload_total: int = 0
-    role_unknown_count: int = 0  # 특징 워크로드가 하나도 안 잡힌 호스트 수
+    role_unknown_count: int = 0
     utilization: list[UtilizationBar] = field(default_factory=list[UtilizationBar])
-    # 평균과 같은 capacity-weighted 환경 분포 기반 (per_ts 95퍼센타일).
+
     utilization_p95: list[UtilizationBar] = field(default_factory=list[UtilizationBar])
     util_sample_size: int = 0
-    # 실시간 현황과 같은 도넛이지만 순간 스냅샷이 아니라 평가 윈도우 기준이다.
+
     saturation_donuts: list[SaturationDonut] = field(default_factory=list["SaturationDonut"])
     error_fleet: list[FleetErrorItem] = field(default_factory=list["FleetErrorItem"])
-    # os_id 가 있는 서버만 집계 — 4상태 합이 total 과 어긋날 수 있다.
+
     os_eol_passed: int = 0  # paid_only·ended 합산 — 유상 계약 여부는 수집할 수 없다
     os_eol_security_only: int = 0
-    os_eol_unknown: int = 0  # 카탈로그 미수록·미매칭 — 판정 불가
+    os_eol_unknown: int = 0
     os_eol_supported: int = 0
     risk_donut: list[RiskDonutSegment] = field(default_factory=list[RiskDonutSegment])
     risk_donut_total: int = 0
     risk_high_count: int = 0
     under_provisioned_hosts: list[CapacityWarningItem] = field(default_factory=list[CapacityWarningItem])
-    # 표는 상위 N 만 렌더하므로 전체 수와 표시 수를 나눠 싣는다 ("shown/total" 표기).
+
     under_provisioned_hosts_count: int = 0
     under_provisioned_hosts_shown: int = 0
 
@@ -174,7 +173,7 @@ class ActionTargets:
     """
 
     hosts: list[CapacityWarningItem] = field(default_factory=list[CapacityWarningItem])
-    total: int = 0  # len(hosts) — 템플릿이 세지 않게 (P3)
+    total: int = 0
     under_count: int = 0
     efficiency_count: int = 0
     efficiency_vcpus: int = 0
@@ -215,9 +214,9 @@ class RealtimeLoadRow:
     mem: RealtimeLoadCell
     run_queue: RealtimeLoadCell
     paging: RealtimeLoadCell
-    disk_util: RealtimeLoadCell  # Utilization 축 — worst device busy %
-    disk_io: RealtimeLoadCell  # Saturation 축 — 응답지연(await) 지수
-    network: RealtimeLoadCell  # 혼잡 판정(정상/혼잡) — 처리량이 아니다
+    disk_util: RealtimeLoadCell
+    disk_io: RealtimeLoadCell
+    network: RealtimeLoadCell
 
 
 @dataclass
@@ -229,8 +228,8 @@ class SaturationDonut:
     """
 
     label: str
-    count: int  # 포화·압박 호스트 수
-    total: int  # 신선 표본
+    count: int
+    total: int
     dash_length: float
     color: str
 
@@ -242,12 +241,12 @@ class FleetErrorItem:
     에러는 대부분 0 인 카운트형이라 도넛이 아니라 표시자다. 0 이어도 노출한다 (#E9).
     """
 
-    key: str  # cpu_mce | mem_oom | mem_corrupted | disk_errors | net_errors | os_eol
+    key: str
     label: str
     affected: int
     total: int
-    detail: str | None = None  # hover 보조 문구
-    tone: str = "danger"  # "danger" 하드웨어·런타임 에러 | "warn" OS EOL 등 정적 리스크
+    detail: str | None = None
+    tone: str = "danger"
 
 
 @dataclass
@@ -260,7 +259,7 @@ class EnvironmentRealtime:
     total: int
     online: int
     offline: int
-    sample_size: int  # 평균 표본 = 스냅샷이 now-TTL 이내로 신선한 서버 수 (stale 제외)
+    sample_size: int
     utilization: list[UtilizationBar] = field(default_factory=list[UtilizationBar])
     last_collected_at: datetime | None = None
     load_rows: list[RealtimeLoadRow] = field(default_factory=list[RealtimeLoadRow])

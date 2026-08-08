@@ -41,12 +41,10 @@ _STATUS_LABEL_KO: dict[str, str] = {
 
 
 def _evidence_labels(triggers: list[right_sizing.TriggerKind]) -> list[str]:
-    """자원부족 축 라벨 우선, 미커버 키는 도메인 폴백 — mem_oom·net_* 이 raw enum 으로 누출되지 않게."""
     return [_CAUSE_LABEL_BY_TRIGGER.get(t) or right_sizing.TRIGGER_LABEL_KO.get(t, t) for t in triggers]
 
 
 def _sizeable_recommendation(kind: right_sizing.ResourceKind, ra: right_sizing.ResourceAssessment) -> str | None:
-    """사이징 관련 상태에만 권고 문구 — 문구 자체는 도메인 resource_prescription 단일 진실."""
     if ra.status in ("under", "over", "io_bound", "filling") or ra.sizing_target is not None:
         text = right_sizing.resource_prescription(kind, ra)
         return text or None
@@ -54,10 +52,6 @@ def _sizeable_recommendation(kind: right_sizing.ResourceKind, ra: right_sizing.R
 
 
 def _net_signal(value: float | None, threshold: float, *, inclusive: bool = False) -> RsNetSignal:
-    """네트워크 품질 신호 1개 — resource saturation 블록과 대칭.
-
-    inclusive = conntrack(임계 이상) 여부. retrans/drop 은 임계 초과. 미측정(value None)이면 exceeded=None.
-    """
     if value is None:
         return {"value": None, "threshold": threshold, "exceeded": None, "measured": False}
     exceeded = value >= threshold if inclusive else value > threshold
@@ -162,13 +156,7 @@ def _action(kind: right_sizing.ResourceKind, ra: right_sizing.ResourceAssessment
 def _recommendation(
     host: right_sizing.HostAssessment, stats: right_sizing.ResourceStats, rec: right_sizing.Recommendation
 ) -> RsRecommendation:
-    """종합 권고 구조 (파싱용 견고 포맷) — 이 하나만 보고 조치를 결정한다.
 
-    actions = 관측된 under 자원 전부로 자원마다 독립 판정이고, 인과에 의한 억제를 하지 않는다(assessment API
-    sizing.axes 와 동일 정책). 인과 근거는 summary/root_cause 가 따로 전달한다.
-    suppressed 는 항상 빈 배열 — 기존 소비자가 키 존재를 가정할 수 있어 제거하지 않고 둔다.
-    """
-    # disk_io io_bound 는 크기로 안 풀리는 tier advisory 라 host 를 under 로 승격하지 않는다(network congested
     # 대칭) — 분류와 무관하게 orthogonal 노출해야 해서 여기서 별도 append.
     io_advisory = (
         [_action("disk_io", host.resources["disk_io"], "tier_up")]
@@ -192,7 +180,7 @@ def _recommendation(
             and right_sizing.downsize_prescribable(host.resources[k], stats)
             and host.resources[k].sizing_target is not None
         ]
-        # 다운사이즈 게이트 미충족이면 actions=[] — 분류는 과다지만 구체 처방은 보류한다.
+
         return {
             "summary": right_sizing.recommend_action(rec, stats),
             "kind": "downsize",
@@ -209,11 +197,6 @@ def _recommendation(
 
 
 def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambiguous: bool = False) -> JsonObject:
-    """ReportRowRaw + is_online -> right-sizing 판정 dict (자원 3축 사이징 + 네트워크 품질).
-
-    hostname_ambiguous = 이 hostname 을 환경 내 2대+ 가 공유한다는 안전 신호 — 소비 측이 hostname 단독 대신
-    public_id/순서쌍을 쓸지 판단하는 근거.
-    """
     # 계약 API 는 net baseline 만 주입받는다 — disk 활동 축은 미관측(보고서 경로 전용).
     stats = build_resource_stats(raw, disk_baseline=None)
     host = right_sizing.rollup_host(stats)
@@ -240,7 +223,6 @@ def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambigu
             "status": net.status,
             "status_label": _STATUS_LABEL_KO.get(net.status, net.status),
             "congested": host.network_congested,
-            # 사이징 아닌 별도 품질 축 — 셋 중 하나라도 임계를 넘으면 congested.
             "signals": {
                 "retransmit_pct": _net_signal(raw.net_retrans_pct, right_sizing.NET_RETRANS_PCT),
                 "drop_pct": _net_signal(raw.net_drop_pct, right_sizing.NET_DROP_PCT),

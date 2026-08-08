@@ -1,5 +1,3 @@
-"""mappers — Outbound DTO → ViewModel + enrich idempotent 검증."""
-
 import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -37,8 +35,6 @@ from assessment_engine.web.services.mappers.server import (
     workload_category_counter,
 )
 
-# --- 임계값·severity ------------------------------------------------------
-
 
 @pytest.mark.parametrize(
     ("pct", "severity"),
@@ -73,9 +69,6 @@ def test_usage_badge_class(pct: float, expected: str):
     assert _usage_badge_class(pct) == expected
 
 
-# --- raw dict → ViewModel 변환 --------------------------------------------
-
-
 def test_to_disk_item_returns_none_for_non_physical():
     assert _to_disk_item({"name": "sda1"}) is None
     assert _to_disk_item({"name": "dm-0"}) is None
@@ -86,23 +79,20 @@ def test_to_disk_item_for_physical():
     item = _to_disk_item({"name": "sda", "size_bytes": 10**9, "type": "disk", "kind": "physical"})
     assert item is not None
     assert item.name == "sda"
-    assert item.size_gb == 0.93  # bytes_to_gb binary divisor(GB 라벨 표기, df -h 관례) — decimal 1.0 아님
+    assert item.size_gb == 0.93
 
 
 def test_to_listen_port_item_significant():
-    # 비동적 포트(< 49152)는 significant — RDP 3389·app 8080 등 고포트 포함
     for port in (80, 3389, 8080):
         assert _to_listen_port_item({"proto": "tcp", "addr": "0.0.0.0", "port": port, "uid": 0}).is_significant is True
 
 
 def test_to_listen_port_item_dynamic_port():
-    # 동적/ephemeral(>= 49152)은 제외 (RPC 동적 할당 등 노이즈)
     item = _to_listen_port_item({"proto": "tcp", "addr": "0.0.0.0", "port": 49500, "uid": 1000})
     assert item.is_significant is False
 
 
 def test_to_service_item_without_listen_ports_has_empty_ports():
-    """list 화면 — listen_ports 안 줌 → ports=[]"""
     item = _to_service_item({"unit": "nginx.service", "sub": "running"})
     assert item.ports == []
     assert item.category == "web"
@@ -110,16 +100,12 @@ def test_to_service_item_without_listen_ports_has_empty_ports():
 
 
 def test_to_service_item_with_listen_ports_matches():
-    """detail 화면 — listen_ports 주면 matched_ports로 채움"""
     item = _to_service_item(
         {"unit": "nginx.service", "sub": "running"},
         listen_ports=[{"proto": "tcp", "port": 80, "uid": 0, "comm": "nginx"}],
     )
     pairs = {(p.proto, p.port) for p in item.ports}
     assert ("tcp", 80) in pairs
-
-
-# --- to_server_list_item --------------------------------------------------
 
 
 def _summary(**overrides: Any) -> ServerSummary:
@@ -133,7 +119,7 @@ def _summary(**overrides: Any) -> ServerSummary:
         kernel_version=None,
         product_name=None,
         cpu_cores=4,
-        mem_total_bytes=8 * 1024**3,  # 계약 단위 By
+        mem_total_bytes=8 * 1024**3,
         ip_external=None,
         block_devices=[{"name": "sda", "size_bytes": 100 * 10**9, "type": "disk"}],
         service_categories=[],
@@ -147,15 +133,14 @@ def test_list_item_storage_total_sum():
         block_devices=[
             {"name": "sda", "size_bytes": 100 * 10**9, "type": "disk"},
             {"name": "sdb", "size_bytes": 50 * 10**9, "type": "disk"},
-            {"name": "loop0", "size_bytes": 999 * 10**9, "type": "loop"},  # 물리 아님(type!=disk) → 제외
+            {"name": "loop0", "size_bytes": 999 * 10**9, "type": "loop"},
         ]
     )
     item = to_server_list_item(summary)
-    assert item.storage_total_gb == 139.7  # bytes_to_gb binary divisor(GB 라벨) — decimal (100+50)=150 아님
+    assert item.storage_total_gb == 139.7
 
 
 def test_list_item_badges_from_service_categories():
-    """뱃지는 ingest 사전계산 service_categories(키 집합) 소비 — 카테고리당 ServiceItem 1개 (E7)."""
     summary = _summary(service_categories=["db", "web"])
     item = to_server_list_item(summary)
     assert {s.category for s in item.known_services} == {"web", "db"}
@@ -163,7 +148,6 @@ def test_list_item_badges_from_service_categories():
 
 
 def test_list_item_no_categories_no_badge():
-    """service_categories 빈 집합 -> 뱃지 없음. show_unknown_badge 는 목록에서 항상 False (저장 집합만, T15)."""
     summary = _summary(service_categories=[])
     item = to_server_list_item(summary)
     assert item.known_services == []
@@ -188,9 +172,9 @@ def test_list_item_os_display():
         ("6003", "2008"),
         ("3790", "2003"),
         ("2195", "2000"),
-        ("9200.1234", "2012"),  # UBR/revision suffix 무시 (build 만)
-        ("14393", None),  # Server 2016 — 비레거시(보강 범위 밖)
-        ("19045", None),  # Windows 10 — 비레거시
+        ("9200.1234", "2012"),
+        ("14393", None),
+        ("19045", None),
         ("", None),
         (None, None),
     ],
@@ -200,13 +184,10 @@ def test_windows_legacy_version_from_build(kernel_version: str | None, expected:
 
 
 def test_list_item_os_display_windows_legacy_from_build():
-    # 레거시 Windows Server 는 agent 가 os_version 빈값으로 보냄 -> kernel build 로 보강
     item = to_server_list_item(_summary(os_id="windows", os_version="", kernel_version="9200"))
     assert item.os_display == "windows 2012"
-    # os_version 있으면(클라이언트 DisplayVersion 등) 그대로 우선 — build 보강 안 함
     item_ver = to_server_list_item(_summary(os_id="windows", os_version="22H2", kernel_version="19045"))
     assert item_ver.os_display == "windows 22H2"
-    # 비레거시(2016+) 빈 os_version 은 미보강 — "windows" 만 (보강 범위는 레거시 한정)
     item_2016 = to_server_list_item(_summary(os_id="windows", os_version="", kernel_version="14393"))
     assert item_2016.os_display == "windows"
 
@@ -218,7 +199,7 @@ def test_list_item_os_display_windows_legacy_from_build():
         ("Windows Server 2012 R2 Datacenter", "2012 R2"),
         ("Windows Server 2016 Standard Evaluation", "2016"),
         ("Windows Server 2022 Datacenter", "2022"),
-        ("Windows Server Datacenter", None),  # SAC — MS 가 연도 미기재
+        ("Windows Server Datacenter", None),
         ("Windows 10 Pro", "10"),
         ("Windows 11 Enterprise", "11"),
         (None, None),
@@ -230,7 +211,6 @@ def test_windows_short_label_from_product_name(product_name: str | None, expecte
 
 
 def test_list_item_os_display_windows_product_name_overrides_display_version():
-    # 티어1: product_name 연도가 os_version(DisplayVersion "1809") 을 대체 — LTSC 2019 정확 표시
     item = to_server_list_item(
         _summary(
             os_id="windows",
@@ -240,7 +220,6 @@ def test_list_item_os_display_windows_product_name_overrides_display_version():
         )
     )
     assert item.os_display == "windows 2019"
-    # SAC(연도 없는 product_name) -> 티어2 폴백, os_version("1809") 그대로 (SAC 는 그게 정확)
     item_sac = to_server_list_item(
         _summary(
             os_id="windows",
@@ -250,14 +229,10 @@ def test_list_item_os_display_windows_product_name_overrides_display_version():
         )
     )
     assert item_sac.os_display == "windows 1809"
-    # product_name 부재(구 agent) -> 티어2/3 폴백 유지 (하위호환)
     item_legacy = to_server_list_item(
         _summary(os_id="windows", os_version="", kernel_version="9200", product_name=None)
     )
     assert item_legacy.os_display == "windows 2012"
-
-
-# --- to_server_detail + enrich (idempotent) -------------------------------
 
 
 def _detail(**overrides: Any) -> ServerDetail:
@@ -278,10 +253,9 @@ def _detail(**overrides: Any) -> ServerDetail:
         cpu_model="test-cpu",
         cpu_arch="x86_64",
         cpu_bits=64,
-        mem_total_bytes=8 * 1024**3,  # 계약 단위 By
+        mem_total_bytes=8 * 1024**3,
         boot_time=datetime(2026, 1, 1, tzinfo=UTC),
         agent_started_at=datetime(2026, 1, 1, tzinfo=UTC),
-        # net_interfaces — kind 는 인터페이스 레벨, 주소는 nested addresses[].
         net_interfaces=[
             {
                 "id": "52:54:00:12:34:56",
@@ -294,12 +268,11 @@ def _detail(**overrides: Any) -> ServerDetail:
             }
         ],
         ip_external=None,
-        # block_devices — swap 은 type=swap 노드로 표현된다.
         block_devices=[{"name": "sda", "size_bytes": 100 * 10**9, "type": "disk"}],
         lvm_vgs=[],
         services=[
             {"unit": "nginx.service", "sub": "running"},
-            {"unit": "ssh.service", "sub": "running"},  # remote (SSH)
+            {"unit": "ssh.service", "sub": "running"},
         ],
         listen_ports=[
             {"proto": "tcp", "addr": "0.0.0.0", "port": 80, "uid": 0, "comm": "nginx"},
@@ -316,7 +289,7 @@ def test_to_server_detail_basic():
     assert resp.hostname == "host"
     assert len(resp.disks) == 1
     assert resp.disks[0].name == "sda"
-    assert resp.disk_total_gb == 93.13  # bytes_to_gb binary divisor(GB 라벨) — decimal 100.0 아님
+    assert resp.disk_total_gb == 93.13
     assert resp.os_display == "ubuntu 22.04"
     assert resp.cpu_display == "test-cpu 4 cores"
 
@@ -328,16 +301,12 @@ def test_to_server_detail_known_services_with_ports():
 
 
 def test_to_server_detail_key_listen_ports_excludes_service_mapped():
-    """key_listen_ports = is_significant(비동적) AND 서비스 매핑 포트 제외"""
     resp = to_server_detail(_detail())
-    # nginx 80(web)·ssh 22(remote)는 services 에 매핑 → key_listen_ports 제외
     assert all(lp.port not in (80, 22) for lp in resp.key_listen_ports)
-    # 9999 는 어느 서비스에도 매핑 안 됨 + 비동적 → key_listen_ports 포함
     assert any(lp.port == 9999 for lp in resp.key_listen_ports)
 
 
 def test_enrich_server_detail_idempotent():
-    """enrich를 두 번 호출해도 결과 동일 — cache_serializer 역직렬화 후 재호출 시나리오."""
     resp = to_server_detail(_detail())
     sorted_before = list(resp.sorted_services)
     known_before = list(resp.known_services)
@@ -345,27 +314,22 @@ def test_enrich_server_detail_idempotent():
 
     resp_again = enrich_server_detail(resp)
 
-    assert resp_again is resp  # 같은 인스턴스 (mutates in place)
+    assert resp_again is resp
     assert resp.sorted_services == sorted_before
     assert resp.known_services == known_before
     assert resp.key_listen_ports == key_ports_before
 
 
-# --- workload 합집합 — services 이름 + listen 소켓 탐지 -------------
-
-
 def test_workload_counter_listen_only_rescues_opaque_name():
-    """이름 분류 불가(opaque) 서비스도 listen 소켓 증거로 카테고리 구제."""
-    services = [{"unit": "MyCorpThing", "sub": "running"}]  # 이름 미매치
+    services = [{"unit": "MyCorpThing", "sub": "running"}]
     listen = [
-        {"proto": "tcp", "port": 1433, "comm": "sqlservr"},  # SQL Server
-        {"proto": "tcp", "port": 22, "comm": "sshd"},  # SSH -> baseline(관리) 제외
+        {"proto": "tcp", "port": 1433, "comm": "sqlservr"},
+        {"proto": "tcp", "port": 22, "comm": "sshd"},
     ]
     assert dict(workload_category_counter(services, listen)) == {"db": 1}
 
 
 def test_workload_counter_no_double_count():
-    """이름·listen 이 같은 워크로드를 가리켜도 이중 카운트 안 함 (nginx 1대)."""
     services = [{"unit": "nginx.service", "sub": "running"}]
     listen = [
         {"proto": "tcp", "port": 80, "comm": "nginx"},
@@ -375,19 +339,17 @@ def test_workload_counter_no_double_count():
 
 
 def test_workload_counter_container_single_instance():
-    """런타임 스택(container)은 docker+containerd 가 떠도 호스트당 1. 일반 카테고리는 인스턴스 카운트 유지."""
     services = [
         {"unit": "docker.service", "sub": "running"},
         {"unit": "containerd.service", "sub": "running"},
         {"unit": "nginx.service", "sub": "running"},
-        {"unit": "apache2.service", "sub": "running"},  # web 2대
+        {"unit": "apache2.service", "sub": "running"},
     ]
     counter = dict(workload_category_counter(services, []))
     assert counter == {"container": 1, "web": 2}
 
 
 def test_enrich_container_single_badge():
-    """detail 뱃지도 container 는 첫 unit 1개만 (docker+containerd → container 1뱃지)."""
     resp = to_server_detail(
         _detail(
             os_family="linux",
@@ -403,7 +365,6 @@ def test_enrich_container_single_badge():
 
 
 def test_workload_counter_listen_port_only_comm_null():
-    """comm null(Windows 권한 부족)이어도 port 신호로 탐지."""
     services = [{"unit": "opaque", "sub": "running"}]
     listen = [{"proto": "tcp", "port": 6379, "comm": None}]
     assert dict(workload_category_counter(services, listen)) == {"cache": 1}
@@ -412,12 +373,10 @@ def test_workload_counter_listen_port_only_comm_null():
 def test_infer_role_union_dominant():
     services = [{"unit": "MSSQL$PROD", "sub": "running"}, {"unit": "W3SVC", "sub": "running"}]
     listen = [{"proto": "tcp", "port": 1433, "comm": "sqlservr"}]
-    # name: db + web (각 1), listen db 는 이미 포함 -> 이중카운트 없음. 동률이면 most_common 안정.
     assert infer_role(services, listen) in {"db", "web"}
 
 
 def test_enrich_listen_only_synthetic_badge():
-    """opaque 서비스 + listen 1433 -> db 합성 뱃지(unit 없음), show_unknown 아님."""
     resp = to_server_detail(
         _detail(
             os_family="windows",
@@ -429,15 +388,14 @@ def test_enrich_listen_only_synthetic_badge():
     assert db.unit == ""
     assert db.display_name == ""
     assert any(p.port == 1433 for p in db.ports)
-    assert resp.show_unknown_badge is False  # listen 으로 구제됨
+    assert resp.show_unknown_badge is False
 
 
 def test_enrich_category_port_aggregation_web_iis():
-    """comm 귀속 실패한 워크로드 포트도 카테고리 단위로 뱃지에 집계 (W3SVC<->System 의 80/443)."""
     resp = to_server_detail(
         _detail(
             os_family="windows",
-            services=[{"unit": "W3SVC", "sub": "running"}],  # IIS — comm 은 System 이라 unit 미매칭
+            services=[{"unit": "W3SVC", "sub": "running"}],
             listen_ports=[
                 {"proto": "tcp", "addr": "0.0.0.0", "port": 80, "uid": None, "comm": "System"},
                 {"proto": "tcp6", "addr": "::", "port": 80, "uid": None, "comm": "System"},
@@ -448,10 +406,7 @@ def test_enrich_category_port_aggregation_web_iis():
     port_pairs = {(p.proto, p.port) for p in web.ports}
     assert ("tcp", 80) in port_pairs
     assert ("tcp6", 80) in port_pairs
-    assert all(lp.port != 80 for lp in resp.key_listen_ports)  # 뱃지로 갔으니 주요 Listen 에서 제외
-
-
-# --- to_storage_detail ----------------------------------------------------
+    assert all(lp.port != 80 for lp in resp.key_listen_ports)
 
 
 def test_to_storage_detail_filters_virtual_mounts():
@@ -461,7 +416,6 @@ def test_to_storage_detail_filters_virtual_mounts():
         hostname="h",
         block_devices=[{"name": "sda", "size_bytes": 10**11, "type": "disk"}],
         lvm_vgs=[],
-        # 마운트 사용량은 filesystems(df 시계열) 단일 소스 — 가상 제외는 fstype in VIRTUAL_FSTYPES 기준.
         filesystems=[
             MountUsageRaw(
                 mountpoint="/",
@@ -470,8 +424,8 @@ def test_to_storage_detail_filters_virtual_mounts():
                 free_bytes=2 * 10**10,
                 collected_at=datetime.now(UTC),
             ),
-            MountUsageRaw(mountpoint="/proc", fstype="proc"),  # 가상 fstype -> 제외
-            MountUsageRaw(mountpoint="/snap/core/123", fstype="squashfs"),  # 가상 fstype -> 제외
+            MountUsageRaw(mountpoint="/proc", fstype="proc"),
+            MountUsageRaw(mountpoint="/snap/core/123", fstype="squashfs"),
         ],
         inventory_at=datetime.now(UTC),
     )
@@ -482,16 +436,7 @@ def test_to_storage_detail_filters_virtual_mounts():
     assert "/snap/core/123" not in paths
 
 
-# device 부모-자식 조인은 노드 `parent`(부모 id) 다 — storage detail 은
-# device_name 을 산출하지 않는다. block_device 트리 술어 검증은 test_device_filters.py 단일 진실.
-
-
-# --- attention 신호 mapper (P2 단위 변환 + badge 분기) --------------------
-# 운영신호는 gap/os_eol/agent_unstable 3개 — disk 신호는 USE Method 로 이동(코드 제거).
-
-
 def test_to_gap_warning_item_under_provisioned_at_30min():
-    """30분+ 갭 → rec-under_provisioned."""
     now = datetime(2026, 5, 9, 12, 30, tzinfo=UTC)
     metric_ts = now - timedelta(minutes=35)
     raw = MetricGapWarningRaw(
@@ -500,7 +445,6 @@ def test_to_gap_warning_item_under_provisioned_at_30min():
         last_metric_at=metric_ts,
     )
     item = to_gap_warning_item(raw, now)
-    # 운영 신호 단일 active 색 — `attn-active` (사용자 의도).
     assert item.badge_class == "attn-active"
     assert item.badge_text == "35분"
     assert item.link_href == "/servers/pid"
@@ -509,7 +453,6 @@ def test_to_gap_warning_item_under_provisioned_at_30min():
 
 
 def test_to_gap_warning_item_right_size_short_gap():
-    """5~30분 갭도 attn-active 단일 색 (운영 신호 통일)."""
     now = datetime(2026, 5, 9, 12, 30, tzinfo=UTC)
     raw = MetricGapWarningRaw(
         public_id="pid",
@@ -519,15 +462,6 @@ def test_to_gap_warning_item_right_size_short_gap():
     item = to_gap_warning_item(raw, now)
     assert item.badge_class == "attn-active"
     assert item.badge_text == "10분"
-
-
-# --- risk_top mapper 테스트는 2026-05-12 cleanup으로 제거됨 -------------
-# RiskServerItem dataclass · to_risk_server_item 함수 · latest_disk_max_pct SQL
-# · list-risk-cards.js 모두 dead. 위험도 신호는 capacity_warnings + EnvironmentOverview로
-# 흡수됨. 신규 신호 단위 테스트는 tests/unit/test_mappers_report.py.
-
-
-# --- build_server_inventory (개별 보고서 인벤토리, raw 선택적 보강) ------------
 
 
 def _min_raw(**overrides: Any) -> ReportRowRaw:
@@ -554,7 +488,6 @@ def _min_raw(**overrides: Any) -> ReportRowRaw:
 
 
 def test_build_server_inventory_enriches_from_raw():
-    """raw(ReportRowRaw) 제공 시 재현 필드(arch/bits/boot_firmware/secure_boot/edition/timezone) 채움."""
     detail = _detail()
     raw = _min_raw(boot_firmware="uefi", secure_boot=True, edition="Datacenter", timezone="Asia/Seoul")
 
@@ -571,13 +504,11 @@ def test_build_server_inventory_enriches_from_raw():
 
 
 def test_spec_display_line_missing_values_show_dash():
-    """cpu_cores/mem_total_bytes/block_devices 부재는 각자 "—" — 서버 목록·환경 자원 평가 compact 표 공용."""
     assert spec_display_line(None, None, None) == "— · — · —"
     assert spec_display_line(4, None, []) == "4코어 · — · —"
 
 
 def test_build_server_inventory_raw_none_leaves_reproduction_fields_none():
-    """raw 미보유 스코프(환경·N대 등) — 재현 필드만 None, 나머지 detail 파생은 정상."""
     snap = build_server_inventory(_detail(), False, None)
 
     assert snap.boot_firmware is None

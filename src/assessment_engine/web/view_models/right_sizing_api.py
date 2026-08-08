@@ -64,7 +64,7 @@ class RsAction(TypedDict):
     resource: str | None
     op: str | None
     target_display: str | None
-    # 자원 종류별로 하나만 present(타입 키로 파싱) — tier_up 등은 아예 부재.
+
     target_cores: NotRequired[int | None]
     target_mb: NotRequired[int | None]
     target_gb: NotRequired[int | None]

@@ -15,7 +15,6 @@ from pydantic import BeforeValidator
 
 
 def _only(name: str):
-    """`name` 만 통과시키고 나머지는 None. 라우터 본문의 문자열 비교를 시그니처로 올린다."""
 
     def _coerce(value: object) -> str | None:
         return name if value == name else None

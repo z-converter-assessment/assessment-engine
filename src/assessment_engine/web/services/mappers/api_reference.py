@@ -9,7 +9,7 @@ from assessment_engine.web.view_models.api_reference import ApiEndpoint, ApiGrou
 
 _HTTP_METHODS = ("get", "post", "put", "patch", "delete")
 
-# method -> 뱃지 (배경, 글자) 색. 안전(GET)=파랑 · 변경(POST/PUT/PATCH)=녹색/노랑 · 삭제=빨강.
+
 _METHOD_STYLE = {
     "GET": ("#dbeafe", "#1e40af"),
     "POST": ("#dcfce7", "#166534"),
@@ -19,7 +19,7 @@ _METHOD_STYLE = {
 }
 
 # 노출 태그 화이트리스트 — 정의 순서가 곧 표시 순서, 미등재 태그는 자동 제외.
-# 신규 태그를 도입하면 여기 실을지 검토한다.
+
 _TAG_LABELS = [
     ("assessment", "통합 프로비저닝 어세스먼트"),
     ("right-sizing", "자원 적정성 판정"),
@@ -55,7 +55,6 @@ def _resolve_body_fields(op: JsonObject, spec: JsonObject) -> list[ApiParam]:
 
 
 def _display_summary(op: JsonObject) -> str:
-    """목록 표시 요약 — FastAPI 가 함수명에서 만드는 영어 summary 대신 docstring 첫 줄을 쓴다."""
     desc = (op.get("description") or "").strip()
     if desc:
         return desc.splitlines()[0].strip()
@@ -63,7 +62,6 @@ def _display_summary(op: JsonObject) -> str:
 
 
 def _returns_json(op: JsonObject) -> bool:
-    """성공(2xx) 응답에 application/json 이 있는지 — 200 만 보면 201 뿐인 엔드포인트를 오탈락시킨다."""
     responses = json_obj(op, "responses")
     return any(
         "application/json" in json_obj(resp, "content") for code, resp in responses.items() if code.startswith("2")
@@ -71,11 +69,10 @@ def _returns_json(op: JsonObject) -> bool:
 
 
 def build_api_reference(spec: JsonObject) -> list[ApiGroup]:
-    """OpenAPI dict -> 태그별 ApiGroup list — `/api/*` 화이트리스트 태그의 JSON 엔드포인트만."""
     by_tag: dict[str, list[ApiEndpoint]] = {}
     for path, ops in sorted((json_obj(spec, "paths")).items()):
         if not path.startswith("/api/"):
-            continue  # SSR 페이지 라우트 제외 — JSON API 만
+            continue
         for method, op in ops.items():
             if method not in _HTTP_METHODS:
                 continue
@@ -83,7 +80,7 @@ def build_api_reference(spec: JsonObject) -> list[ApiGroup]:
             if tag not in _ALLOWED_TAGS:
                 continue
             if not _returns_json(op):
-                continue  # HTML fragment 응답(예: task 상세 modal)
+                continue
             params = [
                 ApiParam(
                     name=p.get("name", ""),

@@ -60,8 +60,7 @@ if TYPE_CHECKING:
     )
     from assessment_engine.json_types import JsonObject
 
-# PSI ratio_avg10(대기 시간 비율 %) 표시 기준선. PSI 는 판정 축이 아니라(right-sizing 미사용) 표시 전용이라
-# run_queue/await 처럼 도메인 임계를 재사용하지 않고 여기서 명명한다.
+
 PSI_STALL_DISPLAY_PCT = 10.0
 
 
@@ -73,7 +72,6 @@ def _group_by_dim[T](rows: list[T], key: Callable[[T], str]) -> dict[str, list[T
 
 
 def _delta_rate(cur: int | None, prev: int | None, dt: float) -> float | None:
-    """누적 카운터 2시점의 변화율 (count/sec). counter reset(d<0) 이면 None."""
     if cur is None or prev is None:
         return None
     d = cur - prev
@@ -83,7 +81,6 @@ def _delta_rate(cur: int | None, prev: int | None, dt: float) -> float | None:
 
 
 def _delta_kbps(cur: int | None, prev: int | None, dt: float) -> float | None:
-    """누적 byte 카운터 2시점의 처리량 (kB/s) — raw 는 By 단위. counter reset(d<0) 이면 None."""
     if cur is None or prev is None:
         return None
     d = cur - prev
@@ -140,7 +137,7 @@ def build_dashboard(raw: DashboardRaw) -> MetricDashboard:
     phys_ifaces = _physical_dev_names(raw.net_interfaces, lambda n: not is_virtual_interface(n.get("kind")))
 
     mounts = compute_mounts(raw.filesystems)
-    # 순간 스냅샷 전용 — 이용률·포화 2축 분류는 평가 윈도우 p95 라 PeriodAssessment 가 따로 낸다.
+
     return MetricDashboard(
         collected_at=cur.collected_at if cur else None,
         cpu=compute_cpu(cur, prev),
@@ -154,13 +151,9 @@ def build_dashboard(raw: DashboardRaw) -> MetricDashboard:
 
 
 def _aggregate_disk_usage(mounts: list[MountDashSnapshot]) -> float | None:
-    """데이터 볼륨 used/total 집계 — 가상 fs 는 compute_mounts 가 이미 걸러 여기선 합산만."""
     total = sum((m.total_gb or 0) for m in mounts if m.total_gb)
     used = sum((m.used_gb or 0) for m in mounts if m.total_gb and m.used_gb is not None)
     return round(used / total * 100, 1) if total > 0 else None
-
-
-# --- 포화 스냅샷 신호 (os-aware 서버 판정, P2) -----------------------------
 
 
 def _psi_supported(kernel_version: str | None) -> bool | None:
@@ -218,7 +211,6 @@ def build_saturation_signals(
     sat: SaturationRaw,
     blocked: float | None = None,
 ) -> dict[str, list[SaturationSignal]]:
-    """자원 4축 포화 스냅샷 신호 {"cpu"|"mem"|"disk"|"net": [SaturationSignal]} — 판정은 도메인 helper 경유."""
     win = os_family == "windows"
     psi_ok = _psi_supported(kernel_version)
 
@@ -330,7 +322,7 @@ def build_saturation_signals(
     disk.append(_psi_signal("disk_psi", "PSI(io)", sat.psi_io, win, psi_ok))
 
     # conntrack 은 Linux nf_conntrack 전용이고 Windows 는 계약상 미발행(agent-data.md #B) — 절대 나타나지 않을
-    # 값이라 no_data("수집 대기") 아닌 not_applicable 로 둔다.
+
     ct_ratio = sat.conntrack_ratio
     if win:
         conntrack_sig = SaturationSignal(
@@ -357,9 +349,6 @@ def build_saturation_signals(
     ]
 
     return {"cpu": cpu, "mem": mem, "disk": disk, "net": net}
-
-
-# --- 에러 축 표시자 (Errors, 정상=0 발화 E9) -------------------------------
 
 
 def _error_counter(
@@ -474,9 +463,6 @@ def build_error_signals(err: ErrorFleetRaw, *, window_label: str, os_family: str
     return signals
 
 
-# --- CPU ------------------------------------------------------------------
-
-
 def compute_cpu(cur: MetricPairRaw | None, prev: MetricPairRaw | None) -> CpuSnapshot | None:
     if cur is None:
         return None
@@ -562,12 +548,9 @@ def compute_cpu_cores(pairs: list[CpuCoreRaw]) -> list[CpuCoreSnapshot]:
             continue
         idle_pct = max(0.0, (cur.cpu_idle_s - prev.cpu_idle_s) / delta_total * 100)
         usage = round(max(0.0, 100.0 - idle_pct), 1)
-        # 클라(cpu.js)가 플래그만 읽게 해 임계를 JS 에 재선언하지 않는다.
+
         result.append(CpuCoreSnapshot(core_id=int(core_id), usage_pct=usage, hot=usage >= CPU_PERCORE_HOLD_PCT))
     return result
-
-
-# --- Memory (시점 값, By) --------------------------------------------------
 
 
 def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
@@ -575,13 +558,13 @@ def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
         return None
 
     # mem_used_bytes(total-free-buff/cache)를 쓰지 않는다 — limit-available 과 어긋나 스택바 합이 100 을 깬다.
-    # max(0,...) 은 cgroup memory.limit < 호스트 MemAvailable 인 컨테이너의 음수 방지.
+
     used = max(0, cur.mem_limit_bytes - cur.mem_available_bytes) if cur.mem_available_bytes is not None else None
     used_pct = usage_pct(used, cur.mem_limit_bytes)
 
     # 구성 모델(types._ENV_SCALAR_WEIGHTED): Used + Available = 100 이고 Cached/Buffers 는 Available 안의 세부다
     # — 남은 공간 안에서만 cached -> buffers 를 쌓고 잔여를 free 로 채워야 bar 합이 정확히 100 이 된다.
-    remaining_after_used = 100.0 - (used_pct or 0.0)  # = available_pct
+    remaining_after_used = 100.0 - (used_pct or 0.0)
     cached_pct = _clip_to_remaining(
         usage_pct(cur.mem_cached_bytes, cur.mem_limit_bytes),
         remaining_after_used,
@@ -606,14 +589,7 @@ def compute_mem(cur: MetricPairRaw | None) -> MemSnapshot | None:
     )
 
 
-# --- Disk I/O / Net I/O — 누적 카운터 페어 → rate -------------------------
-
-
 def compute_disk_io(pairs: list[DiskIoRaw], dev_names: dict[str, str] | None = None) -> list[DiskIoSnapshot]:
-    """device_id 별 페어 rate. dev_names 주면 물리 디스크만, None(인벤토리 부재)이면 전체 폴백.
-
-    LV/파티션/RAID 를 통과시키면 같은 I/O 가 물리 디스크와 이중 집계된다.
-    """
     if dev_names is not None:
         pairs = [p for p in pairs if p.device_id in dev_names]
     by_device = _group_by_dim(pairs, key=lambda r: r.device_id)
@@ -640,7 +616,6 @@ def _disk_io_snapshot(rows: list[DiskIoRaw], dev_names: dict[str, str] | None = 
 
 
 def compute_net_io(pairs: list[NetIoRaw], iface_names: dict[str, str] | None = None) -> list[NetIoSnapshot]:
-    """iface_id 별 페어 rate. iface_names 주면 물리 인터페이스만, None(인벤토리 부재)이면 전체 폴백."""
     if iface_names is not None:
         pairs = [p for p in pairs if p.iface_id in iface_names]
     by_iface = _group_by_dim(pairs, key=lambda r: r.iface_id)
@@ -664,9 +639,6 @@ def _net_io_snapshot(rows: list[NetIoRaw], iface_names: dict[str, str] | None = 
         rx_pps=_delta_rate(cur.rx_packets, prev.rx_packets, dt),
         tx_pps=_delta_rate(cur.tx_packets, prev.tx_packets, dt),
     )
-
-
-# --- Mount usage (시점 값 + 가상 마운트 필터) -----------------------------
 
 
 def compute_mounts(mounts: list[MountUsageRaw]) -> list[MountDashSnapshot]:

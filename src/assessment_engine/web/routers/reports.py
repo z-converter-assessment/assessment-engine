@@ -25,7 +25,7 @@ from assessment_engine.web.services.report import normalize_anchor
 from assessment_engine.web.templating import templates
 
 reports_router = APIRouter(prefix="/reports", tags=["pages"])
-# 참고(기준·임계값)는 보고서가 아니라 독립 reference 라 prefix 를 나눈다.
+
 reference_router = APIRouter(tags=["pages"])
 
 
@@ -41,7 +41,6 @@ async def environment_report(
     view: Literal["customer", "engineer"] = "customer",
     back: BackUrl = None,
 ):
-    """환경 단위 보고서 — job 있으면 정적 스냅샷, 없으면 발행 전 컨트롤(본문은 발행해야 생성)."""
     back_url = safe_back(back, "/")
     self_back_url = self_back(request)
 
@@ -97,10 +96,6 @@ async def environment_report_emit(
     anchor_at: datetime | None = None,
     view: Literal["customer", "engineer"] = "customer",
 ):
-    """환경 보고서 발행(PRG) — parent job enqueue 후 즉시 `{"view_url": "?job={id}"}` 반환.
-
-    본문 생성은 워커가 비동기로 한다 — 생성 불가(등록 서버 0 등)도 여기서 막지 않고 워커가 failed 로 전이한다.
-    """
     anchor = normalize_anchor(anchor_at)
     job_id = await diag_service.enqueue_report(
         view=view,
@@ -139,7 +134,6 @@ async def history(
     ] = False,
     back: BackUrl = None,
 ):
-    """보고서 발행 이력 — created_at DESC. 기본 20건 + 더보기(limit 누적)."""
     records, total = await diag_service.list_reports(
         days,
         view,
@@ -147,14 +141,14 @@ async def history(
         limit=limit,
         scope=None if scope == "all" else scope,
     )
-    # 여기서 진입한 보고서의 "이전" 버튼이 돌아올 위치.
+
     history_back = self_back(request)
     items = [to_report_history_item(r, history_back) for r in records]
     back_url = safe_back(back, "/")
     context: dict[str, Any] = {
         "active_nav": "history",
         "items": items,
-        "items_count": len(items),  # 템플릿이 `length` 를 세지 않게 서버에서 미리 센다 (P3).
+        "items_count": len(items),
         "total": total,
         "has_more": len(items) < total,
         "page_limit": _HISTORY_PAGE_LIMIT,
@@ -173,11 +167,6 @@ async def report_status(
     job_id: str,
     diag_service: DiagnosticServiceDep,
 ) -> dict[str, str | None]:
-    """비동기 보고서 생성 진행 상태 — report-poll.js 폴링용. 미존재 404.
-
-    error 는 도메인 사유만 담는다(raw 예외는 워커가 sanitize). `{job_id}` 는 segment 구조가 달라
-    정적 라우트를 삼키지 않는다.
-    """
     rec = await diag_service.get_report_snapshot(job_id)
     if rec is None:
         raise HTTPException(status_code=404, detail="job not found")
@@ -193,7 +182,6 @@ async def right_sizing_thresholds(
     request: Request,
     back: BackUrl = None,
 ):
-    """Right-sizing 분류 임계값 reference — 보고서·진단이 함께 참조해 여기서만 한 번 정의한다 (T13)."""
     back_url = safe_back(back, "/")
     return templates.TemplateResponse(
         request=request,
@@ -210,7 +198,6 @@ async def right_sizing_thresholds(
 async def api_reference(
     request: Request,
 ):
-    """JSON API 목록 — app.openapi() 에서 자동 도출해 라우터 코드와 어긋나지 않는다."""
     return templates.TemplateResponse(
         request=request,
         name="reports/api_reference.html",
@@ -219,6 +206,3 @@ async def api_reference(
             "groups": build_api_reference(request.app.openapi()),
         },
     )
-
-
-# total 은 list_reports 가 필터 후 전체 건수로 반환 — retention 90일 가정이라 COUNT 비용 수용 (E2 일반 정책 예외).

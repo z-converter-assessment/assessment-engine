@@ -43,7 +43,7 @@ if TYPE_CHECKING:
 
     from assessment_engine.db.dtos.outbound import ReportRowRaw
 
-# USE Method 분류 -> (risk_level, 한글 라벨, badge CSS 클래스) — customer 양식의 3단계 압축.
+
 _RISK_FROM_RECOMMENDATION: dict[str, tuple[str, str, str]] = {
     "under_provisioned": ("high", "고위험", "rec-under_provisioned"),
     "idle": ("attention", "주의 필요", "rec-over_provisioned"),
@@ -52,12 +52,11 @@ _RISK_FROM_RECOMMENDATION: dict[str, tuple[str, str, str]] = {
     "insufficient_data": ("normal", "정상", "rec-optimal"),
 }
 
-# assess_network status -> 표시 라벨. 사이징 분류와 별개인 품질 판정이고, attention 표와 어휘를 맞춘다.
+
 _NET_STATUS_LABEL: dict[str, str] = {"quality_ok": "정상", "congested": "혼잡", "unmeasured": "미측정"}
 
 
 def compute_report_avg_p95(rows: list[ReportRowItem]) -> tuple[float | None, float | None]:
-    """CPU·메모리 p95 의 호스트 평균. None 항목은 분모에서 제외하고, 전부 None 이면 None."""
     cpu_vals = [r.cpu_p95_pct for r in rows if r.cpu_p95_pct is not None]
     mem_vals = [r.mem_p95_pct for r in rows if r.mem_p95_pct is not None]
     avg_cpu = sum(cpu_vals) / len(cpu_vals) if cpu_vals else None
@@ -66,10 +65,6 @@ def compute_report_avg_p95(rows: list[ReportRowItem]) -> tuple[float | None, flo
 
 
 def compute_report_totals_from_raw(raws: list[ReportRowRaw]) -> ReportTotals:
-    """묶음 자원 총량 — 마이그레이션 capacity 산정 입력("총 N대 = 총 X vCPU·Y GB·Z TB").
-
-    디스크는 `disk_total_bytes` 단일 산식 — 환경 overview·세부 목록·export 가 같은 값을 내야 한다.
-    """
     total_vcpus = sum(r.cpu_cores or 0 for r in raws)
     total_mem_bytes = sum(r.mem_total_bytes or 0 for r in raws)
     total_disk_bytes = sum(disk_total_bytes(r.block_devices or []) for r in raws)
@@ -81,7 +76,6 @@ def compute_report_totals_from_raw(raws: list[ReportRowRaw]) -> ReportTotals:
 
 
 def build_role_distribution(raws: list[ReportRowRaw]) -> dict[str, int]:
-    """역할별 서버 수 — 호스트 대표 역할(listen 포트로 보강) 기준."""
     counter: Counter[str] = Counter()
     for r in raws:
         counter[infer_role(r.services, r.listen_ports)] += 1
@@ -105,7 +99,6 @@ def build_selection_context(items: list[ReportRowItem], role_distribution: dict[
 
 
 def sort_rows_for_report(items: list[ReportRowItem]) -> list[ReportRowItem]:
-    """N대 비교 표 행 정렬 — 위험 높은 호스트가 위로."""
     return sorted(
         items,
         key=lambda it: (RISK_LEVEL_ORDER.get(it.risk_level, 99), -(it.cpu_p95_pct or 0.0), it.hostname),
@@ -113,7 +106,7 @@ def sort_rows_for_report(items: list[ReportRowItem]) -> list[ReportRowItem]:
 
 
 def _build_recommendation_action(host: right_sizing.HostAssessment, stats: right_sizing.ResourceStats) -> str:
-    # under 는 근본원인 기반 처방을 쓴다 — 자원별로 늘리라고 나열하면 root_cause 와 어긋난 삼중 처방이 된다.
+
     rec = right_sizing.host_status_to_recommendation(host.host_status)
     if rec == "under_provisioned":
         return right_sizing.under_prescription(host)
@@ -126,11 +119,6 @@ def _build_diagnosis(
     cpu_variance: float | None,
     mem_variance: float | None,
 ) -> str:
-    """엔지니어 "진단" 칼럼 — 가장 시급한 신호 하나만 반환한다.
-
-    `rollup_host` 자원별 상태·trigger 를 직접 읽고 임계를 다시 계산하지 않으므로 배지와 어긋날 수 없다.
-    우선순위·임계 카탈로그는 `docs/explanation/products/server-report.md` "진단 칼럼".
-    """
     mem = host.resources["memory"]
     cpu = host.resources["cpu"]
     if mem.status == "under" and ("mem_saturation" in mem.triggers or "mem_oom" in mem.triggers):
@@ -147,7 +135,7 @@ def _build_diagnosis(
         return "디스크 용량 임박"
     if host.network_congested:
         return "네트워크 혼잡"
-    # 비율만 크고 peak 가 저부하선(BURST_PEAK_FLOOR) 밑이면 지터라 발화하지 않는다.
+
     cpu_burst = (
         cpu_variance is not None
         and cpu_variance >= _VARIANCE_BURST_RATIO
@@ -162,7 +150,7 @@ def _build_diagnosis(
     )
     if cpu_burst or mem_burst:
         return "부하 변동 큼"
-    # 미사용/여유는 배지 host_status 를 그대로 옮긴다 — 텍스트와 배지가 갈라지지 않게.
+
     if host.host_status == "idle":
         return "거의 미사용"
     if host.host_status == "over":
@@ -188,7 +176,7 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
             missing.append("run queue")
     elif raw.procs_running_p95 is None:
         missing.append("실행 큐")
-    # 디스크 응답(await)은 양 OS 공통 포화 신호 (op_time delta).
+
     if raw.disk_await_p95_ms is None:
         missing.append("디스크 응답(await)")
     if raw.worst_mount_used_pct is None:
@@ -199,7 +187,6 @@ def _build_insufficient_reason(raw: ReportRowRaw, is_online: bool) -> str:
 def _build_workload_display(
     raw: ReportRowRaw,
 ) -> tuple[list[ReportWorkloadGroup], list[ReportListenItem]]:
-    """구동 서비스 표시 precompute — (customer 카테고리별 제품명 묶음, engineer listen 포트 전체)."""
     services = _services_or_none(raw.services, raw.listen_ports) or []
     listen = [
         ReportListenItem(port=lp.port, proto=lp.proto, comm=lp.comm or "", addr=lp.addr, uid=lp.uid, pid=lp.pid)
@@ -215,7 +202,7 @@ def _build_workload_display(
         if name:
             by_cat.setdefault(si.category, []).append(name)
         by_cat_ports.setdefault(si.category, []).extend(f"{p.port}/{p.proto}" for p in si.ports)
-    # 포트로만 잡히는 카테고리는 제품명을 모른다 — 이름 없는 빈 그룹으로라도 세워야 존재가 드러난다.
+
     for cat in detect_listen_categories(raw.listen_ports or []):
         by_cat.setdefault(cat, [])
     groups = [
@@ -232,22 +219,16 @@ def _build_workload_display(
 def to_report_row_item(
     raw: ReportRowRaw, is_online: bool, now: datetime, has_operational_event: bool = False
 ) -> ReportRowItem:
-    """ReportRowRaw -> ReportRowItem 단일 변환.
-
-    `now` 는 보고서 발행 기준 시각(anchor)이다 — uptime_days·OS EOL 판정이 렌더 시점 "오늘"을 따라가면
-    정적 스냅샷이 시간에 따라 변한다.
-    has_operational_event: 호출자가 보고서 창 기준으로 사전 판정해 주입한다 (여기서 조회하면 N+1).
-    """
     info = lookup_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
     os_eol, os_eol_status = ("", "unknown") if info is None else (info.eol_iso, info.status)
     os_eol_disp = os_eol_display(os_eol_status, os_eol)
-    # 보고서 경로는 `_assemble_report_raws` 가 disk baseline 을 채워 온 raw 를 받는다 (유일한 주입 경로).
+
     stats = build_resource_stats(raw, disk_baseline=raw.disk_iops_baseline)
-    # 한 번만 산출한다 — badge·진단·권고·confidence 가 전부 이 종합에서 파생해야 화면 간 분류가 맞는다.
+
     host = right_sizing.rollup_host(stats)
     net_status_label = _NET_STATUS_LABEL.get(host.resources["network"].status, "미측정")
     workload_groups, listen_ports_detail = _build_workload_display(raw)
-    # 환경 개요 뱃지와 같은 소스를 써야 서비스 구성 집계가 화면 간에 어긋나지 않는다.
+
     workload_categories = list(workload_category_counter(raw.services, raw.listen_ports).keys())
     signature_workload_categories = [c for c in workload_categories if c in SIGNATURE_CATEGORIES]
     workload_services = workload_services_by_category(raw.services, raw.listen_ports)
@@ -290,7 +271,7 @@ def to_report_row_item(
             (
                 a.get("address")
                 for i in raw.net_interfaces or []
-                if not is_virtual_interface(i.get("kind"))  # topology·상세와 같은 술어
+                if not is_virtual_interface(i.get("kind"))
                 for a in json_list(i, "addresses")
                 if a.get("family") == "ipv4"
             ),
@@ -340,8 +321,6 @@ def to_report_row_item(
         net_tx_kbps=raw.net_tx_kbps,
         net_tx_kbps_p95=raw.net_tx_kbps_p95,
         net_tx_kbps_peak=raw.net_tx_kbps_peak,
-        # 표본 부족 호스트에 USE 진단을 태우면 어느 분기에도 안 걸려 '정상'으로 떨어진다 — 원인 진단으로 가른다.
-        # 오프라인 접두는 맥락 보강일 뿐이고 분류 자체는 윈도우 측정 기반을 유지한다.
         diagnosis=(
             _build_insufficient_reason(raw, is_online)
             if rec == "insufficient_data"

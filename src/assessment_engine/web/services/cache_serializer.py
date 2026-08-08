@@ -37,7 +37,7 @@ from assessment_engine.web.view_models.server import (
 # pop 후 enrich_server_detail 이 재계산하는 파생 필드만 나열. 여기 넣은 필드는 캐시값을 버리고 enrich 재산출로
 # 복원되므로, enrich 가 못 만드는 필드(block_devices 등 캐시에 없는 raw 의존)는 넣지 말 것 — 넣으면 pop 후
 # 복원 불가로 None 이 된다. disk_total_gb·volume_total_gb·disk_unallocated_gb 는 storage_layers_gb(block_devices)
-# 산식이라 enrich 가 재계산 못 함 -> asdict 저장분을 그대로 보존(여기 미포함).
+
 _DETAIL_DISPLAY_FIELDS = frozenset(
     {
         "known_services",
@@ -56,7 +56,6 @@ _DETAIL_DISPLAY_FIELDS = frozenset(
 
 
 def _error_signal_from_dict(e: JsonObject) -> ErrorSignal:
-    """ErrorSignal 복원 — last_at 만 datetime 재구성, 나머지는 그대로."""
     last_at = e.get("last_at")
     return ErrorSignal(
         key=e["key"],

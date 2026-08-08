@@ -9,26 +9,16 @@ parameter 로 써 단일 진실을 유지한다.
 
 from datetime import datetime, timedelta
 
-# 실측 jitter(+/-1초)와 실제 재부팅(분 단위 점프) 사이에 여유 있게 둔 값.
 BOOT_TIME_JITTER_TOLERANCE = timedelta(seconds=5)
 
 
 def is_counter_reset(cur_boot: datetime | None, prev_boot: datetime | None) -> bool:
-    """재부팅(counter reset) 확정 판정 — 보수적.
-
-    재부팅이면 /proc 누적 카운터가 0 으로 리셋돼 그 구간 delta 가 무의미해진다(호출자는 None 처리).
-    한쪽이라도 NULL(옛 데이터·미발행)이면 단정 못 해 False — 호출자는 d<0 휴리스틱으로 폴백한다.
-    """
     if cur_boot is None or prev_boot is None:
         return False
     return abs(cur_boot - prev_boot) > BOOT_TIME_JITTER_TOLERANCE
 
 
 def boot_time_changed(prev_boot: datetime | None, new_boot: datetime | None) -> bool:
-    """boot_time 변경 감지 — 적극적 (inventory_history append 트리거).
-
-    값<->NULL 전환은 의미있는 변경(True), 둘 다 NULL 이면 동일(False).
-    """
     if prev_boot is None and new_boot is None:
         return False
     if prev_boot is None or new_boot is None:

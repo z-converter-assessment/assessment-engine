@@ -10,7 +10,6 @@ def bytes_to_gb(b: int | None) -> float | None:
     return round(b / 1024**3, 2) if b is not None else None
 
 
-# 메모리(RAM)·스왑은 binary GiB(1024^3 B=1 GiB) — RAM 은 binary 가 관례. 입력 단위는 By.
 def bytes_to_gib(b: int | None) -> float | None:
     return round(b / 1024**3, 1) if b else None
 

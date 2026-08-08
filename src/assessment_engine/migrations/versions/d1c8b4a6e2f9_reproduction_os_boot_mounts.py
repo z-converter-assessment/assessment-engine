@@ -23,7 +23,6 @@ branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
 
-# server_inventory 와 그 append-only 미러(server_inventory_history)에 동일 적용
 _TABLES = ("server_inventory", "server_inventory_history")
 
 

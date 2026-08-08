@@ -24,7 +24,7 @@ from assessment_engine.db.repositories.query.types import (
     _PHYS_DISK_SQL_FILTER,
     _PHYS_IFACE_SQL_FILTER,
 )
-from assessment_engine.domain import right_sizing  # 순수 도메인 커널 — right-sizing 정책 상수(순환 없음)
+from assessment_engine.domain import right_sizing
 
 if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
@@ -37,10 +37,6 @@ class SqlReportQueryRepository(_BaseQueryMixin):
         period_days: float,
         end: datetime,
     ) -> list[ReportRowRaw]:
-        """N서버 x period_days 통계 -> ReportRowRaw list. 표시 파생은 service 몫이다.
-
-        server_inventory 에서 LEFT JOIN 하므로 metric 이 하나도 없는 서버도 행이 나온다 (호출부 N+1 회피).
-        """
         start = end - timedelta(days=period_days)
 
         sql = text(f"""
@@ -359,19 +355,16 @@ class SqlReportQueryRepository(_BaseQueryMixin):
         ]
 
     async def get_report_uptime_stats(self, server_ids: list[int], period_days: float, end: datetime) -> dict[int, int]:
-        """server_id -> period 안 boot_time 전환 횟수."""
         start = end - timedelta(days=period_days)
         return await self._get_inventory_transition_counts(server_ids, start, end, field="boot_time")
 
     async def get_report_agent_restart_stats(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, int]:
-        """server_id -> period 안 agent_started_at 전환 횟수."""
         start = end - timedelta(days=period_days)
         return await self._get_inventory_transition_counts(server_ids, start, end, field="agent_started_at")
 
     async def get_agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]:
-        """since 이후 server별 agent 재시작 횟수를 반환한다."""
         if not server_ids:
             return {}
         return await self._get_inventory_transition_counts(server_ids, since, field="agent_started_at")
@@ -428,7 +421,6 @@ class SqlReportQueryRepository(_BaseQueryMixin):
     async def get_report_disk_io_baseline(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, DiskIoBaselineRaw]:
-        """server_id -> DiskIoBaselineRaw. throughput 단위는 kB/s, iops 는 회/s."""
         start = end - timedelta(days=period_days)
         sql = text(f"""
             WITH per_dev AS (
@@ -479,7 +471,6 @@ class SqlReportQueryRepository(_BaseQueryMixin):
     async def get_report_net_io_baseline(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, NetIoBaselineRaw]:
-        """server_id -> NetIoBaselineRaw. rx·tx 단위는 kB/s."""
         start = end - timedelta(days=period_days)
         sql = text(f"""
             WITH per_if AS (
@@ -591,13 +582,11 @@ class SqlReportQueryRepository(_BaseQueryMixin):
     async def get_report_memory_breakdown(
         self, server_id: int, period_days: float, end: datetime
     ) -> MemoryBreakdownRaw:
-        """메모리 구성 윈도우 평균. 데이터 없으면 전 축 None."""
         return (await self.get_report_memory_breakdown_batch([server_id], period_days, end)).get(
             server_id, MemoryBreakdownRaw(None, None, None, None)
         )
 
     async def get_report_cpu_breakdown(self, server_id: int, period_days: float, end: datetime) -> CpuBreakdownRaw:
-        """CPU 분류 윈도우 평균. 데이터 없으면 전 축 None."""
         return (await self.get_report_cpu_breakdown_batch([server_id], period_days, end)).get(
             server_id, CpuBreakdownRaw(None, None, None)
         )
@@ -605,13 +594,6 @@ class SqlReportQueryRepository(_BaseQueryMixin):
     async def get_report_mount_capacity_batch(
         self, server_ids: list[int], end: datetime
     ) -> dict[int, list[MountCapacityRaw]]:
-        """마운트별 용량 사이징 입력. `get_report_aggregate` 와 달리 호스트 worst-mount 로 접지 않는다.
-
-        프로비저닝은 볼륨마다 따로 사이징해야 하므로 마운트 행을 그대로 돌려준다. runway/target 산식
-        자체는 `get_report_aggregate` mount_calc 와 동일하다. target_bytes 는 목표 총 용량(bytes, None
-        이면 확장 불필요). runway 는 사이징 창이 아니라 가용 이력 전체 span 기준이다 — 누적 신호라
-        길수록 정확하다.
-        """
         sql = text(f"""
             WITH mount_span AS (
                 SELECT server_id, mountpoint,
@@ -675,9 +657,8 @@ class SqlReportQueryRepository(_BaseQueryMixin):
     async def get_report_memory_breakdown_batch(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, MemoryBreakdownRaw]:
-        """`get_report_memory_breakdown` 배치."""
         start = end - timedelta(days=period_days)
-        # 버킷 avg 를 다시 창 avg 로 접는다 — mem_pct_avg 규약과 동형.
+
         sql = text("""
             SELECT server_id,
                 avg(mem_pct_avg) AS used_pct,
@@ -702,7 +683,6 @@ class SqlReportQueryRepository(_BaseQueryMixin):
     async def get_report_cpu_breakdown_batch(
         self, server_ids: list[int], period_days: float, end: datetime
     ) -> dict[int, CpuBreakdownRaw]:
-        """`get_report_cpu_breakdown` 배치."""
         start = end - timedelta(days=period_days)
         sql = text("""
             WITH bkt AS (

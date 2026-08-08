@@ -19,13 +19,12 @@ class PeriodSignalRow:
 class PeriodErrorRow:
     """평가 카드 에러축(E) 1행 — 카운트형 표시자."""
 
-    key: str  # ErrorSignal.key 그대로 — 자원별 상세 탭이 접두(mem_ 등)로 자기 자원 행만 필터한다.
+    key: str
     label: str
     badge_text: str
     badge_class: str
     note: str
-    # OOM 은 assess_memory 가 1건이라도 즉시 under 로 보므로 분류 발화까지 표기한다. 나머지 에러(MCE·EDAC·
-    # 디스크·NIC)는 사이징과 무관해 "".
+
     sizing_signal: str
 
 
@@ -46,17 +45,16 @@ class PeriodResource:
     util_over: int
     sat_rows: list[PeriodSignalRow]
     sat_over: int
-    has_util: bool  # 네트워크는 처리량=활동 축이라 용량% 가 없어 False.
+    has_util: bool
     detail_slug: str
-    # 자원별 판정 — rollup_host 의 자원별 status 라벨. 호스트 종합 배지는 PeriodAssessment 쪽이다.
+
     verdict_label: str
     verdict_color: str
-    # U/S 2축엔 안 들어가지만 진단에 쓰는 원신호 — 빈 list 면 그 자원 미제공.
+
     extra_groups: list[PeriodExtraGroup] = field(default_factory=list[PeriodExtraGroup])
-    # PeriodAssessment.error_rows(호스트 전체) 중 이 자원 몫 부분집합 — 현재 메모리만 채운다.
+
     error_rows: list[PeriodErrorRow] = field(default_factory=list[PeriodErrorRow])
-    # 용량(disk_capacity)과 성능/IO(disk_io)는 독립 축이라 배지 하나로 합치면 우선순위 승자만 남고 나머지 축
-    # 상태가 안 보인다. verdict_label/color = 용량 축, 이쪽 = 성능(I/O) 축. "" = 스토리지 외 자원.
+
     verdict_label2: str = ""
     verdict_color2: str = ""
 
@@ -68,10 +66,10 @@ class PeriodAssessment:
     실시간 카드(순간 스냅샷)와 분리 — 이쪽은 분류·판정 근거이고 창은 `right_sizing.WINDOW_DAYS`.
     """
 
-    resources: list[PeriodResource]  # [cpu, mem, disk, net] 순
-    error_rows: list[PeriodErrorRow]  # 전 자원 통합 (자원별 부분집합은 PeriodResource.error_rows)
+    resources: list[PeriodResource]
+    error_rows: list[PeriodErrorRow]
     window_days: int
-    # 축별 신호는 이 판정의 입력이고 배지는 classify_host(rollup_host 종합, dual-gate+OOM+용량) 결과다 —
+
     # 둘을 함께 노출해야 목록-세부가 맞는다.
     classification_label: str
     classification_color: str
@@ -86,14 +84,14 @@ class SaturationSignal:
     현재 스냅샷 축엔 미사용).
     """
 
-    key: str  # 안정 식별자 (cpu_run_queue·mem_psi·disk_await 등)
+    key: str
     label: str
     state: str
     value: float | None = None
     threshold: float | None = None
-    unit: str | None = None  # "per_core" | "ms" | "%" | "/s"
-    saturated: bool | None = None  # measured 일 때만 유효
-    detail: str | None = None  # hover: 이 OS metric·임계 근거 문장
+    unit: str | None = None
+    saturated: bool | None = None
+    detail: str | None = None
     na_reason: str | None = None
 
 
@@ -110,10 +108,10 @@ class ErrorSignal:
     label: str
     state: str
     count: int | None = None
-    context: str | None = None  # 종류·부가 (disk kinds, EDAC bytes)
+    context: str | None = None
     last_at: datetime | None = None
     window_label: str | None = None
-    detail: str | None = None  # hover: 신호 의미·출처
+    detail: str | None = None
 
 
 @dataclass
@@ -134,20 +132,19 @@ class CpuCoreSnapshot:
 
     core_id: int
     usage_pct: float | None
-    # usage_pct >= right_sizing.CPU_PERCORE_HOLD_PCT (단일스레드 병목 임계). 서버 precompute 라
-    # 클라(cpu.js)가 임계를 다시 선언하지 않는다.
+
     hot: bool = False
 
 
 @dataclass
 class MemSnapshot:
     total_bytes: int | None
-    used_bytes: int | None  # total - available
+    used_bytes: int | None
     available_bytes: int | None
     cached_bytes: int | None
     buffered_bytes: int | None
     usage_pct: float | None
-    # stacked bar 표시용 비율 — 클라가 다시 계산하지 않는다. 메모리 구성 모델은 Used + Available = 100 이고
+
     # Cached/Buffers 는 Available 안 회수 가능 세부라, bar 구획 used|cached|buffers|free 합이 100 이다.
     cached_pct: float | None = None
     buffers_pct: float | None = None
@@ -186,10 +183,10 @@ class MetricDashboard:
     collected_at: datetime | None
     cpu: CpuSnapshot | None
     memory: MemSnapshot | None
-    disk_io: list[DiskIoSnapshot]  # 물리 디스크만 — LV/파티션 통과분 이중집계 제외 (device_filters)
-    net_io: list[NetIoSnapshot]  # 물리 인터페이스만 (device_filters)
+    disk_io: list[DiskIoSnapshot]
+    net_io: list[NetIoSnapshot]
     mounts: list[MountDashSnapshot]
-    disk_usage_pct: float | None = None  # 데이터 볼륨 파일시스템 used/total 집계 % (가상 fs 제외)
+    disk_usage_pct: float | None = None
     cpu_saturation: list[SaturationSignal] = field(default_factory=list[SaturationSignal])
     mem_saturation: list[SaturationSignal] = field(default_factory=list[SaturationSignal])
     disk_saturation: list[SaturationSignal] = field(default_factory=list[SaturationSignal])

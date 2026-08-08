@@ -1,12 +1,3 @@
-"""4 routing key 핸들러 팩토리 characterization — 무엇을 저장하고 무엇을 로그로 내는가.
-
-메시지 본문은 `docs/reference/contracts/wire-examples.json` 정본을 그대로 쓴다. 여기서 payload 를
-손으로 다시 쓰면 계약이 바뀌어도 이 파일만 옛 형태로 남는다.
-
-로그는 `captured_logs` 로 실제 렌더 문자열을 본다 — #F8 이 막는 것은 "찍히는 문자열에 원문이
-들어가는 것" 이라 format string 과 인자를 따로 보는 방식으로는 검사가 되지 않는다.
-"""
-
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -15,13 +6,11 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
-from assessment_engine.consumer.handlers import (
-    make_error_handler,
-    make_inventory_handler,
-    make_metrics_handler,
-    make_task_result_handler,
-)
 from assessment_engine.consumer.handlers._common import _format_validation_error, _sanitize_log_text
+from assessment_engine.consumer.handlers.error import make_error_handler
+from assessment_engine.consumer.handlers.inventory import make_inventory_handler
+from assessment_engine.consumer.handlers.metrics import make_metrics_handler
+from assessment_engine.consumer.handlers.task_result import make_task_result_handler
 from assessment_engine.consumer.schemas import MetricsInput
 from assessment_engine.consumer.settings import get_consumer_settings
 from tests.fakes import FakeMessage, FakeRedis, FakeSessionFactory, InMemoryCollectRepository
@@ -33,16 +22,12 @@ _EXAMPLES: dict[str, Any] = json.loads(
     (Path(__file__).resolve().parents[2] / "docs/reference/contracts/wire-examples.json").read_text()
 )
 
-# 예시 4종의 agent_id 는 정본이 고정한 값이다 — 등록된 서버를 흉내내려면 그 값으로 대역을 채워야 한다.
 _SUCCESS_EXIT_CODES = {"linux": [0], "windows": [0, 3010]}
 
-# 정본 예시의 task_id 는 "task-abc123" 이다. wire 계약이 자유 문자열이라 그 값 자체가 유효하지만
-# `tasks.public_id` 는 uuid 컬럼이라 매칭될 수 없다 — 매칭 경로를 보려면 UUID 로 덮어야 한다.
 _MATCHABLE_TASK_ID = "00000000-0000-4000-8000-000000000001"
 
 
 def _body(name: str, **overrides: object) -> bytes:
-    """정본 예시 1건을 JSON bytes 로. message_id 는 매번 새로 뽑아 멱등성 1단에 걸리지 않게 한다."""
     payload = cast("JsonObject", dict(_EXAMPLES[name]))
     payload["message_id"] = str(uuid4())
     payload.update(overrides)
@@ -70,11 +55,7 @@ def _task_result_handler(repo: InMemoryCollectRepository, redis: FakeRedis):
     )
 
 
-# --- metrics -----------------------------------------------------------------
-
-
 async def test_metrics_known_server_stores_and_marks_online():
-    """등록된 서버: ensure_server_id -> record_metrics, online 키 SET, 상세 캐시 무효화."""
     repo = InMemoryCollectRepository(known_agents={_agent_id("linux_metrics"): 42})
     redis = FakeRedis()
     message = FakeMessage(_body("linux_metrics"))
@@ -87,7 +68,6 @@ async def test_metrics_known_server_stores_and_marks_online():
 
 
 async def test_metrics_unknown_server_auto_registers(captured_logs: list[str]):
-    """미등록 서버: placeholder 로 등록하고 그 사실을 INFO 로 남긴다 (다음 inventory 가 채운다)."""
     repo = InMemoryCollectRepository(next_server_id=7)
     redis = FakeRedis()
 
@@ -98,7 +78,6 @@ async def test_metrics_unknown_server_auto_registers(captured_logs: list[str]):
 
 
 async def test_metrics_duplicate_message_skips_db(captured_logs: list[str]):
-    """멱등성 1단에 걸린 재전송은 DB 를 건드리지 않는다 (#D2)."""
     repo = InMemoryCollectRepository(known_agents={_agent_id("linux_metrics"): 42})
     redis = FakeRedis()
     handler = _metrics_handler(repo, redis)
@@ -113,7 +92,6 @@ async def test_metrics_duplicate_message_skips_db(captured_logs: list[str]):
 
 
 async def test_metrics_invalid_body_raises_inside_process_context(captured_logs: list[str]):
-    """검증 실패는 `message.process` 컨텍스트 안에서 raise — 그래야 nack 이 성립한다 (#F11)."""
     repo = InMemoryCollectRepository()
     message = FakeMessage(b'{"message_type": "metrics"}')
 
@@ -128,15 +106,11 @@ async def test_metrics_invalid_body_raises_inside_process_context(captured_logs:
 
 
 async def test_metrics_windows_example_stores():
-    """윈도우 예시도 같은 경로 — OS 분기는 mapper 안쪽이라 핸들러 흐름은 하나다."""
     repo = InMemoryCollectRepository(known_agents={_agent_id("windows_metrics"): 8})
 
     await _metrics_handler(repo, FakeRedis())(cast("Any", FakeMessage(_body("windows_metrics"))))
 
     assert repo.call_names() == ["ensure_server_id", "record_metrics"]
-
-
-# --- inventory ---------------------------------------------------------------
 
 
 async def test_inventory_upserts_and_invalidates_cache(captured_logs: list[str]):
@@ -156,7 +130,6 @@ async def test_inventory_upserts_and_invalidates_cache(captured_logs: list[str])
 
 
 async def test_inventory_invalid_body_raises_without_payload_in_log(captured_logs: list[str]):
-    """검증 오류 로그에 원문 조각이 실리지 않는다 (#F8) — 필드 경로와 오류 종류만."""
     repo = InMemoryCollectRepository()
     marker = "supersecret-hostname-value"
     body = json.dumps({"message_type": "inventory", "hostname": {"nested": marker}}).encode()
@@ -167,9 +140,6 @@ async def test_inventory_invalid_body_raises_without_payload_in_log(captured_log
     assert not any(marker in line for line in captured_logs)
 
 
-# --- error -------------------------------------------------------------------
-
-
 async def test_error_message_logged_as_warning(captured_logs: list[str]):
     await make_error_handler(cast("Any", FakeRedis()))(cast("Any", FakeMessage(_body("error"))))
 
@@ -177,7 +147,6 @@ async def test_error_message_logged_as_warning(captured_logs: list[str]):
 
 
 async def test_error_message_sanitized_before_logging(captured_logs: list[str]):
-    """개행이 섞인 error_message 는 로그 줄을 위조할 수 있다 — 인쇄 가능 문자만 남긴다."""
     forged = "boom\nlevel=CRITICAL fake line"
     body = _body("error", error_message=forged)
 
@@ -189,13 +158,9 @@ async def test_error_message_sanitized_before_logging(captured_logs: list[str]):
 
 
 async def test_error_message_empty_renders_placeholder(captured_logs: list[str]):
-    """정제 후 빈 문자열이면 자리표시자 — `msg=` 뒤가 비면 다음 필드와 붙어 읽힌다."""
     await make_error_handler(cast("Any", FakeRedis()))(cast("Any", FakeMessage(_body("error", error_message="\x00"))))
 
     assert any("msg=(empty)" in line for line in captured_logs)
-
-
-# --- task.result -------------------------------------------------------------
 
 
 async def test_task_result_completes_task(captured_logs: list[str]):
@@ -210,10 +175,6 @@ async def test_task_result_completes_task(captured_logs: list[str]):
 
 
 async def test_task_result_non_uuid_task_id_silently_acks(captured_logs: list[str]):
-    """비 UUID task_id 는 매칭될 수 없다 — DB 를 건드리지 않고 ack (DLQ 부적합).
-
-    정본 예시가 이미 그 형태("task-abc123")다. wire 는 자유 문자열을 허용하고 매칭은 여기서 갈린다.
-    """
     repo = InMemoryCollectRepository()
 
     await _task_result_handler(repo, FakeRedis())(cast("Any", FakeMessage(_body("task_result"))))
@@ -223,7 +184,6 @@ async def test_task_result_non_uuid_task_id_silently_acks(captured_logs: list[st
 
 
 async def test_task_result_unknown_task_silently_acks(captured_logs: list[str]):
-    """UPDATE 가 0행이면 운영자가 지운 task — 경고만 남기고 ack."""
     repo = InMemoryCollectRepository(complete_task_ok=False)
     body = _body("task_result", task_id=_MATCHABLE_TASK_ID)
 
@@ -234,7 +194,6 @@ async def test_task_result_unknown_task_silently_acks(captured_logs: list[str]):
 
 
 async def test_task_result_status_remap_logged(captured_logs: list[str]):
-    """정책 보정으로 status 가 바뀌면 그 사실을 따로 남긴다 — 저장값과 발행값이 갈리는 유일한 지점."""
     repo = InMemoryCollectRepository()
     body = _body(
         "task_result",
@@ -252,16 +211,12 @@ async def test_task_result_status_remap_logged(captured_logs: list[str]):
     assert update.status == "success"
 
 
-# --- 로그 정제 helper --------------------------------------------------------
-
-
 def test_sanitize_log_text_drops_control_chars_and_truncates():
     assert _sanitize_log_text("a\nb\tc", 100) == "abc"
     assert _sanitize_log_text("x" * 10, 4) == "xxxx~"
 
 
 def test_format_validation_err_keeps_paths_not_values():
-    """`msg` 를 싣지 않는다 — pydantic 의 일부 오류 종류가 실패한 입력 문자를 그 안에 넣는다."""
     marker = "leaked-uuid-value"
     with pytest.raises(ValidationError) as excinfo:
         MetricsInput.model_validate({"message_id": marker})
@@ -274,11 +229,10 @@ def test_format_validation_err_keeps_paths_not_values():
 
 
 def test_format_validation_err_caps_field_count():
-    """필드가 많은 메시지는 상위 몇 건만 — 레코드 하나가 임의 크기로 부풀지 않게 한다 (#F7)."""
     with pytest.raises(ValidationError) as excinfo:
         MetricsInput.model_validate({})
 
     detail = _format_validation_error(excinfo.value, limit=2)
 
     assert "more" in detail
-    assert detail.count("=") <= 4  # count= + 2 필드 + more 접미
+    assert detail.count("=") <= 4

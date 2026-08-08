@@ -54,14 +54,14 @@
  |  - rule-based right-sizing (right_sizing.py, USE Method)         |
  |  - report emit -> diagnostic_jobs (pending; worker generates)    |
  |  - publishes task.install (assessment.tasks exchange)            |
- |  - plain HTTP ; prod TLS at external ingress                     |
+ |  - plain HTTP ; TLS termination is deployment infrastructure     |
  +------------------------------------------------------------------+
  +------------------------------------------------------------------+
  |  Worker (background process, assessment_engine.worker)           |
  |  - report job-claim (FOR UPDATE SKIP LOCKED) -> generate         |
  |    snapshot -> diagnostic_jobs (succeeded / failed)              |
  |  - install task reaper : deadline-overdue pending -> timeout     |
- |  - graceful shutdown (shared stop_event, in-flight loss 0)       |
+ |  - graceful shutdown within the configured drain budget          |
  +------------------------------------------------------------------+
 ```
 
@@ -117,7 +117,7 @@
 | workflow | 검증·작업 |
 |----------|------|
 | `pr-title-check.yml` | PR title 형식(Conventional Commits) + 작성 주체 메타데이터 부재 |
-| `ci.yml` | lint(ruff+pyright+hadolint) · 단위 테스트 · 프론트 타입 계약 · wheel build · 통합 테스트 |
+| `ci.yml` | lint(ruff+pyright+hadolint) · 단위 테스트 · 프론트 타입 계약, `main` 대상 PR은 wheel build · 통합 테스트 추가 |
 | `alembic-check.yml` | ORM 모델과 migrations 의 drift (`alembic upgrade head` 후 `alembic check`) |
 | `codeql.yml` | CodeQL SAST (Security 탭 alert) |
 | `release.yml` | `main` push 시 멀티아치 엔진 이미지 빌드 → GHCR 발행 (산출물은 아래 "배포 산출물") |
@@ -135,7 +135,7 @@
 
 ## 환경변수와 비밀번호
 
-설정은 `.env` 하나로 들어간다. 어느 템플릿을 복사했는지가 환경을 정한다 — `.env.dev.example` 이면 dev(핫리로드), `.env.example` 이면 배포용이고, 붙는 compose 조합도 그 템플릿이 정한다.
+비밀번호를 제외한 설정은 `.env`로 주입한다. `make dev`는 `.env.dev.example`을 `.env`로 만들고 Compose 기본 파일명 규칙으로 dev 오버레이를 적용한다. `.env.example`은 `COMPOSE_FILE`로 prod 조합을 정한다. prod 비밀번호는 `secrets/` 파일로 주입한다.
 
 비밀번호에는 기본값이 없다. 미설정·뻔한 값·채널 중복은 환경과 무관하게 기동 시점에 거부된다.
 

@@ -52,16 +52,14 @@ if TYPE_CHECKING:
     )
     from assessment_engine.json_types import JsonObject
 
-# 카테고리간 강도를 비교할 근거가 없어 단일 색 — 임계 초과 발화 자체가 시그널이다.
+
 _ATTN_ACTIVE_BADGE = "attn-active"
 
-# 활용률 정도는 게이지 길이(dash_length)로만 표현하고 색에는 임계 의미를 담지 않는다 —
-# 위험도 색은 right-sizing 분류 도넛이 따로 담당.
-_UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR
-_UTIL_COLOR_NONE = "#cbd5e1"  # 표본 부재 (회색)
 
-# base.html .badge-cat-* 뱃지 색의 시각적 쌍둥이 — SVG stroke 는 hex 를 요구해 CSS 클래스와
-# 별도 소스가 되므로 값 동기화 의무.
+_UTIL_COLOR_GAUGE = UTIL_GAUGE_COLOR
+_UTIL_COLOR_NONE = "#cbd5e1"
+
+
 _WORKLOAD_COLORS: dict[str, str] = {
     "web": "#2563eb",
     "db": "#e11d48",
@@ -71,19 +69,18 @@ _WORKLOAD_COLORS: dict[str, str] = {
     "monitor": "#ea580c",
 }
 
-# 템플릿 SVG r="42" 와 정합해야 dash-array 가 맞는다.
+
 _DONUT_RADIUS = 42
 _UTIL_DONUT_CIRC = 2 * math.pi * _DONUT_RADIUS
 
-# 임계 초과 강조 색 — 네트워크 혼잡·디스크 I/O 병목·페이징 초과가 같은 hex 공유(동일 의미 = 동일 색).
+
 _NET_CONGESTED_COLOR = "#dc2626"
 
-# 네트워크는 사이징과 별개 품질 축 — host_status 를 구동하지 않아 전용 필드로 분리(판정은 assess_network).
+
 _NET_STATUS_LABEL: dict[str, str] = {"quality_ok": "정상", "congested": "혼잡", "unmeasured": "미측정"}
 
 
 def to_gap_warning_item(raw: MetricGapWarningRaw, now: datetime) -> AttentionRow:
-    """MetricGapWarningRaw -> AttentionRow (gap 분·badge 파생)."""
     gap_min = int((now - raw.last_metric_at).total_seconds() // 60)
     return AttentionRow(
         badge_class=_ATTN_ACTIVE_BADGE,
@@ -120,7 +117,6 @@ def _util_bar(label: str, pct: float | None) -> UtilizationBar:
 
 
 def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list[RiskDonutSegment], int, int]:
-    """카테고리별 카운트 -> (세그먼트 list, total, under_provisioned 수). 누락 키는 0."""
     total = sum(risk_counts.values())
     segments: list[RiskDonutSegment] = []
     cum_offset = 0.0
@@ -132,12 +128,11 @@ def build_risk_donut_segments(risk_counts: dict[str, int]) -> tuple[list[RiskDon
             RiskDonutSegment(
                 key=key,
                 label=right_sizing.RECOMMENDATION_LABEL_KO[key],
-                # _DONUT_SEGMENT_DEFS 의 다색은 쓰지 않는다 — 분류 막대는 라벨이 의미를 전달해 색이 무관.
                 color=UTIL_GAUGE_COLOR,
                 count=count,
                 pct=pct,
                 dash_length=dash_length,
-                dash_offset=-cum_offset,  # 음수 offset = 시계방향 이동
+                dash_offset=-cum_offset,
                 description=description,
             )
         )
@@ -224,10 +219,6 @@ def build_environment_overview(
     saturation_counts: dict[str, int] | None = None,
     error_summary: FleetErrorRaw | None = None,
 ):
-    """ServerDetail list + 집계 raw -> EnvironmentOverview (환경 요약 카드 단일 소스).
-
-    None 으로 온 축(utilization·risk_counts·under_provisioned_hosts·saturation_counts)은 빈 list 로 나간다.
-    """
     total = len(details)
     total_vcpus = sum(d.cpu_cores or 0 for d in details)
     total_mem_bytes = sum(d.mem_total_bytes or 0 for d in details)
@@ -236,13 +227,12 @@ def build_environment_overview(
     for d in details:
         os_counter[d.os_family or "unknown"] += 1
 
-    # 인스턴스 개수 합산 — 호스트 dedup 아님(한 서버에 mq 2개면 +2).
     role_counter: Counter[str] = Counter()
-    role_unknown = 0  # 이쪽만 호스트 수 — 특징 워크로드가 하나도 안 잡힌 호스트
+    role_unknown = 0
     for d in details:
         counter = workload_category_counter(d.services, d.listen_ports)
         if counter:
-            role_counter.update(counter)  # Counter.update 는 dict 와 달리 값을 덮지 않고 더한다
+            role_counter.update(counter)
         else:
             role_unknown += 1
 
@@ -254,7 +244,6 @@ def build_environment_overview(
         util_bars = [
             _util_bar("CPU", utilization.cpu_avg_pct),
             _util_bar("메모리", utilization.mem_avg_pct),
-            # 라벨이 "디스크 용량" — fs used% 는 capacity 축이라 이용률과 다르다.
             _util_bar("디스크 용량", utilization.disk_avg_pct),
         ]
         # p95 는 CPU·메모리만 — 디스크는 Windows 디바이스 인식이 불완전해 capacity 합을 믿을 수 없다.
@@ -280,7 +269,6 @@ def build_environment_overview(
     )
     workload_segments, _wl_total = _workload_donut_segments(role_sorted)
 
-    # 카운트는 호출자가 자원 적정성 창 기준으로 산출해 넘긴다 — 실시간 순간 스냅샷과 다른 기준.
     sat_donuts: list[SaturationDonut] = []
     if saturation_counts is not None:
         _sat_total = saturation_counts.get("total", 0)
@@ -299,7 +287,6 @@ def build_environment_overview(
         total_vcpus=total_vcpus,
         total_memory_gb=bytes_to_gib(total_mem_bytes) or 0.0,
         total_disk_gb=int(bytes_to_gb(total_disk_bytes) or 0),
-        # most_common 을 안 쓴다 — 동순위 순서가 삽입순(= DB row 순서)이라 비결정적.
         os_distribution=dict(sorted(os_counter.items(), key=lambda kv: (-kv[1], kv[0]))),
         role_distribution=role_sorted,
         workload_donut=workload_segments,
@@ -329,15 +316,9 @@ def build_environment_realtime(
     snapshots: list[JsonObject],
     last_collected_at: datetime | None,
 ) -> EnvironmentRealtime:
-    """온라인 서버 최신 스냅샷 -> EnvironmentRealtime.
-
-    호출자가 온라인 서버만 넘긴다 — 오프라인 stale 메트릭이 sample_size 를 부풀리지 않게.
-    load_rows 의 디스크 이용률 0%(유휴 실측)와 응답지연 "—"(I/O 0건이라 await 계산 불가)는 한 호스트에
-    동시에 나올 수 있다 — 이용률(Utilization)과 응답지연(Saturation)은 USE 상 별개 축이라 모순 아니다.
-    """
 
     # capacity-weighted — 단순 산술평균이 아니다. get_environment_utilization SQL 과 같은 정의를 유지해야 한다.
-    # CPU 는 시점 usage 라 jiffies delta 를 못 써 코어 가중 근사로 대신한다.
+
     def _cap_weighted(value_key: str, weight_key: str) -> float | None:
         num = sum(s[value_key] * s[weight_key] for s in snapshots if s.get(value_key) is not None and s.get(weight_key))
         den = sum(s[weight_key] for s in snapshots if s.get(value_key) is not None and s.get(weight_key))
@@ -350,9 +331,7 @@ def build_environment_realtime(
 
     avg_cpu = _cap_weighted("cpu_pct", "cpu_cores")
     avg_mem = _ratio("mem_used_bytes", "mem_total_bytes")
-    # 디스크는 도넛에서 뺀다 — 용량(fill%)은 느린 누적 축이고, I/O 이용률은 장치 종류별 신뢰도 편차라
-    # (SSD/NVMe 는 여유가 있어도 100%) 환경 평균으로 묶으면 오탐. 호스트별 raw 값만 load_rows 칼럼으로.
-    # 편차 근거는 right-sizing-thresholds.md "Disk IO" 절.
+
     util_bars = [
         _util_bar("CPU", avg_cpu),
         _util_bar("메모리", avg_mem),
@@ -365,7 +344,6 @@ def build_environment_realtime(
         return RealtimeLoadCell(value=0.0, display="정상")
 
     def _cell(value: float | None, fmt: Callable[[float], str], exceeded: bool = False) -> RealtimeLoadCell:
-        """exceeded=True 면 신호 도넛과 같은 hex 로 강조. 임계 없는 축은 기본값 False 로 무강조."""
         if value is None:
             return RealtimeLoadCell(value=None, display="—")
         return RealtimeLoadCell(value=value, display=fmt(value), color=_NET_CONGESTED_COLOR if exceeded else "")
@@ -388,7 +366,6 @@ def build_environment_realtime(
         color = _NET_CONGESTED_COLOR if exceeded else ""
         return RealtimeLoadCell(value=value, display=f"{_os_tag(os_family)} {fmt(value)}", color=color)
 
-    # top-N 절단 없이 호스트당 1행 — 유휴(0)도 남기고 칼럼 정렬로 축별 랭킹을 본다.
     load_rows = sorted(
         (
             RealtimeLoadRow(
@@ -416,7 +393,6 @@ def build_environment_realtime(
         key=lambda r: r.hostname,
     )
 
-    # 라벨을 신호명으로 둔다 — 여기는 순간 단일신호라 "포화" 판정어를 안 쓴다(dual-gate 자원 평가 전용).
     sample = len(snapshots)
     cpu_sat_count = sum(1 for s in snapshots if (s.get("cpu_sat_index") or 0) >= 1.0)
     disk_sat_count = sum(1 for s in snapshots if (s.get("disk_sat_index") or 0) >= 1.0)
@@ -441,17 +417,13 @@ def build_environment_realtime(
 
 
 def to_capacity_warning_item(raw: ReportRowRaw):
-    """ReportRowRaw -> CapacityWarningItem. 이름과 달리 전 분류(under/over/idle/optimal/insufficient)에 대해 호출된다.
 
-    active_causes 는 rollup_host 가 잡은 trigger 키를 라벨로 매핑만 한다 — 임계 재계산 0(drift 방지).
-    """
-    # 운영 신호 경로는 get_report_aggregate 원본만 본다 — disk baseline 주입 없음(유휴 활동 축 미관측).
     stats = build_resource_stats(raw, disk_baseline=None)
     host = right_sizing.rollup_host(stats)
     classification = right_sizing.host_status_to_recommendation(host.host_status)
     hit = {t for r in host.resources.values() for t in r.triggers}
     swap_active = "mem_saturation" in hit
-    # 표시 순서 = _CAUSE_LABEL_BY_TRIGGER 삽입순.
+
     active_causes = [lbl for key, lbl in _CAUSE_LABEL_BY_TRIGGER.items() if key in hit]
 
     net_res = host.resources["network"]
@@ -459,22 +431,20 @@ def to_capacity_warning_item(raw: ReportRowRaw):
     net_status_value = _NET_STATUS_LABEL.get(net_res.status, net_res.status)
     net_status_color = _NET_CONGESTED_COLOR if net_congested else ""
     # 디스크 I/O 는 classification 무관 항상 노출 — root_cause_label 은 under 인과 기여 시에만 채워져
-    # CPU·메모리가 정상인 io_bound 호스트가 안 드러나는 사각지대가 생긴다.
-    # 라벨은 STATUS_LABEL_KO(축 status 전용 — 분류 enum 라벨 RECOMMENDATION_LABEL_KO 와 다른 딕셔너리)가
-    # 세 상태를 이미 다 갖고 있어 _NET_STATUS_LABEL 같은 전용 딕셔너리를 따로 두지 않는다.
+
     disk_io_res = host.resources["disk_io"]
     disk_io_status_value = right_sizing.STATUS_LABEL_KO.get(disk_io_res.status, disk_io_res.status)
     disk_io_status_color = _NET_CONGESTED_COLOR if disk_io_res.status == "io_bound" else ""
     spec_display = spec_display_line(raw.cpu_cores, raw.mem_total_bytes, raw.block_devices)
     util_vals = [v for v in (raw.cpu_p95_pct, raw.mem_p95_pct, raw.worst_mount_used_pct) if v is not None]
     peak_util = max(util_vals) if util_vals else 0.0
-    # 심각도 가중치는 자릿수로 갈라 우선순위 충돌을 없앤다 — swap 1e4 > 원인수*100(max 500) > util(max 100).
+
     if classification == "under_provisioned":
         action = right_sizing.under_prescription(host)
         severity_score = (10000.0 if swap_active else 0.0) + len(active_causes) * 100.0 + peak_util
     else:
         action = right_sizing.recommend_action(classification, stats)
-        severity_score = 100.0 - peak_util  # 낮은 활용률 = 낭비 큼 -> 정렬 우선
+        severity_score = 100.0 - peak_util
     return CapacityWarningItem(
         public_id=raw.public_id,
         hostname=raw.hostname,
@@ -497,11 +467,9 @@ def to_capacity_warning_item(raw: ReportRowRaw):
 
 
 def build_action_targets(raws: list[ReportRowRaw]) -> ActionTargets:
-    """전 서버·전 분류 자원 적정성 표 — 자원 평가 페이지·환경 보고서 공유. 정렬은 분류 순서 > 심각도."""
     items: list[CapacityWarningItem] = []
     eff_raws: list[ReportRowRaw] = []
     for raw in raws:
-        # item.classification 재사용 — 재계산하면 호스트당 rollup_host 가 두 번 돈다.
         item = to_capacity_warning_item(raw)
         items.append(item)
         if item.classification in ("over_provisioned", "idle"):
@@ -519,12 +487,11 @@ def build_action_targets(raws: list[ReportRowRaw]) -> ActionTargets:
 
 
 def to_os_eol_warning_item(raw: ReportRowRaw, now: datetime) -> AttentionRow | None:
-    """ReportRowRaw -> AttentionRow, EOL 미경과면 None. 판정은 os_eol.resolve_os_eol 단일 진실."""
     result = resolve_os_eol(raw.os_id, raw.os_version, raw.kernel_version, now.date())
     if result is None:
         return None
     eol_iso, label = result
-    # EOL 을 지난 일수라 양수. 파싱 실패는 None 으로 두고 칼럼에서 "—" 로 떨어뜨린다.
+
     days_over: int | None = None
     try:
         days_over = (now.date() - date.fromisoformat(eol_iso)).days
@@ -541,7 +508,6 @@ def to_os_eol_warning_item(raw: ReportRowRaw, now: datetime) -> AttentionRow | N
 
 
 def to_agent_unstable_item(public_id: str, hostname: str, restart_count: int) -> AttentionRow:
-    """raw -> AttentionRow. caller가 임계 필터링 후 호출."""
     return AttentionRow(
         badge_class=_ATTN_ACTIVE_BADGE,
         badge_text=f"{restart_count}회",

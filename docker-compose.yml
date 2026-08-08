@@ -1,8 +1,4 @@
-# 절차가 아니라 원하는 최종 상태를 선언한다 — `docker compose up` 이 선언과 실제를 비교해 차이만큼만
-# 수렴시키므로 반복 실행에 대해서 멱등하다. 기동 순서도 직접 쓰지 않고 depends_on 제약으로 유도한다.
 
-# 컨테이너 로그는 기본 드라이버의 경우, 무제한으로 쌓아 장기 가동 호스트의 디스크를 채운다.
-# 로그파일 정책을 설정해 디스크를 보호한다.
 x-logging: &default-logging
   driver: json-file
   options:
@@ -10,7 +6,6 @@ x-logging: &default-logging
     max-file: "3"
 
 x-app-base: &app-base
-  # 배포 버전 핀 — `deploy.sh vX.Y.Z` 가 .env 의 이 줄을 쓴다. 비어 있으면 파싱 단계에서 멈춘다.
   image: ${ENGINE_IMAGE:-}
   restart: unless-stopped
   logging: *default-logging
@@ -43,7 +38,6 @@ services:
     volumes:
       - ${PGDATA_HOST:-postgres_data}:/home/postgres/pgdata/data
     healthcheck:
-      # -h 127.0.0.1 로 TCP 도달성 강제 (소켓 전용 부트스트랩 구간의 false-positive healthy 회피).
       test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-U", "${POSTGRES_USER:-assessment}"]
       interval: 5s
       timeout: 5s
@@ -59,9 +53,7 @@ services:
       RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-assessment}
       RABBITMQ_DEFAULT_VHOST: ${RABBITMQ_VHOST:-assessment}
     ports:
-      # agent 가 고객사 네트워크에서 발행하는 통로라 전체 인터페이스에 연다.
       - "${RABBITMQ_PUBLISH_PORT:-5672}:5672"
-      # 관리 UI 는 운영자 전용 — 루프백만.
       - "127.0.0.1:${RABBITMQ_MANAGEMENT_PUBLISH_PORT:-15672}:15672"
     volumes:
       - ${MQ_DATA_HOST:-rabbitmq_data}:/var/lib/rabbitmq
@@ -88,7 +80,6 @@ services:
 
   migrate:
     image: ${ENGINE_IMAGE:-}
-    # 설정 경로는 진입점이 패키지에서 스스로 찾는다 (src/assessment_engine/migrate.py).
     command: ["python", "-m", "assessment_engine.migrate", "upgrade", "head"]
     logging: *default-logging
     env_file: ${ENV_FILE:-.env}
@@ -114,13 +105,11 @@ services:
   consumer:
     <<: *app-base
     command: ["python", "-m", "assessment_engine.consumer"]
-    # in-flight drain 예산(_SHUTDOWN_DRAIN_SEC, 5s)보다 길어야 SIGKILL 이 정리를 자르지 않는다.
     stop_grace_period: 15s
 
   worker:
     <<: *app-base
     command: ["python", "-m", "assessment_engine.worker"]
-    # 보고서 drain timeout(report_worker_shutdown_timeout_sec, 기본 10s)보다 길어야 SIGKILL 이 정리를 자르지 않는다.
     stop_grace_period: 20s
 
 volumes:

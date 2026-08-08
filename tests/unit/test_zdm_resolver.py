@@ -1,8 +1,3 @@
-"""HttpZdmPackageResolver 단위 테스트.
-
-httpx mock + redis mock 으로 cache hit/miss/HEAD 실패/size mismatch 경로 검증.
-"""
-
 import hashlib
 from unittest.mock import AsyncMock, MagicMock
 
@@ -20,8 +15,6 @@ def _head_response(status: int, headers: dict[str, str]) -> httpx.Response:
 
 
 class _FakeStream:
-    """async context manager mock for http_client.stream(method, url)."""
-
     def __init__(self, status: int, chunks: list[bytes]) -> None:
         self.status_code = status
         self._chunks = chunks
@@ -53,10 +46,10 @@ async def test_cache_hit_uses_cached_sha_without_get():
             {"ETag": etag, "Content-Length": str(expected_size)},
         )
     )
-    http.stream = MagicMock()  # 호출되지 않아야 함
+    http.stream = MagicMock()
 
     redis = AsyncMock()
-    redis.get.return_value = "deadbeef" * 8  # 64자 cached sha256 (실측 무관)
+    redis.get.return_value = "deadbeef" * 8
 
     resolver = _make_resolver(http, redis)
     sha, size = await resolver.resolve("192.168.3.94", "/download/ZConverter_CloudSource_Setup_Linux.tar.gz")
@@ -84,14 +77,13 @@ async def test_cache_miss_streams_get_and_computes_sha():
     http.stream = MagicMock(return_value=_FakeStream(200, body_chunks))
 
     redis = AsyncMock()
-    redis.get.return_value = None  # cache miss
+    redis.get.return_value = None
 
     resolver = _make_resolver(http, redis)
     sha, size = await resolver.resolve("192.168.3.94", "/download/ZConverter_CloudSource_Setup_Linux.tar.gz")
 
     assert sha == expected_sha
     assert size == expected_size
-    # cache 저장도 호출
     redis.set.assert_awaited_once()
 
 
@@ -126,8 +118,8 @@ async def test_head_missing_content_length_raises():
 
 
 async def test_size_mismatch_between_head_and_get_raises():
-    body_chunks = [b"abcd"]  # 4 bytes
-    declared_size = 10  # HEAD 에는 10 명시 → 불일치
+    body_chunks = [b"abcd"]
+    declared_size = 10
 
     http = MagicMock()
     http.head = AsyncMock(
@@ -164,12 +156,10 @@ async def test_etag_fallback_to_last_modified():
 
     assert sha == hashlib.sha256(body).hexdigest()
     assert size == 1
-    # Last-Modified 도 cache key 에 박혀 set 호출
     redis.set.assert_awaited_once()
 
 
 async def test_no_etag_no_last_modified_skips_cache_but_still_works():
-    """ETag·Last-Modified 둘 다 없으면 cache 키 비어 — get/set 모두 skip, GET 으로 계산만."""
     body = b"y"
     http = MagicMock()
     http.head = AsyncMock(

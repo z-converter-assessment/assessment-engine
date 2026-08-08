@@ -91,11 +91,6 @@ def _with_report_baselines(
     disk: DiskIoBaselineRaw | None,
     net: NetIoBaselineRaw | None,
 ) -> ReportRowRaw:
-    """보고서 경로 raw 에 4 baseline 을 얹은 새 행 — 채우는 필드 집합이 곧 이 경로의 분류 입력이다.
-
-    `_with_net_baseline`(net 만) 과 합치지 않는다: 채우는 집합이 다르고 그 차이가 화면 분류를 가른다
-    (`disk_iops_baseline` 은 여기서만 채워진다, tradeoffs T24).
-    """
     disk_fields = (
         {}
         if disk is None
@@ -124,7 +119,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         anchor_at: datetime | None = None,
         view: ReportView = "customer",
     ) -> EnvironmentReportSummary:
-        """환경 단위 보고서(전체 등록 서버) — server scope 양식과 별도 high-level. anchor_at=None 이면 현재 시각."""
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
 
@@ -154,7 +148,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             )
             details = []
 
-        # os_eol·agent 신호는 창 독립이라 raws_window 재사용이 전체 재조회와 같은 결과다.
         attention = await attention_signals(self.repo, end=end_dt, limit_each=None, raws=raws_window)
 
         trend = []
@@ -181,8 +174,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         time_range: str = DIAGNOSTIC_DEFAULT_TIME_RANGE,
         anchor_at: datetime | None = None,
     ) -> EnvironmentReportSummary | None:
-        """선택 N대 보고서 — 환경 보고서 양식(`get_environment_report`)의 N대 scope 변형. 미존재·빈 선택이면 None."""
-        # period_days 를 파라미터로 받지 않는다 — 호출자가 time_range 와 어긋나게 줄 여지를 없앤다.
+
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
         sid_map = await self.repo.resolve_server_ids(server_public_ids)
@@ -194,7 +186,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             return None
 
         raws_window = await self._assemble_report_raws(server_ids, period_days, end_dt)
-        # N 이 사용자 선택분이라 작아 per-server get_latest_errors 가 안전하다 (환경 전체 보고서는 N+1).
+
         base = await self.get_report(
             server_ids, period_days, end=end_dt, view=view, raws=raws_window, fetch_operational_events=True
         )
@@ -202,7 +194,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         util = await self.repo.get_environment_utilization(period_days=period_days, end=end_dt, server_ids=server_ids)
         overview = assemble_overview(details, util, raws_window, online_by_id)
 
-        # os_eol·agent 는 창 독립이라 선택 raws 로 산출 후 hostname 필터 = 전체 산출 후 필터와 동일 결과.
         hostnames = {d.hostname for d in details}
         attention = _filter_attention(
             await attention_signals(self.repo, end=end_dt, limit_each=None, raws=raws_window), hostnames
@@ -232,11 +223,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         attention: AttentionSignals | None = None,
         prefetch: _ChildPrefetch | None = None,
     ) -> EnvironmentReportSummary | None:
-        """단일 서버 보고서 — 환경 보고서 양식(`get_environment_report`)의 1대 scope 변형. 미존재 서버면 None.
-
-        attention·prefetch 는 N대 fan-out 호출자가 1회 수집·배치한 것을 주입해 서버마다 재계산하지 않게 한다.
-        None 이면 자체 조회(단독 라우트).
-        """
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         end_dt = anchor_at if anchor_at is not None else datetime.now(UTC)
         sid_map = await self.repo.resolve_server_ids([server_public_id])
@@ -302,7 +288,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             summary.memory_breakdown = build_memory_breakdown(mem_raw)
             summary.cpu_breakdown = build_cpu_breakdown(cpu_raw)
 
-            # get_latest_errors 는 get_report 안에서도 부르지만 거기 결과는 폐기된다 — N=1 이라 한 번 더 조회.
             raw0 = raws_window[0]
             win_days = int(period_days)
             err = await self.repo.get_latest_errors(server_id, end_dt - timedelta(days=period_days))
@@ -314,14 +299,12 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
                 window_days=win_days,
             )
 
-            # 스토리지 트리만 창 집계가 아니라 현재 스냅샷이다.
             storage_dto = await self.repo.get_storage(server_id)
             if storage_dto is not None:
                 summary.storage_tree = build_storage_tree(
                     storage_dto.block_devices, storage_dto.lvm_vgs, storage_dto.filesystems
                 )
 
-            # 활동(RX/TX)은 보고서 윈도우 표(net_rx_kbps 등)가 이미 갖고 있어 라이브 스냅샷을 겹쳐 넣지 않는다.
             summary.network_interfaces = build_network_interfaces(raw0.net_interfaces or [])
 
             summary.sat_trend = await self._build_report_saturation_trend(time_range, end_dt, [server_id])
@@ -336,10 +319,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         anchor_at: datetime,
         attention: AttentionSignals | None = None,
     ) -> list[tuple[str, EnvironmentReportSummary | None]]:
-        """N대 child 단일 보고서 — 공통 데이터(raws·details·breakdown)를 배치 1회 조회 후 서버별 조립.
-
-        반환 [(public_id, summary|None)] — 미존재 서버는 None.
-        """
         period_days = DIAGNOSTIC_RANGE_DAYS[time_range]
         sids = [sid_map[p] for p in server_public_ids if p in sid_map]
         if not sids:
@@ -363,7 +342,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             prefetch = _ChildPrefetch(
                 raw=raw,
                 detail=detail,
-                # 배치는 GROUP BY 라 데이터 없는 서버는 행 부재 — 단수 .one()(null avg row)과 동치로 빈 객체 채움.
                 mem_raw=mem_by_id.get(sid) or MemoryBreakdownRaw(None, None, None, None),
                 cpu_raw=cpu_by_id.get(sid) or CpuBreakdownRaw(None, None, None),
             )
@@ -376,7 +354,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
     async def _build_report_trend(
         self, time_range: str, end_dt: datetime, server_ids: list[int] | None = None
     ) -> list[JsonObject]:
-        """CPU·메모리·디스크 평균 시계열 추이 — server_ids=None 이면 전체 환경, 주어지면 그 서버들 한정."""
         bucket = cast("BucketSize", AUTO_BUCKET.get(time_range, "1h"))
         trend_start = end_dt - TIME_RANGE_TD[time_range]
         cpu_series = await self.repo.get_metric_trend("cpu.usage_percent", trend_start, end_dt, bucket, server_ids)
@@ -401,11 +378,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
     async def _assemble_report_raws(
         self, server_ids: list[int], period_days: float, end_dt: datetime
     ) -> list[ReportRowRaw]:
-        """get_report_aggregate + 4 baseline(uptime·agent_restart·disk_io·net_io) 주입 raws.
-
-        보고서 3경로가 이 결과 하나를 세부 행·under 분류·overview 에 함께 쓴다 — 중복 조회 제거보다
-        build_resource_stats 입력이 같아야 화면 간 분류가 어긋나지 않는 쪽이 이유다.
-        """
         raws = await self.repo.get_report_aggregate(
             server_ids,
             period_days,
@@ -451,11 +423,6 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         raws: list[ReportRowRaw] | None = None,
         fetch_operational_events: bool = False,
     ) -> ReportSummary:
-        """Assessment 보고서 — raw -> ViewModel + KPI 집계. view 는 summary_bullets 분기에만 쓰인다.
-
-        fetch_operational_events=True 는 서버별 get_latest_errors 로 has_operational_event 를 채운다 —
-        환경 전체(server_ids 최대 수백)까지 켜면 N+1 이라 작은 N(선택·단일 보고서)에서만 명시적으로 켠다.
-        """
         end_dt = end or datetime.now(UTC)
         if raws is None:
             raws = await self._assemble_report_raws(server_ids, period_days, end_dt)
@@ -483,7 +450,7 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
         avg_cpu, avg_mem = compute_report_avg_p95(items)
         role_dist = build_role_distribution(raws)
         os_family_summary, workload_summary = build_selection_context(items, role_dist)
-        # 환경 보고서는 top_risks 를 따로 뽑아 이 정렬에 영향받지 않는다.
+
         sorted_items = sort_rows_for_report(items)
 
         return ReportSummary(
@@ -503,5 +470,3 @@ class ReportQueryMixin(_BaseQueryServiceMixin):
             anchor_at=end_dt,
             generated_at=datetime.now(UTC),
         )
-
-    # inventory export 는 여기 없다 — /api/exports/inventory 가 assessment envelope 로 서비스(get_assessment).

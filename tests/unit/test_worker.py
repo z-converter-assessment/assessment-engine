@@ -1,9 +1,3 @@
-"""전용 worker 프로세스 루프 단위 테스트 — 기동 격리·graceful 종료·설정.
-
-DB 없이 fake 로 run_report_loop/run_task_reaper 의 F6 격리(기동·tick 예외가 루프를 죽이지 않음)와
-stop_event 종료를 검증. 실제 claim/expire SQL 은 통합 테스트(test_task_queries·test_diagnostic_service).
-"""
-
 import asyncio
 import contextlib
 import re
@@ -38,13 +32,10 @@ if TYPE_CHECKING:
 
 
 def _no_query_service() -> AbstractAsyncContextManager[QueryService]:
-    """이 경로는 보고서를 만들지 않으므로 QueryService 를 열지 않아야 한다."""
     raise AssertionError("query_service_factory 가 호출되면 안 되는 경로다")
 
 
 class _FakeDiag:
-    """DiagnosticService 대역 — recover/claim 을 프로그래밍 가능하게."""
-
     def __init__(self, *, recover_raises: bool = False, claim_raises: bool = False) -> None:
         self.recover_raises = recover_raises
         self.claim_raises = claim_raises
@@ -63,28 +54,19 @@ class _FakeDiag:
             raise RuntimeError("claim failed")
 
 
-# --- WorkerSettings -------------------------------------------
-
-
 def test_worker_settings_exposes_worker_fields():
-    """worker 설정이 report/reaper 필드 + 상속한 DB 설정을 노출."""
     s = WorkerSettings()  # pyright: ignore[reportCallIssue]
     assert s.report_worker_poll_interval_sec > 0
     assert s.report_worker_stale_seconds > 0
     assert s.report_worker_shutdown_timeout_sec > 0
     assert s.install_reaper_interval_sec > 0
     assert s.install_reaper_shutdown_timeout_sec > 0
-    # WebSettings 상속 — DB layer 접근(worker 는 DB job-claim 만).
     assert s.database_url.startswith("postgresql+asyncpg://")
 
 
-# --- run_report_loop ----------------------------------------
-
-
 async def test_report_loop_survives_startup_recover_failure():
-    """기동 recover_stale 예외가 전파되면 워커가 죽는다 — 가드가 흡수해 정상 종료해야."""
     stop = asyncio.Event()
-    stop.set()  # 루프 진입 전 종료 조건 (recover 가드만 실행)
+    stop.set()
     diag = _FakeDiag(recover_raises=True)
     await run_report_loop(
         diag_service=cast("DiagnosticService", diag),
@@ -93,12 +75,11 @@ async def test_report_loop_survives_startup_recover_failure():
         stale_seconds=1,
         stop_event=stop,
     )
-    assert diag.recover_calls == 1  # 시도했고, 예외는 삼켜짐(await 이 raise 안 함)
-    assert diag.claim_calls == 0  # stop set 이라 루프 미진입
+    assert diag.recover_calls == 1
+    assert diag.claim_calls == 0
 
 
 async def test_report_loop_stops_on_event():
-    """pending 없으면 poll 하며 대기, stop_event set 시 다음 점검에서 종료."""
     stop = asyncio.Event()
     diag = _FakeDiag()
     task = asyncio.create_task(
@@ -110,15 +91,14 @@ async def test_report_loop_stops_on_event():
             stop_event=stop,
         )
     )
-    await asyncio.sleep(0.05)  # 몇 차례 claim 돌게
+    await asyncio.sleep(0.05)
     stop.set()
     await asyncio.wait_for(task, timeout=1)
     assert diag.recover_calls == 1
-    assert diag.claim_calls >= 1  # 최소 1회 poll
+    assert diag.claim_calls >= 1
 
 
 async def test_report_loop_survives_claim_failure():
-    """claim 예외(일시 DB 장애)가 루프를 죽이지 않고 계속 poll."""
     stop = asyncio.Event()
     diag = _FakeDiag(claim_raises=True)
     task = asyncio.create_task(
@@ -133,10 +113,7 @@ async def test_report_loop_survives_claim_failure():
     await asyncio.sleep(0.05)
     stop.set()
     await asyncio.wait_for(task, timeout=1)
-    assert diag.claim_calls >= 1  # 예외에도 반복 시도
-
-
-# --- run_task_reaper ------------------------------------------
+    assert diag.claim_calls >= 1
 
 
 class _FakeRepo:
@@ -166,7 +143,6 @@ class _FakeSession:
 
 
 def _collect(messages: list[str]) -> Callable[[Any], None]:
-    """loguru sink — 기록된 메시지 문자열만 모은다."""
 
     def _sink(message: Any) -> None:
         messages.append(str(message.record["message"]))
@@ -175,7 +151,6 @@ def _collect(messages: list[str]) -> Callable[[Any], None]:
 
 
 def _repo_factory(repo: object) -> Callable[[AsyncSession], CollectRepository]:
-    """reaper 가 세션마다 부르는 repo 팩토리 — 대역 하나를 그대로 돌려준다."""
 
     def _factory(_s: AsyncSession) -> CollectRepository:
         return cast("CollectRepository", repo)
@@ -192,7 +167,6 @@ def _session_factory() -> Callable[[], AbstractAsyncContextManager[AsyncSession]
 
 
 async def test_task_reaper_survives_tick_failure():
-    """reaper tick 예외가 루프를 죽이지 않고 다음 tick 진행."""
     stop = asyncio.Event()
     repo = _FakeRepo(raises=True)
     task = asyncio.create_task(
@@ -206,11 +180,10 @@ async def test_task_reaper_survives_tick_failure():
     await asyncio.sleep(0.05)
     stop.set()
     await asyncio.wait_for(task, timeout=1)
-    assert repo.calls >= 1  # 예외에도 반복
+    assert repo.calls >= 1
 
 
 async def test_task_reaper_stops_on_event():
-    """정상 tick 후 stop_event set 시 종료 + 성공 tick 은 commit."""
     stop = asyncio.Event()
     repo = _FakeRepo()
     sess_factory = _session_factory()
@@ -228,11 +201,7 @@ async def test_task_reaper_stops_on_event():
     assert repo.calls >= 1
 
 
-# --- graceful_drain (F11 — 진행 중 1건 drain, 초과 시 cancel) ----
-
-
 async def test_graceful_drain_completes_within_timeout():
-    """timeout 안에 끝나는 in-flight task 는 cancel 안 되고, stop_event 는 set 된다."""
     stop = asyncio.Event()
     done = asyncio.Event()
 
@@ -254,17 +223,16 @@ async def test_graceful_drain_completes_within_timeout():
     finally:
         logger.remove(sink_id)
 
-    assert stop.is_set()  # 새 작업 중단 신호
-    assert done.is_set()  # 스스로 완료
+    assert stop.is_set()
+    assert done.is_set()
     assert not task.cancelled()
     assert task.result() == "ok"
-    assert messages == []  # 정상 완료 -> 경고 로그 없음
+    assert messages == []
 
 
 async def test_graceful_drain_cancels_on_timeout():
-    """shutdown_timeout 안에 안 끝나는 task 는 cancel + 경고 로그(F11 손실 0 핵심)."""
     stop = asyncio.Event()
-    never = asyncio.Event()  # 스스로 set 되지 않음 -> task 무한 대기
+    never = asyncio.Event()
 
     async def stuck():
         await never.wait()
@@ -283,7 +251,6 @@ async def test_graceful_drain_cancels_on_timeout():
         logger.remove(sink_id)
 
     assert stop.is_set()
-    # cancel() 호출 후 취소가 실제로 전파되는지 확인
     with contextlib.suppress(asyncio.CancelledError):
         await task
     assert task.cancelled()
@@ -291,7 +258,6 @@ async def test_graceful_drain_cancels_on_timeout():
 
 
 async def test_graceful_drain_swallows_already_cancelled():
-    """이미 cancel 된 task 를 drain 하면 CancelledError 를 삼키고 stop_event 만 set."""
     stop = asyncio.Event()
     never = asyncio.Event()
 
@@ -299,9 +265,8 @@ async def test_graceful_drain_swallows_already_cancelled():
         await never.wait()
 
     task = asyncio.create_task(stuck())
-    await asyncio.sleep(0)  # task 스케줄 진입
-    task.cancel()  # drain 전에 이미 취소
-    # graceful_drain 은 CancelledError 를 흡수 -> 예외 없이 반환해야
+    await asyncio.sleep(0)
+    task.cancel()
     await graceful_drain(
         task,
         stop,
@@ -311,11 +276,7 @@ async def test_graceful_drain_swallows_already_cancelled():
     assert stop.is_set()
 
 
-# --- _resolve_install_dispatch (OS 분기 순수함수) --
-
-
 def test_resolve_install_dispatch_linux():
-    """linux = tar.gz extract + install.sh (shell), install_script 존재."""
     package_path, install_type, install_script = _resolve_install_dispatch("linux")
     assert package_path == get_web_settings().zdm_package_path
     assert install_type == "shell"
@@ -324,7 +285,6 @@ def test_resolve_install_dispatch_linux():
 
 
 def test_resolve_install_dispatch_windows():
-    """windows = single .exe 직접 실행 (direct_exec), install_script 는 None (extract 없음)."""
     package_path, install_type, install_script = _resolve_install_dispatch("windows")
     assert package_path == get_web_settings().zdm_package_path_windows
     assert install_type == "direct_exec"
@@ -332,7 +292,6 @@ def test_resolve_install_dispatch_windows():
 
 
 def test_resolve_install_dispatch_linux_windows_differ():
-    """두 OS 의 package_path·install_type 가 서로 다른 dispatch."""
     linux = _resolve_install_dispatch("linux")
     windows = _resolve_install_dispatch("windows")
     assert linux[0] != windows[0]
@@ -340,17 +299,12 @@ def test_resolve_install_dispatch_linux_windows_differ():
 
 
 def test_resolve_install_dispatch_unsupported_raises():
-    """미지원 os_family 는 TaskNotConfiguredError (운영자 알림 — agent 미지원)."""
     for bad in ("macos", "aix", "", "Linux", "darwin"):
         with pytest.raises(TaskNotConfiguredError, match=re.escape(repr(bad))):
             _resolve_install_dispatch(bad)
 
 
-# --- _drain_logged (종료 정리 격리, F11) ----
-
-
 async def test_drain_logged_returns_none_on_clean_shutdown():
-    """정상 종료는 예외를 돌려주지 않는다 — 호출자는 이 값으로 exit code 를 정한다."""
     stop = asyncio.Event()
 
     async def quick() -> None:
@@ -362,7 +316,6 @@ async def test_drain_logged_returns_none_on_clean_shutdown():
 
 
 async def test_drain_logged_returns_child_exception(captured_logs: list[str]):
-    """자식이 예외로 죽어도 호출자에게 제어를 돌려준다 — 뒤따르는 정리(dispose·close)가 돌아야 한다."""
     stop = asyncio.Event()
 
     async def boom() -> None:
@@ -377,11 +330,7 @@ async def test_drain_logged_returns_child_exception(captured_logs: list[str]):
     assert any("worker loop failed during shutdown" in line for line in captured_logs)
 
 
-# --- dispose_engine (프로세스 종료 마지막 단계) ----
-
-
 async def test_dispose_engine_noop_without_engine():
-    """엔진을 만든 적 없는 프로세스에서 부르면 접속 설정을 요구하지 않는다."""
     get_engine.cache_clear()
 
     await dispose_engine()
@@ -389,12 +338,7 @@ async def test_dispose_engine_noop_without_engine():
     assert get_engine.cache_info().currsize == 0
 
 
-# --- _process_one 3분기 (보고서 job 생성 격리, F6) ----
-
-
 class _ProcessDiag:
-    """생성 결과를 기록하는 DiagnosticService 대역 — 어느 종료 경로를 탔는지 본다."""
-
     def __init__(self) -> None:
         self.succeeded: list[tuple[str, object]] = []
         self.failed: list[tuple[str, str]] = []
@@ -407,8 +351,6 @@ class _ProcessDiag:
 
 
 class _Job:
-    """DiagnosticJobRecord 중 워커가 읽는 두 필드만."""
-
     id = "job-1"
     scope = "environment"
 
@@ -426,7 +368,6 @@ async def _run_process_one(monkeypatch: pytest.MonkeyPatch, build: Any) -> _Proc
 
 
 async def test_process_one_stores_generated_report(monkeypatch: pytest.MonkeyPatch):
-    """정상 경로 — 생성 결과를 그대로 저장한다."""
 
     async def build(*_args: Any) -> dict[str, str]:
         return {"kind": "env_report"}
@@ -438,7 +379,6 @@ async def test_process_one_stores_generated_report(monkeypatch: pytest.MonkeyPat
 
 
 async def test_process_one_surfaces_domain_reason(monkeypatch: pytest.MonkeyPatch, captured_logs: list[str]):
-    """도메인 사유(등록 서버 0 등)는 운영자에게 그대로 노출한다 — PII 가 아니다."""
 
     async def build(*_args: Any) -> dict[str, str]:
         raise ReportGenerationError("등록된 서버가 없다")
@@ -450,10 +390,6 @@ async def test_process_one_surfaces_domain_reason(monkeypatch: pytest.MonkeyPatc
 
 
 async def test_process_one_hides_internal_error_detail(monkeypatch: pytest.MonkeyPatch, captured_logs: list[str]):
-    """내부 예외는 사용자에게 "internal error" 로만 — raw 예외 문자열이 error_message 로 새면 안 된다 (#F8).
-
-    traceback 은 로그에만 남는다. 워커는 이 job 하나로 죽지 않는다.
-    """
     leaked = "postgres://user:pw@host/db"
 
     async def build(*_args: Any) -> dict[str, str]:

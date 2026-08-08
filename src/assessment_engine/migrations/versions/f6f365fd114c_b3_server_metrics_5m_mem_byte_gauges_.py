@@ -31,7 +31,7 @@ _CPU_TOTAL_S = (
     "+ COALESCE(cpu_iowait_s,0) + COALESCE(cpu_irq_s,0) + COALESCE(cpu_softirq_s,0) + COALESCE(cpu_steal_s,0)"
 )
 
-# 기존 컬럼 (a2f4c6e8d0b1 정의와 동일 — 재생성이라 전부 보존).
+
 _COMMON_COLS = f"""
         server_id,
         time_bucket('5 minutes', collected_at) AS bucket,
@@ -102,8 +102,7 @@ def _recreate(with_b3: bool) -> None:
     op.execute("DROP MATERIALIZED VIEW server_metrics_5m CASCADE")
     op.execute(_create_sql(with_b3))
     # #C4: refresh 는 트랜잭션 밖 1회 — autocommit_block 이 현 txn 커밋 후 autocommit 으로 실행.
-    # 재생성이라 cagg 비어 있음 -> 기존 raw 데이터 backfill(정책 첫 실행 전 즉시 가용).
-    # policy 는 refresh 후 추가 — policy 백그라운드 job 과 수동 refresh 동시 실행(락 충돌) 회피.
+
     with op.get_context().autocommit_block():
         op.execute("CALL refresh_continuous_aggregate('server_metrics_5m', NULL, NULL)")
     op.execute(_POLICY)

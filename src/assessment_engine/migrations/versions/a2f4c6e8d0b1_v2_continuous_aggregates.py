@@ -25,7 +25,7 @@ down_revision: str | Sequence[str] | None = "53df4c2132fd"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
-# 5종 cagg — refresh 정책 공통(start_offset = WINDOW_DAYS(14) + 버퍼, end_offset 10m real-time 위임).
+
 _CAGGS = ("server_metrics_5m", "server_filesystem_5m", "server_disk_io_5m", "server_net_io_5m", "server_cpu_core_5m")
 
 # Windows 는 iowait/nice/irq/softirq/steal jiffie 개념 부재라 해당 컬럼 NULL — NULL+x=NULL 로 total 전체가
@@ -38,10 +38,9 @@ _CPU_TOTAL_S = (
 
 
 def upgrade() -> None:
-    # counter_agg(reset-safe delta) — timescaledb_toolkit. CASCADE 로 의존 객체 동시.
+
     op.execute("CREATE EXTENSION IF NOT EXISTS timescaledb_toolkit CASCADE")
 
-    # --- server_metrics_5m (host 집계) ---
     op.execute(f"""
         CREATE MATERIALIZED VIEW server_metrics_5m
         WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
@@ -84,7 +83,6 @@ def upgrade() -> None:
         WITH NO DATA
     """)
 
-    # --- server_filesystem_5m (마운트별 용량·inode) ---
     op.execute("""
         CREATE MATERIALIZED VIEW server_filesystem_5m
         WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
@@ -109,7 +107,6 @@ def upgrade() -> None:
         WITH NO DATA
     """)
 
-    # --- server_disk_io_5m (디바이스별 IO) ---
     op.execute("""
         CREATE MATERIALIZED VIEW server_disk_io_5m
         WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
@@ -131,7 +128,6 @@ def upgrade() -> None:
         WITH NO DATA
     """)
 
-    # --- server_net_io_5m (인터페이스별) ---
     op.execute("""
         CREATE MATERIALIZED VIEW server_net_io_5m
         WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
@@ -153,7 +149,6 @@ def upgrade() -> None:
         WITH NO DATA
     """)
 
-    # --- server_cpu_core_5m (per-core 이용률) ---
     op.execute(f"""
         CREATE MATERIALIZED VIEW server_cpu_core_5m
         WITH (timescaledb.continuous, timescaledb.materialized_only = false) AS
@@ -168,7 +163,6 @@ def upgrade() -> None:
         WITH NO DATA
     """)
 
-    # refresh 정책 (5종 공통). start_offset 16d = WINDOW_DAYS(14) + 버퍼, end_offset 10m real-time 위임.
     for cagg in _CAGGS:
         op.execute(f"""
             SELECT add_continuous_aggregate_policy('{cagg}',
@@ -176,7 +170,6 @@ def upgrade() -> None:
                 end_offset => INTERVAL '10 minutes',
                 schedule_interval => INTERVAL '5 minutes')
         """)
-    # fresh cutover DB 는 초기 데이터 0 -> refresh_continuous_aggregate 불요(정책이 도착분 materialize).
 
 
 def downgrade() -> None:

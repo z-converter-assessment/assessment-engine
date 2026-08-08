@@ -1,10 +1,4 @@
 #!/usr/bin/env bash
-#
-# deploy.sh — 엔진 rollout. 배포 대상 VM 에서 사람이 실행한다.
-#
-#   sudo /opt/assessment-engine/deploy.sh vX.Y.Z
-#
-# 전제(docker·cosign·.env·본 스크립트)는 bootstrap.sh 가 만든다.
 
 set -euo pipefail
 
@@ -18,7 +12,6 @@ HEALTH_INTERVAL="${HEALTH_INTERVAL:-5}"
 log() { printf '[deploy] %s\n' "$*"; }
 die() { printf '[deploy][error] %s\n' "$*" >&2; exit 1; }
 
-# compose 는 값의 인라인 주석을 잘라내고 읽는다 — 같은 값을 보려면 여기서도 잘라야 한다.
 env_get() { grep -E "^$1=" .env | tail -1 | cut -d= -f2- | sed 's/ #.*//;s/[[:space:]]*$//;s/^"\(.*\)"$/\1/;s/^'"'"'\(.*\)'"'"'$/\1/' || true; }
 
 VERSION="${1:-}"
@@ -32,21 +25,17 @@ command -v flock >/dev/null 2>&1 || die "flock 미설치 (util-linux)"
 
 cd "$DEPLOY_DIR"
 
-# 두 배포가 겹치면 .env 의 핀과 .last-good 이 서로를 덮어 rollback 대상이 뒤섞인다.
 exec 9>".deploy.lock"
+# 이미지 핀과 rollback 파일을 함께 갱신하므로 동시 배포를 막는다.
 flock -n 9 || die "다른 배포가 진행 중"
 
-# 포트 매핑이 어긋나면 컨테이너만 healthy 라 호스트에서도 응답을 확인한다.
 PORT="$(env_get WEB_PUBLISH_PORT)"; PORT="${PORT:-8000}"
 
-# 판정 기준은 restart 정책 — 재시작 안 하겠다고 선언한 서비스(migrate)만 exited 0 이 완료고,
-# 나머지는 running 이어야 한다. 서비스 목록은 compose 에서 읽어 여기 열거하지 않는다.
 services_healthy() {
   local cid state code restart health oneoff expected actual
   local -a services
   mapfile -t services < <(docker compose config --services | sort)
   [[ ${#services[@]} -gt 0 ]] || return 1
-  # 잔재 하나가 이후 모든 배포를 막지 않도록 orphan(서비스 인자)과 oneoff(아래 라벨)를 거른다.
   expected="$(printf '%s\n' "${services[@]}")"
   actual="$(docker compose ps -a --format '{{.Service}}' "${services[@]}" | sort -u)"
   [[ "$expected" == "$actual" ]] || return 1
@@ -67,11 +56,10 @@ services_healthy() {
 
 healthy_now() { services_healthy && curl -fsS "http://localhost:${PORT}/health" >/dev/null 2>&1; }
 
-# 중간에 조용히 죽으면 .env 만 새 핀이라 다음 배포가 실패본을 .last-good 으로 기록한다.
 rollback() {
+  # 스키마는 되돌리지 않으므로 마이그레이션은 backward compatible이어야 한다.
   log "$1 — rollback 시도"
   docker compose ps -a --format '  {{.Service}} {{.State}} {{.Health}}' || true
-  # 되돌아가는 것은 이미지뿐 — migrate 가 적용한 스키마는 남는다.
   log "주의: 스키마는 되돌리지 않는다 — 마이그레이션이 backward compatible 이어야 성립한다"
   [[ -s .last-good ]] || die "$1 + .last-good 없음(최초 배포) — 수동 조치 필요"
   local last; last="$(cat .last-good)"
@@ -92,27 +80,23 @@ rollback() {
   die "rollback($last) 후에도 health 실패 — 수동 조치 필요"
 }
 
-# 이미지가 이 repo 의 release.yml 산출물인지 서명 신원으로 확인한다.
 log "cosign verify $IMAGE"
 cosign verify "$IMAGE" \
   --certificate-identity-regexp="^https://github.com/${REPO_ID}/.github/workflows/release.yml@refs/(heads/main|tags/v)" \
   --certificate-oidc-issuer="https://token.actions.githubusercontent.com" >/dev/null \
   || die "이미지 서명 검증 실패 — $IMAGE (release.yml 서명본 아님?)"
 
-# 이미지와 같은 태그에서 받아 토폴로지 버전을 맞춘다. 하나만 덮고 실패하면 짝이 어긋난다.
 log "compose fetch ($VERSION)"
 curl -fsSL "${RAW_BASE}/${VERSION}/docker-compose.yml" -o .compose-base.new \
   || die "docker-compose.yml 을 받지 못했다 — $VERSION 태그에 그 파일이 있는지 확인"
 curl -fsSL "${RAW_BASE}/${VERSION}/docker-compose.prod.yml" -o .compose-prod.new \
   || { rm -f .compose-base.new .compose-prod.new; die "docker-compose.prod.yml 을 받지 못했다 — $VERSION 태그에 그 파일이 있는지 확인"; }
-# 교체 전 사본을 남긴다 — rollback 이 이미지만 되돌리면 옛 이미지가 새 토폴로지 아래 뜬다.
 for f in docker-compose.yml docker-compose.prod.yml; do
   [[ -f "$f" ]] && cp "$f" ".last-good-$f"
 done
 mv .compose-base.new docker-compose.yml
 mv .compose-prod.new docker-compose.prod.yml
 
-# 새 핀을 쓰기 전에 현재 핀을 남긴다 — rollback 대상.
 CURRENT="$(env_get ENGINE_IMAGE)"
 if [[ -n "$CURRENT" ]]; then
   printf '%s' "$CURRENT" > .last-good

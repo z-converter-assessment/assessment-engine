@@ -27,7 +27,6 @@ from assessment_engine.web.services.diagnostic_service import DiagnosticService
 from assessment_engine.web.services.report import attention_by_host, attention_for_host, normalize_anchor
 from assessment_engine.web.templating import templates
 
-# 단일 보고서는 서버 단위(/servers/{id}/report), N대 선택 보고서는 보고서 그룹(/reports/servers) — URL 명사 분리.
 report_single_router = APIRouter(prefix="/servers")
 report_multi_router = APIRouter(prefix="/reports")
 
@@ -49,7 +48,6 @@ async def report(
     ] = "customer",
     back: BackUrl = None,
 ):
-    """Server scope N대 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview."""
     back_url = safe_back(back, "/")
     self_back_url = self_back(request)
 
@@ -131,7 +129,7 @@ async def report_emit(
         time_range=time_range,
         anchor_at=anchor,
     )
-    # 양식 분기가 ids 개수만으로 정해져 생성 전이라도 URL 명사는 확정된다.
+
     if len(public_ids) == 1:
         return {"view_url": f"/servers/{public_ids[0]}/report?job={job_id}"}
     return {"view_url": f"/reports/servers?job={job_id}"}
@@ -148,14 +146,12 @@ async def single_server_report(
     view: Literal["customer", "engineer"] = "customer",
     back: BackUrl = None,
 ):
-    """단일 서버 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview."""
     self_back_url = self_back(request)
     back_url = safe_back(back, f"/servers/{server_id}")
 
     if job:
         return await _render_single_snapshot(request, job, back_url, self_back_url, diag_service)
 
-    # 본문·aux 가 동일 attention 공유 — preview 는 anchor 없음(현재 시각). single 내부 재계산 회피.
     attention = await service.get_attention_signals(limit_each=None)
     summary = await service.get_single_server_report(
         str(server_id), view=view, time_range=time_range, attention=attention

@@ -25,15 +25,13 @@ class MetricInsertResult:
     filesystem: int
     cpu_core: int = 0  # Linux only
     pressure: int = 0  # PSI — Linux 4.20+ only
-    disk_error: int = 0  # 정상 호스트는 0 행 (충돌 0 과 구분 안 됨)
+    disk_error: int = 0
 
 
 class CollectRepository(Protocol):
     """Consumer 측 데이터 접근 인터페이스. 트랜잭션 경계는 호출자(`_db_retry`)가 관리."""
 
-    async def find_server_id(self, agent_id: str) -> int | None:
-        """agent_id 단일 키로 server_inventory.id 조회."""
-        ...
+    async def find_server_id(self, agent_id: str) -> int | None: ...
 
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
         """agent_id UNIQUE 키 ON CONFLICT DO UPDATE upsert. server_inventory.id 반환.
@@ -59,9 +57,7 @@ class CollectRepository(Protocol):
         """task 1건 INSERT. 반환: public_id (UUID) — agent 에 노출되는 식별자."""
         ...
 
-    async def complete_task(self, data: TaskResultUpdate) -> bool:
-        """결과 보고 수신 UPDATE. 반환: True 정상 / False public_id 미존재 (DLQ·silent ack 결정)."""
-        ...
+    async def complete_task(self, data: TaskResultUpdate) -> bool: ...
 
     async def expire_overdue_tasks(self, server_ids: list[int]) -> int:
         """deadline 경과 pending(install) 을 failure(timeout) 로 전이. 반환: 전이 건수.
@@ -71,12 +67,7 @@ class CollectRepository(Protocol):
         """
         ...
 
-    async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
-        """deadline 안 지난 활성 pending(install) 보유 server_id 목록.
-
-        발행 경로가 expire 직후 호출 — 하나라도 있으면 전체 발행을 취소하는 all-or-nothing 사전 검증.
-        """
-        ...
+    async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]: ...
 
     async def expire_all_overdue_tasks(self) -> int:
         """`expire_overdue_tasks` 의 server_ids 무필터 전역판. 반환: 전이 건수.

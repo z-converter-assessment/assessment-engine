@@ -1,5 +1,3 @@
-"""wire 파싱 mapper — datapoint-array -> 저장 DTO 값 정합 (계약 예시 fixture)."""
-
 import copy
 import json
 from pathlib import Path
@@ -19,7 +17,6 @@ def _inv(name: str):
 
 
 def test_cpu_host_aggregate_from_per_cpu() -> None:
-    """cpu.time attr.cpu 합산 -> host CPU (s). per-core 병행 저장."""
     m = _metric("linux_metrics")
     assert m.cpu_user_s == 812.34
     assert m.cpu_idle_s == 58121.7
@@ -29,7 +26,6 @@ def test_cpu_host_aggregate_from_per_cpu() -> None:
 
 
 def test_memory_state_and_commit_bytes() -> None:
-    """memory.usage state 조회 + limit/commit (By)."""
     m = _metric("linux_metrics")
     assert m.mem_available_bytes == 1624768512
     assert m.mem_limit_bytes == 2062008320
@@ -38,7 +34,6 @@ def test_memory_state_and_commit_bytes() -> None:
 
 
 def test_paging_direction_type_disambiguation() -> None:
-    """paging.operations — direction=in(type 부재)/out / major(type:major) 구분."""
     m = _metric("linux_metrics")
     assert m.paging_in == 0
     assert m.paging_out == 0
@@ -46,7 +41,6 @@ def test_paging_direction_type_disambiguation() -> None:
 
 
 def test_disk_per_device_axes() -> None:
-    """system.disk 를 device 별로 그룹 — io/operation_time/pending 축."""
     m = _metric("linux_metrics")
     assert len(m.disk_io) == 1
     e = m.disk_io[0]
@@ -68,7 +62,6 @@ def test_filesystem_used_free_inodes() -> None:
 
 
 def test_pressure_resource_scope_grouping() -> None:
-    """PSI (resource x scope) 그룹, window 는 ratio 컬럼 평탄화. stall_time canonical."""
     m = _metric("linux_metrics")
     by = {(p.resource, p.scope): p for p in m.pressure}
     assert by[("cpu", "some")].stall_time_s == 68.45
@@ -84,7 +77,6 @@ def test_disk_errors_variable_dimension() -> None:
 
 
 def test_windows_pressure_null_conntrack_null() -> None:
-    """Windows system.pressure=null -> 빈 리스트. conntrack 미발행 -> None."""
     w = _metric("windows_metrics")
     assert w.pressure == []
     assert w.net_conntrack_usage is None
@@ -93,7 +85,6 @@ def test_windows_pressure_null_conntrack_null() -> None:
 
 
 def test_null_preserved_not_zero() -> None:
-    """미측정 축은 None 보존 (0 날조 금지). virtio link.speed null."""
     m = _metric("linux_metrics")
     assert m.net_io[0].link_speed_bps is None
 
@@ -105,11 +96,10 @@ def test_inventory_v2_shape() -> None:
     assert len(inv.block_devices) == 4
     assert len(inv.lvm_vgs) == 2
     assert inv.net_interfaces[0]["addresses"][0]["address"] == "10.50.60.126"
-    assert inv.service_categories  # ingest 사전계산
+    assert inv.service_categories
 
 
 def test_placeholder_uses_agent_id_for_hostname() -> None:
-    """metrics 메시지는 hostname 을 싣지 않는다 -> placeholder hostname = agent_id."""
     from assessment_engine.consumer.mappers import build_placeholder_inventory
 
     ph = build_placeholder_inventory(MetricsInput.model_validate(_EX["linux_metrics"]))
@@ -118,7 +108,6 @@ def test_placeholder_uses_agent_id_for_hostname() -> None:
 
 
 def test_inventory_reproduction_mapped() -> None:
-    """재현 필드 발행 payload — 스칼라 passthrough + boot dict/nonblock_mounts list 조립."""
     payload = copy.deepcopy(_EX["linux_inventory"])
     payload.update(
         {
@@ -147,11 +136,11 @@ def test_inventory_reproduction_mapped() -> None:
     assert inv.arch == "x86_64"
     assert inv.bits == 64
     assert inv.rtc_utc is True
-    assert inv.product_name == "Windows Server 2019 Standard"  # 무가공 passthrough (엔진이 os_display 파싱)
+    assert inv.product_name == "Windows Server 2019 Standard"
     assert inv.boot == {
         "kernel_cmdline": "BOOT_IMAGE=/vmlinuz root=LABEL=root ro",
         "root_ref_type": "label",
-        "grub_install_target": None,  # 미발행 -> None 이지만 키는 항상 present
+        "grub_install_target": None,
     }
     assert inv.nonblock_mounts == [
         {
@@ -166,8 +155,7 @@ def test_inventory_reproduction_mapped() -> None:
 
 
 def test_inventory_reproduction_absent_none() -> None:
-    """재현 필드 미발행 payload — None 분기 (data.boot/nonblock_mounts is None -> None)."""
-    inv = _inv("linux_inventory")  # fixture 에 재현 필드 없음
+    inv = _inv("linux_inventory")
     assert inv.arch is None
     assert inv.bits is None
     assert inv.rtc_utc is None

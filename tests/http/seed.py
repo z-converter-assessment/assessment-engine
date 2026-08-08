@@ -1,12 +1,3 @@
-"""HTTP 캡처용 시드 — 시각 의존을 정규화가 아니라 입력 고정으로 없앤다.
-
-정규화로 지우면 "무엇이 왜 달라졌는지" 를 매번 다시 판정해야 한다. 대신 앵커를 상수로 박고 시각을 그
-상대로만 만든다. OS 지원 종료 판정처럼 `date.today()` 를 읽는 파생은 경계 근처 값을 아예 쓰지 않는다 —
-과거 확정(2020년)과 미래 확정(2099년) 두 극단만 시드하면 오늘이 언제든 판정이 같다.
-
-`public_id` 는 `uuid5` 로 만들어 실행마다 같다.
-"""
-
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -22,26 +13,13 @@ def public_id(n: int) -> str:
 
 _UUID_RE = re.compile(r"\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b")
 _GENERATED_AT = re.compile(r'("generated_at":\s*")[^"]+(")')
-# 라이브 미리보기 보고서는 설계상 "지금" 을 표제에 찍는다 (report_page.py: preview 는 anchor 없음).
 _RENDERED_NOW = re.compile(r"(발행|기준) \d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}")
 _ASSET_V = re.compile(r"\?v=[0-9a-f]+")
-# 사이드바에 찍히는 엔진 버전 — 릴리즈 범프마다 전 페이지 스냅샷이 함께 바뀐다. 이 안전망이 지키는 것은
-# 화면 구조이지 버전 문자열이 아니므로 지운다. 버전 표기 자체의 회귀는 `test_engine_version_is_rendered` 가 본다.
 _ENGINE_VERSION = re.compile(r"\bv\d+\.\d+\.\d+\b")
 _SEED_IDS = {public_id(n) for n in range(1, 7)}
 
 
 def normalize(value: object) -> object:
-    """실행마다 달라지는 값만 지운다. 아래 다섯 외에 남으면 정규화를 늘리지 말고 실패시킨다.
-
-    - `?v=` 정적 자원 토큰: 프로세스 import 시각 hex
-    - 사이드바 엔진 버전: 릴리즈 범프마다 바뀐다
-    - 시드 밖 UUID: 발행 job id 등 런타임 생성분
-    - 라이브 미리보기 보고서 표제의 발행·기준 시각: anchor 를 받지 않는 경로라 설계상 "지금" 이다.
-    - 계약 응답의 `generated_at`: "이 응답을 언제 만들었나" 라 입력 고정으로 없앨 수 없다.
-      창 계산(`window.start`/`window.end`)은 `?end=` 로 고정되므로 여기서 건드리지 않는다 —
-      전체 타임스탬프를 지우면 창 계산 회귀를 함께 가린다.
-    """
     if isinstance(value, str):
         text = _ENGINE_VERSION.sub(
             "vENGINE_VERSION",
@@ -112,12 +90,7 @@ def _server_detail(n: int, **over: Any) -> Any:
     return ServerDetail(**{k: v for k, v in base.items() if k in fields})
 
 
-def QUERY_SEED() -> dict[str, Any]:  # noqa: N802  seed 상수처럼 쓰는 팩토리
-    """`InMemoryQueryRepository` 에 넣을 반환값. 호출마다 새 객체를 만든다.
-
-    호스트 3대로 화면 분기를 태운다 — 온라인 linux, 오프라인, windows. 이보다 늘리면 스냅샷이
-    커지기만 하고 새로 타는 분기가 없다(분류 분기는 `get_report_aggregate` 시드가 가른다).
-    """
+def QUERY_SEED() -> dict[str, Any]:  # noqa: N802
     from tests.builders import report_row_raw
 
     details = [_server_detail(1), _server_detail(2), _server_detail(3, os_family="windows", os_id="windows")]

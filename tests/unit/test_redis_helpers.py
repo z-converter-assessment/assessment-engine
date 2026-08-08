@@ -1,13 +1,3 @@
-"""Redis safe_* helper 단위 테스트.
-
-평시: 정상 redis 응답을 그대로 또는 True/False로 반환.
-장애: RedisError 발생 시 silent fallback (None/False/[]).
-
-특별 케이스:
-- safe_set_nx: True/False/None — None은 호출자(_check_idempotent)가 fail-open 판단
-- safe_mget: keys=[]면 redis 호출 없이 즉시 [] (short-circuit)
-"""
-
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
@@ -21,8 +11,6 @@ from assessment_engine.cache.redis import (
     safe_set,
     safe_set_nx,
 )
-
-# --- safe_get -------------------------------------------------------------
 
 
 async def test_safe_get_returns_value_on_hit():
@@ -39,13 +27,9 @@ async def test_safe_get_returns_none_on_miss():
 
 
 async def test_safe_get_returns_none_on_redis_error():
-    """fail-open: RedisError → None. 호출자는 cache miss와 동일하게 DB로 fallback."""
     redis = AsyncMock()
     redis.get.side_effect = RedisError("connection lost")
     assert await safe_get(redis, "k") is None
-
-
-# --- safe_set -------------------------------------------------------------
 
 
 async def test_safe_set_returns_true_on_success():
@@ -60,30 +44,23 @@ async def test_safe_set_returns_false_on_redis_error():
     assert await safe_set(redis, "k", "v") is False
 
 
-# --- safe_set_nx — 멱등성 1단, fail-open은 호출자 결정 ---------------------
-
-
 async def test_safe_set_nx_returns_true_on_first_write():
     redis = AsyncMock()
-    redis.set.return_value = True  # NX 성공 (첫 처리)
+    redis.set.return_value = True
     assert await safe_set_nx(redis, "k", "1", 86400) is True
     redis.set.assert_awaited_once_with("k", "1", ex=86400, nx=True)
 
 
 async def test_safe_set_nx_returns_false_on_duplicate():
     redis = AsyncMock()
-    redis.set.return_value = None  # NX 실패 (이미 존재)
+    redis.set.return_value = None
     assert await safe_set_nx(redis, "k", "1", 86400) is False
 
 
 async def test_safe_set_nx_returns_none_on_redis_error_for_failopen_decision():
-    """RedisError → None. _check_idempotent가 True로 간주(처리 진행) → DB UNIQUE(2단)이 흡수."""
     redis = AsyncMock()
     redis.set.side_effect = RedisError("redis down")
     assert await safe_set_nx(redis, "k", "1", 86400) is None
-
-
-# --- safe_delete ----------------------------------------------------------
 
 
 async def test_safe_delete_success():
@@ -97,11 +74,7 @@ async def test_safe_delete_failopen():
     assert await safe_delete(redis, "k") is False
 
 
-# --- safe_mget ------------------------------------------------------------
-
-
 async def test_safe_mget_empty_keys_short_circuit():
-    """keys=[]면 redis 호출 없이 즉시 [] — 라운드트립 절감."""
     redis = AsyncMock()
     assert await safe_mget(redis, []) == []
     redis.mget.assert_not_awaited()
@@ -115,7 +88,6 @@ async def test_safe_mget_returns_list_on_success():
 
 
 async def test_safe_mget_returns_none_on_redis_error_for_fallback():
-    """RedisError → None. list_servers가 last_seen_at fallback 경로 선택."""
     redis = AsyncMock()
     redis.mget.side_effect = RedisError("oops")
     assert await safe_mget(redis, ["a", "b"]) is None

@@ -39,12 +39,10 @@ async def main() -> None:
     setup_logging(get_worker_settings().log_format, get_worker_settings().log_level)
     logger.info("worker starting — report generation + install task reaper")
 
-    # asyncio.run 은 SIGTERM(docker stop)을 취소로 바꾸지 않는다 — add_signal_handler 로 공유 stop_event 를
-    # set 한다(signal.signal 은 이벤트 루프 밖이라 쓰지 않는다).
     stop_event = asyncio.Event()
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGTERM, signal.SIGINT):
-        with suppress(NotImplementedError):  # 비 POSIX 방어
+        with suppress(NotImplementedError):
             loop.add_signal_handler(sig, stop_event.set)
 
     diag_service = DiagnosticService(
@@ -68,7 +66,7 @@ async def main() -> None:
             stop_event=stop_event,
         )
     )
-    # 신호와 자식 둘 중 먼저 끝나는 것을 기다린다. stop_event 만 기다리면 자식이 예외로 죽어도 프로세스가
+
     # 계속 살아 있고, 그 예외는 아무도 회수하지 않은 채 종료 시점까지 잠긴다.
     stop_task = asyncio.create_task(stop_event.wait())
     failures: list[BaseException] = []
@@ -76,7 +74,6 @@ async def main() -> None:
         await asyncio.wait({report_task, reaper_task, stop_task}, return_when=asyncio.FIRST_COMPLETED)
         logger.info("worker stopping")
     finally:
-        # 남은 stop_task 를 정리하지 않으면 "Task was destroyed but it is pending" 이 stdout 으로 나간다.
         stop_task.cancel()
         with suppress(asyncio.CancelledError):
             await stop_task
@@ -105,7 +102,6 @@ async def main() -> None:
             await close_pool()
 
     if failures:
-        # 0 으로 나가면 restart 정책이 재기동하지 않아 컨테이너만 살아 있고 두 루프는 죽은 채로 남는다.
         raise failures[0]
 
 

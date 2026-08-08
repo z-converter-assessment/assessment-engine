@@ -23,7 +23,7 @@ class _InterceptHandler(logging.Handler):
             level: str | int = logger.level(record.levelname).name
         except ValueError:
             level = record.levelno
-        # 호출 지점을 loguru 가 제 위치로 찍도록 stdlib 프레임을 건너뛴다.
+
         frame, depth = logging.currentframe(), 2
         while frame and frame.f_code.co_filename == logging.__file__:
             frame = frame.f_back

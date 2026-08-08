@@ -11,9 +11,6 @@ from typing import Literal
 
 from assessment_engine.domain.boot_time import BOOT_TIME_JITTER_TOLERANCE
 
-# boot_time 지터 허용치(초) — get_reboot_events 의 재부팅 판정 게이트.
-# child 시계열(disk_io/net_io)은 boot_time 을 갖지 않아 이 게이트를 못 쓴다 — rate 차트의 counter reset 은
-# GREATEST(delta,0) 가 흡수한다.
 BOOT_JITTER_SEC = int(BOOT_TIME_JITTER_TOLERANCE.total_seconds())
 
 type MetricType = Literal[
@@ -48,11 +45,11 @@ type MetricType = Literal[
     "net.drop_percent",
     "net.congested",
 ]
-# 환경 차트는 여러 호스트를 한 선에 묶으므로 표현이 셋으로 갈린다 — capacity-weighted 비율(cpu·mem·fs),
+
 # 활동 합산(net bytes), 판정 crossing 호스트 수(`*_hosts`). 이기종 장치의 절대치(IOPS·kbps·PPS)와 Windows
 # 미발행 신호(PSI)는 그래서 빠진다 — 전자는 비교 기준선이 없고, 후자는 Linux 값이 "환경 전체"로 읽힌다.
-# 서버 상세는 단일 호스트라 혼합 문제가 없어 `MetricType` 전체를 쓴다. 축 선정 근거·화면별 표현 차이
-# 단일 진실은 `docs/reference/web/services.md` "환경 성능 추이" 절.
+
+
 type EnvironmentMetricType = Literal[
     "cpu.usage_percent",
     "cpu.saturation_hosts",
@@ -68,7 +65,7 @@ type TimeRange = Literal["15m", "1h", "6h", "24h", "7d", "14d", "30d"]
 type BucketSize = Literal["1m", "5m", "15m", "30m", "1h", "3h", "6h", "12h", "1d"]
 type AggFunc = Literal["avg", "max", "p95"]
 
-# 14d 는 right-sizing 윈도우(right_sizing.WINDOW_DAYS)와 같은 값이어야 한다 — 보고서·대시보드·차트 일관.
+
 TIME_RANGE_TD: dict[str, timedelta] = {
     "15m": timedelta(minutes=15),
     "1h": timedelta(hours=1),
@@ -82,7 +79,7 @@ TIME_RANGE_TD: dict[str, timedelta] = {
 # 평가 윈도우(일). 소수가 나와도 SQL interval 이 fraction 을 받는다 (0.25 days = 6h).
 DIAGNOSTIC_RANGE_DAYS: dict[str, float] = {r: td.total_seconds() / 86400 for r, td in TIME_RANGE_TD.items()}
 
-# 진단 발행·분류 기본 윈도우 — service default·UI 기본값 단일 진실. right_sizing.WINDOW_DAYS(14d)와 정합.
+
 DIAGNOSTIC_DEFAULT_TIME_RANGE = "14d"
 
 _BUCKET_INFO: dict[BucketSize, tuple[str, timedelta]] = {
@@ -97,7 +94,7 @@ _BUCKET_INFO: dict[BucketSize, tuple[str, timedelta]] = {
     "1d": ("1 day", timedelta(days=1)),
 }
 
-# chart-utils.js `AUTO_BUCKET` 과 값 동기화 의무 — 어긋나면 같은 range 가 SSR 차트와 fetch 차트에서 다른 bucket.
+
 AUTO_BUCKET: dict[str, str] = {
     "15m": "1m",
     "1h": "5m",
@@ -134,7 +131,7 @@ _CPU_NUMERATOR: dict[MetricType | EnvironmentMetricType, str] = {
     "cpu.nice_percent": "cpu_nice_s",  # Linux 전용(Windows null -> 분자 null, 자연 제외)
 }
 
-# (dim_col, value_col). 테이블명은 호출 측이 결합한다 — 본 모듈이 ORM 을 import 하면 순환.
+
 _RATE_PER_DIM_DEFS: dict[MetricType | EnvironmentMetricType, tuple[str, str]] = {
     "disk.read_iops": ("device_id", "ops_read"),
     "disk.write_iops": ("device_id", "ops_write"),
@@ -146,14 +143,14 @@ _RATE_PER_DIM_DEFS: dict[MetricType | EnvironmentMetricType, tuple[str, str]] = 
     "net.tx_packets_per_sec": ("iface_id", "tx_packets"),
 }
 
-# fstype null(미상)은 제외하지 않고 데이터 볼륨으로 포함한다 — 미상을 버리면 실사용 마운트가 조용히 빠진다.
+
 _VIRTUAL_FSTYPES = (
     "'tmpfs','devtmpfs','overlay','squashfs','proc','sysfs','cgroup','cgroup2','mqueue','debugfs',"
     "'tracefs','securityfs','pstore','bpf','configfs','ramfs','autofs','hugetlbfs','fusectl','nsfs',"
     "'efivarfs','binfmt_misc'"
 )
 _DATA_VOLUME_SQL_FILTER = f"(fstype IS NULL OR fstype NOT IN ({_VIRTUAL_FSTYPES})) AND mountpoint NOT LIKE '/boot%'"
-# cagg(server_filesystem_5m) 는 fstype 대표값을 fstype_any 컬럼으로 갖는다.
+
 _DATA_VOLUME_CAGG_FILTER = (
     f"(fstype_any IS NULL OR fstype_any NOT IN ({_VIRTUAL_FSTYPES})) AND mountpoint NOT LIKE '/boot%'"
 )
@@ -183,10 +180,9 @@ _ENV_SCALAR_WEIGHTED: dict[MetricType | EnvironmentMetricType, tuple[str, str, s
     ),
 }
 
-# 무필터 SUM 은 물리 disk I/O 에 그 위 LVM/RAID/crypt LV I/O 를 더해 이중집계된다. 판정 규약과 근거는
-# `docs/reference/db/repositories.md` "집계 필터 단일 진실" 절.
+
 # 상관 서브쿼리 형태는 제약이다 — bare server_id/device_id/iface_id 참조라야 raw hypertable 과 cagg
-# 양쪽 컬럼 스코프에서 그대로 동작한다.
+
 _PHYS_DISK_SQL_FILTER = (
     "EXISTS (SELECT 1 FROM server_inventory si_pf "
     "CROSS JOIN LATERAL jsonb_array_elements(si_pf.block_devices) bd_pf "

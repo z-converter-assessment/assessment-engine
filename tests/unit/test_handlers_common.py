@@ -1,5 +1,3 @@
-"""에이전트 재시작 빈도와 멱등성 fail-open 단위 테스트."""
-
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, patch
 from uuid import UUID

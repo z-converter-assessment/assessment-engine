@@ -34,10 +34,6 @@ def disksize(gb: float | None) -> str:
 
 
 def storagesize(gb: float | None) -> str:
-    """스토리지 용량 — 소수 2자리 + 상식 단위(MB/GB/TB). 시스템 정보 스토리지 전용(정밀 표기).
-
-    실무정석: 값은 binary base(bytes_to_gb=2^30)이고 라벨은 GB/TB, 롤업도 1024(메모리와 동일 base). None 이면 '-'.
-    """
     if gb is None:
         return "-"
     if gb >= 1024:
@@ -48,22 +44,17 @@ def storagesize(gb: float | None) -> str:
 
 
 def disksize_styled(gb: float | None) -> Markup:
-    """메모리 총량 값 + 단위(.stat-unit) 인라인. 메모리는 binary(1024) 기준. 디스크는 storagesize_styled(1000)."""
     if gb is None:
         return Markup("-")
     if gb >= 1024:
         value, unit = round(gb / 1024, 1), "TB"
     else:
         value, unit = gb, "GB"
-    # value·unit 은 위에서 숫자로 계산한 값이라 사용자 입력이 들어올 경로가 없다.
+
     return Markup(f'{value} <span class="stat-unit">{unit}</span>')  # noqa: S704
 
 
 def storagesize_styled(gb: float | None) -> Markup:
-    """디스크 총량 값 + 단위(.stat-unit) 인라인. 실무정석: binary base(bytes_to_gb=2^30), 라벨 GB/TB, 롤업 1024.
-
-    disksize_styled(메모리)와 동일 base(1024) — 디스크·메모리 KPI 표기 통일.
-    """
     if gb is None:
         return Markup("-")
     if gb >= 1024:
@@ -72,7 +63,7 @@ def storagesize_styled(gb: float | None) -> Markup:
         value, unit = round(gb), "GB"
     else:
         value, unit = round(gb * 1024), "MB"
-    # value·unit 은 위에서 숫자로 계산한 값이라 사용자 입력이 들어올 경로가 없다.
+
     return Markup(f'{value} <span class="stat-unit">{unit}</span>')  # noqa: S704
 
 

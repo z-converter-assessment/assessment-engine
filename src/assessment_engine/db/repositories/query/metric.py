@@ -47,9 +47,8 @@ class MetricQueryRepository(Protocol):
         collapse: bool = False,
     ) -> list[MetricSeries]: ...
 
-    # metric_type 은 두 Literal 의 합집합 — 서버 상세 차트(MetricType)와 환경 추이(EnvironmentMetricType)가
     # 같은 SQL 을 공유한다. 미처리 값은 본문 끝 AssertionError 로 떨어지므로 선언을 좁혀 두면 그 자리가
-    # 호출 시점에 잡힌다 (과거 미선언 str 로 500 이 났던 경로).
+
     async def get_metric_trend(
         self,
         metric_type: MetricType | EnvironmentMetricType,

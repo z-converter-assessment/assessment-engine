@@ -1,12 +1,3 @@
-"""전 endpoint 응답을 스냅샷과 대조한다 — 리팩토링이 화면·API 를 바꾸지 않았다는 증거.
-
-여기서 단언을 손으로 쓰지 않는 이유는 목적이 "지금 옳은가" 가 아니라 "어제와 같은가" 이기 때문이다.
-옳은지는 기존 단위·통합 테스트가 본다.
-
-엔드포인트 목록은 `app.openapi()` 에서 뽑는다. FastAPI 0.141 은 include 한 라우터를 `app.routes` 로
-평탄화하지 않고 `_IncludedRouter` 로 감싸므로, 라우트를 순회하면 `/health` 하나만 보인다.
-"""
-
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -22,8 +13,6 @@ if TYPE_CHECKING:
 _ANCHOR_Q = ANCHOR.isoformat().replace("+00:00", "Z")
 _SEED_ID = public_id(1)
 
-# lifespan 을 돌리지 않으므로 `app.state.broker_channel`·`http_client` 에 기대는 경로는 뺀다.
-# 발행 2건은 부수효과(job enqueue)가 있어 characterization 대상이 아니다.
 EXCLUDED = {
     ("POST", "/api/tasks/install"),
     ("POST", "/reports/environment/emit"),
@@ -32,7 +21,6 @@ EXCLUDED = {
     ("GET", "/openapi.json"),
 }
 
-# path 파라미터와 시각 앵커를 채운다. 앵커가 없는 endpoint 는 시각 파생이 없는 것들이다.
 PARAMS: dict[str, str] = {
     "/api/servers/{server_id}/metrics/chart": "?metric_type=cpu.usage_percent&time_range=24h",
     "/api/servers/environment/metrics-chart": "?metric_type=cpu.usage_percent&time_range=24h",
@@ -91,7 +79,6 @@ async def test_endpoint_snapshot(client: AsyncClient, snapshot: Any, method: str
     ],
 )
 async def test_error_paths(client: AsyncClient, snapshot: Any, name: str, url: str, expected: int) -> None:
-    """오류 분기도 계약이다 — 상태코드와 detail 문구가 바뀌면 소비자가 깨진다."""
     resp = await client.get(url)
     assert resp.status_code == expected, f"{url} -> {resp.status_code}"
     snapshot(f"error_{name}", {"status": resp.status_code, "body": resp.text[:2000]})
@@ -106,11 +93,6 @@ async def test_error_paths(client: AsyncClient, snapshot: Any, name: str, url: s
     ],
 )
 async def test_unknown_fragment_falls_back_to_full_page(client: AsyncClient, name: str, url: str) -> None:
-    """허용값 밖 `?fragment=` 는 422 가 아니라 full page 200 이다.
-
-    OpenAPI 스키마는 enum 으로 좁게 선언하지만 서버는 그보다 넓게 받는다 — 이미 배포된 URL 을
-    422 로 바꾸지 않기로 한 결정이고, 그 결정이 실제로 서 있는지는 여기서만 보인다.
-    """
     resp = await client.get(url)
 
     assert resp.status_code == 200, name
@@ -118,11 +100,6 @@ async def test_unknown_fragment_falls_back_to_full_page(client: AsyncClient, nam
 
 
 async def test_engine_version_is_rendered(client: AsyncClient) -> None:
-    """엔진 버전이 화면에 찍힌다 — 스냅샷은 이 값을 정규화해 지우므로 존재 확인은 여기가 담당한다.
-
-    운영자가 어느 버전이 도는지 화면으로 확인하는 유일한 통로다. 스냅샷이 릴리즈 범프마다
-    빨개지지 않게 지운 대신, 표기가 통째로 사라지는 회귀는 이 단언이 잡는다.
-    """
     resp = await client.get("/")
 
     assert f"v{ENGINE_VERSION}" in resp.text

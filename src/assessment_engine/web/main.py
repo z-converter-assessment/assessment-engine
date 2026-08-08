@@ -31,19 +31,18 @@ if TYPE_CHECKING:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # 모듈 스코프가 아니라 여기서 부른다 — import 만으로 설정을 읽으면 값 없이는 import 도 못 한다.
+
     setup_logging(get_web_settings().log_format, get_web_settings().log_level)
     # schema 는 compose `migrate` 서비스가 이미 올려둔 상태를 전제한다 (docs/guides/migrate.md).
     logger.info("app_env={} — schema is Alembic-managed (entrypoint applied upgrade)", get_web_settings().app_env)
-    # app_env 판정은 여기서만 한다 (#F4) — 미들웨어는 이 플래그만 본다.
+
     app.state.dev_assets = get_web_settings().app_env == "dev"
 
-    # task.install 발행용 broker connection.
     broker_conn = await aio_pika.connect_robust(get_diagnostic_settings().broker_url, timeout=10)
     broker_channel = await broker_conn.channel()
 
     # consumer 와 같은 인자로 declare 해야 한다 — 재선언 자체는 idempotent 지만 인자가 어긋나면
-    # PRECONDITION_FAILED (토폴로지는 rabbitmq.md). agent.tasks.<agent_id> 큐는 발행 시점에 TaskService 가 만든다.
+
     await broker_channel.declare_exchange(
         get_diagnostic_settings().rabbitmq_task_exchange,
         aio_pika.ExchangeType.DIRECT,
@@ -57,8 +56,6 @@ async def lifespan(app: FastAPI):
         get_diagnostic_settings().rabbitmq_task_exchange,
     )
 
-    # ZDM 메타 fetch 용 단일 client — lifespan 에 두고 TCP 커넥션을 재사용한다.
-    # read/write 예산은 sha256 산출용 패키지 전량(수십 MB) GET 을 감당해야 해 connect 보다 한참 길다.
     http_client = httpx.AsyncClient(
         timeout=httpx.Timeout(
             connect=get_web_settings().zdm_meta_connect_timeout_sec,
@@ -70,7 +67,6 @@ async def lifespan(app: FastAPI):
     )
     app.state.http_client = http_client
 
-    # 보고서 생성·install reaper 는 전용 워커 프로세스(assessment_engine.worker) 담당 — web 은 HTTP 만.
     yield
 
     await http_client.aclose()

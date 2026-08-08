@@ -25,12 +25,6 @@ def get_service(db: DbSessionDep, redis: RedisDep) -> QueryService:
 
 
 def get_task_service(request: Request, db: DbSessionDep, redis: RedisDep) -> TaskService:
-    """TaskService DI.
-
-    collect_repo 만 request 세션이 아닌 session_factory + factory — task INSERT 가 서버별 독립 commit 을 쓴다.
-    zdm_resolver 만 app.state 가 아니라 매 요청 새로 만든다 — redis 의존이 request-scoped 이고 wrapper
-    자체는 상태가 없다.
-    """
     return TaskService(
         query_repo=SqlQueryRepository(db),
         session_factory=get_session_factory(),
@@ -45,10 +39,6 @@ def get_task_service(request: Request, db: DbSessionDep, redis: RedisDep) -> Tas
 
 
 def get_diagnostic_service() -> DiagnosticService:
-    """DiagnosticService DI — 보고서 발행(enqueue)·이력·워커 lifecycle.
-
-    request-scoped 세션에 의존하지 않는다 — 워커가 DI 없이 같은 인스턴스를 구성해 쓴다.
-    """
     return DiagnosticService(
         session_factory=get_session_factory(),
         diagnostic_repo_factory=SqlDiagnosticRepository,
@@ -61,7 +51,6 @@ type DiagnosticServiceDep = Annotated[DiagnosticService, Depends(get_diagnostic_
 
 
 async def resolve_internal_id(server_id: UUID, service: QueryServiceDep) -> int:
-    """path param `{server_id}` (public_id UUID) -> 내부 정수 PK. 미존재는 404, 형식 오류는 FastAPI 가 422."""
     sid = await service.resolve_server_id(str(server_id))
     if sid is None:
         raise HTTPException(status_code=404)

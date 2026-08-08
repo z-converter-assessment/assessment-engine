@@ -1,18 +1,9 @@
 name: ci
 
-# 코드 품질 게이트. 배포(rollout)는 VM 에서 deploy.sh 가 담당한다.
-#
-#   lint +-> test-unit -> test-integration
-#        +-> typecheck
-#        +-> build
-#
-# base 별 발화 범위는 job 의 if 조건이 정한다. 게이트 배치 근거는 docs/guides/pre-pr-checklist.md 0절.
 
 on:
   pull_request:
     branches: [main, develop]
-  # develop 은 PR 이 최신 base 를 요구하지 않는다. 각자 옛 base 로 통과한 PR 둘이 연달아 머지되면
-  # 합쳐진 결과는 아무도 검증하지 않으므로, 머지된 커밋에서 한 번 더 돌려 그 자리에서 드러나게 한다.
   push:
     branches: [develop]
 
@@ -85,9 +76,6 @@ jobs:
       - name: Install project (locked)
         run: uv sync --locked --group dev
 
-      # hypothesis 반례 DB 보존 — 선언 23,500 examples 를 매번 처음부터 다시 뒤지면 어렵게 찾은 반례가
-      # 잡 종료와 함께 사라진다. develop(SCALE=0.1)이 우연히 잡은 반례도 main 승격 실행이 승계한다.
-      # key 에 run_id 를 넣어 매 실행 새로 쓰고, restore-keys 로 직전 실행분을 물려받는다.
       - name: Cache hypothesis examples
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -95,13 +83,11 @@ jobs:
           key: hypothesis-${{ runner.os }}-${{ github.run_id }}
           restore-keys: hypothesis-${{ runner.os }}-
 
-      # property 테스트 생성 횟수는 base 브랜치로 가른다 — main 승격은 선언값 전량, develop 통합은 1/10.
       - name: pytest unit
         env:
           HYPOTHESIS_SCALE: ${{ github.base_ref == 'main' && '1' || '0.1' }}
         run: uv run pytest tests/unit/ -q
 
-      # 스텝을 나눠 두면 실패가 어느 계층인지 job 로그 한 줄로 갈린다.
       - name: pytest http (경계 스냅샷)
         run: uv run pytest tests/http/ -q
 
@@ -127,11 +113,9 @@ jobs:
       - name: Install project (locked)
         run: uv sync --locked --group dev
 
-      # ubuntu-latest 는 node·corepack 내장 — setup-node 불요. pnpm 버전은 package.json packageManager 핀.
       - name: Enable corepack (pnpm)
         run: corepack enable
 
-      # pnpm store 캐시 — typescript·openapi-typescript·playwright 를 매 실행 새로 내려받지 않게.
       - name: Cache pnpm store
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -142,13 +126,11 @@ jobs:
       - name: Install frontend deps (frozen)
         run: pnpm install --frozen-lockfile
 
-      # 생성 TS 타입이 최신 OpenAPI(ViewModel)와 일치하는지 — 엔드포인트 변경 후 codegen 미실행(drift) 차단.
       - name: codegen drift check
         run: |
           pnpm run codegen
           git diff --exit-code -- src/assessment_engine/web/static/js/generated/api.ts
 
-      # `// @ts-check` 를 단 클라 JS 가 생성 타입 계약을 지키는지 컴파일로 강제한다.
       - name: tsc typecheck
         run: pnpm run typecheck
 
@@ -156,7 +138,6 @@ jobs:
     name: wheel build
     runs-on: ubuntu-latest
     needs: [lint]
-    # 패키징 검증은 main PR에서만 — release gate. 이미지 빌드+서명+publish 는 release.yml 이 수행.
     if: github.base_ref == 'main'
     timeout-minutes: 10
     steps:
@@ -173,7 +154,6 @@ jobs:
           enable-cache: true
           cache-dependency-glob: uv.lock
 
-      # 정적 자원·migrations 가 패키지에 포함되는지를 머지 전에 잡는다.
       - name: uv build
         run: uv build
 
@@ -188,8 +168,6 @@ jobs:
     name: pytest (integration)
     runs-on: ubuntu-latest
     needs: [test-unit]
-    # main PR 에서만. TimescaleDB 이미지를 안 가진 runner 에서 약 2분 24초, 이미지가 있으면 15초 —
-    # 차이의 대부분이 pull 이다(로컬 실측, 테스트 자체는 14초). develop PR 의 CI 는 단위 테스트까지.
     if: github.base_ref == 'main'
     timeout-minutes: 15
     steps:
@@ -209,7 +187,5 @@ jobs:
       - name: Install project (locked)
         run: uv sync --locked --group dev
 
-      # testcontainers 가 TimescaleDB 컨테이너를 띄운다 — runner 의 docker daemon 필요.
-      # 이미지 pull 이 대부분을 차지하므로 timeout 15분은 pull 실패 재시도까지 덮는 여유값이다.
       - name: pytest integration
         run: uv run pytest tests/integration/ -q

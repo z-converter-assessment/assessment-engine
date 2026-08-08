@@ -41,7 +41,6 @@ def _attr_key(v: object) -> str | None:
 
 
 def _match(pts: list[Datapoint], **attrs: object) -> float | None:
-    """attr 전부 일치하는 첫 point value. None 값 attr = 그 키 부재 요구(get None). 없으면 None."""
     want = {k: _attr_key(v) for k, v in attrs.items()}
     for p in pts:
         if all(_attr_key(p.attr.get(k)) == v for k, v in want.items()):
@@ -50,7 +49,6 @@ def _match(pts: list[Datapoint], **attrs: object) -> float | None:
 
 
 def _scalar(ns: Namespace | None, metric: str) -> float | None:
-    """attr 없이 단일 point 로 오는 metric 의 값."""
     pts = _points(ns, metric)
     return pts[0].value if pts else None
 
@@ -60,7 +58,6 @@ def _int(v: float | None) -> int | None:
 
 
 def _state_sum(pts: list[Datapoint], state: str) -> float | None:
-    """attr.cpu 전 코어 합산 — 실측이 하나라도 있으면 합, 전부 None 이면 None."""
     vals = [p.value for p in pts if _attr_key(p.attr.get("state")) == state and p.value is not None]
     return sum(vals) if vals else None
 
@@ -88,6 +85,10 @@ def _distinct(pts_lists: list[list[Datapoint]], key: str) -> list[str]:
 
 
 def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
+    """검증된 metrics 메시지를 시계열 저장 DTO로 변환한다.
+
+    없는 측정값은 0으로 바꾸지 않고 None으로 보존한다.
+    """
     cpu_ns, mem_ns, disk_ns, net_ns = data.system_cpu, data.system_memory, data.system_disk, data.system_network
     pag_ns, fs_ns, pr_ns = data.system_paging, data.system_filesystem, data.system_pressure
 
@@ -121,7 +122,6 @@ def to_metric_create(data: MetricsInput) -> ServerMetricCreate:
         mem_commit_limit_bytes=_int(_scalar(mem_ns, "memory.commit.limit")),
         mem_hardware_corrupted_bytes=_int(_scalar(mem_ns, "memory.hardware_corrupted")),
         mem_oom_kill=_int(_scalar(mem_ns, "memory.oom_kill")),
-        # major 는 direction:in + type:major, 일반 in/out 은 type 키 자체가 없다.
         paging_in=_int(_match(paging, direction="in", type=None)),
         paging_out=_int(_match(paging, direction="out", type=None)),
         paging_major=_int(_match(paging, direction="in", type="major")),
@@ -165,7 +165,7 @@ def _build_disk_errors(disk_ns: Namespace | None) -> list[DiskErrorEntry]:
         if kind is None:
             continue
         # class 는 kind 별 선택 attr(Windows eventlog 엔 없다) — 자연키 컬럼이라 NULL 대신 "".
-        # member 만 None 을 그대로 넘긴다 — repo 가 INSERT 직전에 "" 로 정규화한다.
+
         out.append(
             DiskErrorEntry(
                 device_id=_attr_key(p.attr.get("device")) or "",
@@ -274,7 +274,6 @@ def _listen_port_dicts(data: InventoryInput) -> list[JsonObject]:
 
 
 def _sparse(d: JsonObject) -> JsonObject:
-    """None 값 키 제거 — 레이아웃 상세는 자연 노드에만 채워져 sparse 로 저장한다."""
     return {k: v for k, v in d.items() if v is not None}
 
 
@@ -328,8 +327,7 @@ def _lvm_vg_layout(v: LvmVgInfo) -> JsonObject:
 
 
 def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
-    # 분류 입력 = 저장 dict 그대로. read 경로가 저장된 services·listen_ports 로 live classify 하므로
-    # 여기서 키를 줄이면(특히 listen_ports.pid) pid join 이 끊겨 같은 호스트가 화면마다 다른 카테고리가 된다.
+    """검증된 inventory 메시지를 서버 inventory 저장 DTO로 변환한다."""
     services = _service_dicts(data)
     listen_ports = _listen_port_dicts(data)
     return ServerInventoryCreate(
@@ -435,10 +433,7 @@ def to_inventory_create(data: InventoryInput) -> ServerInventoryCreate:
 
 
 def build_placeholder_inventory(data: MetricsInput) -> ServerInventoryCreate:
-    """metrics 선도착 시 최소 placeholder — 다음 진짜 inventory 가 upsert 로 덮는다.
-
-    metrics 메시지는 hostname 을 싣지 않아 agent_id 를 표시명 자리에 넣는다.
-    """
+    """inventory보다 먼저 도착한 metrics를 저장할 수 있도록 최소 서버 DTO를 만든다."""
     return ServerInventoryCreate(
         agent_id=str(data.agent_id),
         composite_id=data.composite_id,

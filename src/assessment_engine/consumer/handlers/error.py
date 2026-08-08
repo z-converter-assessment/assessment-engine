@@ -23,6 +23,8 @@ _ERROR_MESSAGE_LOG_MAX = 500
 
 
 def make_error_handler(redis: Redis) -> MessageHandler:
+    """Agent 오류 메시지를 안전하게 로그로 기록하는 핸들러를 만든다."""
+
     async def _log(data: ErrorInput) -> None:
         if not await _check_idempotent(redis, data.message_id):
             logger.info("error duplicate skipped message_id={}", data.message_id)

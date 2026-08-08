@@ -7,7 +7,7 @@
 ORM 모델을 전부 import 해야 한다 — 빠지면 Base.metadata 에 없어 autogenerate 가 drop 으로 처리한다.
 """
 
-# 아래 모델 import 는 이름을 쓰지 않고 등록 부수효과만 취한다.
+
 # pyright: reportUnusedImport=false
 
 import asyncio
@@ -44,8 +44,8 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # set_main_option 은 configparser interpolation 을 거친다 — 비밀번호가 URL-quote 되며 담긴 리터럴 '%'(예:
-# base64 결과의 '+'/'/' 가 %2B/%2F 로)가 있으면 "invalid interpolation syntax" 로 죽는다. '%' -> '%%' 는
-# get 시 interpolation 이 도로 풀어 주는 표준 왕복 패턴.
+
+
 _settings = WebSettings()  # pyright: ignore[reportCallIssue]
 config.set_main_option("sqlalchemy.url", _settings.database_url.replace("%", "%%"))
 
@@ -68,11 +68,6 @@ def run_migrations_offline() -> None:
 def _include_object(
     object_: SchemaItem, name: str | None, type_: str, reflected: bool, compare_to: SchemaItem | None
 ) -> bool:
-    """autogenerate 비교에서 TimescaleDB 가 자동 생성한 객체 제외.
-
-    `create_hypertable` 이 `{table}_collected_at_idx` 를 자동으로 만든다 — ORM `Base.metadata` 엔 없어
-    autogenerate 가 매번 "remove" 로 잡는 false positive 가 된다.
-    """
     return not (type_ == "index" and name and name.endswith("_collected_at_idx"))
 
 

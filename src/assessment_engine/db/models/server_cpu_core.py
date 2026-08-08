@@ -24,9 +24,8 @@ class ServerCpuCore(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
-    core_id: Mapped[int] = mapped_column(Integer, nullable=False)  # cpu.time attr.cpu 인덱스
+    core_id: Mapped[int] = mapped_column(Integer, nullable=False)
 
-    # per-core 시간 (s counter — host 집계와 동일 성분, util% = 1 - delta(idle)/delta(total))
     cpu_user_s: Mapped[float | None] = mapped_column(Float)
     cpu_nice_s: Mapped[float | None] = mapped_column(Float)
     cpu_system_s: Mapped[float | None] = mapped_column(Float)

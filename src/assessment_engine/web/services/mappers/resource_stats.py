@@ -17,19 +17,10 @@ if TYPE_CHECKING:
 
 
 def build_resource_stats(raw: ReportRowRaw, *, disk_baseline: int | None) -> right_sizing.ResourceStats:
-    """ReportRowRaw -> USE Method ResourceStats — 전 화면 공용 단일 진입점.
-
-    net baseline = server_net_io rx+tx 윈도우 평균(kB/s). 둘 다 None 이면 None(유휴 skip), 하나만 있으면
-    다른쪽 0 으로 본다.
-
-    `disk_baseline` 은 필수 키워드다. 이 값을 채우는 것은 보고서 경로(`_prefetch`)뿐이고 나머지 경로는 None
-    인데, raw 에서 그냥 읽으면 그 사실이 어디에도 안 보인다 — 새 호출 경로가 조용히 None 을 물려받아 유휴 판정
-    활동 축이 빠진다. 인자로 올려 두면 누락이 pyright 오류가 된다.
-    """
     net_avg = (
         None if raw.net_rx_kbps is None and raw.net_tx_kbps is None else (raw.net_rx_kbps or 0) + (raw.net_tx_kbps or 0)
     )
-    # 측정된 축(p95 not None)의 sufficiency 만 모아 min — 보수적. 둘 다 부재면 None(판정 무관).
+
     suffs = [
         s
         for p95, s in ((raw.cpu_p95_pct, raw.cpu_sufficiency), (raw.mem_p95_pct, raw.mem_sufficiency))
@@ -57,7 +48,7 @@ def build_resource_stats(raw: ReportRowRaw, *, disk_baseline: int | None) -> rig
         mem_swap_paging=raw.mem_swap_paging,
         mem_total_mb=(raw.mem_total_bytes // 1024**2 if raw.mem_total_bytes is not None else None),
         disk_await_p95_ms=raw.disk_await_p95_ms,
-        disk_iops_baseline=disk_baseline,  # 유휴 판정 활동 축
+        disk_iops_baseline=disk_baseline,
         disk_capacity_runway_days=raw.disk_capacity_runway_days,
         disk_inode_runway_days=raw.disk_inode_runway_days,
         disk_inode_used_pct=raw.disk_inode_used_pct,
@@ -67,8 +58,6 @@ def build_resource_stats(raw: ReportRowRaw, *, disk_baseline: int | None) -> rig
         conntrack_ratio=raw.conntrack_ratio,
         history_hours=raw.history_hours,
         cpu_burst_ratio=raw.cpu_burst_ratio,
-        # 이력이 추세 신뢰 바닥(CONFIDENCE_MIN_HOURS) 미만이면 slope 가 boot-ramp·지터에 지배돼 상승추세 오탐이
-        # 나므로 미판정(None). 짧은 이력은 어차피 low_precision 으로 다운사이즈가 이미 보류된다.
         util_trend_rising=(
             right_sizing.util_trend_rising_from_slopes(raw.cpu_trend_slope, raw.mem_trend_slope)
             if raw.history_hours is not None and raw.history_hours >= right_sizing.CONFIDENCE_MIN_HOURS

@@ -20,7 +20,6 @@ WINDOW_DEFAULT_DAYS = 14
 
 
 def split_csv(value: str | None) -> list[str]:
-    """쉼표 목록 -> 토큰 리스트. 빈 토큰과 주변 공백은 버린다."""
     return [s.strip() for s in (value or "").split(",") if s.strip()]
 
 
@@ -41,7 +40,6 @@ def split_pairs(tokens: list[str]) -> list[tuple[str, str]]:
 
 
 def split_pairs_csv(value: str | None) -> list[tuple[str, str]]:
-    """쉼표 목록 문자열에서 순서쌍을 뽑는다 — `split_csv` 를 먼저 태운 2단."""
     return split_pairs(split_csv(value))
 
 

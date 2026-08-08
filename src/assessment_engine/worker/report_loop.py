@@ -32,7 +32,6 @@ async def _process_one(
     query_service_factory: Callable[[], AbstractAsyncContextManager[QueryService]],
     rec: DiagnosticJobRecord,
 ) -> None:
-    """claim 된 job 1건 생성·저장. 생성 불가 -> failed, 내부 예외 -> failed(워커 격리)."""
     try:
         async with query_service_factory() as query_service:
             result = await build_report_result_for_job(query_service, diag_service, rec)
@@ -83,8 +82,6 @@ async def run_report_loop(
         try:
             await _process_one(diag_service, query_service_factory, rec)
         except Exception:  # noqa: BLE001  루프를 죽이지 않는 것이 목적이라 좁히지 않는다
-            # _process_one 은 생성 예외를 내부 격리하나 finish_succeeded/finish_failed 의 DB 호출은 전파 가능 —
-            # 여기서 막아야 워커가 안 죽는다. job 은 running 잔류 -> 다음 기동 recover_stale 가 회수.
             logger.exception("report worker process failed job_id={}", rec.id)
 
     logger.info("report worker stopped")

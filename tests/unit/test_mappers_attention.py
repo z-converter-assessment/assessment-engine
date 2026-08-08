@@ -1,8 +1,3 @@
-"""attention mapper — build_environment_realtime · build_action_targets 단위 테스트.
-
-capacity-weighted 평균·top_n 피크·포화 카운트(realtime) + 분류순·심각도 정렬·효율 집계(action targets) 검증.
-"""
-
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -25,33 +20,17 @@ if TYPE_CHECKING:
 _NOW = datetime(2026, 5, 12, tzinfo=UTC)
 
 
-# --- 헬퍼 ----------------------------------------------------------------
-
-
 def _snap(hostname: str, public_id: str, **kw: Any) -> JsonObject:
-    """realtime 스냅샷 dict — build_environment_realtime 입력 1건.
-
-    필수 키(hostname/public_id)만 고정, 나머지 값·가중치는 kw 로 주입(미지정은 dict 미포함 = get None).
-    """
     d = {"hostname": hostname, "public_id": public_id}
     d.update(kw)
     return d
 
 
 def _raw(**kw: Any) -> ReportRowRaw:
-    """attention 화면용 baseline — 신호 축 전부 None, kw 로 발화 축만 채운다.
-
-    baseline 은 `tests/builders.report_row_raw` 가 갖는다. 이 파일은 NIC 없는 호스트를 다루므로
-    `net_interfaces` 만 비운다.
-    """
     return report_row_raw(net_interfaces=[], **kw)
 
 
-# --- build_environment_realtime — capacity-weighted 평균 -----------------
-
-
 def _two_snaps() -> list[JsonObject]:
-    """CPU 코어 가중이 서로 다른 2 스냅샷 — capacity-weighted 와 단순평균이 갈리게 구성."""
     return [
         _snap(
             "h1",
@@ -89,10 +68,6 @@ def _two_snaps() -> list[JsonObject]:
 
 
 def test_realtime_cpu_capacity_weighted_not_arithmetic():
-    """CPU 평균 = sum(usage%·cores)/sum(cores) — 코어 가중(단순평균 65 아님).
-
-    (50*2 + 80*8) / (2+8) = 740/10 = 74.0.
-    """
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     cpu_bar = r.utilization[0]
     assert cpu_bar.label == "CPU"
@@ -102,11 +77,6 @@ def test_realtime_cpu_capacity_weighted_not_arithmetic():
 
 
 def test_realtime_mem_disk_are_used_over_total_ratio():
-    """메모리 평균 = sum(used)/sum(total)*100 (byte 풀 비율, 스냅샷 산술평균 아님). 디스크 용량(fill%)·디스크 I/O 이용률
-
-    둘 다 utilization 도넛에서 제외 — CPU·메모리 2개만(디스크 I/O 이용률은 장치별 신뢰도 편차라 부하 표 칼럼
-    전용, 환경 평균 도넛 없음). mem = 4e9/6e9*100 = 66.7 (round 1).
-    """
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     assert r.utilization[1].label == "메모리"
     assert r.utilization[1].pct == 66.7
@@ -114,7 +84,6 @@ def test_realtime_mem_disk_are_used_over_total_ratio():
 
 
 def test_realtime_online_offline_sample_size():
-    """total/online/offline + sample_size = len(snapshots) (호출자가 신선 스냅샷만 전달)."""
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     assert r.total == 5
     assert r.online == 2
@@ -124,30 +93,22 @@ def test_realtime_online_offline_sample_size():
 
 
 def test_realtime_saturation_counts():
-    """신호 도넛 카운트 — 순간 단일신호(신호명 라벨, 판정어 아님). 개요 dual-gate "포화" 도넛과 구분.
-
-    cpu_sat_index>=1.0(실행 큐 임계) / disk_sat_index>=1.0(디스크 응답지연 임계) / mem_pressure truthy(페이징).
-    h1: cpu 1.5·disk 0.5·mem_pressure True / h2: cpu 0.2·disk 2.0·mem_pressure False.
-    -> 실행 큐 임계 1, 페이징 1, 디스크 응답지연 임계 1, 네트워크 혼잡 0 (_two_snaps 는 net_congested 미설정), 표본 2.
-    """
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     labels = {d.label: (d.count, d.total) for d in r.saturation_donuts}
     assert labels["실행 큐 임계"] == (1, 2)
     assert labels["페이징"] == (1, 2)
     assert labels["디스크 응답지연 임계"] == (1, 2)
-    assert labels["네트워크 혼잡"] == (0, 2)  # 발화 카테고리 항상 노출(E9), 미발생이라 0
-    # 채움 = count/total * 원주
+    assert labels["네트워크 혼잡"] == (0, 2)
     rq_donut = next(d for d in r.saturation_donuts if d.label == "실행 큐 임계")
     assert rq_donut.dash_length == (1 / 2) * _UTIL_DONUT_CIRC
     assert rq_donut.color == _UTIL_COLOR_GAUGE
 
 
 def test_realtime_network_congestion_donut_counts_flagged_hosts():
-    """네트워크 혼잡 신호 도넛(4-1) — 스냅샷 net_congested True 호스트 수 집계."""
     snaps = [
         _snap("h1", "p1", cpu_cores=1, net_congested=True),
         _snap("h2", "p2", cpu_cores=1, net_congested=False),
-        _snap("h3", "p3", cpu_cores=1),  # net_congested 미설정 = None(미발생)
+        _snap("h3", "p3", cpu_cores=1),
     ]
     r = build_environment_realtime(total=3, online=3, snapshots=snaps, last_collected_at=_NOW)
     labels = {d.label: (d.count, d.total) for d in r.saturation_donuts}
@@ -155,7 +116,6 @@ def test_realtime_network_congestion_donut_counts_flagged_hosts():
 
 
 def test_realtime_load_rows_hostname_sorted_with_all_axes():
-    """load_rows — 호스트당 7축 전체 1행(top-N 절단 없음), hostname 오름차순 기본 정렬 + display precompute."""
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     assert [row.hostname for row in r.load_rows] == ["h1", "h2"]
     h2 = r.load_rows[1]
@@ -170,11 +130,6 @@ def test_realtime_load_rows_hostname_sorted_with_all_axes():
 
 
 def test_realtime_load_rows_paging_os_tagged_run_queue_not():
-    """페이징 — 무정규화 raw rate라 OS별 원 지표·임계 상이, 값 앞 L(Linux)/W(Windows) 접두(_os_cell).
-
-    실행 큐는 임계 정규화(값/threshold)로 OS 무관 비교 가능해 접두 없음. os_family 미설정(None)은
-    Linux 취급(right_sizing 기본 분기와 정합) — 페이징만 L 접두.
-    """
     snaps = [
         _snap("lin", "pl", os_family="linux", cpu_sat_index=0.8, paging_rate=3.0),
         _snap("win", "pw", os_family="windows", cpu_sat_index=1.1, paging_rate=25.0),
@@ -188,15 +143,10 @@ def test_realtime_load_rows_paging_os_tagged_run_queue_not():
     assert rows["win"].paging.display == "W 25.00/s"
     assert rows["none"].run_queue.display == "0.50x"
     assert rows["none"].paging.display == "L 1.00/s"
-    # value(정렬 키)는 raw 그대로 — 접두는 표시 전용
     assert rows["win"].run_queue.value == 1.1
 
 
 def test_realtime_load_rows_paging_shows_small_nonzero_rate():
-    """페이징 표시 소수점 2자리 의무 — Linux 임계가 "> 0"이라 정수 반올림하면 0.03/s 같은 실측이 "0"으로
-
-    묻혀 페이징 신호 도넛 카운트(mem_pressure)와 표 값이 안 맞아 보인다(판정 근거가 표에서 안 드러남).
-    """
     snaps = [_snap("h1", "p1", os_family="linux", paging_rate=0.03, mem_pressure=True)]
     r = build_environment_realtime(total=1, online=1, snapshots=snaps, last_collected_at=_NOW)
     assert r.load_rows[0].paging.display == "L 0.03/s"
@@ -205,18 +155,12 @@ def test_realtime_load_rows_paging_shows_small_nonzero_rate():
 
 
 def test_realtime_load_rows_threshold_exceeded_cells_get_congested_color():
-    """실행 큐·페이징·디스크 응답지연 — 신호 도넛과 동일 임계 초과 시 색 강조(네트워크 혼잡과 동일 hex, E8).
-
-    _two_snaps: h1(cpu_sat 1.5>=1.0 강조·disk_sat 0.5<1.0 무강조), h2(cpu_sat 0.2<1.0 무강조·disk_sat 2.0>=1.0 강조).
-    페이징은 paging_rate·mem_pressure 를 별도 스냅샷으로 검증(_two_snaps 는 paging_rate 미설정).
-    """
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     h1, h2 = r.load_rows[0], r.load_rows[1]
     assert h1.run_queue.color == _NET_CONGESTED_COLOR
     assert h1.disk_io.color == ""
     assert h2.run_queue.color == ""
     assert h2.disk_io.color == _NET_CONGESTED_COLOR
-    # 임계 없는 축(이용률·디스크 이용률)은 값 무관 항상 무강조
     assert h1.cpu.color == ""
     assert h1.disk_util.color == ""
 
@@ -231,10 +175,6 @@ def test_realtime_load_rows_threshold_exceeded_cells_get_congested_color():
 
 
 def test_realtime_load_rows_network_shows_congestion_verdict_not_throughput():
-    """네트워크 칼럼 — 처리량(net_kbps) 아닌 혼잡 판정(net_congested)만 표시. 혼잡=빨강 강조, 정상=무강조.
-
-    판정 대상(재전송·드롭·conntrack)과 표시값이 일치해야 신호 도넛과 표가 안 어긋난다.
-    """
     snaps = [
         _snap("congested", "pc", net_kbps=999.0, net_congested=True),
         _snap("ok", "po", net_kbps=1.0, net_congested=False),
@@ -248,10 +188,6 @@ def test_realtime_load_rows_network_shows_congestion_verdict_not_throughput():
 
 
 def test_realtime_load_rows_keeps_every_snapshot_including_none():
-    """top-N 절단 폐기 — 스냅샷 전부가 행이 되고, None 값은 그 축만 "—"(다른 축·행 자체는 유지).
-
-    cpu_pct None 인 b 도 행으로 남음(평균 산정에서만 제외, 가중치 den 기여 안 함) -> CPU avg = (10*1+90*1)/(1+1)=50.0.
-    """
     snaps = [
         _snap("a", "pa", cpu_pct=10.0, cpu_cores=1),
         _snap("b", "pb", cpu_pct=None, cpu_cores=4),
@@ -267,7 +203,6 @@ def test_realtime_load_rows_keeps_every_snapshot_including_none():
 
 
 def test_realtime_empty_snapshots_none_avgs_and_no_rows():
-    """빈 스냅샷 — 평균 None(회색 색·dash 0) / 부하 행 없음 / 포화 카운트 0 / sample 0."""
     r = build_environment_realtime(total=3, online=0, snapshots=[], last_collected_at=None)
     for bar in r.utilization:
         assert bar.pct is None
@@ -280,22 +215,17 @@ def test_realtime_empty_snapshots_none_avgs_and_no_rows():
     assert all(d.dash_length == 0.0 for d in r.saturation_donuts)
 
 
-# --- build_action_targets — 분류순·심각도 정렬 + 효율 집계 ----------------
-
-
 def _classified_raws() -> list[ReportRowRaw]:
-    """5 분류 각 1대 — 삽입 순서를 정렬 기대와 어긋나게(insuff 먼저) 배치해 정렬 검증 유효화."""
     return [
-        _raw(hostname="x", public_id="px"),  # insufficient_data
-        _raw(hostname="op", public_id="pop", cpu_p95_pct=50.0, mem_p95_pct=85.0),  # optimal
-        _raw(hostname="i", public_id="pi", cpu_p95_pct=2.0, net_rx_kbps=0.0, net_tx_kbps=0.0),  # idle
-        _raw(hostname="o", public_id="po", cpu_p95_pct=20.0, mem_p95_pct=30.0),  # over_provisioned
-        _raw(hostname="u", public_id="pu", mem_p95_pct=92.0, mem_swap_paging=True),  # under_provisioned
+        _raw(hostname="x", public_id="px"),
+        _raw(hostname="op", public_id="pop", cpu_p95_pct=50.0, mem_p95_pct=85.0),
+        _raw(hostname="i", public_id="pi", cpu_p95_pct=2.0, net_rx_kbps=0.0, net_tx_kbps=0.0),
+        _raw(hostname="o", public_id="po", cpu_p95_pct=20.0, mem_p95_pct=30.0),
+        _raw(hostname="u", public_id="pu", mem_p95_pct=92.0, mem_swap_paging=True),
     ]
 
 
 def test_action_targets_sorted_by_classification_order():
-    """최초 정렬 = 분류 우선순위(부족0>과다1>유휴2>정상3>표본4) — 삽입 순서 무관."""
     at = build_action_targets(_classified_raws())
     assert [h.classification for h in at.hosts] == [
         "under_provisioned",
@@ -304,15 +234,10 @@ def test_action_targets_sorted_by_classification_order():
         "optimal",
         "insufficient_data",
     ]
-    # rank 도 동반 노출(정렬 키 파생)
     assert [h.classification_rank for h in at.hosts] == [0, 1, 2, 3, 4]
 
 
 def test_action_targets_severity_then_hostname_tiebreak():
-    """동일 분류 내부 정렬 = 심각도 DESC 후 hostname ASC (동률 tie-break).
-
-    metric 동일 over 2대 -> severity 동률 -> hostname 오름차순(alpha 먼저).
-    """
     raws = [
         _raw(hostname="zebra", public_id="pz", cpu_p95_pct=20.0, mem_p95_pct=30.0),
         _raw(hostname="alpha", public_id="pa", cpu_p95_pct=20.0, mem_p95_pct=30.0),
@@ -323,18 +248,12 @@ def test_action_targets_severity_then_hostname_tiebreak():
 
 
 def test_action_targets_counts():
-    """total = 전 행수, under_count = 자원 부족 수."""
     at = build_action_targets(_classified_raws())
     assert at.total == 5
     assert at.under_count == 1
 
 
 def test_action_targets_efficiency_aggregates_over_and_idle_only():
-    """효율 집계 = over_provisioned·idle 분류만 합산 (under/optimal/insufficient 제외).
-
-    over(cores2·mem2GiB·disk50e9) + idle(cores2·mem2GiB·disk50e9) 2대:
-      count=2 / vcpus=4 / mem=4.0GB / disk=int(bytes_to_gb(100e9))=93 (binary divisor, GB 라벨 표기 관례).
-    """
     at = build_action_targets(_classified_raws())
     assert at.efficiency_count == 2
     assert at.efficiency_vcpus == 4
@@ -343,7 +262,6 @@ def test_action_targets_efficiency_aggregates_over_and_idle_only():
 
 
 def test_action_targets_empty_raws():
-    """빈 입력 — 행 0, 카운트·효율 전부 0."""
     at = build_action_targets([])
     assert at.hosts == []
     assert at.total == 0
@@ -355,7 +273,6 @@ def test_action_targets_empty_raws():
 
 
 def test_action_targets_reuses_capacity_warning_classification():
-    """build_action_targets 행 = to_capacity_warning_item 결과 재사용 (요청당 rollup 1회, 동일 산식 #E3)."""
     raw = _raw(hostname="u", public_id="pu", mem_p95_pct=92.0, mem_swap_paging=True)
     direct = to_capacity_warning_item(raw)
     at = build_action_targets([raw])
@@ -366,11 +283,6 @@ def test_action_targets_reuses_capacity_warning_classification():
 
 
 def test_capacity_warning_item_disk_io_status_symmetric_with_network():
-    """disk_io_status_label/color — network 와 동형 orthogonal flag, host_status(classification) 무관 항상 노출.
-
-    await 25ms > DISKIO_AWAIT_MS(20) -> io_bound(빨강, net congested 와 동일 색). CPU/메모리 정상이라
-    classification 은 optimal 이어도 디스크 I/O 상태는 별도로 노출(사각지대 보완이 이 필드의 목적).
-    """
     raw = _raw(hostname="h", public_id="ph", cpu_p95_pct=50.0, mem_p95_pct=85.0, disk_await_p95_ms=25.0)
     item = to_capacity_warning_item(raw)
     assert item.classification == "optimal"
@@ -379,16 +291,11 @@ def test_capacity_warning_item_disk_io_status_symmetric_with_network():
 
 
 def test_capacity_warning_item_disk_io_status_unmeasured_by_default():
-    """기본 fixture(disk_await_p95_ms=None, disk_iops_baseline=None) -> 미측정(색 없음)."""
     item = to_capacity_warning_item(_raw())
     assert item.disk_io_status_label == "미측정"
     assert item.disk_io_status_color == ""
 
 
 def test_capacity_warning_item_spec_display_matches_server_list_formula():
-    """spec_display = 서버 목록과 동일 정적 배정 사양(spec_display_line 단일 진실) — 환경 자원 평가 compact 표에서
-
-    권고(사이징 목표)와 나란히 비교하는 용도. 기본 fixture: cpu_cores=2, mem_total_bytes=2GiB, disk=50e9B.
-    """
     item = to_capacity_warning_item(_raw())
     assert item.spec_display == "2코어 · 2.0GB · 47GB"

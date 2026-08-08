@@ -23,10 +23,10 @@ class ServerPressure(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
-    resource: Mapped[str] = mapped_column(String(16), nullable=False)  # cpu|memory|io
-    scope: Mapped[str] = mapped_column(String(8), nullable=False)  # some|full
+    resource: Mapped[str] = mapped_column(String(16), nullable=False)
+    scope: Mapped[str] = mapped_column(String(8), nullable=False)
 
-    stall_time_s: Mapped[float | None] = mapped_column(Float)  # pressure.stall.time (s counter — 포화 canonical)
-    ratio_avg10: Mapped[float | None] = mapped_column(Float)  # pressure.stall.ratio window=10 (gauge)
+    stall_time_s: Mapped[float | None] = mapped_column(Float)
+    ratio_avg10: Mapped[float | None] = mapped_column(Float)
     ratio_avg60: Mapped[float | None] = mapped_column(Float)
     ratio_avg300: Mapped[float | None] = mapped_column(Float)

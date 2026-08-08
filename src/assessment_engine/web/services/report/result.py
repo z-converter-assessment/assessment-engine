@@ -24,11 +24,10 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
 
-REPORT_KIND_ENV = "env_report"  # 전 보고서 공통 양식 (EnvironmentReportSummary)
+REPORT_KIND_ENV = "env_report"
 
 
 def build_report_result(*, kind: str, snapshot: JsonObject, view: str, aux: JsonObject | None = None) -> JsonObject:
-    """발행 시점 보고서 스냅샷 + 부가 정적 데이터를 result JSONB dict 로 묶음."""
     return {
         "kind": kind,
         "snapshot": snapshot,
@@ -43,10 +42,6 @@ def compute_hash(scope: str, input_params: JsonObject) -> str:
 
 
 def normalize_anchor(at: datetime | None) -> datetime:
-    """anchor 분 단위 truncate — 같은 분 발행이 같은 input_hash 를 내야 더블클릭이 dedup 된다.
-
-    None 이면 now(). naive 입력은 UTC 로 간주.
-    """
     if at is None:
         at = datetime.now(UTC)
     elif at.tzinfo is None:

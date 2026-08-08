@@ -36,7 +36,7 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent.parent / "templa
 
 env: Environment = templates.env
 # jinja2 는 globals·filters 의 값 타입을 우리가 볼 수 있는 형태로 주지 않는다. 실제 계약은 임의 값이라
-# 여기서 한 번 확정해 받고 이후는 이 두 이름으로만 넣는다.
+
 env_globals = cast("dict[str, Any]", env.globals)
 env_filters = cast("dict[str, Any]", env.filters)
 env_filters["kst"] = kst
@@ -47,9 +47,7 @@ env_filters["storagesize_styled"] = storagesize_styled
 env_filters["service_badge_class"] = service_badge_class
 env_filters["or_dash"] = or_dash
 
-# Static asset versioning — process startup time hex를 모든 페이지 static URL의 querystring에 부착.
-# 코드 변경 후 web 재시작 -> 새 token -> 브라우저가 새 URL로 인식 -> 강제 재다운로드.
-# dev(app_env=dev)는 main.py 미들웨어가 매 요청 asset_v 를 재발급해 hot reload 즉시 반영 (prod 는 본 고정값 유지).
+
 ASSET_V: str = format(int(time.time()), "x")
 env_globals["asset_v"] = ASSET_V
 
@@ -65,7 +63,7 @@ def _engine_version() -> str:
 ENGINE_VERSION: str = _engine_version()
 env_globals["engine_version"] = ENGINE_VERSION
 
-# 스케줄러 자동 발행 기본 기간 라벨 — F10 단일 진실 (right_sizing.WINDOW_DAYS 와 정합).
+
 # 진단 카드 자동 발행 안내 문구에서 노출 — 상수 변경 시 라벨도 자동 갱신.
 env_globals["diagnostic_default_range_label"] = DIAGNOSTIC_RANGE_LABEL_KR.get(
     DIAGNOSTIC_DEFAULT_TIME_RANGE,
@@ -73,15 +71,13 @@ env_globals["diagnostic_default_range_label"] = DIAGNOSTIC_RANGE_LABEL_KR.get(
 )
 
 # UI badge 임계값 — mappers 단일 진실 (#E3 UI badge 도메인). base.html body data-attribute 로 노출,
-# detail.js / metrics.js 가 dataset 에서 읽기 (#E1 P4 — JS 임계 분류 단일 진실).
+
 env_globals["ui_thresholds"] = {
     "usage_danger_pct": _USAGE_DANGER_PCT,
     "usage_warn_pct": _USAGE_WARN_PCT,
 }
 
-# 사이드바 네비게이션 — 8항목 3그룹 정적 트리 (불변 표시 상수). _sidebar.html 이 그룹·항목 반복 렌더.
-# active 판정은 페이지 핸들러가 넘기는 active_nav 토큰과 item.match 단순 동등 비교 (#E1 P3 — 템플릿 계산 0).
-# active_nav 미전달 페이지(상세·결과 등)는 default None -> 어느 항목도 active 아님.
+
 NAV_GROUPS: list[dict[str, Any]] = [
     {
         "label": "모니터링",
@@ -111,7 +107,7 @@ NAV_GROUPS: list[dict[str, Any]] = [
 ]
 env_globals["nav_groups"] = NAV_GROUPS
 
-# breadcrumb — active_nav 토큰 -> (그룹, 항목) 라벨. 각 페이지 제목 위 경로 표시 (P3 — 템플릿은 dict 조회만).
+
 env_globals["nav_breadcrumb"] = {
     link["match"]: {"group": group["label"], "item": link["label"]} for group in NAV_GROUPS for link in group["links"]
 }

@@ -1,22 +1,15 @@
-# dev overlay — 파일명 규칙으로 compose 가 base 에 자동으로 얹는다.
-# 앵커는 파일 스코프라 base 의 *app-base 를 여기서 못 쓴다 — dev 공통을 *dev-app 으로 다시 묶었다.
 
 x-dev-app: &dev-app
-  # build 가 있으면 아래 image 는 pull 주소가 아니라 빌드 결과에 붙일 이미지 이름이다 — 로컬에 없으면 빌드한다.
   build:
     context: .
     dockerfile: Dockerfile
   image: assessment-engine:local
-  # 호스트 소스를 얹고 PYTHONPATH 로 앞에 세워 코드 수정이 재빌드 없이 반영된다 (의존성 변경 시에만 재빌드).
-  # site-packages 설치본을 덮어쓰지 않는다 — 그 경로에는 파이썬 minor 가 박혀 베이스 이미지를 올릴 때마다
-  # 여기 세 줄을 손으로 따라가야 했다.
   volumes:
     - ./src:/app/src
   environment:
     PYTHONPATH: /app/src
 
 services:
-  # rabbitmq 는 RABBITMQ_DEFAULT_PASS 를 읽는데 .env 의 키는 RABBITMQ_PASSWORD 라 이름을 맞춰준다.
   rabbitmq:
     environment:
       RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-changeme}
@@ -25,10 +18,8 @@ services:
     <<: *dev-app
     environment:
       PYTHONPATH: /app/src
-      # uvicorn auto-reload 스위치 — 감시 경로는 web 엔트리가 bind mount 패키지로 잡는다.
       WEB_RELOAD: ${WEB_RELOAD:-true}
 
-  # uvicorn 이 없는 프로세스라 watchfiles 래퍼로 재시작한다. 첫 인자가 재실행할 명령, 나머지가 감시 경로다.
   consumer:
     <<: *dev-app
     command: ["watchfiles", "--filter", "python", "python -m assessment_engine.consumer", "/app/src/assessment_engine"]
@@ -37,6 +28,5 @@ services:
     <<: *dev-app
     command: ["watchfiles", "--filter", "python", "python -m assessment_engine.worker", "/app/src/assessment_engine"]
 
-  # base 의 alembic command 는 그대로 두고 build 와 bind mount 만 더한다 (새 revision 을 재빌드 없이 인식).
   migrate:
     <<: *dev-app
