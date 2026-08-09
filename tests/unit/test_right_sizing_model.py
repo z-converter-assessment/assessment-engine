@@ -328,7 +328,7 @@ def test_root_cause_diskio_procs_blocked():
     s = _stats(
         cpu_p95_pct=90.0,
         cpu_cores=8,
-        procs_running_p95=1.0,
+        procs_running_p95=8.0,
         mem_p95_pct=40.0,
         mem_swap_paging=False,
         disk_await_p95_ms=40.0,
@@ -619,4 +619,4 @@ def test_disk_capacity_target_none_when_inode_drives():
     )
     assert a.status == "filling"
     assert a.sizing_target is None
-    assert r.resource_prescription("disk_capacity", a) == "스토리지 확장"
+    assert r.resource_prescription("disk_capacity", a) == "inode 정리/재포맷"

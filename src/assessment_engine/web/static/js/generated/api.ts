@@ -1293,7 +1293,7 @@ export interface components {
             storage: components["schemas"]["ReproStorage"];
         };
         /** @enum {string} */
-        ResourceStatus: "under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured";
+        ResourceStatus: "under" | "optimal" | "over" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured";
         /** RightSizingEnvelope */
         RightSizingEnvelope: {
             /** Count */
