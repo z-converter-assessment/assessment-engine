@@ -37,4 +37,4 @@ class ServerDiskError(Base):
     error_class: Mapped[str] = mapped_column(String(64), nullable=False)
     member: Mapped[str] = mapped_column(String(128), nullable=False, server_default=text("''"))
 
-    count: Mapped[int | None] = mapped_column(BigInteger)  # counter (정상 0)
+    count: Mapped[int | None] = mapped_column(BigInteger)

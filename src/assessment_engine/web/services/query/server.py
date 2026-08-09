@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from assessment_engine.db.dtos.outbound import ReportRowRaw
     from assessment_engine.web.view_models.metric import CollectionStatusItem, PeriodAssessment
 
-# 서버 세부 운영 신호는 window 를 두지 않고 전체 수집 기간을 센다 — window 인자를 받는 repo 에 실질 무제한을 넘긴다.
+
 _DETAIL_ALL_TIME_DAYS = 36500
 
 
@@ -85,7 +85,6 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         keys = [get_web_settings().redis_key_online.format(dto.id) for dto in dtos]
         online_flags = await safe_mget(self.redis, keys)
 
-        # 분류는 보고서·right-sizing 과 같은 윈도우·입력을 써야 화면 간 결과가 갈리지 않는다.
         page_server_ids = [dto.id for dto in dtos]
         now = datetime.now(UTC)
         raws_period = await self.repo.get_report_aggregate(
@@ -93,18 +92,16 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
             period_days=right_sizing.WINDOW_DAYS,
             end=now,
         )
-        # build_resource_stats 의 유휴 판정이 net 을 본다 — 미주입이면 도넛·보고서와 분류가 갈린다.
+
         raws_period = await self._with_net_baseline(raws_period, page_server_ids, right_sizing.WINDOW_DAYS, now)
         raws_by_id: dict[int, ReportRowRaw] = {r.server_id: r for r in raws_period}
 
         last_tasks = await latest_task_summaries(self.repo, page_server_ids)
 
-        # since=epoch 는 환경 개요 운영 이벤트 카드와 같은 창 — 개요와 목록이 다른 호스트를 가리키지 않게.
         error_hosts = await self.repo.get_fleet_error_hosts(page_server_ids, datetime(1970, 1, 1, tzinfo=UTC))
 
         items: list[ServerListItem] = []
         if online_flags is None:
-            # Redis 장애 폴백 — online 플래그 TTL 과 같은 임계를 last_seen_at 에 적용.
             threshold = datetime.now(UTC) - timedelta(seconds=get_web_settings().redis_ttl_online)
             for dto in dtos:
                 item = to_server_list_item(dto, raws_by_id.get(dto.id), today=now.date(), error_hosts=error_hosts)
@@ -112,7 +109,6 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
                 item.last_task = last_tasks.get(dto.id)
                 items.append(item)
         else:
-            # mget 이 키 개수만큼 돌려주므로 길이가 같다 (strict=True 가 그 전제를 지킨다).
             for dto, flag in zip(dtos, online_flags, strict=True):
                 item = to_server_list_item(dto, raws_by_id.get(dto.id), today=now.date(), error_hosts=error_hosts)
                 item.is_online = flag is not None
@@ -127,14 +123,14 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
             items = [i for i in items if i.os_distro == os_distro]
         if classification:
             items = [i for i in items if i.provisioning_class == classification]
-        # 판정 4단계를 필터에서만 셋으로 접는다 — 판정 불가(unknown)를 supported 로 뭉개지 않는다.
+
         if os_eol == "unknown":
             items = [i for i in items if i.os_eol_status == "unknown"]
         elif os_eol == "eol":
             items = [i for i in items if i.os_eol_status in ("paid_only", "ended")]
         elif os_eol == "supported":
             items = [i for i in items if i.os_eol_status in ("full", "security_only")]
-        # online 판정이 Redis 기반이라 DB ORDER BY 로는 1차 기준을 못 준다 — repo 가 hostname ASC 로 준 것 위에 재정렬.
+
         items.sort(key=lambda i: (not i.is_online, i.hostname.lower()))
         return items
 
@@ -191,12 +187,11 @@ class ServerQueryMixin(_BaseQueryServiceMixin):
         if not raws:
             return None
         raws = await self._with_net_baseline(raws, [server_id], right_sizing.WINDOW_DAYS, end_dt)
-        # 에러축은 실시간 카드(24h)가 아니라 이 카드의 분류 창에 맞춘다.
+
         win_days = right_sizing.WINDOW_DAYS
         err = await self.repo.get_latest_errors(server_id, end_dt - timedelta(days=win_days))
         errors = build_error_signals(err, window_label=f"최근 {win_days}일", os_family=raws[0].os_family)
         return build_period_assessment(
-            # 서버 세부 카드는 net baseline 만 주입한다 — disk 활동 축은 보고서 경로에서만 채워진다.
             build_resource_stats(raws[0], disk_baseline=None),
             errors,
             disk_worst_mount=raws[0].disk_capacity_worst_mount,

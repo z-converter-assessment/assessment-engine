@@ -20,7 +20,7 @@ class ServerNetIo(Base):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
-    iface_id: Mapped[str] = mapped_column(String(64), nullable=False)  # 안정키 (mac:..)
+    iface_id: Mapped[str] = mapped_column(String(64), nullable=False)
     # Windows 인터페이스는 WFP/QoS 필터 드라이버 체인 이름이라 김 (NDIS 한계 256).
     iface_name: Mapped[str | None] = mapped_column(String(256))
 
@@ -30,6 +30,6 @@ class ServerNetIo(Base):
     tx_packets: Mapped[int | None] = mapped_column(BigInteger)
     rx_errors: Mapped[int | None] = mapped_column(BigInteger)
     tx_errors: Mapped[int | None] = mapped_column(BigInteger)
-    rx_dropped: Mapped[int | None] = mapped_column(BigInteger)  # 링 버퍼 오버런·경로 손실 품질 신호
+    rx_dropped: Mapped[int | None] = mapped_column(BigInteger)
     tx_dropped: Mapped[int | None] = mapped_column(BigInteger)
-    link_speed_bps: Mapped[int | None] = mapped_column(BigInteger)  # network.link.speed (bit/s gauge)
+    link_speed_bps: Mapped[int | None] = mapped_column(BigInteger)

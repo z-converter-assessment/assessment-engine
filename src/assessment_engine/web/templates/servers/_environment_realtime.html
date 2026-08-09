@@ -1,6 +1,4 @@
 {% from "_shared.html" import empty_state, util_donut, saturation_donut %}
-{# 실시간 현황 partial (최신 스냅샷, 정적 렌더). realtime 객체면 데이터 없어도 카드 항상 노출, 내부는 sample_size/load_rows 가드로 empty_state(#E9).
-   컨텍스트 의무: realtime(EnvironmentRealtime), self_back. #}
 {% macro _load_cell(c) %}<td style="white-space:nowrap; text-align:right;{% if c.color %} color:{{ c.color }}; font-weight:600;{% endif %}" data-sort="{{ c.value if c.value is not none else '' }}">{{ c.display }}</td>{% endmacro %}
 {% if realtime %}
 <section class="card">
@@ -9,8 +7,6 @@
   </div>
   <div>
     {% if realtime.sample_size > 0 %}
-    {# 이용률 2(%, CPU·메모리) + 신호 4(호스트 수/표본) 도넛 — 구분선 없이 6개 나란히 (util_donut·saturation_donut 공용 규격).
-       디스크 I/O 이용률은 장치별 신뢰도 편차(right-sizing-thresholds.md "Disk IO" 절)라 환경 평균 도넛 없음 — 아래 부하 표 칼럼 전용. #}
     <div style="display:flex; align-items:center; flex-wrap:wrap; gap:20px;">
       {% for u in realtime.utilization %}{{ util_donut(u) }}{% endfor %}
       {% for s in realtime.saturation_donuts %}{{ saturation_donut(s) }}{% endfor %}
@@ -27,7 +23,6 @@
     <span class="section-meta">{{ realtime.sample_size }}대 · 칼럼 클릭 정렬</span>
   </div>
   {% if realtime.load_rows %}
-  {# 서버 목록·자원 부족 표와 동일 sortable-table + 20개 초과 시 더보기/접기 관례(realtime.js). #}
   <div class="table-scroll" id="load-wrap">
   <table class="detail-table sortable-table" style="width:100%;">
     <thead>
@@ -35,10 +30,10 @@
         <th class="sort-col" style="white-space:nowrap; width:140px;">호스트</th>
         <th class="sort-col" style="white-space:nowrap; text-align:right; width:100px;">CPU 이용률</th>
         <th class="sort-col" style="white-space:nowrap; text-align:right; width:110px;">메모리 이용률</th>
-        <th class="sort-col" style="white-space:nowrap; text-align:right; width:90px;" title="임계 정규화 지수(값/threshold, >=1.0x 초과 시 강조) — Linux procs_running·Windows Processor Queue 원 카운터는 달라도 OS 무관 비교 가능">실행 큐</th>
+        <th style="white-space:nowrap; text-align:right; width:110px;" title="Linux procs_running과 Windows Processor Queue Length는 원자료 의미가 달라 OS 표시와 각각의 임계값을 함께 표시">실행 큐</th>
         <th class="sort-col" style="white-space:nowrap; text-align:right; width:100px;" title="OS별 원 지표·임계 상이(Linux>0 · Windows>=20/s 초과 시 강조) — Linux refault(발생 즉시 압박) · Windows Pages Input/sec, 값 앞 L/W 로 구분">페이징</th>
         <th class="sort-col" style="white-space:nowrap; text-align:right; width:110px;" title="worst device io_time busy%(Utilization 축, %) — 응답지연(디스크 응답지연 칼럼, Saturation 축)과 별개, 판정 임계 없음(장치 종류별 신뢰도 편차)">디스크 I/O 이용률</th>
-        <th class="sort-col" style="white-space:nowrap; text-align:right; width:110px;" title="임계 정규화 지수(값/threshold, >=1.0x 초과 시 강조) — await(응답시간) 기반, 양 OS 통일">디스크 응답지연</th>
+        <th style="white-space:nowrap; text-align:right; width:130px;" title="await는 ms 지연으로 표시한다. Windows에서 await가 없으면 디스크 큐 값을 별도 폴백 신호로 표시한다">디스크 I/O 신호</th>
         <th class="sort-col" style="white-space:nowrap; text-align:right; width:90px;" title="재전송>1% or 드롭>0.5% or conntrack>=80% (저트래픽 게이트 적용) — 처리량 아닌 혼잡 판정만 표시">네트워크</th>
       </tr>
     </thead>

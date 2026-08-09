@@ -13,7 +13,7 @@ from assessment_engine.json_types import JsonObject
 class ServerInventoryCreate:
     # message_id 는 consumer 멱등성 체크 전용 — DTO 미포함.
     agent_id: str  # 식별 단일 키(UUID str) — DB agent_id UNIQUE·MQ 라우팅
-    composite_id: str | None  # SHA-256 감사·표시용 강등(식별 미사용)
+    composite_id: str | None
     machine_id: str | None
     hostname: str
     agent_version: str | None
@@ -30,17 +30,15 @@ class ServerInventoryCreate:
     cpu_model: str | None
     mem_total_bytes: int | None  # 단위 By(bytes). swap 은 block_devices type=swap 노드
 
-    # 정규화 스토리지/네트워크 그래프 — JSONB pass-through (단일행 upsert 와 history 미러가 같은 값을 갖는다).
-    block_devices: list[JsonObject]  # [{name,type,size_bytes,fstype,mountpoint,parent,id,id_type}]
-    net_interfaces: list[JsonObject]  # [{name,id,id_type,kind,speed_mbps,addresses:[{address,prefix,family}],gateway}]
+    block_devices: list[JsonObject]
+    net_interfaces: list[JsonObject]
     lvm_vgs: list[JsonObject]  # [{name,size_bytes,free_bytes,data_percent,metadata_percent}] (Linux 전용)
     ip_external: list[str] | None
-    services: list[JsonObject] | None  # [{unit,sub,pid,exe}]
-    listen_ports: list[JsonObject]  # [{proto,addr,port,uid,pid,comm}]
-    # ingest 사전계산 — read 경로 뱃지 단일 진실.
+    services: list[JsonObject] | None
+    listen_ports: list[JsonObject]
+
     service_categories: list[str]
 
-    # OS 재현 서술자 + boot 노드 + 비블록 마운트 — agent 발행, 미해당은 None.
     arch: str | None = None
     bits: int | None = None
     boot_firmware: str | None = None
@@ -55,27 +53,24 @@ class ServerInventoryCreate:
     nonblock_mounts: list[JsonObject] | None = None
 
 
-# 시계열 nested 행 — datapoint-array 를 dataclass 로 받아 타입을 보장한다.
-
-
 @dataclass
 class DiskIoEntry:
     # device_id = 안정 id 문자열("<scheme>:<value>"). device_name = 표시명(nullable).
     device_id: str
     device_name: str | None = None
-    io_read_bytes: int | None = None  # disk.io direction=read (By counter)
+    io_read_bytes: int | None = None
     io_write_bytes: int | None = None
-    ops_read: int | None = None  # disk.operations direction=read
+    ops_read: int | None = None
     ops_write: int | None = None
-    io_time_s: float | None = None  # disk.io_time (%util 산출, s counter)
-    op_read_time_s: float | None = None  # disk.operation_time direction=read (await 산출, s counter)
+    io_time_s: float | None = None
+    op_read_time_s: float | None = None
     op_write_time_s: float | None = None
-    pending_ops: float | None = None  # disk.pending_operations (queue gauge)
+    pending_ops: float | None = None
 
 
 @dataclass
 class NetIoEntry:
-    iface_id: str  # 안정키 = MAC ("mac:..")
+    iface_id: str
     iface_name: str | None = None
     rx_bytes: int | None = None
     tx_bytes: int | None = None
@@ -85,12 +80,11 @@ class NetIoEntry:
     tx_errors: int | None = None
     rx_dropped: int | None = None
     tx_dropped: int | None = None
-    link_speed_bps: int | None = None  # network.link.speed (bit/s gauge, virtio null)
+    link_speed_bps: int | None = None
 
 
 @dataclass
 class FilesystemEntry:
-    # filesystem.usage / inodes.usage (gauge, 시점값)
     mountpoint: str
     device_id: str | None = None
     fstype: str | None = None
@@ -102,7 +96,6 @@ class FilesystemEntry:
 
 @dataclass
 class CpuCoreEntry:
-    # per-core seconds (cpu.time attr.cpu). core_id = 논리 코어 인덱스.
     core_id: int
     cpu_user_s: float | None = None
     cpu_nice_s: float | None = None
@@ -117,20 +110,19 @@ class CpuCoreEntry:
 @dataclass
 class PressureEntry:
     # PSI (Linux 4.20+). NK 축 = resource x scope. window(10/60/300)는 ratio 컬럼으로 평탄화.
-    resource: str  # cpu|memory|io
-    scope: str  # some|full
-    stall_time_s: float | None = None  # pressure.stall.time (counter s — 14일 saturation canonical)
-    ratio_avg10: float | None = None  # pressure.stall.ratio window=10 (gauge, 실시간 참고)
+    resource: str
+    scope: str
+    stall_time_s: float | None = None
+    ratio_avg10: float | None = None
     ratio_avg60: float | None = None
     ratio_avg300: float | None = None
 
 
 @dataclass
 class DiskErrorEntry:
-    # disk.errors (E축, 가변 차원). 정상 시 0.
     device_id: str
-    error_kind: str  # mdraid|btrfs|ext4|eventlog|ioerr
-    error_class: str  # member_errors|degraded|corruption|errors_count..
+    error_kind: str
+    error_class: str
     member: str | None = None
     count: int | None = None
 
@@ -154,8 +146,8 @@ class TaskResultUpdate:
     status: str
     failure_reason: str | None
     exit_code: int | None
-    signal_no: int | None  # 시그널 사망 시 번호 (exit_code 와 상호배타)
-    task_policy: bool | None  # 실제 설치 신호(데몬 기동+등록) — exit_code 보다 우선. 미보고 시 None
+    signal_no: int | None
+    task_policy: bool | None
     duration_ms: int
     stdout_tail: str
     stderr_tail: str
@@ -164,13 +156,10 @@ class TaskResultUpdate:
 
 @dataclass
 class ServerMetricCreate:
-    # agent_id 는 consumer 가 server_id 해석에 사용 — 본 DTO 미포함.
-    # boot_time·agent_started_at 은 counter reset 정밀 식별용이라 시계열 행마다 저장한다.
     collected_at: datetime
     boot_time: datetime | None
     agent_started_at: datetime | None
 
-    # CPU 호스트 집계 (cpu.time attr.cpu 합산, s counter)
     cpu_user_s: float | None = None
     cpu_nice_s: float | None = None
     cpu_system_s: float | None = None
@@ -180,31 +169,29 @@ class ServerMetricCreate:
     cpu_softirq_s: float | None = None
     cpu_steal_s: float | None = None
     cpu_logical_count: int | None = None
-    cpu_run_queue: float | None = None  # gauge
-    cpu_blocked: float | None = None  # D-state gauge
-    cpu_mce: int | None = None  # counter
+    cpu_run_queue: float | None = None
+    cpu_blocked: float | None = None
+    cpu_mce: int | None = None
 
-    # 메모리 (By)
     mem_free_bytes: int | None = None
     mem_cached_bytes: int | None = None
     mem_buffered_bytes: int | None = None
     mem_available_bytes: int | None = None
     mem_used_bytes: int | None = None
-    mem_limit_bytes: int | None = None  # memory.limit — 총 물리 메모리(cgroup 한도 아님)
+    mem_limit_bytes: int | None = None
     mem_commit_usage_bytes: int | None = None
     mem_commit_limit_bytes: int | None = None
     mem_hardware_corrupted_bytes: int | None = None
-    mem_oom_kill: int | None = None  # counter
-    # paging (counter)
+    mem_oom_kill: int | None = None
+
     paging_in: int | None = None
     paging_out: int | None = None
     paging_major: int | None = None
-    # 네트워크 host-wide (counter/gauge)
+
     net_tcp_retransmits: int | None = None
     net_conntrack_usage: int | None = None
     net_conntrack_limit: int | None = None
 
-    # 시계열 nested 행
     disk_io: list[DiskIoEntry] = field(default_factory=list[DiskIoEntry])
     net_io: list[NetIoEntry] = field(default_factory=list[NetIoEntry])
     filesystems: list[FilesystemEntry] = field(default_factory=list[FilesystemEntry])

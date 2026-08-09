@@ -30,5 +30,5 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # 16자를 넘는 값이 남아 있으면 여기서 실패하는 것이 맞다 — 조용히 자르지 않는다.
+
     op.alter_column("tasks", "status", existing_type=sa.String(32), type_=sa.String(16), existing_nullable=False)

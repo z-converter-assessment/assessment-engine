@@ -4,12 +4,10 @@ build-backend = "uv_build"
 
 [project]
 name = "assessment-engine"
-# 릴리스 시 `uv version --bump <part>` 로 올린다.
 version = "1.3.4"
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.141.1",
-    # starlette 보안 핀 (fastapi transitive) — CVE-2026-54283/54282·PYSEC-2026-161(Host 헤더 검증) fix.
     "starlette>=1.3.1",
     "uvicorn[standard]>=0.52.1",
     "pydantic>=2.13.4",
@@ -39,19 +37,14 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# 오타 마커·오타 설정 키가 조용히 통과하지 않게 한다. -ra 는 skip·xfail 사유를 요약에 남긴다.
 addopts = ["--strict-markers", "--strict-config", "-ra"]
-# 마커를 붙이지 않는다 — auto 모드가 async 함수를 그대로 수집한다 (docs/guides/testing.md).
 asyncio_mode = "auto"
-# session-scope async fixture(엔진·컨테이너)가 function-scope 테스트와 같은 event loop를 공유하도록
-# fixture·test 양쪽 default loop scope를 session으로 통일. (pytest-asyncio v1+ 정책)
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 filterwarnings = ["error"]
 
 [tool.coverage.run]
 source = ["src/assessment_engine"]
-# Protocol 선언 전용 모듈은 본문이 `...` 이라 분모에 들어가면 숫자를 왜곡한다.
 omit = [
     "*/migrations/versions/*",
     "*/db/repositories/collect.py",
@@ -68,45 +61,32 @@ omit = [
 exclude_also = ["if TYPE_CHECKING:", "\\.\\.\\."]
 
 [tool.pyright]
-# 타입 검사 강도를 편집기 설정이 아니라 저장소에 둔다 — Pylance 와 pyright CLI 가 같은 파일을 읽으므로
-# 편집기에서 통과한 것이 CLI 에서도 통과한다. .vscode/settings.json 은 어떤 도구를 쓸지만 정한다.
 typeCheckingMode = "strict"
-# 표준 라이브러리 시그니처 기준 — requires-python 과 같은 minor (docs/guides/dependencies.md 2절).
 pythonVersion = "3.14"
-# 검사 범위는 여기서만 정한다 — Makefile·워크플로는 인자 없이 `pyright` 를 부른다.
 include = ["src", "scripts", "tests"]
-# uv 가 만드는 가상환경. CLI 가 활성 인터프리터 대신 이 경로의 의존성을 보게 한다.
 venvPath = "."
 venv = ".venv"
 
-# strict 프리셋이 켜지만 이 저장소가 채택하지 않는 규칙 — 사유는 docs/guides/conventions.md 1절.
 reportPrivateUsage = "none"
 reportUnusedFunction = "none"
 reportUnusedClass = "none"
 reportUnnecessaryIsInstance = "none"
 
-# strict 프리셋이 끄지만 위반 0 이라 켜 두는 규칙 — 죽은 코드·낡은 억제 주석을 잡는다.
 reportUnreachable = "error"
 reportUnnecessaryTypeIgnoreComment = "error"
 reportPropertyTypeMismatch = "error"
 reportUninitializedInstanceVariable = "error"
-# 상위 메서드를 덮어쓰는 자리는 @override 로 선언한다 (PEP 698) — 상위 시그니처가 바뀌면 여기서 잡힌다.
 reportImplicitOverride = "error"
 
 [tool.ruff]
 line-length = 120
 target-version = "py314"
-# ruff 는 markdown 안 python 코드블록도 포맷한다. 아카이브(결정 기록)와 시점 스냅샷(학습 자료)은
-# 당시 그대로 두는 문서라 대상에서 뺀다.
 extend-exclude = ["docs/decisions", "docs/learning"]
 
 [tool.ruff.format]
-# 코드블록 안 예시도 같은 규칙으로 맞춘다 — docstring 예시가 본문 스타일과 갈리지 않게.
 docstring-code-format = true
 
 [tool.ruff.lint]
-# 규칙 선택 기준은 하나다 — 이 저장소의 명문 규약을 사람이 아니라 도구가 강제하게 만드는 것.
-# 규약과 규칙의 대응은 docs/guides/conventions.md 2절.
 select = [
     "A",     # 내장 이름 가리기
     "ASYNC", # async 함수 안 blocking 호출
@@ -143,70 +123,46 @@ select = [
     "UP",    # pyupgrade
 ]
 ignore = [
-    # docstring 존재 강제는 하지 않는다 — 대상(모듈·클래스·공개 함수)은 #F12 가 정하고, private 은 생략이 기본이다.
     "D1",
-    # 상호배타 쌍에서 채택하지 않는 쪽.
     "D203",
     "D213",
-    # 영어 산문을 전제하는 규칙 — 본 repo docstring 은 한국어다.
     "D400",
     "D401",
     "D403",
     "D415",
-    # 임계는 이미 명명 상수이고 나머지 리터럴 비교는 테스트 기대값이다.
     "PLR2004",
-    # FastAPI 라우터·DTO 조립부는 인자가 많은 것이 정상이다.
     "PLR0913",
-    # 함수 안 import 는 순환을 끊는 관용구다 (#F1).
     "PLC0415",
-    # 설정 검증 예외는 운영자에게 이유를 알려야 한다 — 메시지를 짧게 강제하지 않는다.
     "TRY003",
-    # SQL 문자열 조립에는 whitelist 상수만 들어가고 사용자 입력은 bound parameter 다 (#C5).
     "S608",
-    # 인자 개수·분기 수·return 수는 세지 않는다 — SQL 조립부와 매퍼는 나누면 오히려 흐름이 흩어진다.
     "PLR0911",
     "PLR0912",
     "PLR0915",
     "PLR0917",
-    # 이 저장소의 구획 주석(`# 메모리 (By)`·`# 채움 = count/total * 원주`)을 코드로 오인한다.
-    # 주석 처리된 코드를 두지 않는다는 규약(#F12)은 코드 리뷰가 본다.
     "ERA001",
 ]
 
 
 [tool.ruff.lint.flake8-tidy-imports.banned-api]
-# #F7 은 loguru 단일 채택이다. stdlib logging 을 섞으면 LOG_FORMAT=json 이 켜져도 그 로그만 형식이 다르다.
 "logging".msg = "loguru 를 쓴다 (#F7). stdlib logging 은 sink 를 타지 않는다."
 "logging.config".msg = "loguru 를 쓴다 (#F7)."
 
 [tool.ruff.lint.flake8-type-checking]
-# 이 base class 를 상속하는 모델은 런타임에 어노테이션을 resolve 한다 — import 를 TYPE_CHECKING 으로
-# 옮기면 model build 가 NameError 로 깨진다 (#F1).
 runtime-evaluated-base-classes = [
     "pydantic.BaseModel",
     "pydantic_settings.BaseSettings",
     "sqlalchemy.orm.DeclarativeBase",
     "assessment_engine.db.models.base.Base",
-    # 계약 스키마 TypedDict — FastAPI 가 OpenAPI 를 만들 때 pydantic 이 어노테이션을 값으로 읽는다.
     "typing.TypedDict",
 ]
-# dataclass 는 FastAPI 가 응답 모델로 쓸 때 pydantic 이 어노테이션을 resolve 하고, hypothesis 는
-# @composite 함수의 어노테이션을 읽어 전략을 만든다.
 runtime-evaluated-decorators = ["dataclasses.dataclass", "hypothesis.strategies.composite"]
 
 [tool.ruff.lint.per-file-ignores]
-# 테스트는 assert 가 본체이고, private helper 를 직접 부르는 것이 단위 테스트의 정의다.
-# 테스트 픽스처의 접속 정보·바인드 주소는 컨테이너 안에서만 사는 값이다.
 "tests/**" = ["S101", "S104", "S105", "S106", "S603", "SLF001", "INP001"]
 "scripts/**" = ["INP001"]
-# alembic 이 파일 경로로 로드하는 스크립트라 패키지가 아니다.
-# alembic 이 파일 경로로 로드하는 스크립트라 패키지가 아니다. fileConfig 는 alembic 자체 계약이라 예외.
 "src/assessment_engine/migrations/**" = ["INP001", "TID251"]
-# FastAPI 는 endpoint 와 의존성 callable 의 어노테이션을 런타임에 resolve 한다 — 이 두 자리의 import 를
-# TYPE_CHECKING 으로 옮기면 기동이 깨진다.
 "src/assessment_engine/web/routers/**" = ["TC001", "TC002", "TC003"]
 "src/assessment_engine/web/deps.py" = ["TC001", "TC002", "TC003"]
-# E501 예외 — 줄바꿈하면 의미가 파편화되는 곳만. 일반 Python 코드의 line-too-long 은 그대로 강제.
 "src/assessment_engine/migrations/*" = ["E501"]                 # Alembic autogenerate 산출물 (ColumnList·CreateTable)
 "src/assessment_engine/db/repositories/query/*" = ["E501"]      # raw SQL(CASE/window)·집계 한 줄
 "src/assessment_engine/web/services/mappers/*" = ["E501"]       # 매퍼 한글 주석·dict 매핑 한 줄

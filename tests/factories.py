@@ -1,10 +1,3 @@
-"""wire 계약 형태의 테스트 데이터 빌더.
-
-단위는 wire 규약을 따른다 — 시간 s(float), 크기 By(int). device 축은 이름이 아니라 안정 id
-문자열이고, 시계열 `device_id`/`iface_id` 는 inventory 의 `(id_type):(id)` 를 재구성한 값이다.
-기본값을 그 규약에 맞춰 뒀으므로 물리 device 필터와 per-device 조인이 그대로 성립한다.
-"""
-
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 from uuid import NAMESPACE_DNS, uuid5
@@ -27,32 +20,28 @@ if TYPE_CHECKING:
 _DEFAULT_BOOT_TIME = datetime(2026, 1, 1, tzinfo=UTC)
 _DEFAULT_AGENT_STARTED_AT = datetime(2026, 1, 1, 0, 5, tzinfo=UTC)
 
-# 기본 device 안정 id — inventory block_device / net_interface 와 시계열 device_id/iface_id 조인 정합.
-# 시계열 device_id = (id_type):(id) 규약 (물리 필터·per-device 집계 조인).
-_DISK_ID = "virtio-pci-0000:00:05.0"  # block_device id (raw, id_type=by-path)
-_DISK_DEVICE_ID = f"by-path:{_DISK_ID}"  # server_disk_io device_id
-_PART_ID = "aaaa-0001"  # 루트 파티션 id (id_type=partuuid)
-_MAC = "52:54:00:12:34:56"  # net_interface id (raw MAC, id_type=mac)
-_IFACE_ID = f"mac:{_MAC}"  # server_net_io iface_id
+_DISK_ID = "virtio-pci-0000:00:05.0"
+_DISK_DEVICE_ID = f"by-path:{_DISK_ID}"
+_PART_ID = "aaaa-0001"
+_MAC = "52:54:00:12:34:56"
+_IFACE_ID = f"mac:{_MAC}"
 
 
 def agent_id_for(label: str) -> str:
-    """라벨에서 결정적 agent_id 를 만든다 — 같은 라벨이면 같은 UUID."""
     return str(uuid5(NAMESPACE_DNS, label))
 
 
 def make_inventory(
     *,
-    agent_id: str | None = None,  # 미지정 시 composite_id 를 라벨 삼아 파생
+    agent_id: str | None = None,
     composite_id: str | None = "test-composite-id-0001",
-    # `__DERIVE__` 면 composite_id 에서 파생한다. 명시 None 은 그대로 둔다(미보유 호스트 재현).
     machine_id: str | None = "__DERIVE__",
     hostname: str = "test-host-01",
     agent_version: str = "1.0.0",
     os_family: str = "linux",
     collected_at: datetime | None = None,
     cpu_cores: int | None = 4,
-    mem_total_bytes: int | None = 8 * 1024**3,  # 계약 단위 By
+    mem_total_bytes: int | None = 8 * 1024**3,
     boot_time: datetime | None = _DEFAULT_BOOT_TIME,
     agent_started_at: datetime | None = _DEFAULT_AGENT_STARTED_AT,
     block_devices: list[JsonObject] | None = None,
@@ -71,11 +60,6 @@ def make_inventory(
     boot: JsonObject | None = None,
     nonblock_mounts: list[JsonObject] | None = None,
 ) -> ServerInventoryCreate:
-    """기본값은 placeholder 가 아니라 정상 수집된 inventory 다.
-
-    `block_devices` 기본값은 물리 디스크(type=disk) + 루트 파티션(type=part, mountpoint=/) 이라
-    물리 필터와 per-mount 조인이 성립한다. swap 은 별도 컬럼이 아니라 type=swap 노드로 표현한다.
-    """
     if agent_id is None:
         agent_id = agent_id_for(composite_id or "none")
     if machine_id == "__DERIVE__":
@@ -155,7 +139,6 @@ def make_metrics(
     collected_at: datetime,
     boot_time: datetime | None = _DEFAULT_BOOT_TIME,
     agent_started_at: datetime | None = _DEFAULT_AGENT_STARTED_AT,
-    # CPU 호스트 집계 (s counter)
     cpu_user_s: float | None = 1000.0,
     cpu_nice_s: float | None = 0.0,
     cpu_system_s: float | None = 200.0,
@@ -168,7 +151,6 @@ def make_metrics(
     cpu_run_queue: float | None = None,
     cpu_blocked: float | None = None,
     cpu_mce: int | None = None,
-    # 메모리 (By)
     mem_free_bytes: int | None = 4 * 1024**3,
     mem_cached_bytes: int | None = 1 * 1024**3,
     mem_buffered_bytes: int | None = 200 * 1024**2,
@@ -179,21 +161,17 @@ def make_metrics(
     mem_commit_limit_bytes: int | None = None,
     mem_hardware_corrupted_bytes: int | None = None,
     mem_oom_kill: int | None = None,
-    # paging (counter)
     paging_in: int | None = None,
     paging_out: int | None = None,
     paging_major: int | None = None,
-    # 네트워크 host-wide
     net_tcp_retransmits: int | None = None,
     net_conntrack_usage: int | None = None,
     net_conntrack_limit: int | None = None,
-    # 시계열 nested 행 (미지정 시 물리 device 1개씩)
     disk_io: list[DiskIoEntry] | None = None,
     net_io: list[NetIoEntry] | None = None,
     filesystems: list[FilesystemEntry] | None = None,
     cpu_per_core: list[CpuCoreEntry] | None = None,
 ) -> ServerMetricCreate:
-    """카운터는 누적 raw 값이다 — 시간 흐름은 호출자가 collected_at 과 값을 함께 올려 만든다."""
     return ServerMetricCreate(
         collected_at=collected_at,
         boot_time=boot_time,
@@ -276,8 +254,6 @@ def make_metrics(
     )
 
 
-# --- Task 빌더 --------------------------------------------------
-
 _DEFAULT_TASK_PUBLIC_ID = "00000000-0000-4000-8000-000000000001"
 _DEFAULT_TASK_COMPLETED_AT = datetime(2026, 5, 14, 12, 0, tzinfo=UTC)
 _DEFAULT_TASK_AGENT_ID = "11111111-1111-4111-8111-111111111111"
@@ -285,7 +261,7 @@ _DEFAULT_TASK_AGENT_ID = "11111111-1111-4111-8111-111111111111"
 
 def make_task_result_payload(
     *,
-    agent_id: str | None = _DEFAULT_TASK_AGENT_ID,  # task.result 한정 nullable (매칭은 task_id)
+    agent_id: str | None = _DEFAULT_TASK_AGENT_ID,
     composite_id: str | None = "test-composite-id-0001",
     task_id: str = _DEFAULT_TASK_PUBLIC_ID,
     status: str = "success",
@@ -304,11 +280,6 @@ def make_task_result_payload(
     message_id: str = "550e8400-e29b-41d4-a716-446655440099",
     schema_version: str = "1.0",
 ) -> JsonObject:
-    """task.result wire JSON — `TaskResultInput.model_validate_json` 에 그대로 넣는다.
-
-    `boot_time`·`agent_started_at` 기본값이 None 인 것은 발행 측 worker 가 수집 캐시와 분리돼
-    있어 이 메시지에서만 항상 null 이기 때문이다.
-    """
     return {
         "schema_version": schema_version,
         "message_type": "task.result",

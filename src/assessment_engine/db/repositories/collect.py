@@ -1,7 +1,4 @@
-"""Consumer 측 데이터 접근 Protocol + 그 반환 타입.
-
-핸들러가 구현이 아니라 이 인터페이스에 의존하게 해서, 대역으로 갈아끼울 수 있게 한다.
-"""
+"""수집 데이터와 task 상태를 저장하는 repository 계약과 반환 데이터."""
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
@@ -17,7 +14,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class MetricInsertResult:
-    """record_metrics 결과 — 시계열 테이블 각각 INSERT된 행 수. 멱등성 충돌 시 0."""
+    """Metrics 저장 debug 로그에 기록할 테이블별 신규 레코드 수."""
 
     metrics: int
     disk_io: int
@@ -25,21 +22,18 @@ class MetricInsertResult:
     filesystem: int
     cpu_core: int = 0  # Linux only
     pressure: int = 0  # PSI — Linux 4.20+ only
-    disk_error: int = 0  # 정상 호스트는 0 행 (충돌 0 과 구분 안 됨)
+    disk_error: int = 0
 
 
 class CollectRepository(Protocol):
-    """Consumer 측 데이터 접근 인터페이스. 트랜잭션 경계는 호출자(`_db_retry`)가 관리."""
+    """Consumer와 worker가 의존하는 수집 데이터 저장 계약. 트랜잭션은 호출자가 관리한다."""
 
-    async def find_server_id(self, agent_id: str) -> int | None:
-        """agent_id 단일 키로 server_inventory.id 조회."""
-        ...
+    async def find_server_id(self, agent_id: str) -> int | None: ...
 
     async def upsert_server(self, data: ServerInventoryCreate) -> int:
-        """agent_id UNIQUE 키 ON CONFLICT DO UPDATE upsert. server_inventory.id 반환.
+        """agent_id 기준으로 inventory를 저장하고 서버 내부 ID를 반환한다.
 
-        부수효과: 직전 행 대비 변경(또는 신규) 감지 시 server_inventory_history append.
-        정적 정보가 같으면 주기 재발행이라도 history 를 남기지 않는다 — noise 차단.
+        새 서버이거나 inventory가 변경된 경우에만 history 레코드를 추가한다.
         """
         ...
 
@@ -48,41 +42,30 @@ class CollectRepository(Protocol):
         agent_id: str,
         fallback: ServerInventoryCreate,
     ) -> tuple[int, bool]:
-        """metrics 핸들러 auto-register 캡슐화 — find 후 없으면 fallback upsert.
+        """서버 내부 ID를 반환하고, 없으면 fallback inventory로 placeholder를 저장한다.
 
-        반환 (server_id, auto_registered). auto_registered=True 면 placeholder 신규 등록이라
-        호출자가 운영 로그를 남긴다.
+        두 번째 반환값은 이번 호출에서 placeholder를 새로 만들었는지 나타낸다.
         """
         ...
 
     async def create_task(self, data: TaskCreate) -> str:
-        """task 1건 INSERT. 반환: public_id (UUID) — agent 에 노출되는 식별자."""
+        """task를 저장하고 agent에 전달할 public ID를 반환한다."""
         ...
 
     async def complete_task(self, data: TaskResultUpdate) -> bool:
-        """결과 보고 수신 UPDATE. 반환: True 정상 / False public_id 미존재 (DLQ·silent ack 결정)."""
+        """task 결과를 저장한다. 대상 task가 없으면 False를 반환한다."""
         ...
 
     async def expire_overdue_tasks(self, server_ids: list[int]) -> int:
-        """deadline 경과 pending(install) 을 failure(timeout) 로 전이. 반환: 전이 건수.
-
-        발행 경로가 INSERT 직전 호출 — 만료 pending 을 치워야 pending 부분 UNIQUE 충돌 없이 재발행된다.
-        race-safe (WHERE status='pending'). agent 의 뒤늦은 result 는 complete_task 가 덮어쓴다.
-        """
+        """지정 서버의 deadline 지난 pending task를 timeout failure로 전이하고 전이 건수를 반환한다."""
         ...
 
-    async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
-        """deadline 안 지난 활성 pending(install) 보유 server_id 목록.
-
-        발행 경로가 expire 직후 호출 — 하나라도 있으면 전체 발행을 취소하는 all-or-nothing 사전 검증.
-        """
+    async def find_pending_task_server_ids(self, server_ids: list[int], task_type: str) -> list[int]:
+        """지정 task type의 pending task를 가진 서버 ID를 반환한다."""
         ...
 
     async def expire_all_overdue_tasks(self) -> int:
-        """`expire_overdue_tasks` 의 server_ids 무필터 전역판. 반환: 전이 건수.
-
-        reaper 루프가 다음 emit 없이도 미배달·무회신 pending 을 terminal 로 보낸다. race-safe.
-        """
+        """모든 deadline 지난 pending task를 timeout failure로 전이하고 전이 건수를 반환한다."""
         ...
 
     async def record_metrics(
@@ -90,8 +73,8 @@ class CollectRepository(Protocol):
         server_id: int,
         data: ServerMetricCreate,
     ) -> MetricInsertResult:
-        """metrics 메시지 1건을 host 집계 + 6개 자식 시계열 테이블에 INSERT. 빈 list 차원은 skip.
+        """metrics 메시지를 서버 집계와 차원별 시계열 레코드로 저장한다.
 
-        모두 ON CONFLICT DO NOTHING — 자연키 UNIQUE 가 중복을 흡수한다.
+        자연키가 이미 있는 레코드는 건너뛴다.
         """
         ...

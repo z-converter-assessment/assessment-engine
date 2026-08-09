@@ -20,11 +20,6 @@ if TYPE_CHECKING:
 
 
 def _net_baseline_fields(net: NetIoBaselineRaw | None) -> dict[str, float | None]:
-    """net baseline 을 `dataclasses.replace` 키워드로. 미측정(None)이면 빈 dict — 기존 값을 덮지 않는다.
-
-    보고서 경로(`_with_report_baselines`)와 공유한다. 두 경로가 net 을 서로 다른 필드 집합으로 채우면
-    같은 호스트가 화면마다 다른 유휴 판정을 받는다.
-    """
     if net is None:
         return {}
     return {
@@ -59,13 +54,7 @@ class _BaseQueryServiceMixin:
     async def _with_net_baseline(
         self, raws: list[ReportRowRaw], server_ids: list[int], period_days: float, end: datetime
     ) -> list[ReportRowRaw]:
-        """raws 에 net I/O baseline 을 얹은 새 list.
 
-        net 이 비면 `build_resource_stats` 의 유휴 판정이 구조적으로 빠져 분류가 get_report(세부행)와
-        어긋난다. 호출부는 반환값을 반드시 다시 묶는다 — 제자리 수정이 아니라 새 행을 만들므로,
-        안 묶으면 net 이 통째로 빠진 채 조용히 진행된다.
-        """
-        # period_days 는 15m 창(=0.0104일)까지 내려가는 float 이고 repo 는 timedelta(days=)로 그대로 받는다.
         net_io = await self.repo.get_report_net_io_baseline(
             server_ids,
             period_days,
@@ -75,7 +64,6 @@ class _BaseQueryServiceMixin:
 
 
 def _filter_attention(attention: AttentionSignals, hostnames: set[str]) -> AttentionSignals:
-    """전체 운영 신호를 선택 N대 호스트로 좁힌다 (신호 행의 link_text 가 hostname)."""
     return AttentionSignals(
         gap_warnings=[w for w in attention.gap_warnings if w.link_text in hostnames],
         os_eol_warnings=[w for w in attention.os_eol_warnings if w.link_text in hostnames],
@@ -84,7 +72,6 @@ def _filter_attention(attention: AttentionSignals, hostnames: set[str]) -> Atten
 
 
 def _empty_overview() -> EnvironmentOverview:
-    """등록 서버 0대일 때의 환경 요약."""
     return EnvironmentOverview(
         total=0,
         online=0,

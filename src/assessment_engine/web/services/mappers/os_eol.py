@@ -17,13 +17,11 @@ if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
 
 
-# 패키지 데이터로 읽는다 — 이 저장소는 wheel 을 빌드해 이미지로 배포하므로 `__file__` 기준 경로는
-# 소스 트리가 그대로 깔려 있다는 전제를 깔고, 그 전제가 깨지면 import 가 아니라 파일 읽기에서 터진다.
 _EOL_CATALOG: dict[str, list[JsonObject]] = json.loads(
     (resources.files(__package__) / "os_eol_catalog.json").read_text(encoding="utf-8")
 )
 
-# agent os_id(/etc/os-release ID) -> endoflife product slug. 미등록 os_id 는 판정하지 않는다(침묵).
+
 # windows 는 build 기반이라 본 dict 밖 별도 분기.
 _OS_ID_TO_EOL_PRODUCT: dict[str, str] = {
     "debian": "debian",
@@ -37,7 +35,7 @@ _OS_ID_TO_EOL_PRODUCT: dict[str, str] = {
     "amzn": "amazon-linux",
     "fedora": "fedora",
     "ol": "oracle-linux",  # Oracle Linux /etc/os-release ID="ol"
-    "oracle": "oracle-linux",  # 일부 배포 변형 alias
+    "oracle": "oracle-linux",
 }
 
 # 필터 옵션은 수집된 distro 가 아니라 카탈로그 product 전체 — 지원 범위 자체를 노출한다.
@@ -56,14 +54,13 @@ _DISTRO_LABELS: dict[str, str] = {
     "oracle-linux": "Oracle Linux",
     "windows-server": "Windows",
 }
-# 표시 순서는 카탈로그 키 순서를 따른다.
+
 DISTRO_FILTER_OPTIONS: tuple[tuple[str, str], ...] = tuple(
     (slug, _DISTRO_LABELS.get(slug, slug)) for slug in _EOL_CATALOG
 )
 
 
 def os_id_to_distro(os_id: str | None) -> str:
-    """수집 os_id -> 카탈로그 product slug. 미등록 os_id 는 그대로 돌려준다."""
     if not os_id:
         return ""
     if os_id == "windows":
@@ -83,7 +80,7 @@ class OsEolInfo(NamedTuple):
     support_iso: str | None
     extended_support_iso: str | None
     label: str
-    status: str  # "full" | "security_only" | "paid_only" | "ended"
+    status: str
 
 
 # 심각도 순 — Windows 커널 build 가 복수 채널에 겹칠 때 후보 중 최소 심각도를 택하는 데 쓴다.
@@ -103,7 +100,6 @@ class OsEolDisplay(NamedTuple):
     sort: int
 
 
-# 툴팁 틀의 {eol} 은 매칭 날짜로 채운다. 날짜가 없으면 그 꼬리절을 잘라 쓴다.
 _OS_EOL_DISPLAY: dict[str, tuple[str, str, str, int]] = {
     "ended": ("지원 종료", "text-danger", "어떤 경로로도 보안 패치 없음 · EOL {eol}", 4),
     "paid_only": (
@@ -129,7 +125,6 @@ def os_eol_display(status: str, eol_iso: str) -> OsEolDisplay:
 
 
 def _classify_eol(support_iso: str | None, eol_iso: str, extended_iso: str | None, today: date) -> str:
-    """경계 3개 -> 4상태. 없는 경계는 그 구간이 존재하지 않는다는 뜻이다."""
     if extended_iso and date.fromisoformat(extended_iso) <= today:
         return "ended"
     if date.fromisoformat(eol_iso) <= today:
@@ -153,7 +148,7 @@ def _eol_info(os_id: str | None, os_version: str | None, kernel_version: str | N
         matches = [e for e in _EOL_CATALOG.get("windows-server", []) if e.get("build") == build]
         if not matches:
             return None
-        rep = max(matches, key=lambda e: e["eol"])  # 대표 = eol 최장(LTSC) — 표시 라벨·날짜
+        rep = max(matches, key=lambda e: e["eol"])
         status = min(
             (_classify_eol(e.get("support"), e["eol"], e.get("extendedSupport"), today) for e in matches),
             key=_EOL_SEVERITY.index,
@@ -198,10 +193,9 @@ def lookup_os_eol(
     return _eol_info(os_id, os_version, kernel_version, today)
 
 
-# DisplayVersion/ReleaseId 레지스트리 키가 Server 2016 이전엔 없어 agent 가 os_version 을 빈값으로 보낸다.
 # 모든 Windows 에 있는 CurrentBuildNumber 로 표시만 보강한다. 2016(14393) 이상은 os_version 이 오므로 미등록.
 # build <-> 제품 출처는 EOL 판정과 같은 windows-server 카탈로그다. 라벨을 카탈로그에서 바로 못 꺼내고 따로
-# 두는 것은 같은 build 를 여러 SP/edition 이 공유해 이름이 갈리기 때문이다.
+
 _WINDOWS_LEGACY_BUILD_LABEL: dict[str, str] = {
     "9600": "2012 R2",
     "9200": "2012",
@@ -220,15 +214,11 @@ def windows_legacy_version_from_build(kernel_version: str | None) -> str | None:
     return _WINDOWS_LEGACY_BUILD_LABEL.get(build)
 
 
-# os_version(DisplayVersion)은 LTSC 와 SAC 가 같은 값("1809")을 공유해 둘을 못 가른다. ProductName 의
-# 연도/세대 토큰으로 보강한다. SAC 는 MS 가 ProductName 에 연도를 안 박으므로 미매칭 -> None 이고,
-# 호출자가 os_version 으로 폴백한다 (SAC 는 그쪽이 정확).
 _WIN_SERVER_YEAR_RE = re.compile(r"Windows Server (\d{4})(?:\s+(R2))?", re.IGNORECASE)
 _WIN_CLIENT_GEN_RE = re.compile(r"Windows (10|11)\b", re.IGNORECASE)
 
 
 def windows_short_label_from_product_name(product_name: str | None) -> str | None:
-    """product_name 원문 -> 짧은 표시 라벨("2019"·"2012 R2"·"10"). SAC·미매칭은 None."""
     if not product_name:
         return None
     m = _WIN_SERVER_YEAR_RE.search(product_name)

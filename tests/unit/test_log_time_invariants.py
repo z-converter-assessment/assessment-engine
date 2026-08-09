@@ -1,5 +1,3 @@
-"""시간 불변식 경고의 쿨다운과 fail-open 단위 테스트."""
-
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, cast
 from unittest.mock import AsyncMock, patch

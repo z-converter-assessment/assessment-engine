@@ -6,7 +6,7 @@
 ## 무엇을 어떻게 평가하나
 
 - 자원 5개: CPU, Memory, Disk 용량, Disk IO, Network.
-- 축 3개 (USE Method): Utilization(얼마나 쓰나), Saturation(부족해서 얼마나 밀리나), Errors(오류·고장).
+- 평가 3축 (USE Method): Utilization(얼마나 쓰나), Saturation(부족해서 얼마나 밀리나), Errors(오류·고장).
   - 사이징(증설/감축) 판정은 CPU · Memory · Disk 용량 3자원만. Disk IO 는 "포화 여부"만 표시(증설 숫자 미산출),
     Network 는 별도 혼잡 플래그로만 노출.
   - Errors 는 사이징에 섞지 않고 health(고장) 신호로 따로 보여준다.
@@ -44,10 +44,10 @@
   오염되므로 쓰지 않는다.
 - steal(가상화에서 하이퍼바이저에 뺏긴 시간)로 인과를 가른다: steal p95 5% 이상(벤더확인 AWS/Datadog)이면
   실행 큐가 높아도 하이퍼바이저 경합이라 vCPU 증설로 안 풀리고, 이용률·포화 수치 자체가 오염됐다고 보아
-  충실도(biased) 하향을 남긴다(하향 조건은 steal 단독 -- 실행 큐 동반 요구 없음). 증설 처방 자체는 그대로
-  낸다(관측된 부족을 누락하지 않는다). biased 가 실제로 막는 것은 다운사이즈 구체 처방이다 -- 오버서브스크립션
+  측정 편향(measurement_bias)을 남긴다(하향 조건은 steal 단독 -- 실행 큐 동반 요구 없음). 증설 처방 자체는 그대로
+  낸다(관측된 부족을 누락하지 않는다). measurement_bias가 실제로 막는 것은 다운사이즈 구체 처방이다 -- 오버서브스크립션
   fleet 에서 잘못된 감축을 막는 장치다.
-- 유휴는 활동 3축이 전부 조용할 때만이다: CPU p95 3% 이하 AND 네트워크 2Mbps 이하 AND 디스크 baseline 5 IOPS
+- 유휴는 CPU p95, 네트워크 처리량, 디스크 baseline IOPS가 모두 낮을 때만이다: CPU p95 3% 이하 AND 네트워크 2Mbps 이하 AND 디스크 baseline 5 IOPS
   이하. CPU·네트워크는 측정값이 있어야 유휴가 되고, 디스크 활동은 미측정이면 유휴를 막지 않는다. 그중 CPU peak
   1% 이하 AND 네트워크 1 kB/s 이하는 확실 유휴로 즉시 종료를, 그 외 유휴는 통합·재배치를 권고한다.
 
@@ -91,8 +91,7 @@
 
 ## Disk IO
 
-포화 여부만 표시한다(증설 숫자 미산출). virtio 게스트 지연은 하이퍼바이저·이웃 간섭 편향이라 표본으로 안
-줄어들어 biased 로 강제한다.
+포화 여부만 표시한다(증설 숫자 미산출).
 
 | 축 | 신호 | 임계 | 근거 |
 |----|------|------|------|
@@ -105,7 +104,8 @@
 - %util(디스크가 바쁜 시간 비율)은 값 자체로 분류하지 않는다 -- SSD/NVMe 는 병렬 처리라 여유가 있어도 100% 로
   나와 오탐한다. 대신 await 채택 게이트로 쓴다: 사용률 50% 미만 버킷의 await 는 writeback 큐 잔류로 폭증해도
   병목이 아니라 산출에서 뺀다(그래서 저활동 device 는 await 미산출 -> io_ok). Windows 는 IOCTL 응답시간
-  (동일 20ms), 구세대 viostor 는 큐 깊이 2 폴백.
+  (동일 20ms)을 쓴다. 기간 평가에서 응답시간을 수집하지 못한 고활동 device 는 미관측으로 남긴다. 실시간
+  스냅샷은 구세대 viostor에서 큐 깊이 2를 폴백으로 쓴다.
 
 ## Network
 
@@ -119,8 +119,9 @@
 
 - 로컬 포화는 두 신호로 본다: drop(NIC 링버퍼·큐가 넘쳐 패킷을 버림 = 호스트가 못 따라감)과 conntrack(연결추적
   테이블이 참 = 신규 연결 못 받음). conntrack 은 80% 단일 임계다(진입/해제 분리 없음).
-- 재전송·드롭은 창 평균 트래픽 10 kB/s 미만이면 판정을 보류한다 -- 저트래픽 호스트에서는 부팅기 소수 이벤트가
-  비율을 지배해 분모가 무너진다. conntrack 은 트래픽량과 무관한 절대 신호라 이 게이트를 받지 않는다.
+- 재전송·드롭은 창 평균 트래픽이 10 kB/s 이상일 때만 판정한다. 그보다 작으면 비율 trigger를 생략하고
+  network 상태는 quality_ok로 둔다 -- 저트래픽 호스트에서는 부팅기 소수 이벤트가 비율을 지배해 분모가 무너진다.
+  conntrack 은 트래픽량과 무관한 절대 신호라 이 게이트를 받지 않으며, 80% 이상이면 단독으로 congested를 확정한다.
 - 재전송(retransmit)은 포화가 아니라 Errors 로 뒀다. 재전송을 유발한 패킷 손실은 원격 라우터·WAN 어디서든 날
   수 있어 이 호스트의 포화가 아닌 경우가 많다. 포화로 세면 원격 혼잡을 이 호스트 탓으로 오귀속한다. Gregg 의
   USE 분류도 dropped=saturation / retransmit=errors 로 나눈다. 재전송은 사라지지 않고 health 에서 계속 보인다.
@@ -179,7 +180,7 @@
 ## 표시 전용 임계 (분류 미사용)
 
 보고서의 "부하 변동 큼" 서술은 변동성(peak/p95) 문턱을 넘는 것만으로는 발화하지 않고, peak 가 저부하선을
-함께 넘을 때만 낸다 -- CPU 30% / 메모리 50%(`BURST_PEAK_FLOOR_CPU_PCT`·`BURST_PEAK_FLOOR_MEM_PCT`, 근거 강도
+함께 넘을 때만 낸다 -- CPU 30% / 메모리 50%(`CPU_BURST_PEAK_FLOOR_PCT`/`MEM_BURST_PEAK_FLOOR_PCT`, 근거 강도
 판단). 저부하 호스트의 미세 지터가 비율만 키워 변동성으로 잡히는 오탐을 막는 게이트다. 분류 임계가 아니다
 -- 다운사이즈(over) 판정은 CPU 사이징 목표가 내고, 이 두 값은 문구 발화 여부만 가른다. 진단 칼럼(CPU·메모리)
 과 정성 요약 불릿(CPU)이 같은 게이트를 쓴다.
@@ -205,7 +206,7 @@
 |----|-----------------|------------------|
 | CPU 포화 | run queue / cores >= 1.0 | Processor Queue Length / cores >= 2.0 |
 | MEM 포화 | paging_major + used (AND) | Pages Input/sec p95 >= 20 + used (AND) |
-| DISK-IO 포화 | await > 20ms | await (IOCTL), 큐 깊이 >= 2 폴백 |
+| DISK-IO 포화 | await > 20ms | await (IOCTL), 실시간 큐 깊이 >= 2 폴백 |
 | DISK 오류 | ext4/btrfs/mdraid | eventlog |
 | inode | fstype 무관 (보고된 값) | NTFS (inode 개념 없음) |
 | conntrack | nf_conntrack (로드 시) | 없음 (WFP 별개) |

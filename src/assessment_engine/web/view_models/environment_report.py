@@ -42,7 +42,7 @@ class OsCount:
     distro: str
     version: str
     count: int
-    # 그룹을 커널로 더 쪼개지 않고 부기만 한다 — 같은 version 안에 패치레벨이 섞일 수 있다.
+
     kernel_versions: str = "—"
 
 
@@ -85,9 +85,9 @@ class ServerInventorySnapshot:
     is_online: bool
     public_id: str | None = None
     agent_id: str | None = None
-    cpu_arch: str | None = None  # ISA — x86_64|aarch64 등
-    cpu_bits: int | None = None  # 32|64
-    boot_firmware: str | None = None  # bios|uefi
+    cpu_arch: str | None = None
+    cpu_bits: int | None = None
+    boot_firmware: str | None = None
     secure_boot: bool | None = None
     os_edition: str | None = None
     timezone: str | None = None
@@ -151,24 +151,22 @@ class AttentionHostItem:
     public_id: str
     hostname: str
     os_display: str
-    gap_label: str | None  # 라벨 3종은 None 이면 그 신호 비활성. 예 "5분"
-    os_eol_label: str | None  # "centos 7 · EOL 2024-06-30"
-    restart_label: str | None  # "12회"
-    active_count: int  # 활성 신호 1~3
+    gap_label: str | None
+    os_eol_label: str | None
+    restart_label: str | None
+    active_count: int
 
 
 @dataclass
 class CapacityImminentItem:
-    """디스크 capacity 임박 호스트 — 구동 마운트 runway 가 `DISK_RUNWAY_DAYS` 미만.
-
-    구동 마운트 = 가장 빨리 소진되는 마운트 (배지 분류와 동일 신호).
-    """
+    """바이트 또는 inode 소진이 임박한 마운트."""
 
     public_id: str
     hostname: str
     worst_mount: str
     days_until_full: int
-    used_pct: float | None
+    constraint_label: str = ""
+    used_pct: float | None = None
 
 
 @dataclass
@@ -179,44 +177,44 @@ class EnvironmentReportSummary:
     """
 
     view: str
-    time_range: str  # "15m"/"1h"/"6h"/"24h"/"7d"/"14d"/"30d"
+    time_range: str
     time_range_label: str
-    anchor_at: datetime  # 분석 기준 시각 (보고서 본문 끝점)
-    generated_at: datetime  # 응답 합성 시각
+    anchor_at: datetime
+    generated_at: datetime
     overview: EnvironmentOverview
     attention: AttentionSignals
     base: ReportSummary
     classification_dist: list[ClassificationCount]
     os_distribution: list[OsCount]
-    top_risks: list[ReportRowItem]  # base.rows 위험도 정렬 Top N (기본 5)
-    summary_bullets_env: list[str]  # view 별 다른 텍스트
+    top_risks: list[ReportRowItem]
+    summary_bullets_env: list[str]
     os_family_dist: list[DistributionBar] = field(default_factory=list[DistributionBar])
-    # {label, value, sub} plain dict — 스냅샷 복원 때 되돌릴 파생이 없어 dataclass 로 올리지 않는다 (trend 동일).
+
     env_metrics: list[JsonObject] = field(default_factory=list[JsonObject])
-    os_eol_count: int = 0  # attention.os_eol_warnings len
-    os_eol_breakdown_label: str = ""  # "debian 11 2대 · debian 12 3대"
-    agent_versions_label: str = ""  # 버전 목록만 — 어느 호스트인지는 싣지 않는다
+    os_eol_count: int = 0
+    os_eol_breakdown_label: str = ""
+    agent_versions_label: str = ""
     topology: NetworkTopology | None = None
-    # 차트 JS inline(tojson)용 plain dict: [{"at": iso, "cpu": float|None, "mem": float|None}].
+
     trend: list[JsonObject] = field(default_factory=list[JsonObject])
-    # single 전용 — 포화 3축 이진 0/1 plain dict. trend 와 같은 윈도우·bucket, 임계는 right_sizing helper 와 동일.
+
     sat_trend: list[JsonObject] = field(default_factory=list[JsonObject])
-    # 자원 평가 페이지와 같은 build_action_targets 산출 — 화면 간 분류·정렬 정합.
+
     action: ActionTargets = field(default_factory=ActionTargets)
     service_catalog: list[ServiceCatalogGroup] = field(default_factory=list[ServiceCatalogGroup])
-    server_inventory: ServerInventorySnapshot | None = None  # single 전용
-    # single 전용 심화 메트릭
+    server_inventory: ServerInventorySnapshot | None = None
+
     memory_breakdown: MemoryBreakdown | None = None
     cpu_breakdown: CpuBreakdown | None = None
-    # single 전용 — 서버 상세 탭과 동일 build_period_assessment 산출.
+
     period_assessment: PeriodAssessment | None = None
-    # single 전용 — 서버 상세 storage·network 탭과 동일 산출.
+
     storage_tree: list[StorageNode] = field(default_factory=list[StorageNode])
     network_interfaces: list[NetworkInterfaceInfo] = field(default_factory=list[NetworkInterfaceInfo])
-    # engineer 전용
+
     attention_hosts: list[AttentionHostItem] = field(default_factory=list[AttentionHostItem])
     capacity_imminent: list[CapacityImminentItem] = field(default_factory=list[CapacityImminentItem])
-    # 템플릿이 len() 을 못 쓰므로(P3) mapper 가 미리 센다.
+
     top_risks_count: int = 0
     attention_hosts_count: int = 0
     capacity_imminent_count: int = 0

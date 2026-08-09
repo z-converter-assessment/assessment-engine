@@ -182,7 +182,7 @@ class SizingAxis(TypedDict):
     unit: str
     action: Literal["increase", "decrease", "keep"]
     estimate_quality: Literal["exact", "floor", "uncertain"]
-    # disk 축 전용 — cpu/memory 축엔 없는 키.
+
     mountpoint: NotRequired[str | None]
     device_ref: NotRequired[str | None]
     used_pct: NotRequired[float | None]

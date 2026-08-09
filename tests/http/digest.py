@@ -1,15 +1,3 @@
-"""SSR 응답을 읽을 수 있는 구조 다이제스트로 줄인다.
-
-전문을 저장하면 페이지 하나가 10만자를 넘어 저장소가 부풀고, 해시로 줄이면 "무언가 달라졌다" 만 남고
-무엇이 달라졌는지가 0비트가 된다 — 템플릿 공백 한 칸에 전 스냅샷이 동시에 빨개져 diff 를 못 읽는다.
-
-그래서 회귀 판정에 필요한 축만 뽑는다. 태그 스켈레톤(깊이·태그·class·id), 표의 행 수와 첫 셀,
-상태를 나르는 class 의 등장 횟수, 숫자·라벨 텍스트 앵커, 정적 자원 링크. 대규모 구조 변경이
-화면을 바꿨는지는 이 축들이 잡는다.
-
-stdlib `html.parser` 만 쓴다 — 신규 의존 0.
-"""
-
 import re
 from collections import Counter
 from html.parser import HTMLParser
@@ -17,13 +5,10 @@ from typing import Any, override
 
 _STATE_CLASS = re.compile(r"^(rec-|badge-|risk-|usage-|empty-state|donut-|seg-|status-)")
 _WS = re.compile(r"\s+")
-# importmap JSON 의 값(URL)만 — 키(bare specifier)는 자원 경로가 아니다.
 _IMPORTMAP_URL = re.compile(r'"\s*:\s*"(/static/[^"]+)"')
 
 
 class _Digester(HTMLParser):
-    """태그 스트림을 훑으며 구조 축을 모은다."""
-
     def __init__(self) -> None:
         super().__init__(convert_charrefs=True)
         self.depth = 0
@@ -78,7 +63,6 @@ class _Digester(HTMLParser):
     @override
     def handle_data(self, data: str) -> None:
         if self._in_importmap:
-            # importmap 도 정적 자원 참조다 — script src 만 걷으면 모듈 그래프가 통째로 가드 밖에 놓인다.
             self._in_importmap = False
             self.assets.extend(f"importmap:{url}" for url in sorted(_IMPORTMAP_URL.findall(data)))
             return
@@ -92,7 +76,6 @@ class _Digester(HTMLParser):
 
 
 def html_digest(body: str) -> dict[str, Any]:
-    """렌더된 HTML 을 구조 축 dict 로 줄인다."""
     parser = _Digester()
     parser.feed(body)
     parser.close()

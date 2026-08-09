@@ -30,6 +30,8 @@ def make_inventory_handler(
     repo_factory: Callable[[AsyncSession], CollectRepository],
     redis: Redis,
 ) -> MessageHandler:
+    """Inventory 메시지를 저장하고 해당 서버의 inventory 캐시를 무효화하는 핸들러를 만든다."""
+
     async def _store(data: InventoryInput) -> None:
         if not await _check_idempotent(redis, data.message_id):
             logger.info("inventory duplicate skipped message_id={}", data.message_id)
@@ -47,7 +49,7 @@ def make_inventory_handler(
         online_key = get_consumer_settings().redis_key_online.format(resolved_server_id)
         inventory_key = get_consumer_settings().redis_key_cache_inventory.format(resolved_server_id)
         await safe_set(redis, online_key, "1", ex=get_consumer_settings().redis_ttl_online)
-        # 인벤토리 변경 즉시 반영 — TTL 만료 대기 제거
+
         await safe_delete(redis, inventory_key)
 
         logger.info("inventory stored agent_id={}", data.agent_id)

@@ -16,18 +16,17 @@ _CONTRACT_MAJOR = AGENT_CONTRACT_VERSION.split(".", 1)[0]
 
 
 class MessageBase(BaseModel):
-    # extra=ignore — agent 가 실은 새 필드를 통과·무시한다. 비대칭 배포에서 reject 로 엔진이 죽지 않게.
     model_config = ConfigDict(extra="ignore", populate_by_name=True)
 
     schema_version: str = Field(pattern=r"^\d+\.\d+$")
     message_id: UUID
     collected_at: AwareDatetime
-    # 감사·표시용 SHA-256 — 호스트 식별에 쓰지 않는다. "" 는 아래 validator 가 None 으로 정규화.
+
     composite_id: str | None = Field(default=None, max_length=64)
     machine_id: str | None = Field(default=None, max_length=64)
     agent_version: str | None = Field(default=None, min_length=1, max_length=32)
-    boot_time: AwareDatetime | None = None  # 판독 불가 시 null. counter reset 게이트
-    agent_started_at: AwareDatetime | None = None  # task.result 는 worker 컨텍스트라 항상 null
+    boot_time: AwareDatetime | None = None
+    agent_started_at: AwareDatetime | None = None
     os_family: Literal["linux", "windows"]
 
     @field_validator("schema_version")
@@ -56,9 +55,9 @@ class AgentMessageBase(MessageBase):
 
 class Datapoint(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    # 차원 구분(device/state/direction/resource/scope/window/source/cpu/kind/class). 생략 = 단일 스칼라.
+
     attr: dict[str, str | int] = Field(default_factory=dict[str, str | int])
-    value: float | None = None  # null = 측정 불가 (0 과 구분)
+    value: float | None = None
 
 
 class Metric(BaseModel):
@@ -75,7 +74,6 @@ type Namespace = dict[str, Metric]
 class MetricsInput(AgentMessageBase):
     message_type: Literal["metrics"]
 
-    # 필수 4 네임스페이스 (키 present, 값은 object|null 허용).
     system_cpu: Namespace | None = Field(alias="system.cpu")
     system_memory: Namespace | None = Field(alias="system.memory")
     system_disk: Namespace | None = Field(alias="system.disk")
@@ -92,22 +90,22 @@ class BlockDeviceInfo(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
     name: str = Field(max_length=128)
-    type: str = Field(max_length=32)  # disk/part/lvm/crypt/raid/mpath/dynamic/volume/swap
+    type: str = Field(max_length=32)
     size_bytes: int | None = Field(default=None, ge=0)
     fstype: str | None = Field(default=None, max_length=64)
     mountpoint: str | None = Field(default=None, max_length=255)
     parent: str | None = Field(default=None, max_length=128)
     id: str | None = Field(default=None, max_length=128)
     id_type: str | None = Field(default=None, max_length=16)
-    # 레이아웃 상세 — 자연 노드타입에만 emit, 미해당은 부재.
-    partition_table: str | None = Field(default=None, max_length=8)  # gpt|mbr
+
+    partition_table: str | None = Field(default=None, max_length=8)
     sector_size: int | None = Field(default=None, ge=0)
     serial: str | None = Field(default=None, max_length=128)
     wwn: str | None = Field(default=None, max_length=64)
     rotational: bool | None = None
     part_number: int | None = Field(default=None, ge=0)
     part_start_bytes: int | None = Field(default=None, ge=0)
-    part_type: str | None = Field(default=None, max_length=64)  # GPT GUID / MBR 0x hex
+    part_type: str | None = Field(default=None, max_length=64)
     part_name: str | None = Field(default=None, max_length=128)
     part_flags: list[str] | None = None
     fs_uuid: str | None = Field(default=None, max_length=64)
@@ -121,11 +119,11 @@ class BlockDeviceInfo(BaseModel):
     lvm_segtype: str | None = Field(default=None, max_length=32)
     lvm_stripes: int | None = Field(default=None, ge=0)
     lvm_stripe_size_kib: int | None = Field(default=None, ge=0)
-    raid_level: int | str | None = None  # raw(raid5/linear/int) — 엔진 read 시 int|null 정규화
+    raid_level: int | str | None = None
     raid_chunk_kib: int | None = Field(default=None, ge=0)
     raid_metadata: str | None = Field(default=None, max_length=16)
     raid_uuid: str | None = Field(default=None, max_length=64)
-    crypt_type: str | None = Field(default=None, max_length=16)  # luks1|luks2
+    crypt_type: str | None = Field(default=None, max_length=16)
 
 
 class NetAddressInfo(BaseModel):
@@ -133,18 +131,18 @@ class NetAddressInfo(BaseModel):
     address: str = Field(min_length=1, max_length=64)
     prefix: int | None = Field(default=None, ge=0, le=128)
     family: Literal["ipv4", "ipv6"]
-    origin: str | None = Field(default=None, max_length=16)  # static|dhcp
+    origin: str | None = Field(default=None, max_length=16)
 
     @field_validator("address", mode="before")
     @classmethod
     def _validate_address(cls, v: object) -> object:
-        ip_address(str(v))  # bare IP 형식 검증 — 반환값은 버린다
+        ip_address(str(v))
         return v
 
 
 class RouteInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
-    dest: str = Field(min_length=1, max_length=64)  # CIDR
+    dest: str = Field(min_length=1, max_length=64)
     via: str | None = Field(default=None, max_length=64)
 
 
@@ -162,7 +160,7 @@ class NetInterfaceInfo(BaseModel):
     mtu: int | None = Field(default=None, ge=0)
     dns: list[str] | None = None
     routes: list[RouteInfo] | None = None
-    bond_mode: str | None = Field(default=None, max_length=32)  # raw — 엔진 read 시 정규화
+    bond_mode: str | None = Field(default=None, max_length=32)
     vlan_id: int | None = Field(default=None, ge=0)
 
     @field_validator("gateway", mode="before")
@@ -178,7 +176,7 @@ class LvmVgInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
     name: str = Field(max_length=128)
     size_bytes: int | None = Field(default=None, ge=0)
-    free_bytes: int | None = Field(default=None, ge=0)  # 확장 여력(3계층째)
+    free_bytes: int | None = Field(default=None, ge=0)
     data_percent: float | None = Field(default=None, ge=0)
     metadata_percent: float | None = Field(default=None, ge=0)
     vg_uuid: str | None = Field(default=None, max_length=64)
@@ -198,7 +196,7 @@ class InventoryListenPortInfo(BaseModel):
     model_config = ConfigDict(extra="ignore")
     proto: Literal["tcp", "tcp6", "udp", "udp6"]
     addr: str = Field(max_length=64)
-    port: int = Field(ge=0, le=65535)  # wire minimum:0 permissive superset 유지
+    port: int = Field(ge=0, le=65535)
     uid: int | None = Field(default=None, ge=0)  # Windows null
     pid: int | None = None
     comm: str | None = Field(default=None, max_length=64)
@@ -209,7 +207,7 @@ class BootInfo(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
     kernel_cmdline: str | None = Field(default=None, max_length=4096)
-    root_ref_type: str | None = Field(default=None, max_length=16)  # uuid|label|partuuid|path
+    root_ref_type: str | None = Field(default=None, max_length=16)
     grub_install_target: str | None = Field(default=None, max_length=128)
 
 
@@ -235,18 +233,18 @@ class InventoryInput(AgentMessageBase):
     kernel_version: str | None = Field(default=None, max_length=64)
     cpu_model: str | None = Field(default=None, max_length=255)
     cpu_cores: int | None = Field(default=None, ge=0)
-    mem_total_bytes: int | None = Field(default=None, ge=0)  # 단위 By(bytes)
+    mem_total_bytes: int | None = Field(default=None, ge=0)
     ip_external: list[str] | None = None
 
     # OS 재현 서술자 (flat 최상위) — reproduction OUTPUT 계약.
-    arch: str | None = Field(default=None, max_length=32)  # uname machine (x86_64/aarch64)
-    bits: int | None = Field(default=None, ge=0)  # 32|64
-    boot_firmware: str | None = Field(default=None, max_length=8)  # uefi|bios
+    arch: str | None = Field(default=None, max_length=32)
+    bits: int | None = Field(default=None, ge=0)
+    boot_firmware: str | None = Field(default=None, max_length=8)
     secure_boot: bool | None = None
     edition: str | None = Field(default=None, max_length=64)  # Windows EditionID (Linux null)
     # Windows only — CurrentVersion ProductName 원문(agent 버퍼 128B), 교정 없이 실측 그대로.
     product_name: str | None = Field(default=None, max_length=128)
-    timezone: str | None = Field(default=None, max_length=64)  # IANA
+    timezone: str | None = Field(default=None, max_length=64)
     rtc_utc: bool | None = None
     boot: BootInfo | None = None
     nonblock_mounts: list[NonblockMountInfo] | None = None
@@ -260,14 +258,11 @@ class InventoryInput(AgentMessageBase):
     @field_validator("ip_external", mode="before")
     @classmethod
     def _validate_ip_external(cls, v: object) -> object:
-        # 검증만 하고 값은 그대로 돌려준다 — 아래 isinstance 로 좁혀진 이름을 반환하면
-        # 원소 타입이 미상인 채 반환 타입에 실린다.
+
         original = v
         if v is None:
             return original
         if not isinstance(v, (list, tuple)):
-            # ValueError 만 ValidationError 로 수렴한다 — TypeError 는 model_validate_json 밖으로 새어
-            # 핸들러의 검증 실패 로그를 건너뛴다.
             raise ValueError(f"expected list of IP strings, got {type(v).__name__}")  # noqa: TRY004
         for item in cast("list[object] | tuple[object, ...]", v):
             ip_interface(str(item))
@@ -278,7 +273,7 @@ class ErrorInput(AgentMessageBase):
     message_type: Literal["error"]
     error_code: str = Field(min_length=1, max_length=64)
     error_message: str
-    # 자유 문자열 수용 — Literal 로 좁히면 유효 메시지가 DLQ 로 간다. 로깅 전용.
+
     failed_component: str = Field(min_length=1, max_length=32)
     retry_count: int | None = Field(default=None, ge=0)
     first_failed_at: datetime | None = None
@@ -289,7 +284,7 @@ class TaskResultInput(MessageBase):
     """작업 결과. worker 발행 — composite_id 미발행, boot_time/agent_started_at 항상 null. task_id 로 매칭."""
 
     message_type: Literal["task.result"]
-    agent_id: UUID | None = None  # 매칭은 task_id — agent_id 부재로 결과 reject 안 함
+    agent_id: UUID | None = None
 
     hostname: str = Field(min_length=1, max_length=255)
     os_id: str | None = Field(default=None, max_length=64)
@@ -298,12 +293,12 @@ class TaskResultInput(MessageBase):
 
     # wire 계약상 free string(예 "task-abc123") — agent_id 와 달리 UUID 강제 안 함.
     task_id: str = Field(min_length=1, max_length=128)
-    status: str = Field(min_length=1, max_length=32)  # free string — 새 status 값 silent pass
+    status: str = Field(min_length=1, max_length=32)
     failure_reason: str | None = Field(default=None, max_length=32)
     # exit_code/signal_no POSIX wait status 상호배타. signal_no Windows 항상 null.
     exit_code: int | None = None
     signal_no: int | None = None
-    # 실제 설치 신호(데몬 기동+ZDM 등록 점검) — exit_code 보다 우선(True->success/False->failure). 미발행 시 None.
+
     task_policy: bool | None = None
     duration_ms: int = Field(ge=0)
     stdout_tail: str = Field(max_length=8192)

@@ -91,7 +91,7 @@ CPU/메모리/스토리지/네트워크 상세 카드(engineer 전용) — 윈�
 |------|------|--------|
 | 평가 윈도우 | 자원 적정성 표준 창이 기본, URL `?time_range=` override | `right_sizing.WINDOW_DAYS` / `DIAGNOSTIC_DEFAULT_TIME_RANGE` |
 | Anchor 시점 | 현재 또는 발행 시점 | default now |
-| 분류(배지) | under_provisioned / over_provisioned / idle / optimal / insufficient_data | `classify_host`(배지) + `rollup_host`(근본원인) |
+| 분류(배지) | under_provisioned / over_provisioned / idle / optimal / insufficient_data | `rollup_host().recommendation`(배지) + `rollup_host`(근본원인) |
 | 권장 action | 자원별 독립 한국어 처방 (증설 검토·축소 검토·종료·통합 검토·적정 유지·표본 부족) | `under_prescription`/`recommend_action` -> `RECOMMENDATION_ACTION_KO` |
 | 근본원인 | 부족 자원과 인과 — 단일 자원명 / "메모리 (CPU·디스크 I/O 유발)" / 복수 독립 나열 | `root_cause_display` |
 

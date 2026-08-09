@@ -81,13 +81,13 @@ def _repro_block_device(d: JsonObject) -> ReproBlockDevice:
 
 def _repro_interface(i: JsonObject, link_speeds: dict[str, int] | None = None) -> ReproInterface:
     # inventory 가 speed_mbps 를 안 싣는 환경(Windows NT5.2·virtio)에서 metrics link.speed(bit/s)로 폴백.
-    # link.speed 도 없으면 null 그대로 둔다.
+
     speed = i.get("speed_mbps")
     iface_id = i.get("id")
     if speed is None and link_speeds and isinstance(iface_id, str):
         bps = link_speeds.get(iface_id)
         if bps:
-            speed = int(bps // 1_000_000)  # bit/s -> Mbps
+            speed = int(bps // 1_000_000)
     return {
         "id": i.get("id"),
         "id_type": i.get("id_type"),
@@ -166,7 +166,6 @@ def _reproduction(raw: ReportRowRaw, link_speeds: dict[str, int] | None = None) 
 
 
 def _axis_size(current: float, ra: right_sizing.ResourceAssessment, stats: right_sizing.ResourceStats):
-    """cpu/memory 축 판정 -> (recommended, action, estimate_quality). recommended 는 never-null(current 폴백)."""
     status = ra.status
     if status == "under":
         if ra.sizing_target is not None:
@@ -175,10 +174,10 @@ def _axis_size(current: float, ra: right_sizing.ResourceAssessment, stats: right
             return ra.sizing_floor, "increase", "floor"
         return current, "keep", "uncertain"
     if status == "over":
-        if right_sizing.downsize_prescribable(ra, stats) and ra.sizing_target is not None:
+        if right_sizing.can_prescribe_downsize(ra, stats) and ra.sizing_target is not None:
             return ra.sizing_target, "decrease", "exact"
         return current, "keep", "exact"
-    if status in ("unmeasured", "insufficient"):
+    if status == "unmeasured":
         return current, "keep", "uncertain"
     return current, "keep", "exact"
 
@@ -197,7 +196,6 @@ def _sizing(
     host: right_sizing.HostAssessment,
     mounts: list[MountCapacityRaw],
 ) -> JsonObject:
-    """사이징 축 배열 — cpu/memory 는 호스트 1축, disk 는 마운트별 N축."""
     axes: list[JsonObject] = []
     sizing_axes: tuple[tuple[right_sizing.ResourceKind, str, int | None], ...] = (
         ("cpu", "vcpus", stats.cpu_cores),
@@ -205,7 +203,7 @@ def _sizing(
     )
     for kind, unit, current in sizing_axes:
         if current is None:
-            continue  # 기준 수량 미상 -> 축 생략 (recommended never-null 유지)
+            continue
         ra = host.resources[kind]
         rec, action, quality = _axis_size(current, ra, stats)
         axes.append(
@@ -228,7 +226,7 @@ def _sizing(
             m.inode_used_pct,
         )
         if s is None:
-            continue  # total 미상 -> 사이징 불가(축 생략)
+            continue
         axes.append(
             {
                 "axis": "disk",
@@ -239,7 +237,6 @@ def _sizing(
                 "unit": "gib",
                 "action": s.action,
                 "estimate_quality": s.estimate_quality,
-                # 크기 조정으로 풀리지 않는 신호(inode 소진 등)까지 관측 근거로 싣는다.
                 "used_pct": round(m.used_pct, 1) if m.used_pct is not None else None,
                 "runway_days": int(m.byte_runway_days) if m.byte_runway_days is not None else None,
                 "note": s.note or None,
@@ -249,7 +246,7 @@ def _sizing(
 
 
 def _assessment(host: right_sizing.HostAssessment) -> Assessment:
-    rec = right_sizing.host_status_to_recommendation(host.host_status)
+    rec = host.recommendation
     notes = build_host_confidence_notes(host)
     if rec == "insufficient_data":
         confidence = "low"
@@ -258,7 +255,7 @@ def _assessment(host: right_sizing.HostAssessment) -> Assessment:
     else:
         confidence = "high"
     if confidence != "high" and not notes:
-        notes = ["관측 데이터 부족"]  # 불변식: high 아니면 notes 비지 않음
+        notes = ["관측 데이터 부족"]
     return {
         "classification": rec,
         "confidence": confidence,
@@ -270,7 +267,6 @@ _DIAG_AXES = ("cpu", "memory", "disk_capacity", "disk_io", "network")
 
 
 def _diag_util(kind: str, raw: ReportRowRaw) -> DiagUtilization:
-    """eval=판정 p95, sizing=축별 사이징 통계(cpu p95 / memory near-peak / 그 외 null)."""
     if kind == "cpu":
         p = round(raw.cpu_p95_pct, 1) if raw.cpu_p95_pct is not None else None
         return {"eval_pct": p, "sizing_pct": p}
@@ -308,7 +304,6 @@ def _diagnostics(raw: ReportRowRaw, stats: right_sizing.ResourceStats, host: rig
         "root_cause_detail": right_sizing.root_cause_display(host) or None,
         "resources": [_diag_resource(k, host.resources[k], raw, stats) for k in _DIAG_AXES],
         "advisory": {
-            # 엔진에 per-device await 가 없어 티어 힌트는 호스트 단위로만 낸다.
             "disk_io_tier_hint": "high_iops" if host.resources["disk_io"].status == "io_bound" else None,
             "network_congested": host.network_congested,
         },

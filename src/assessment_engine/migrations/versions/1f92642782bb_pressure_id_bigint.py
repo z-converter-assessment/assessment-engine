@@ -26,12 +26,11 @@ depends_on: str | Sequence[str] | None = None
 
 def upgrade() -> None:
     op.alter_column("server_pressure", "id", existing_type=sa.INTEGER(), type_=sa.BigInteger(), existing_nullable=False)
-    # 컬럼 타입만 바꾸면 SERIAL 이 만든 시퀀스는 AS integer 로 남아 상한이 그대로다. autogenerate 는
-    # 시퀀스 타입을 비교하지 않아 이 갭을 drift 로 잡지 못한다.
+
     op.execute("ALTER SEQUENCE server_pressure_id_seq AS bigint")
 
 
 def downgrade() -> None:
-    # last_value 가 int4 상한을 넘었으면 여기서 실패하는 것이 맞다.
+
     op.execute("ALTER SEQUENCE server_pressure_id_seq AS integer")
     op.alter_column("server_pressure", "id", existing_type=sa.BigInteger(), type_=sa.INTEGER(), existing_nullable=False)

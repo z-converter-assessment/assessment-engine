@@ -11,10 +11,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Overview
-         * @description 환경 개요 (홈) — 집계 위젯만. 자동 갱신 없음(정적 집계라 진입 시 1회 렌더).
-         */
+        /** Overview */
         get: operations["overview__get"];
         put?: never;
         post?: never;
@@ -86,10 +83,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Fleet Status
-         * @description 전역 데이터 최신성 — 온라인 대수/전체 + 마지막 수신 시각 (상단 바 폴링).
-         */
+        /** Get Fleet Status */
         get: operations["get_fleet_status_api_fleet_status_get"];
         put?: never;
         post?: never;
@@ -106,10 +100,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Host Search
-         * @description 전역 호스트 검색(jump-to) — hostname 부분일치 상위 8건 (상단 바 검색).
-         */
+        /** Host Search */
         get: operations["host_search_api_host_search_get"];
         put?: never;
         post?: never;
@@ -169,10 +160,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Environment Metrics Chart
-         * @description 환경 시계열 — 환경 성능 추이 live + 대시보드 추이. ids 면 선택 N대 한정, 없으면 전체 환경.
-         */
+        /** Get Environment Metrics Chart */
         get: operations["get_environment_metrics_chart_api_servers_environment_metrics_chart_get"];
         put?: never;
         post?: never;
@@ -189,10 +177,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Collection Status
-         * @description 서버 수집 상태 — 마지막 메트릭·인벤토리 수신 시각 + 온라인 여부 (수집 건전성 배지).
-         */
+        /** Get Collection Status */
         get: operations["get_collection_status_api_servers__server_id__collection_status_get"];
         put?: never;
         post?: never;
@@ -209,13 +194,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Reboot Events
-         * @description 차트 vertical marker용 — 지정 time_range 내 시스템 재부팅·에이전트 재시작 시점.
-         *
-         *     응답: `[{collected_at, boot_time, agent_started_at, kind}]`
-         *     kind: "reboot" (시스템 재부팅 또는 첫 등록) | "restart" (에이전트만 재시작)
-         */
+        /** Get Reboot Events */
         get: operations["get_reboot_events_api_servers__server_id__events_reboot_get"];
         put?: never;
         post?: never;
@@ -232,10 +211,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Metric Chart
-         * @description 서버 단일 지표 차트 시계열 — metric_type 별 버킷 집계(agg=avg/max/p95), 구간·앵커·차원 선택.
-         */
+        /** Get Metric Chart */
         get: operations["get_metric_chart_api_servers__server_id__metrics_chart_get"];
         put?: never;
         post?: never;
@@ -252,10 +228,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Latest Metric
-         * @description 서버 최신 메트릭 스냅샷 — CPU·메모리·디스크·네트워크 + 포화 신호 최근 1건 (실시간 카드·상세 30초 폴링).
-         */
+        /** Get Latest Metric */
         get: operations["get_latest_metric_api_servers__server_id__metrics_latest_get"];
         put?: never;
         post?: never;
@@ -272,10 +245,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Metric Snapshots
-         * @description 서버 메트릭 시계열 스냅샷 목록 — cursor(시각) 기반 시간 역순 페이지네이션 (표 스크롤용).
-         */
+        /** Get Metric Snapshots */
         get: operations["get_metric_snapshots_api_servers__server_id__metrics_snapshots_get"];
         put?: never;
         post?: never;
@@ -292,10 +262,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * List Recent Tasks
-         * @description 서버별 task 이력 — 시간 역순. cursor 기반 pagination (E2). 마지막 row의 created_at 을 다음 cursor로 사용.
-         */
+        /** List Recent Tasks */
         get: operations["list_recent_tasks_api_tasks_get"];
         put?: never;
         post?: never;
@@ -314,12 +281,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Install
-         * @description N대 ZConverter 설치 발행 — 서버당 task 1건. zdm_ip/zdm_user 미지정 시 서버 기본값(ZDM_DEFAULT_*) 사용.
-         *
-         *     이미 pending 인 서버가 있으면 409, 대상 서버 미존재는 404, ZDM 좌표 미해결(메타 조회 실패 등)은 503.
-         */
+        /** Install */
         post: operations["install_api_tasks_install_post"];
         delete?: never;
         options?: never;
@@ -334,10 +296,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Task
-         * @description 단일 task 상세 — JSON. polling / list cell 갱신 callback 용.
-         */
+        /** Get Task */
         get: operations["get_task_api_tasks__task_id__get"];
         put?: never;
         post?: never;
@@ -354,13 +313,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Get Task Detail Fragment
-         * @description 단일 task 상세 — HTML fragment. task-modal.js 가 fetch + innerHTML 교체 (P3 정공).
-         *
-         *     JS HTML 합성 폐기 — server 가 template fragment render, JS 는 DOM 교체만.
-         *     polling 흐름은 GET /api/tasks/{id} (JSON) 사용 — modal body 만 fragment.
-         */
+        /** Get Task Detail Fragment */
         get: operations["get_task_detail_fragment_api_tasks__task_id__detail_get"];
         put?: never;
         post?: never;
@@ -377,12 +330,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Assessment
-         * @description 환경 자원 평가 — 표준 창(WINDOW_DAYS) 분류 + 자원 부족·효율화. 윈도우/앵커 override 가능.
-         *
-         *     분류 창은 서버 목록·보고서·환경 개요 카드와 같다(#E3 정합). fragment=result: 결과 partial 만 재렌더.
-         */
+        /** Assessment */
         get: operations["assessment_environment_assessment_get"];
         put?: never;
         post?: never;
@@ -399,10 +347,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Environment Metrics
-         * @description 환경 성능 추이 (live) — 전체 환경 차트 10종. ids 면 선택 N대 한정.
-         */
+        /** Environment Metrics */
         get: operations["environment_metrics_environment_metrics_get"];
         put?: never;
         post?: never;
@@ -419,12 +364,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Environment Realtime
-         * @description 실시간 현황 — 현재 평균 활용률 + 서버별 부하. ids 면 선택 N대 한정.
-         *
-         *     fragment=realtime: 메트릭 partial 만 재렌더 (JS 폴링이 mount innerHTML 교체).
-         */
+        /** Environment Realtime */
         get: operations["environment_realtime_environment_realtime_get"];
         put?: never;
         post?: never;
@@ -441,10 +381,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Topology
-         * @description 네트워크 토폴로지 — L3 subnet 공동소속 그래프 (전체 인벤토리, 범위 필터 없음).
-         */
+        /** Topology */
         get: operations["topology_environment_topology_get"];
         put?: never;
         post?: never;
@@ -478,10 +415,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Right Sizing Thresholds
-         * @description Right-sizing 분류 임계값 reference — 보고서·진단이 함께 참조해 여기서만 한 번 정의한다 (T13).
-         */
+        /** Right Sizing Thresholds */
         get: operations["right_sizing_thresholds_reference_get"];
         put?: never;
         post?: never;
@@ -498,10 +432,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Api Reference
-         * @description JSON API 목록 — app.openapi() 에서 자동 도출해 라우터 코드와 어긋나지 않는다.
-         */
+        /** Api Reference */
         get: operations["api_reference_reference_api_get"];
         put?: never;
         post?: never;
@@ -518,10 +449,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Environment Report
-         * @description 환경 단위 보고서 — job 있으면 정적 스냅샷, 없으면 발행 전 컨트롤(본문은 발행해야 생성).
-         */
+        /** Environment Report */
         get: operations["environment_report_reports_environment_get"];
         put?: never;
         post?: never;
@@ -540,12 +468,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /**
-         * Environment Report Emit
-         * @description 환경 보고서 발행(PRG) — parent job enqueue 후 즉시 `{"view_url": "?job={id}"}` 반환.
-         *
-         *     본문 생성은 워커가 비동기로 한다 — 생성 불가(등록 서버 0 등)도 여기서 막지 않고 워커가 failed 로 전이한다.
-         */
+        /** Environment Report Emit */
         post: operations["environment_report_emit_reports_environment_emit_post"];
         delete?: never;
         options?: never;
@@ -560,10 +483,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * History
-         * @description 보고서 발행 이력 — created_at DESC. 기본 20건 + 더보기(limit 누적).
-         */
+        /** History */
         get: operations["history_reports_history_get"];
         put?: never;
         post?: never;
@@ -580,10 +500,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Report
-         * @description Server scope N대 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview.
-         */
+        /** Report */
         get: operations["report_reports_servers_get"];
         put?: never;
         post?: never;
@@ -624,13 +541,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Report Status
-         * @description 비동기 보고서 생성 진행 상태 — report-poll.js 폴링용. 미존재 404.
-         *
-         *     error 는 도메인 사유만 담는다(raw 예외는 워커가 sanitize). `{job_id}` 는 segment 구조가 달라
-         *     정적 라우트를 삼키지 않는다.
-         */
+        /** Report Status */
         get: operations["report_status_reports__job_id__status_get"];
         put?: never;
         post?: never;
@@ -647,13 +558,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Servers List
-         * @description 서버 목록 — 검색·필터 + 선택 N대 액션(보고서·install·export).
-         *
-         *     page/limit 은 지금 쓰이지 않는다(전체 로드 후 client clip) — 서버사이드 페이지네이션 도입 시 진입점.
-         *     fragment=rows: 행 partial 만 재렌더.
-         */
+        /** Servers List */
         get: operations["servers_list_servers_get"];
         put?: never;
         post?: never;
@@ -755,10 +660,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /**
-         * Single Server Report
-         * @description 단일 서버 보고서 — job 있으면 정적 스냅샷, 없으면 live read-only preview.
-         */
+        /** Single Server Report */
         get: operations["single_server_report_servers__server_id__report_get"];
         put?: never;
         post?: never;
@@ -1391,7 +1293,7 @@ export interface components {
             storage: components["schemas"]["ReproStorage"];
         };
         /** @enum {string} */
-        ResourceStatus: "under" | "optimal" | "over" | "insufficient" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured";
+        ResourceStatus: "under" | "optimal" | "over" | "filling" | "capacity_ok" | "io_bound" | "io_ok" | "congested" | "quality_ok" | "unmeasured";
         /** RightSizingEnvelope */
         RightSizingEnvelope: {
             /** Count */
@@ -1987,7 +1889,7 @@ export interface operations {
     get_environment_metrics_chart_api_servers_environment_metrics_chart_get: {
         parameters: {
             query: {
-                metric_type: "cpu.usage_percent" | "cpu.saturation_hosts" | "mem.usage_percent" | "mem.paging_pressure_hosts" | "fs.usage_percent" | "disk.saturation_hosts" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.congested_hosts";
+                metric_type: "cpu.usage_percent" | "cpu.high_utilization_hosts" | "mem.usage_percent" | "mem.paging_pressure_hosts" | "fs.usage_percent" | "disk.saturation_hosts" | "net.rx_bytes_per_sec" | "net.tx_bytes_per_sec" | "net.congested_hosts";
                 time_range?: "15m" | "1h" | "6h" | "24h" | "7d" | "14d" | "30d";
                 bucket?: "1m" | "5m" | "15m" | "30m" | "1h" | "3h" | "6h" | "12h" | "1d";
                 /** @description public_ids(comma) — 선택 N대 한정. 미지정 시 전체 환경. */

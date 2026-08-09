@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
     from assessment_engine.db.dtos.outbound import TaskRow
 
-# status -> (badge_class, badge_label). 미지 값은 unknown으로 매핑.
+
 _TASK_STATUS_DISPLAY: dict[str, tuple[str, str]] = {
     "pending": ("rec-pending", "진행 중"),
     "in_progress": ("rec-pending", "진행 중"),
@@ -19,7 +19,7 @@ _TASK_STATUS_DISPLAY: dict[str, tuple[str, str]] = {
 }
 _TASK_STATUS_UNKNOWN: tuple[str, str] = ("rec-unknown", "—")
 
-# task_type -> 사람이 읽는 라벨. 미지 값(향후 신규 타입)은 raw 그대로 폴백(표시 불가 방지).
+
 _TASK_TYPE_LABEL: dict[str, str] = {
     "zconverter_install": "ZConverter Install",
 }
@@ -90,7 +90,6 @@ def to_task_summary(row: TaskRow, now: datetime) -> TaskSummaryItem:
     )
 
 
-# POSIX 시그널 번호 -> 이름. install.sh 사망 진단 표시용 (exit_code=null + signal_no=값).
 _SIGNAL_NAME: dict[int, str] = {
     1: "SIGHUP",
     2: "SIGINT",
@@ -111,7 +110,6 @@ _SIGNAL_NAME: dict[int, str] = {
 
 
 def _signal_label(signal_no: int | None) -> str | None:
-    """signal_no -> "SIGKILL (9)" 표시 라벨. 미지 번호는 숫자만. None 이면 None (표시 계층에서 행 생략)."""
     if signal_no is None:
         return None
     name = _SIGNAL_NAME.get(signal_no)

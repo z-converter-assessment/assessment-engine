@@ -29,7 +29,6 @@ def _assemble_attention(
     now: datetime,
     limit_each: int | None,
 ) -> AttentionSignals:
-    """gap/os_eol/agent_unstable 3 카탈로그 조립 — raws_period(get_report_aggregate) 재사용."""
     os_eol_warnings: list[AttentionRow] = []
     for raw in raws_period:
         eol = to_os_eol_warning_item(raw, now)
@@ -60,15 +59,9 @@ async def attention_signals(
     end: datetime | None = None,
     raws: list[ReportRowRaw] | None = None,
 ) -> AttentionSignals:
-    """운영 신호 3 카탈로그 — gap(5분+ 끊김) · os_eol · agent_unstable(1h 창 재시작 임계 초과).
 
-    디스크(capacity·IO)는 USE Method classify 가 이미 다뤄 본 카탈로그에서 뺀다(중복 회피).
-    raws 를 넘기면 내부 재조회를 생략한다 — os_eol·agent_unstable 은 창 독립이라 어느 윈도우 raws 든
-    정합하다(환경 보고서의 aggregate 2회가 1회로). None 이면 WINDOW_DAYS 창을 자체 조회.
-    """
-    # end = 보고서 anchor(없으면 현재) — os_eol 경과 판정을 보고서 다른 지표와 같은 시각에 맞춘다.
     ref = end if end is not None else datetime.now(UTC)
-    # limit_each=None 이면 gap 도 전수 — 보고서는 gap 미표시(C1)라 결과만 버려진다(소량, 무해).
+
     gap_raws = await repo.get_metric_gap_warnings(gap_minutes, gap_recent_hours, limit_each)
     if raws is None:
         server_ids = await repo.list_server_ids()
@@ -108,7 +101,6 @@ class AttentionQueryMixin(_BaseQueryServiceMixin):
         )
 
     async def get_selection_attention(self, server_ids: list[int], end: datetime) -> AttentionSignals:
-        """선택 N대 한정 운영 신호 — 전체 attention 을 선택 호스트 hostname 으로 필터."""
         details = await self.repo.get_servers(server_ids)
         hostnames = {d.hostname for d in details}
         return _filter_attention(await self.get_attention_signals(end=end, limit_each=None), hostnames)

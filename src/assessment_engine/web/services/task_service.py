@@ -50,7 +50,6 @@ def _resolve_install_dispatch(os_family: str) -> tuple[str, str, str | None]:
     raise TaskNotConfiguredError(f"unsupported os_family={os_family!r}")
 
 
-# 운영자가 URL 을 통째로 넣어도 host(:port)만 남긴다 — download.url 은 `http://{host}{package_path}` 로 조립된다.
 _URL_SCHEME_RE = re.compile(r"^https?://", re.IGNORECASE)
 
 
@@ -61,8 +60,8 @@ def _extract_zdm_host(zdm_ip: str) -> str:
 
 
 # cache key 에 ETag 를 넣는 이유는 그것이 곧 invalidation 키라서다 — 패키지가 바뀌면 ETag 가 바뀌므로
-# TTL 을 길게 잡아도 stale 을 내주지 않는다. package_path 를 키에 안 넣는 것도 같은 이유 — path 가 다르면
-# ETag 도 다르다. 메타 조회 자체는 fail-close(sha256 없이 발행하면 agent 가 검증 없이 설치한다),
+
+
 # Redis 는 fail-open.
 
 
@@ -71,9 +70,7 @@ class ZdmPackageMetaError(Exception):
 
 
 class BaseZdmPackageResolver(Protocol):
-    async def resolve(self, zdm_host: str, package_path: str) -> tuple[str, int]:
-        """ZDM 패키지의 (sha256_hex, size_bytes) 반환. 실패 시 raise."""
-        ...
+    async def resolve(self, zdm_host: str, package_path: str) -> tuple[str, int]: ...
 
 
 class HttpZdmPackageResolver:
@@ -144,7 +141,7 @@ class HttpZdmPackageResolver:
 class TaskCreated:
     target_public_id: str
     task_id: str
-    # 발행 시점 online 여부 — 운영자 advisory 이고 발행을 막지 않는다(오프라인이면 큐에 적재된 채 대기).
+
     target_online: bool
 
 
@@ -187,11 +184,10 @@ class TaskService:
         details = await self.query_repo.get_servers(server_ids)
         detail_by_id = {d.id: d for d in details}
 
-        # 마감 지난 pending 을 먼저 정리해야 이미 끝난 작업이 신규 발행을 막지 않는다.
         async with self.session_factory() as session:
             repo = self.collect_repo_factory(session)
             expired = await repo.expire_overdue_tasks(server_ids)
-            busy_ids = await repo.find_pending_deadline_servers(server_ids)
+            busy_ids = await repo.find_pending_task_server_ids(server_ids, _TASK_TYPE_INSTALL)
             await session.commit()
         if expired:
             logger.info("expired overdue tasks count={}", expired)
@@ -201,16 +197,15 @@ class TaskService:
                 f"이미 설치 작업이 진행 중인 서버가 있어 전체 발행을 취소했습니다: {', '.join(busy_names)}"
             )
         # 아래 큐 x-message-ttl 과 같은 창이라 엔진 timeout 선언 시점 == broker 미배달 메시지 만료 시점.
-        # 오프라인 호스트가 돌아와 큐에 쌓인 명령을 집어갈 수 있는 유예도 같은 창이다.
+
         deadline_at = datetime.now(UTC) + timedelta(seconds=get_web_settings().install_task_deadline_sec)
 
         online_by_id = await self._online_targets(server_ids)
 
         zdm_host = _extract_zdm_host(zdm_ip)
-        # 메타를 받아오는 호스트는 agent 가 실제로 받으러 갈 호스트와 같아야 한다 (download.url·install args 와 동일).
+
         resolve_host = zdm_host
 
-        # 패키지 path 별 1 회만 메타 조회 — batch 에 OS 가 섞여도 OS 수만큼만 fetch.
         # os_family 를 아직 안 싣는 구 minor agent 는 linux 로 본다.
         dispatch_by_host: dict[int, tuple[str, str, str | None]] = {}
         meta_by_path: dict[str, tuple[str, int]] = {}
@@ -256,13 +251,11 @@ class TaskService:
                         )
                     )
                 except IntegrityError as e:
-                    # 사전 검증과 INSERT 사이에 다른 발행이 끼어든 경우 — 부분 발행 한계는 tradeoffs T1.
                     logger.warning("install race conflict server_id={} public_id={}", server_id, public_id)
                     raise TaskDuplicatePendingError(
                         f"발행 도중 다른 작업과 충돌했습니다: {detail.hostname}. 잠시 후 다시 시도하세요."
                     ) from e
 
-                # commit 은 publish 성공 뒤여야 한다 — 순서를 뒤집으면 발행 실패한 task 가 유령 pending 으로 남는다.
                 try:
                     await self._ensure_machine_queue(detail.agent_id)
                     await self._publish_install(
@@ -301,7 +294,6 @@ class TaskService:
         return created
 
     async def _online_targets(self, server_ids: list[int]) -> dict[int, bool]:
-        """server_id -> 발행 시점 online 여부. Redis 장애 시 전부 online 취급 — 허위 오프라인 경보를 내지 않는다."""
         if not server_ids:
             return {}
         keys = [get_web_settings().redis_key_online.format(sid) for sid in server_ids]
@@ -311,7 +303,6 @@ class TaskService:
         return {sid: flags[i] is not None for i, sid in enumerate(server_ids)}
 
     async def _ensure_machine_queue(self, agent_id: str) -> None:
-        """원격 호스트 전용 큐 declare (동일 인자 재선언은 무해) — worker 측에 declare 권한이 없어 engine 이 진다."""
         queue_name = get_diagnostic_settings().agent_task_queue(agent_id)
         routing_key = get_diagnostic_settings().task_install_routing_key(agent_id)
         queue = await self.broker_channel.declare_queue(
@@ -343,7 +334,6 @@ class TaskService:
         download_url = f"http://{zdm_host}{package_path}"
         payload: JsonObject = {
             "message_type": "task.install",
-            # 특권 실행 경로라 agent 가 다운로드 전에 major 를 본다 — 모르는 major·부재면 실행 거부.
             "schema_version": AGENT_CONTRACT_VERSION,
             "task_id": task_id,
             "agent_id": agent_id,
@@ -355,7 +345,7 @@ class TaskService:
             },
             "install": {
                 "type": install_type,
-                "script": install_script,  # shell 이면 archive 안 path, direct_exec/msi 면 null
+                "script": install_script,
                 "args": ["-s", zdm_host, "-u", zdm_user],
                 "timeout_sec": get_web_settings().install_timeout_sec,
             },

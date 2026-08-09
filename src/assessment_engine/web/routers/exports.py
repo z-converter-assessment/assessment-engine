@@ -28,7 +28,7 @@ class AssessmentExportRequest(BaseModel):
     hostname: list[str] = Field(default_factory=list[str])
     ip: list[str] = Field(default_factory=list[str])
     public_id: list[str] = Field(default_factory=list[str])
-    pair: list[str] = Field(default_factory=list[str])  # "hostname~discriminator" 토큰
+    pair: list[str] = Field(default_factory=list[str])
     window_days: int = Field(default=WINDOW_FLOOR_DAYS, ge=WINDOW_FLOOR_DAYS, le=90)
     end: datetime | None = None
 

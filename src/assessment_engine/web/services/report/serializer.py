@@ -69,14 +69,9 @@ def _drop_unknown_fields(cls: type, data: JsonObject) -> JsonObject:
 
 
 def _build[T](cls: type[T], data: JsonObject) -> T:
-    """dict -> dataclass 재구성 단일 진입점 — spread(`**`) 재구성은 전부 여기를 거친다.
-
-    명시 kwargs 재구성(PeriodResource 등 `get(key, default)`)은 이미 키 제거에 내성이 있어 예외다.
-    """
     return cls(**_drop_unknown_fields(cls, data))
 
 
-# 지원 단계 어휘가 바뀌기 전에 발행된 스냅샷은 옛 문자열을 그대로 들고 되살아난다 — 표시 계층은 새 값만 분기.
 _LEGACY_OS_EOL_STATUS = {"eol": "ended", "extended": "security_only", "supported": "full"}
 
 
@@ -114,7 +109,6 @@ def env_report_from_dict(d: JsonObject) -> EnvironmentReportSummary:
     data["os_family_dist"] = [_build(DistributionBar, b) for b in json_list(data, "os_family_dist")]
     topo = data.get("topology")
     if topo:
-        # elements 는 Cytoscape 용 plain dict list 라 그대로 둔다.
         topo["subnets"] = [
             SubnetGroup(
                 net_key=s["net_key"],
@@ -126,7 +120,7 @@ def env_report_from_dict(d: JsonObject) -> EnvironmentReportSummary:
         data["topology"] = _build(NetworkTopology, topo)
     else:
         data["topology"] = None
-    # trend 는 plain dict list(at=isoformat str) 라 복원할 것이 없다.
+
     data["top_risks"] = [_report_row_from_dict(r) for r in json_list(data, "top_risks")]
     data["action"] = _action_targets_from_dict(json_obj(data, "action"))
     data["service_catalog"] = [
@@ -173,7 +167,6 @@ def _period_signal_rows(rows: list[JsonObject] | None) -> list[PeriodSignalRow]:
 
 
 def _period_assessment_from_dict(d: JsonObject) -> PeriodAssessment:
-    """PeriodAssessment 복원 — 단일 서버 보고서(engineer) 스냅샷 전용. 서버 상세는 라이브 재계산이라 안 탄다."""
     resources = [
         PeriodResource(
             name=r["name"],
@@ -244,7 +237,7 @@ def _attention_row_from_dict(d: JsonObject) -> AttentionRow:
 
 def _capacity_warning_from_dict(d: JsonObject) -> CapacityWarningItem:
     data = dict(d)
-    # active_causes 는 list[str] 스칼라라 별도 복원이 없다.
+
     return _build(CapacityWarningItem, data)
 
 

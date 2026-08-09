@@ -261,8 +261,7 @@
         <td style="text-align:right;">{% if mb and mb.available_pct is not none %}{{ "%.1f"|format(mb.available_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif mb and mb.cached_pct is not none %}{{ "%.1f"|format(mb.cached_pct) }}%{% else %}—{% endif %}</td>
         <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif mb and mb.buffers_pct is not none %}{{ "%.1f"|format(mb.buffers_pct) }}%{% else %}—{% endif %}</td>
-        {# 신 모델 메모리 압박 = swap page-out(스왑 쓰기 발생) — 점유율 아님. 윈도우는 Pages Input(포화 축 근거 카드에 표시)이라 N/A. #}
-        <td style="text-align:right;">{% if r.os_family == 'windows' %}N/A{% elif r.mem_swap_paging %}발생{% else %}없음{% endif %}</td>
+        <td style="text-align:right;">{% if r.os_family == 'windows' or r.mem_swap_paging is none %}N/A{% elif r.mem_swap_paging %}발생{% else %}없음{% endif %}</td>
       </tr>
     </tbody>
   </table>

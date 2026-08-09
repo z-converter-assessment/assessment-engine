@@ -1,10 +1,3 @@
-"""unit_converter.py — 단위 변환 함수 단위 테스트 (wire 계약 단위).
-
-공개 함수 = bytes_to_gb / bytes_to_gib / usage_pct.
-메모리/스왑은 By 단위 binary GiB(bytes_to_gib), disk IO rate 는 counter_agg 사전집계라
-unit_converter 에 rate 변환 함수 없음.
-"""
-
 import pytest
 
 from assessment_engine.web.services.unit_converter import (
@@ -13,32 +6,27 @@ from assessment_engine.web.services.unit_converter import (
     usage_pct,
 )
 
-# --- bytes_to_gb ----------------------------------------------------------
-
 
 @pytest.mark.parametrize(
     ("b", "expected"),
     [
         (None, None),
         (0, 0.0),
-        (10**9, 0.93),  # 10^9 B(decimal 1GB) -> binary divisor(1024^3) 로는 0.93 — "GB" 라벨이되 값은 binary.
+        (10**9, 0.93),
         (50 * 10**9, 46.57),
-        (1_073_741_824, 1.0),  # 1 GiB = 1024^3 B -> 1.0 GB (round 2자리, bytes_to_gib 와 동일 base)
+        (1_073_741_824, 1.0),
     ],
 )
 def test_bytes_to_gb(b: int | None, expected: float | None):
     assert bytes_to_gb(b) == expected
 
 
-# --- bytes_to_gib (메모리/스왑 binary GiB, By 단위) ----------------------
-
-
 @pytest.mark.parametrize(
     ("b", "expected"),
     [
         (None, None),
-        (0, None),  # falsy → None (mem_total_bytes=0 같은 비정상)
-        (1024**3, 1.0),  # 1 GiB = 1024^3 B -> 1.0
+        (0, None),
+        (1024**3, 1.0),
         (8 * 1024**3, 8.0),
     ],
 )
@@ -46,19 +34,16 @@ def test_bytes_to_gib(b: int | None, expected: float | None):
     assert bytes_to_gib(b) == expected
 
 
-# --- usage_pct ------------------------------------------------------------
-
-
 @pytest.mark.parametrize(
     ("used", "total", "expected"),
     [
         (None, 100, None),
         (50, None, None),
-        (50, 0, None),  # total=0 falsy → None (0으로 나누기 회피)
+        (50, 0, None),
         (50, 100, 50.0),
         (75, 100, 75.0),
-        (110, 100, 110.0),  # 100% 초과는 그대로 (clamping은 호출자 책임)
-        (-10, 100, 0.0),  # 음수는 0으로 clamp (max 0.0)
+        (110, 100, 110.0),
+        (-10, 100, 0.0),
     ],
 )
 def test_usage_pct(used: int | None, total: int | None, expected: float | None):

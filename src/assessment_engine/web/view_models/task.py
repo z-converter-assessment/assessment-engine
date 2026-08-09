@@ -42,7 +42,7 @@ class TaskDetailItem:
     failure_label: str | None
     exit_code: int | None
     signal_no: int | None
-    signal_label: str | None  # "SIGKILL (9)" precompute (mapper). None 이면 표시 계층에서 시그널 행 생략
+    signal_label: str | None
     duration_ms: int | None
     created_at: datetime
     completed_at: datetime | None

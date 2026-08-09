@@ -41,7 +41,7 @@
 | 인벤토리 카드 4개 | 등록 서버(+오프라인) / 총 vCPU / 총 메모리 / 총 디스크 | inventory 합산 |
 | OS 구성 | 환경 요약(customer)·환경 현황(engineer) 카드 안 소제목 — OS family Windows/Linux 분포(0대 포함 #E9) | `os_family_dist` |
 | 서비스 구성 (별도 카드) | 시그니처 워크로드 카테고리별 뱃지. engineer 는 카테고리별 서비스명·개수까지, customer 는 카테고리+개수만. count 0 카테고리는 미노출 | `_aggregate_service_catalog` |
-| 분류 분포 | 자원 적정성 5분류 카운트 막대 (한국어 분류명 RECOMMENDATION_LABEL_KO, 영어 enum 미노출) | `classify_host`(호스트별) 결과 카운트 |
+| 분류 분포 | 자원 적정성 5분류 카운트 막대 (한국어 분류명 RECOMMENDATION_LABEL_KO, 영어 enum 미노출) | `rollup_host().recommendation` 결과 카운트 |
 
 ### view 분기 — customer (양식 A)
 
@@ -98,7 +98,7 @@ OS 지원 종료 3대
 
 ### 분류 임계값·판정
 
-5분류·트리거 조건 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. 호스트 요약 상태 판정 순서는 같은 문서 3절(`rollup_host`/`classify_host`).
+5분류·트리거 조건 상세는 `docs/reference/right-sizing.md` 4절, 운영자 카탈로그는 `right_sizing_thresholds.html`. 호스트 권고 판정 순서는 같은 문서 3절(`rollup_host().recommendation`).
 
 Windows 포화 3축은 perflib 실측이고, 신호가 안 붙는 축만 coverage_gap 으로 부분 평가한다 (임계·신호원은 `docs/reference/right-sizing.md`).
 

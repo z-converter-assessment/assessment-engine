@@ -13,14 +13,6 @@ class SqlAttentionQueryRepository(_BaseQueryMixin):
         recent_hours: int,
         limit: int | None,
     ) -> list[MetricGapWarningRaw]:
-        """metric 발행 갭 — '한때 살아있다 끊김' 패턴.
-
-        - last_metric_at < now() - gap_minutes (현재 끊김)
-        - last_metric_at > now() - recent_hours (한때는 살아있음 — 완전 dead 서버 제외)
-        - partition pruning: recent_hours를 동적 binding + LEAST 168h(7d) cap.
-          호출자 실수로 큰 값 넘겨도 자동 cap — 7d 이상은 metric_gap 의미 없음 (다른 신호 영역).
-        - limit=None 이면 `LIMIT NULL`(Postgres 무제한) — 운영신호 카드 전수 출력.
-        """
         sql = text("""
             WITH metric_max AS (
                 SELECT server_id, MAX(collected_at) AS last_metric_at

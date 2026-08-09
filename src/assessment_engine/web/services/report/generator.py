@@ -24,7 +24,6 @@ class ReportGenerationError(Exception):
 
 
 def attention_for_host(hostname: str, attention: AttentionSignals) -> dict[str, str]:
-    """1대 호스트 운영 신호(gap/os_eol/restart) lookup — 발행 aux 캡처 + live preview 공용."""
     out: dict[str, str] = {}
     for row in attention.gap_warnings:
         if row.link_text == hostname:
@@ -39,7 +38,6 @@ def attention_for_host(hostname: str, attention: AttentionSignals) -> dict[str, 
 
 
 def attention_by_host(hostnames: set[str], attention: AttentionSignals) -> dict[str, dict[str, str]]:
-    """선택 N대 운영 신호 lookup {hostname: {gap, os_eol, restart}} — 발행 aux + live preview 공용."""
     by_host: dict[str, dict[str, str]] = {h: {} for h in hostnames}
     for row in attention.gap_warnings:
         if row.link_text in by_host:
@@ -58,11 +56,10 @@ async def build_report_result_for_job(
     diag_service: DiagnosticService,
     record: DiagnosticJobRecord,
 ) -> JsonObject:
-    """parent job -> 발행 시점 정적 스냅샷 result dict. child(N대)는 내부 emit. 생성 불가 시 ReportGenerationError."""
     p = record.input_params
     view = p["view"]
     time_range = p.get("time_range", DIAGNOSTIC_DEFAULT_TIME_RANGE)
-    # anchor 는 emit 시점에 확정·저장된 값 — 재정규화하면 워커 지연만큼 발행 윈도우가 밀린다.
+
     anchor = datetime.fromisoformat(p["anchor_at"])
 
     if record.scope == "environment":
@@ -88,8 +85,6 @@ async def build_report_result_for_job(
         aux = {"attention_for_host": attention_for_host(hostname, attention)}
         return build_report_result(kind=REPORT_KIND_ENV, snapshot=env_report_to_dict(summary), view=view, aux=aux)
 
-    # child 생성 중 예외는 그대로 전파한다 — 워커가 parent 를 failed 로 전이해 부분 성공 parent 를 막는다.
-    # 생성이 전부 끝난 뒤 emit 하므로 중간 실패 시 orphan child 가 남지 않는다.
     child_jobs: dict[str, str] = {}
     children = await query_service.build_child_prefetched_reports(valid, sid_map, view, time_range, anchor, attention)
     for pid, child in children:

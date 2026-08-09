@@ -1,5 +1,3 @@
-"""api_reference mapper 단위 테스트 — 외부 연동 화이트리스트 태그 필터·JSON-only 필터 (P2)."""
-
 from typing import TYPE_CHECKING
 
 from assessment_engine.web.services.mappers.api_reference import build_api_reference
@@ -9,7 +7,7 @@ if TYPE_CHECKING:
 
 _SPEC: JsonObject = {
     "paths": {
-        "/servers": {  # /api/ 접두 아님 — SSR 페이지 라우트, 항상 제외
+        "/servers": {
             "get": {"tags": ["pages"], "responses": {"200": {"content": {"text/html": {}}}}},
         },
         "/api/assessment": {
@@ -44,7 +42,7 @@ _SPEC: JsonObject = {
                 "parameters": [],
             },
         },
-        "/api/tasks/{task_id}/detail": {  # HTML fragment — task-modal 전용, JSON API 아님
+        "/api/tasks/{task_id}/detail": {
             "get": {
                 "tags": ["tasks"],
                 "description": "task 상세 HTML fragment.",
@@ -63,7 +61,7 @@ _SPEC: JsonObject = {
                 },
             },
         },
-        "/api/servers/{server_id}/metrics/chart": {  # 화면 전용 내부 데이터 — 화이트리스트 밖
+        "/api/servers/{server_id}/metrics/chart": {
             "get": {
                 "tags": ["api"],
                 "description": "차트 데이터.",
@@ -95,7 +93,6 @@ def test_excludes_non_api_prefix_paths():
 
 
 def test_excludes_internal_screen_only_tag():
-    """'api' 태그(화면 데이터 조회)는 외부 연동 화이트리스트 밖 — 자동 제외."""
     groups = build_api_reference(_SPEC)
     all_paths = [e.path for g in groups for e in g.endpoints]
     assert "/api/servers/{server_id}/metrics/chart" not in all_paths
@@ -103,7 +100,6 @@ def test_excludes_internal_screen_only_tag():
 
 
 def test_excludes_html_fragment_endpoint():
-    """200 응답이 application/json 이 아니면(HTML fragment) 제외."""
     groups = build_api_reference(_SPEC)
     all_paths = [e.path for g in groups for e in g.endpoints]
     assert "/api/tasks/{task_id}/detail" not in all_paths
@@ -112,10 +108,6 @@ def test_excludes_html_fragment_endpoint():
 
 
 def test_body_field_required_marked_from_schema_required_array():
-    """요청 본문 필드도 query/path 파라미터와 동일하게 required 표시 — 스키마 `required` 배열 기준.
-
-    표시 누락 시 필수 필드(target_public_ids) 없이도 호출 가능하다고 오인하기 쉽다(실사용 혼선으로 발견).
-    """
     groups = build_api_reference(_SPEC)
     tasks_group = next(g for g in groups if g.tag == "tasks")
     install_ep = next(e for e in tasks_group.endpoints if e.path == "/api/tasks/install")
@@ -139,7 +131,6 @@ def test_assessment_endpoint_labeled_and_summarized():
 
 
 def test_includes_endpoint_whose_only_success_code_is_201():
-    """200 하나만 보면 201 Created 전용 엔드포인트를 오탈락시킨다 — 모든 2xx 응답 검사."""
     spec: JsonObject = {
         "paths": {
             "/api/right-sizing/refresh": {

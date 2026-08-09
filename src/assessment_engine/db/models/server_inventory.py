@@ -18,7 +18,6 @@ class ServerInventory(Base):
     __tablename__ = "server_inventory"
     __table_args__ = (
         UniqueConstraint("agent_id", name="uq_server_inventory_agent_id"),
-        # 서비스 카테고리 필터(category 멤버십 @>/&&) GIN.
         Index("ix_server_inventory_service_categories", "service_categories", postgresql_using="gin"),
     )
 
@@ -29,9 +28,9 @@ class ServerInventory(Base):
         unique=True,
         nullable=False,
     )
-    # agent 매칭·MQ 라우팅 키 — UUID v4 라 MAC/machine_id 가 재발급돼도 같은 행에 붙는다.
+
     agent_id: Mapped[str] = mapped_column(UUID(as_uuid=False), nullable=False)
-    composite_id: Mapped[str | None] = mapped_column(String(64))  # SHA-256(machine_id+MAC) — clone collision 진단용
+    composite_id: Mapped[str | None] = mapped_column(String(64))
     machine_id: Mapped[str | None] = mapped_column(String(64))  # Linux /etc/machine-id, Windows MachineGuid
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
@@ -43,15 +42,14 @@ class ServerInventory(Base):
     os_codename: Mapped[str | None] = mapped_column(String(64))
     kernel_version: Mapped[str | None] = mapped_column(String(64))
 
-    # OS 재현 서술자 (flat) — 이미지/부트 기반 정확 재현용. agent 발행(uname·efivars·/etc/timezone 등).
-    arch: Mapped[str | None] = mapped_column(String(32))  # x86_64|aarch64|...
-    bits: Mapped[int | None] = mapped_column(Integer)  # 32|64
-    boot_firmware: Mapped[str | None] = mapped_column(String(8))  # uefi|bios
+    arch: Mapped[str | None] = mapped_column(String(32))
+    bits: Mapped[int | None] = mapped_column(Integer)
+    boot_firmware: Mapped[str | None] = mapped_column(String(8))
     secure_boot: Mapped[bool | None] = mapped_column(Boolean)
     edition: Mapped[str | None] = mapped_column(String(64))  # Windows EditionID (Linux null)
     # CurrentVersion ProductName 원문(Windows only, Linux null) — os_display 짧은 라벨 파싱 소스.
     product_name: Mapped[str | None] = mapped_column(String(128))
-    timezone: Mapped[str | None] = mapped_column(String(64))  # IANA
+    timezone: Mapped[str | None] = mapped_column(String(64))
     rtc_utc: Mapped[bool | None] = mapped_column(Boolean)
 
     cpu_cores: Mapped[int | None] = mapped_column(Integer)
@@ -61,9 +59,8 @@ class ServerInventory(Base):
     boot_time: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     agent_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
-    # 스토리지 트리 — [{name,type,size_bytes,fstype,mountpoint,parent,id,id_type}] (type=swap 포함).
     block_devices: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
-    # 네트워크 그래프 — [{name,id,id_type,kind,speed_mbps,addresses:[{address,prefix,family}],gateway}].
+
     net_interfaces: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
     # LVM VG — [{name,size_bytes,free_bytes,data_percent,metadata_percent}] (Linux 전용).
     lvm_vgs: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
@@ -73,10 +70,9 @@ class ServerInventory(Base):
     nonblock_mounts: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
     ip_external: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
-    services: Mapped[list[JsonObject] | None] = mapped_column(JSONB)  # [{unit,sub,pid,exe}]
-    listen_ports: Mapped[list[JsonObject] | None] = mapped_column(JSONB)  # [{proto,addr,port,uid,pid,comm}]
-    # ingest 사전계산 (service_classifier.compute_service_categories 단일 진실) — read 경로가 재계산하면
-    # 목록·상세·리포트·필터 뱃지가 갈리므로 전부 본 저장값만 쓴다.
+    services: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
+    listen_ports: Mapped[list[JsonObject] | None] = mapped_column(JSONB)
+
     service_categories: Mapped[list[str] | None] = mapped_column(ARRAY(Text))
 
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

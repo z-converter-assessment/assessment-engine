@@ -14,7 +14,7 @@ if TYPE_CHECKING:
 
     from sqlalchemy import Select
 
-# 엔티티(select(Task))가 아니라 컬럼을 명시한다 — 엔티티는 표시에 쓰지 않는 컬럼까지 전부 실어 온다.
+
 _TASK_COLUMNS = (
     Task.public_id,
     Task.target_server_id,
@@ -36,7 +36,6 @@ _TASK_COLUMNS = (
 
 
 def _task_select() -> Select[Any]:
-    """task 1행 + 대상 서버 표시 정보. 대상 서버가 지워졌어도 task 는 남으므로 outer join 이다."""
     return select(*_TASK_COLUMNS).outerjoin(ServerInventory, ServerInventory.id == Task.target_server_id)
 
 
@@ -54,8 +53,7 @@ class SqlTaskQueryRepository(_BaseQueryMixin):
         limit: int,
         cursor: datetime | None = None,
     ) -> list[TaskRow]:
-        # cursor: created_at < cursor 조건 (시간 역순 pagination). None 이면 첫 페이지.
-        # ORDER BY 에 id DESC tie-breaker — 같은 created_at microsecond 에 다중 INSERT 시 정렬 안정성.
+
         stmt = _task_select().where(Task.target_server_id == target_server_id)
         if cursor is not None:
             stmt = stmt.where(Task.created_at < cursor)
@@ -69,7 +67,7 @@ class SqlTaskQueryRepository(_BaseQueryMixin):
     ) -> dict[int, TaskRow]:
         if not server_ids:
             return {}
-        # DISTINCT ON 서버별 최근 1건. id DESC tie-breaker — 같은 created_at microsecond INSERT 정렬 안정성.
+
         # DISTINCT ON 선두와 ORDER BY 선두가 같아야 한다는 제약은 ORM 이 검사하지 않는다 — 순서 유지.
         stmt = (
             _task_select()

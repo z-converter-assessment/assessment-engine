@@ -44,7 +44,6 @@ if TYPE_CHECKING:
     )
     from assessment_engine.web.view_models.report import ReportRowItem, ReportSummary
 
-# _PROVISIONING_SEGMENT_DEFS 를 alias 로만 두는 이유 = 환경 보고서·대시보드 도넛·보고서 row 색 통일 (T13).
 
 # 둘 다 None — 운영 검토 list 라 상위 N 잘림 없이 전수 노출.
 _TOP_RISK_N_BY_VIEW: dict[str, int | None] = {
@@ -60,9 +59,7 @@ def _count_classifications(rows: list[ReportRowItem]) -> list[ClassificationCoun
             key=key,
             label=right_sizing.RECOMMENDATION_LABEL_KO[key],
             count=counts.get(key, 0),
-            # 분류 막대는 라벨이 의미를 전달 — 색은 게이지 단색 통일(segment 다색 미사용).
             color=UTIL_GAUGE_COLOR,
-            # segment 의 설명("자원 부족 — 사양 상향 검토")을 쓰지 않는다 — 앞 label 분류명과 어휘가 겹친다.
             description=right_sizing.RECOMMENDATION_ACTION_KO[key],
         )
         for key, _color, _description in _PROVISIONING_SEGMENT_DEFS
@@ -73,7 +70,6 @@ def _to_distribution_bars(
     counts: dict[str, int],
     label_map: dict[str, str] | None = None,
 ) -> list[DistributionBar]:
-    """pct(최대 count 대비 비율)는 표시에 안 쓰나 스냅샷 복원 호환 위해 채운다."""
     if not counts:
         return []
     items = sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))
@@ -91,10 +87,6 @@ def _to_distribution_bars(
 def build_metric_trend(
     cpu_series: list[MetricSeries], mem_series: list[MetricSeries], disk_series: list[MetricSeries]
 ) -> list[JsonObject]:
-    """CPU·메모리·디스크 시계열을 버킷 시각 기준 merge -> 차트 JS plain dict.
-
-    at 은 isoformat str. 표본 없는 축은 None (차트 gap).
-    """
 
     # SQL avg 가 Decimal 을 돌려준다 — tojson 이 직렬화하지 못한다.
     def _f(v: float | Decimal | None) -> float | None:
@@ -128,11 +120,6 @@ def build_saturation_trend(
 
 
 def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalogGroup]:
-    """카테고리별 특징 서비스명·등장 서버 수 집계.
-
-    시그니처 워크로드만 센다 — file·mail·infra 등 유틸 카테고리를 섞으면 "주요 워크로드"라는 같은 개념이
-    화면마다 다른 카테고리 집합이 된다(서버 목록 뱃지·환경 개요 도넛과 동일 기준).
-    """
     multi: dict[str, dict[str, list[ServiceHost]]] = {}
     single_names: dict[str, set[str]] = {}
     single_hosts: dict[str, list[ServiceHost]] = {}
@@ -144,7 +131,7 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
             if cat not in SIGNATURE_CATEGORIES:
                 continue
             cat_hosts.setdefault(cat, set()).add(r.public_id)
-        # workload_groups 는 baseline OS·systemd 를 포함해 노이즈가 섞인다 — total 과 같은 소스로 센다.
+
         for cat, names in r.workload_services.items():
             if cat not in SIGNATURE_CATEGORIES or not names:
                 continue
@@ -162,7 +149,7 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
     for cat, hosts in single_hosts.items():
         label = ", ".join(sorted(single_names.get(cat, set()))) or cat
         groups[cat] = [ServiceNameCount(name=label, count=len(hosts), hosts=hosts)]
-    # 포트로만 탐지돼 이름을 모르는 호스트(T15)를 별도 항목으로 합산 — breakdown 합이 total 과 맞는다.
+
     for cat, all_hosts in cat_hosts.items():
         listen_only = len(all_hosts - named_hosts.get(cat, set()))
         if listen_only:
@@ -174,10 +161,6 @@ def _aggregate_service_catalog(rows: list[ReportRowItem]) -> list[ServiceCatalog
 
 
 def _count_os(details: list[ServerDetail]) -> list[OsCount]:
-    """family/distro/version 3단 그룹 카운트 — 커널 버전은 그룹 키에서 빼고 distinct 값만 부기.
-
-    커널까지 키에 넣으면 패치레벨 차이로 행이 과도히 분열된다.
-    """
     counts: Counter[tuple[str, str, str]] = Counter()
     kernels: dict[tuple[str, str, str], set[str]] = {}
     for d in details:
@@ -203,16 +186,9 @@ def _count_os(details: list[ServerDetail]) -> list[OsCount]:
 
 
 def _build_env_metrics(overview: EnvironmentOverview) -> list[JsonObject]:
-    """환경 현황 메트릭 6축 — 이용률 3 + 포화 3(CPU·메모리·디스크 I/O).
-
-    네트워크·디스크 I/O 의 절대 rate 는 뺀다 — 기준선이 없어 값만으로 건강을 판단할 수 없다
-    (대시보드 포화 도넛은 네트워크 혼잡까지 4축).
-
-    값이 이미 표시 문자열인 plain dict 라 스냅샷 역직렬화가 되돌릴 것이 없다.
-    """
     util = {b.label: b.pct for b in overview.utilization}
     util_p95 = {b.label: b.pct for b in overview.utilization_p95}
-    sat = overview.saturation_donuts  # [CPU 포화, 메모리 압박, 디스크 I/O 포화] 순 (build_environment_overview)
+    sat = overview.saturation_donuts
 
     def _pct(v: float | None) -> str:
         return f"{v:.1f}%" if v is not None else "—"
@@ -254,7 +230,7 @@ def _extract_attention_hosts(
     attention: AttentionSignals,
     rows: list[ReportRowItem],
 ) -> list[AttentionHostItem]:
-    # AttentionRow 에 OS 가 없어 rows 에서 보충한다.
+
     os_by_host: dict[str, str] = {r.hostname: r.os_display for r in rows}
 
     by_host: dict[str, JsonObject] = {}
@@ -272,7 +248,7 @@ def _extract_attention_hosts(
         )
 
     def _pid_from_href(href: str) -> str:
-        # AttentionRow.link_href = "/servers/{public_id}" — 마지막 segment 가 public_id.
+
         return href.rsplit("/", 1)[-1]
 
     for row in attention.gap_warnings:
@@ -306,29 +282,36 @@ def _extract_attention_hosts(
 
 
 def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImminentItem]:
-    """디스크 capacity 임박 호스트 — 분류(assess_disk_capacity)와 같은 구동 마운트 runway 기준."""
     out: list[CapacityImminentItem] = []
     for r in rows:
-        if r.disk_capacity_runway_days is None:
+        candidate: tuple[int, str | None, str, float | None] | None = None
+        if r.disk_capacity_runway_days is not None and r.disk_capacity_runway_days < right_sizing.DISK_RUNWAY_DAYS:
+            candidate = (r.disk_capacity_runway_days, r.disk_capacity_driving_mount, "용량", r.worst_mount_used_pct)
+        if (
+            r.disk_inode_runway_days is not None
+            and r.disk_inode_runway_days < right_sizing.DISK_RUNWAY_DAYS
+            and (candidate is None or r.disk_inode_runway_days < candidate[0])
+        ):
+            candidate = (r.disk_inode_runway_days, r.disk_inode_driving_mount, "inode", None)
+        if candidate is None:
             continue
-        if r.disk_capacity_runway_days >= right_sizing.DISK_RUNWAY_DAYS:
-            continue
-        if not r.disk_capacity_driving_mount:
+        runway, mount, constraint_label, used_pct = candidate
+        if mount is None:
             continue
         out.append(
             CapacityImminentItem(
                 public_id=r.public_id,
                 hostname=r.hostname,
-                worst_mount=r.disk_capacity_driving_mount,
-                days_until_full=r.disk_capacity_runway_days,
-                used_pct=r.worst_mount_used_pct,
+                worst_mount=mount,
+                days_until_full=runway,
+                constraint_label=constraint_label,
+                used_pct=used_pct,
             )
         )
     out.sort(key=lambda h: (h.days_until_full, h.hostname))
     return out
 
 
-# 표시 순서 = _CAUSE_LABEL_BY_TRIGGER 삽입순 파생 — 병렬 리터럴 목록을 두면 둘이 갈라진다.
 _UNDER_CAUSE_ORDER = tuple(_CAUSE_LABEL_BY_TRIGGER.values())
 
 
@@ -352,7 +335,6 @@ def _env_summary_bullets(
     classification_dist: list[ClassificationCount],
     under_hosts: list[CapacityWarningItem],
 ) -> list[str]:
-    """환경 단위 정성 요약 — customer/engineer 동일 내용 (양식 무관 동기화)."""
     classified = {c.key: c.count for c in classification_dist}
     under = classified.get("under_provisioned", 0)
     over = classified.get("over_provisioned", 0)
@@ -376,7 +358,7 @@ def _env_summary_bullets(
         f"온라인 {overview.online}대 | 오프라인 {overview.offline}대",
         dist_line,
     ]
-    # 현상·진단만 — 조치 지시는 넣지 않는다.
+
     efficiency = over + idle
     if under:
         cause = _under_cause_summary(under_hosts)
@@ -405,9 +387,8 @@ def to_environment_report(
     action: ActionTargets,
     trend: list[JsonObject] | None = None,
 ) -> EnvironmentReportSummary:
-    """ReportSummary + EnvironmentOverview + AttentionSignals -> EnvironmentReportSummary 합성."""
     classification_dist = _count_classifications(base.rows)
-    # 템플릿은 비율을 계산하지 못한다(P3) — 파생값은 여기서 채운다.
+
     classified_total = sum(c.count for c in classification_dist)
     for c in classification_dist:
         c.pct = round((c.count / classified_total * 100), 1) if classified_total else 0.0
@@ -418,14 +399,14 @@ def to_environment_report(
     for _key in ("linux", "windows"):
         if OS_FAMILY_LABEL_KO[_key] not in _os_present:
             os_family_dist.append(DistributionBar(label=OS_FAMILY_LABEL_KO[_key], count=0, pct=0.0))
-    # meta_text 는 "{os} · EOL {date}" 형식 — 앞 segment 가 OS 이름이다.
+
     _eol_os = Counter(w.meta_text.split(" · ", 1)[0] for w in attention.os_eol_warnings)
     os_eol_breakdown_label = " · ".join(f"{os} {n}대" for os, n in _eol_os.most_common())
     top_risks = _select_top_risks(base.rows, view)
     env_metrics = _build_env_metrics(overview)
     under_hosts = [h for h in action.hosts if h.classification == "under_provisioned"]
     summary = _env_summary_bullets(overview, attention, classification_dist, under_hosts)
-    # engineer 전용 필드지만 customer 도 같은 헬퍼를 탄다 — view 분기는 템플릿이 갖는다.
+
     attention_hosts = _extract_attention_hosts(attention, base.rows)
     capacity_imminent = _extract_capacity_imminent(base.rows)
     agent_versions_label = ", ".join(sorted({(d.agent_version or "미상") for d in details}))

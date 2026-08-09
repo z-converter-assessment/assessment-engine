@@ -1,59 +1,45 @@
-# 시크릿
 .env
 .env.*
-# 템플릿은 커밋한다 — 위 패턴에 걸리므로 되돌린다.
 !.env.example
 !.env.dev.example
 *.pem
 *.key
 secrets/
 
-# 빌드 산출물
 dist/
 build/
 
-# Python
 __pycache__/
 *.pyc
 *.pyo
 .venv/
 *.egg-info/
 
-# OS
 .DS_Store
 Thumbs.db
 
-# merge 잔여물
 *.orig
 *.rej
 
-# 테스트 / 빌드 캐시
 .pytest_cache/
 .ruff_cache/
-# hypothesis 반례 DB — 로컬 탐색 결과라 커밋 대상이 아니다 (CI 는 actions/cache 로 잡 사이에 물린다).
 .hypothesis/
 .coverage
 coverage*.xml
 htmlcov/
 
-# 런타임 로그
 *.log
 
-# 에디터 (JetBrains 통째 무시 / VS Code는 공용 규칙만 화이트리스트)
 .idea/
 .vscode/*
 !.vscode/settings.json
 !.vscode/extensions.json
 
-# Claude Code 런타임 파일
 .claude/*.lock
-# Claude Code 개인 로컬 설정
 .claude/settings.local.json
 
 
-# 표현계층 타입 도구 (dev/CI 전용). 생성 타입(static/js/generated/)은 커밋 — drift 게이트 대상.
 node_modules/
 openapi.json
-# pyright 설정 실험용 — pyproject.toml [tool.pyright] 가 정본이라 루트 config 는 커밋하지 않는다
 pyrightconfig.json
 pyrightconfig.*.json

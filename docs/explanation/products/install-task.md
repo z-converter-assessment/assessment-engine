@@ -106,8 +106,8 @@ whitelist 에 ZDM host 가 사전 등록되어야 한다. 에이전트 config �
 
 1. `task_type` 이 `zconverter_install` 1종이라 uninstall·rollback·재시작 등 다른 작업은 지원하지 않는다. 표시
    라벨 매핑(`mappers/task.py` `_TASK_TYPE_LABEL`)은 미지 값을 raw 그대로 폴백한다.
-2. 중복 발행 차단이 부분 UNIQUE `uq_tasks_pending_per_server_type`(status=pending 한 서버당 1건)이라, 마감이
-   지나지 않은 진행 중 task 를 가진 서버가 하나라도 섞이면 all-or-nothing 으로 batch 전체가 취소된다(409).
+2. 중복 발행 차단은 부분 UNIQUE `uq_tasks_pending_per_server_type`로 같은 서버의 같은 task type pending을 1건만
+   허용한다. 현재는 `zconverter_install`만 발행하므로 같은 설치 작업이 있는 서버가 섞이면 batch 전체가 취소된다(409).
    마감 경과분은 발행 직전 정리와 reaper 전역 정리 양쪽이 해소한다.
 3. 매 publish 마다 ZDM 에 HEAD 1회(cache hit) 또는 GET full(cache miss)이 나간다. 같은 LAN 을 가정한 지연이라
    다른 네트워크면 `ZDM_META_TOTAL_TIMEOUT_SEC` 안에 끝나야 503 을 피한다.

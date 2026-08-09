@@ -73,7 +73,6 @@ class DiagnosticService:
         view='all' 은 두 job_type 을 SQL 2회 + Python merge 로 합친다 — 발행 빈도가 낮아 수용.
         전체 건수를 위해 필터 결과를 다 로드하는 것도 retention 90일 가정에서 수용.
         """
-        # selection(N대)·single 은 DB 상 같은 scope='server' 라 컬럼만으론 못 가른다 — 질의 후 개수로 분리.
         repo_scope = "server" if scope in ("selection", "single") else scope
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
@@ -92,7 +91,6 @@ class DiagnosticService:
             return merged[:limit], len(merged)
 
     async def get_report_snapshot(self, job_id: str) -> DiagnosticJobRecord | None:
-        """발행된 보고서 정적 스냅샷 단건. 미존재 시 None."""
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
             return await repo.get_by_id(job_id)
@@ -111,20 +109,11 @@ class DiagnosticService:
         child_jobs: JsonObject | None = None,
         requested_by: str | None = None,
     ) -> str | None:
-        """완성 스냅샷 동기 저장 — 즉시 succeeded INSERT. 활성 충돌 시 기존 job_id 회수.
-
-        anchor_at: 스냅샷 윈도우 기준 시각. 라우터가 normalize_anchor 로 분 단위 truncate 한 값.
-        kind: `report_result.REPORT_KIND_ENV` — selection N대·환경·단일서버가 한 양식을 공유한다.
-        snapshot: 발행 시점 완성 ViewModel 직렬화 dict (`report_serializer.*_to_dict`).
-        aux: ViewModel 밖 부가 정적 데이터 — GET 정적 렌더가 그대로 읽는다.
-        child_jobs: {public_id: child_job_id} — N대 표가 발행한 개별 단일 job 맵.
-        """
         job_type = f"{view}_report"
         input_params = _build_input_params(view, scope, server_public_ids, time_range, anchor_at)
         input_hash = compute_hash(scope, input_params)
         result = build_report_result(kind=kind, snapshot=snapshot, view=view, aux=aux)
         if child_jobs:
-            # input_hash 에는 넣지 않는다 — 넣으면 child 구성이 달라질 때 더블클릭 dedup 이 깨진다.
             result["child_jobs"] = child_jobs
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
@@ -165,8 +154,7 @@ class DiagnosticService:
         job_type = f"{view}_report"
         input_params = _build_input_params(view, scope, server_public_ids, time_range, anchor_at)
         input_hash = compute_hash(scope, input_params)
-        # INSERT 가 충돌로 비고 회수 SELECT 까지 비는 경우는 둘이다 — 두 문장 사이에서 그 job 이 끝났거나,
-        # 동시 INSERT 가 아직 커밋 전이라 READ COMMITTED SELECT 에 안 보이거나. 앞의 경우는 다시 INSERT 하면
+
         # 자리를 잡고, 뒤의 경우는 재시도가 상대의 커밋을 만나 회수로 이어진다.
         for _ in range(_ENQUEUE_MAX_ATTEMPTS):
             async with self.session_factory() as session:
@@ -204,21 +192,18 @@ class DiagnosticService:
             return rec
 
     async def finish_succeeded(self, job_id: str, result: JsonObject) -> None:
-        """생성 성공 — status=succeeded + result 스냅샷 저장."""
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
             await repo.mark_succeeded(job_id, result)
             await session.commit()
 
     async def finish_failed(self, job_id: str, error_message: str) -> None:
-        """생성 실패 — status=failed + error_message. 호출자가 sanitize 한 문자열을 넘긴다."""
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
             await repo.mark_failed(job_id, error_message)
             await session.commit()
 
     async def recover_stale(self, stale_seconds: int) -> int:
-        """크래시·SIGTERM 으로 running 에 멈춘 job 을 pending 으로 되돌린다. 복구 건수 반환."""
         async with self.session_factory() as session:
             repo = self.diagnostic_repo_factory(session)
             n = await repo.recover_stale_running(stale_seconds)

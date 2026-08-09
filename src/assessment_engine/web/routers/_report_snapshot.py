@@ -44,15 +44,10 @@ class LoadedSnapshot:
         return VIEW_TITLES.get(self.view, self.view)
 
     def aux(self, key: str) -> JsonObject:
-        """발행 시점에 함께 저장한 부수 데이터 — 없으면 빈 dict."""
         return self.result.get("aux", {}).get(key, {})
 
 
 async def load_snapshot(job_id: str, diag_service: DiagnosticService) -> LoadedSnapshot | DiagnosticJobRecord:
-    """스냅샷을 읽는다 — 아직 succeeded 가 아니면 진행 화면용으로 job 레코드를 그대로 돌려준다.
-
-    호출자는 반환 타입으로 분기한다. 진행 화면 렌더는 라우터가 갖는다.
-    """
     rec = await diag_service.get_report_snapshot(job_id)
     if rec is None:
         raise HTTPException(status_code=404, detail="report snapshot not found")
@@ -75,7 +70,6 @@ def render_job_progress(
     rec: DiagnosticJobRecord,
     back_url: str,
 ) -> HTMLResponse:
-    """job 이 succeeded 아닐 때의 화면 — pending/running 은 report-poll.js 가 폴링, failed 는 재발행 안내."""
     return templates.TemplateResponse(
         request=request,
         name="reports/report_pending.html",

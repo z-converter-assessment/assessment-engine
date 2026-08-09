@@ -23,7 +23,7 @@ if TYPE_CHECKING:
 """
 
 # 가상 파일시스템 목록의 출처는 df 관례(집계에서 빼는 것들). SQL 등가는 `types._VIRTUAL_FSTYPES` — 두 집합은
-# 같이 움직여야 한다.
+
 VIRTUAL_FSTYPES = frozenset(
     {
         "tmpfs",
@@ -71,10 +71,6 @@ def is_swap(dtype: str | None) -> bool:
 
 
 def is_virtual_interface(kind: str | None) -> bool:
-    """집계 대상이 아닌 인터페이스. kind 미상(None)도 제외한다 — allowlist 판정이라 통과가 아니다.
-
-    bond_master 는 통과, bond_member 는 제외 (이중 집계 회피).
-    """
     return kind not in ("physical", "bond_master")
 
 

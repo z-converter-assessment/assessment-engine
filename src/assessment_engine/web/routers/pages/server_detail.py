@@ -27,13 +27,6 @@ async def _render_server_tab(
     include_period: bool = False,
     resource_index: int | None = None,
 ):
-    """server 컨텍스트로 detail 탭 템플릿 렌더링.
-
-    include_period 는 '최근 N일' 이용률·포화 평가를 함께 조회할지 — 자원별 상세 탭(cpu 등)처럼 서버 세부와
-    동일 창 데이터를 보여줘야 할 때만 켠다(불요한 쿼리 회피).
-    resource_index 는 period.resources[cpu=0/mem=1/disk=2/net=3] 중 그 탭 전용 1개 — 템플릿 selectattr 이
-    금지(P3)라 라우터에서 인덱싱한다.
-    """
     server = await service.get_server(internal_id)
     if not server:
         raise HTTPException(status_code=404)
@@ -48,7 +41,6 @@ async def _render_server_tab(
             "resource_period": resource_period,
             "back_url": safe_back(back, f"/servers/{server_id}"),
             "self_back": self_back(request),
-            # services.html 범례 단일 진실 — service_classifier 카탈로그 파생.
             "service_categories": SERVICE_CATEGORIES,
         },
     )
@@ -67,7 +59,7 @@ async def get_server(
         raise HTTPException(status_code=404)
     # 운영 신호는 window 집계라 inventory 캐시와 분리 조회.
     stability = await service.get_server_stability(server)
-    # 평가 카드 — right-sizing 분류 창 기준. 실시간 카드와 분리, SSR precompute.
+
     period = await service.get_period_assessment(internal_id)
     # 최근 작업은 전체 노출 — task.install 이력은 서버 1대당 수십 건 규모라 큰 상한으로 사실상 전부 출력.
     recent_tasks = await service.list_recent_tasks(str(server.public_id), limit=1000, cursor=None)
@@ -155,9 +147,6 @@ async def get_metrics(
     )
 
 
-# 별도 service 메서드를 쓰는 탭 (공유 helper 미사용)
-
-
 @server_detail_router.get("/{server_id}/storage")
 async def get_storage(
     request: Request,
@@ -169,7 +158,7 @@ async def get_storage(
     result = await service.get_storage(internal_id)
     if not result:
         raise HTTPException(status_code=404)
-    # period.resources[cpu=0/mem=1/disk=2/net=3] — 스토리지(용량+I/O 통합) 탭 전용 1개.
+
     period = await service.get_period_assessment(internal_id)
     resource_period = period.resources[2] if period else None
     return templates.TemplateResponse(
@@ -196,7 +185,7 @@ async def get_network(
     result = await service.get_network(internal_id)
     if not result:
         raise HTTPException(status_code=404)
-    # period.resources[cpu=0/mem=1/disk=2/net=3] — 네트워크 탭 전용 1개.
+
     period = await service.get_period_assessment(internal_id)
     resource_period = period.resources[3] if period else None
     return templates.TemplateResponse(

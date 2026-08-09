@@ -12,11 +12,6 @@ if TYPE_CHECKING:
 
 
 async def latest_task_summaries(repo: QueryRepository, server_ids: list[int]) -> dict[int, TaskSummaryItem]:
-    """서버별 최근 task 1건 — 목록 행의 마지막 작업 칸.
-
-    서버 도메인이 목록을 그릴 때 같은 것을 필요로 한다. mixin 메서드였을 때는 그 호출이 형제 호출이라
-    `self` 를 Protocol 로 좁혀야 했고, 그 Protocol 은 런타임에 아무것도 강제하지 않았다.
-    """
     rows = await repo.get_latest_tasks_by_servers(server_ids)
     now = datetime.now(UTC)
     return {sid: to_task_summary(r, now) for sid, r in rows.items()}

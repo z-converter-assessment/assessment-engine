@@ -13,28 +13,23 @@
 
 from typing import Any, cast
 
-# JSON object 하나 — wire payload 또는 JSONB 컬럼 원본.
 type JsonObject = dict[str, Any]
 
 
 def _member(d: object, key: str) -> object:
-    """JSON object 로 보이는 값에서 키 하나를 꺼낸다. 객체가 아니면 부재로 읽는다."""
     return cast("JsonObject", d).get(key) if isinstance(d, dict) else None
 
 
 def json_list(d: object, key: str) -> list[JsonObject]:
-    """중첩 배열 필드. 부재·null·형태 불일치는 빈 list (소비자가 유무로 판단, #B)."""
     value = _member(d, key)
     return cast("list[JsonObject]", value) if isinstance(value, list) else []
 
 
 def json_str_list(d: object, key: str) -> list[str]:
-    """중첩 문자열 배열 필드 (dns·required 등). 부재·null·형태 불일치는 빈 list."""
     value = _member(d, key)
     return cast("list[str]", value) if isinstance(value, list) else []
 
 
 def json_obj(d: object, key: str) -> JsonObject:
-    """중첩 객체 필드. 부재·null·형태 불일치는 빈 dict."""
     value = _member(d, key)
     return cast("JsonObject", value) if isinstance(value, dict) else {}

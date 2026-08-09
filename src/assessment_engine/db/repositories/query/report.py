@@ -28,43 +28,30 @@ class ReportQueryRepository(Protocol):
         server_ids: list[int],
         period_days: float,
         end: datetime,
-    ) -> dict[int, int]:
-        """server_id -> period 안 boot_time 변경(재부팅) 횟수."""
-        ...
+    ) -> dict[int, int]: ...
 
     async def get_report_agent_restart_stats(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
-    ) -> dict[int, int]:
-        """server_id -> period 안 agent_started_at 변경(에이전트 재시작) 횟수.
+    ) -> dict[int, int]: ...
 
-        보고서 anchor+window 안 카운트 (#F10) — 호스트 상세 "시스템 안정성" 컬럼 표시.
-        """
-        ...
-
-    async def get_agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]:
-        """since 이후 server별 agent 재시작 횟수를 반환한다."""
-        ...
+    async def get_agent_restart_counts_recent(self, server_ids: list[int], since: datetime) -> dict[int, int]: ...
 
     async def get_report_disk_io_baseline(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
-    ) -> dict[int, DiskIoBaselineRaw]:
-        """server_id -> DiskIoBaselineRaw (iops·throughput baseline + p95/peak)."""
-        ...
+    ) -> dict[int, DiskIoBaselineRaw]: ...
 
     async def get_report_net_io_baseline(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
-    ) -> dict[int, NetIoBaselineRaw]:
-        """server_id -> NetIoBaselineRaw (rx·tx baseline + p95/peak)."""
-        ...
+    ) -> dict[int, NetIoBaselineRaw]: ...
 
     async def get_report_memory_breakdown(
         self,
@@ -80,41 +67,31 @@ class ReportQueryRepository(Protocol):
         server_id: int,
         period_days: float,
         end: datetime,
-    ) -> CpuBreakdownRaw:
-        """CPU 분류 윈도우 평균 — user/system/iowait (jiffies LAG delta, counter reset 흡수)."""
-        ...
+    ) -> CpuBreakdownRaw: ...
 
     async def get_report_mount_capacity_batch(
         self,
         server_ids: list[int],
         end: datetime,
-    ) -> dict[int, list[MountCapacityRaw]]:
-        """N대 마운트별 용량 사이징 입력 — /api/assessment per-mount 디스크 축(worst-mount 로 접지 않음)."""
-        ...
+    ) -> dict[int, list[MountCapacityRaw]]: ...
 
     async def get_report_memory_breakdown_batch(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
-    ) -> dict[int, MemoryBreakdownRaw]:
-        """N대 메모리 구성 윈도우 평균 — `get_report_memory_breakdown` 배치(GROUP BY server_id)."""
-        ...
+    ) -> dict[int, MemoryBreakdownRaw]: ...
 
     async def get_report_cpu_breakdown_batch(
         self,
         server_ids: list[int],
         period_days: float,
         end: datetime,
-    ) -> dict[int, CpuBreakdownRaw]:
-        """N대 CPU 분류 윈도우 평균 — `get_report_cpu_breakdown` 배치(PARTITION BY server_id, GROUP BY server_id)."""
-        ...
+    ) -> dict[int, CpuBreakdownRaw]: ...
 
     async def get_environment_utilization(
         self,
         period_days: float,
         end: datetime,
         server_ids: list[int] | None = None,
-    ) -> EnvironmentUtilizationRaw:
-        """환경(또는 선택 N대) capacity-weighted 평균 활용률 — 자원 총량 가중 (sum(used) / sum(total))."""
-        ...
+    ) -> EnvironmentUtilizationRaw: ...

@@ -31,10 +31,9 @@ _HOSTNAME_LABEL_RE = re.compile(r"^(?=.{1,63}$)[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0
 def _is_valid_hostname(
     v: str,
 ) -> bool:
-    """RFC 952·1123 hostname/FQDN 검증."""
     if len(v) > 253:
         return False
-    # trailing dot 허용 (FQDN canonical) — strip 후 label 검증.
+
     v = v.rstrip(".")
     if not v:
         return False
@@ -52,7 +51,7 @@ def _is_valid_host_or_host_port(
     """
     if not v or v.startswith("["):
         return False
-    # IPv6 raw — `:` 2회 이상 (IPv4:port 는 1회만)
+
     if v.count(":") >= 2:
         return False
 
@@ -89,7 +88,7 @@ class InstallRequest(BaseModel):
     def _validate_zdm_ip(cls, v: str | None) -> str | None:
         if v is None or v == "":
             return None
-        # task params 는 task.install body 로 그대로 전파된다 — shell metachar·공백·제어문자 무조건 차단.
+
         if any(c in v for c in " \t\n\r;|&`$<>"):
             raise ValueError(f"invalid character in zdm target: {v!r}")
         if v.lower().startswith(("http://", "https://")):
@@ -104,10 +103,6 @@ async def install(
     req: InstallRequest,
     service: TaskServiceDep,
 ) -> list[TaskCreated]:
-    """N대 ZConverter 설치 발행 — 서버당 task 1건. zdm_ip/zdm_user 미지정 시 서버 기본값(ZDM_DEFAULT_*) 사용.
-
-    이미 pending 인 서버가 있으면 409, 대상 서버 미존재는 404, ZDM 좌표 미해결(메타 조회 실패 등)은 503.
-    """
     try:
         return await service.create_install_tasks(
             req.target_public_ids,
@@ -129,7 +124,6 @@ async def get_task(
     task_id: UUID,
     service: QueryServiceDep,
 ) -> TaskDetailItem:
-    """단일 task 상세 — JSON. polling / list cell 갱신 callback 용."""
     detail = await service.get_task(str(task_id))
     if detail is None:
         raise HTTPException(status_code=404, detail="task not found")
@@ -142,11 +136,6 @@ async def get_task_detail_fragment(
     request: Request,
     service: QueryServiceDep,
 ):
-    """단일 task 상세 — HTML fragment. task-modal.js 가 fetch + innerHTML 교체 (P3 정공).
-
-    JS HTML 합성 폐기 — server 가 template fragment render, JS 는 DOM 교체만.
-    polling 흐름은 GET /api/tasks/{id} (JSON) 사용 — modal body 만 fragment.
-    """
     detail = await service.get_task(str(task_id))
     if detail is None:
         raise HTTPException(status_code=404, detail="task not found")
@@ -164,5 +153,4 @@ async def list_recent_tasks(
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
     cursor: Annotated[datetime | None, Query(description="created_at < cursor 시간 역순 pagination (E2)")] = None,
 ) -> list[TaskSummaryItem]:
-    """서버별 task 이력 — 시간 역순. cursor 기반 pagination (E2). 마지막 row의 created_at 을 다음 cursor로 사용."""
     return await service.list_recent_tasks(str(server_public_id), limit, cursor)

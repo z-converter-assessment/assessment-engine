@@ -31,12 +31,13 @@ def make_metrics_handler(
     repo_factory: Callable[[AsyncSession], CollectRepository],
     redis: Redis,
 ) -> MessageHandler:
+    """Metrics 메시지를 저장하고, 미등록 agent는 placeholder 서버로 등록하는 핸들러를 만든다."""
+
     async def _store(data: MetricsInput) -> None:
         if not await _check_idempotent(redis, data.message_id):
             logger.info("metrics duplicate skipped message_id={}", data.message_id)
             return
 
-        # 에이전트 설치 서버는 UTC 정상 시각 발행 전제 — collected_at 을 발행값 그대로 신뢰.
         # _log_time_invariants 는 시계·시작순서 이상을 로그로만 노출 (데이터 변형 0, 관측 방어선).
         await _log_time_invariants(redis, data)
 
@@ -44,7 +45,7 @@ def make_metrics_handler(
         placeholder = build_placeholder_inventory(data)
 
         async def save(repo: CollectRepository) -> tuple[int, bool, MetricInsertResult]:
-            # ensure_server_id 가 find->upsert 캡슐화. find 성공 시 placeholder 미사용.
+
             server_id, auto_registered = await repo.ensure_server_id(str(data.agent_id), placeholder)
             result = await repo.record_metrics(server_id, dto)
             return server_id, auto_registered, result
@@ -63,7 +64,6 @@ def make_metrics_handler(
         await safe_delete(redis, cache_key)
         await _track_agent_restart(redis, resolved_server_id, str(data.agent_id), data.agent_started_at)
 
-        # F7: 메시지별 처리 흐름은 DEBUG — 1만 서버 시 분당 1만 line 방지.
         logger.debug(
             "metrics stored agent_id={} rows metrics={} disk_io={} net_io={} "
             "filesystem={} cpu_core={} pressure={} disk_error={}",

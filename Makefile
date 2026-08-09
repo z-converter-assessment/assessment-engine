@@ -1,6 +1,3 @@
-# 개발 명령 단일 진입점. `make` 또는 `make help` 로 목록을 본다.
-#
-# 각 명령이 무엇을 왜 하는지는 docs/guides/ 가 갖는다. 여기는 이름과 실행만 둔다.
 
 .DEFAULT_GOAL := help
 .PHONY: help setup dev dev-build dev-down logs test test-unit test-integration test-http test-cov lint format typecheck codegen migrate migration screenshot eol image-scan
@@ -16,7 +13,6 @@ setup: ## 개발 의존성 설치 (python + node)
 dev: .env ## dev 스택 기동 — base + override 머지, 핫리로드 (web http://localhost:8000)
 	docker compose up -d
 
-# .env 가 없으면 dev 템플릿에서 만든다. COMPOSE_FILE 이 없어야 compose 가 override 를 자동 머지한다.
 .env:
 	cp .env.dev.example $@
 

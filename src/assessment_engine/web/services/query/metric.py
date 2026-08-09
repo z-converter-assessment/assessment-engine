@@ -53,7 +53,7 @@ async def latest_metric(
     if not raw or not raw.metrics:
         return None
     result = build_dashboard(raw)
-    # 호출자가 벌크 조회분을 넘기면 재조회를 생략한다 — 환경 화면에서 per-server 재조회로 N+1 이 나는 자리다.
+
     sat = saturation
     if sat is None:
         since = datetime.now(UTC) - timedelta(minutes=10)
@@ -72,7 +72,7 @@ async def latest_metric(
     result.mem_saturation = signals["mem"]
     result.disk_saturation = signals["disk"]
     result.net_saturation = signals["net"]
-    # 에러 축(E)은 여기 안 싣는다 — 평가 윈도우 카드(get_period_assessment)가 맡고, per-server 조회는 N+1 이다.
+
     await safe_set(redis, cache_key, dashboard_to_json(result), ex=get_web_settings().redis_ttl_cache_metrics)
     return result
 
@@ -100,11 +100,6 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         end: datetime | None = None,
         server_ids: list[int] | None = None,
     ) -> list[MetricSeriesItem]:
-        """환경 시계열 — server_ids=None 이면 전체 환경, 주어지면 선택 N대 한정.
-
-        시점별 1값(그 시점 데이터가 있는 서버 sum/sum) -> 버킷 avg. 서버 상세와 같은 산식이라
-        dimension 없는 지표(cpu/mem)는 1대 선택 시 상세 화면과 값이 일치한다.
-        """
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
         dtos = await self.repo.get_metric_trend(
@@ -123,7 +118,7 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         end: datetime | None = None,
         collapse: bool = False,
     ) -> list[MetricSeriesItem]:
-        # collapse=True 는 물리 디바이스 수와 무관하게 1선으로 합산한다 — 디바이스가 많으면 멀티라인이 안 읽힌다.
+
         dtos = await self.repo.get_metric_chart(
             server_id, metric_type, dimension, time_range, bucket, agg, end, collapse
         )
@@ -135,10 +130,6 @@ class MetricQueryMixin(_BaseQueryServiceMixin):
         time_range: TimeRange,
         end: datetime | None = None,
     ) -> list[RebootEvent]:
-        """차트 vertical marker 용 — 지정 time_range 내 시스템 재부팅·에이전트 재시작 시점.
-
-        파생 필드가 없고 datetime·Literal 이 그대로 직렬화돼 ViewModel 변환 없이 outbound DTO 를 넘긴다.
-        """
         end_dt = end or datetime.now(UTC)
         start = end_dt - TIME_RANGE_TD[time_range]
         return await self.repo.get_reboot_events(server_id, start, end_dt)

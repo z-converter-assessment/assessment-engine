@@ -1,5 +1,3 @@
-"""boot_time 지터 허용 경계와 카운터 리셋 판정을 검증한다."""
-
 from datetime import UTC, datetime, timedelta
 
 from assessment_engine.domain.boot_time import (

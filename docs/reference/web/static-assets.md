@@ -68,7 +68,7 @@
 ### Y축 정책
 - 추이 차트 (자원별 상세 탭): 분해력 우선 — idle 환경의 작은 값도 보이게 `suggestedMax` 낮게 (`STORAGE_KBPS_SUGGESTED_MAX`)
 - 성능 추이 (metrics 페이지): 절대 기준 — 디스크 처리량 `PERF_DISK_KBPS_SUGGESTED_MAX`(10MB/s)
-- 판정 crossing 서버 수 차트 (`cpu.saturation_hosts`·`mem.paging_pressure_hosts`·`disk.saturation_hosts`·`net.congested_hosts`): fleet 전체 서버 수로 상한 고정. `suggestedMax`(floor, 자동 확장)가 아니라 `max`(hard) 라 구간·새로고침이 바뀌어도 축이 흔들리지 않는다. `/environment/metrics?ids=` 로 선택 N대에 들어와도 selection 크기가 아니라 전체 규모를 쓴다 — 이 차트가 보여주려는 것이 "이론상 최대치 대비 몇 대가 임계를 넘었나"라서 분모가 selection 에 따라 흔들리면 같은 데이터가 진입 경로마다 다르게 읽힌다. 값은 SSR 이 `get_fleet_status` 로 산출해 body data 속성으로 내린다
+- 서버 수 차트 (`cpu.high_utilization_hosts`·`mem.paging_pressure_hosts`·`disk.saturation_hosts`·`net.congested_hosts`): fleet 전체 서버 수로 상한을 고정한다. `suggestedMax`가 아니라 `max`를 사용해 구간과 새로고침이 바뀌어도 축이 흔들리지 않는다. 값은 SSR이 `get_fleet_status`로 산출해 body data 속성으로 내린다
 - 네트워크 I/O 는 양쪽 모두 고정 상한 없음 (`beginAtZero` 만) — 이기종 fleet 트래픽 규모 차이로 고정 상한을 두면 저트래픽 구간 추이선이 바닥에 눌림
 
 ### X축 정책 (예외 0)
@@ -95,7 +95,7 @@
 - 추이 차트의 면적 음영은 avg+max ghost(`buildAvgMaxDatasets`, avg dataset `fill:'+1'`)만 — avg~max 사이를 채워 burst(순간 최대-평균 차)를 시각화. 이것이 "음영"의 유일한 의미.
 - 선 아래 zero 까지 채우는 area fill(`fill:true`) 금지 — 추이 차트는 추세선만(`fill:false`). area fill 은 burst 음영과 혼동되고 값 밀집 시 가독성을 떨어뜨림.
 - 15분 구간(1분 버킷)은 버킷당 데이터 1포인트라 max=avg -> ghost 음영 0. `buildAvgMaxDatasets` 가 `bMs <= BUCKET_MS['1m']` 일 때 maxRows 를 비워 전 차트 일괄 자동 비활성.
-- 실행 큐 차트(`cpu.run_queue`, os-aware — Linux procs_running / Windows Processor Queue Length)는 backend 가 이미 실행큐 합/코어 합(코어당 값, 포화선은 OS 별)으로 반환 — 클라는 값 그대로 표시. 서버 상세는 연속값 단일선(`cpu.js`), 환경 성능 추이는 같은 임계 판정을 SQL 로 이식한 crossing 서버 수(`cpu.saturation_hosts`, count) 단일선 — 스코프별 표현 단위 차이는 `services.md` "서버 상세 성능 추이" 절.
+- 실행 큐 차트(`cpu.run_queue`)는 Linux `procs_running`과 Windows `Processor Queue Length`를 OS별 연속선으로 표시한다. 환경 성능 추이는 두 실행 큐를 합산하지 않고 CPU 고사용률 서버 수(`cpu.high_utilization_hosts`)를 표시한다.
 
 ## 색 테마 — `:root` 변수 + 주색 단일 진실 (예외 0)
 - 테마 변수 = `app.css :root` 단일 선언. `--color-title`(#2563eb) = 주색 — `.btn-primary` 채움·`.toggle.active`·정렬 칼럼 강조·`.list-filter` 테두리·네비 진행바·스토리지 막대. 사이드바 계열은 `--sidebar-*` 변수군(바탕·글씨·hover·active). `--color-table-head`(#e5e7eb) = 전 테이블 제목행 하단 경계선. 색 변경 시 `app.css :root` 만 수정.

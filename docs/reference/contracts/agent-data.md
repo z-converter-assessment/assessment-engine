@@ -53,8 +53,8 @@ datapoint = `{ "attr": {<k>:<string|number>}, "value": <number|null> }`. `attr` 
 | agent_started_at | string \| null | agent 재시작 = counter reset 게이트 |
 | os_family | enum linux/windows | 조건부 분기 기준 |
 | agent_version | string | 옵셔널. major bump 수신 시 엔진 코드 수정 트리거 / minor silent 호환 |
-| composite_id | string \| null | 옵셔널. SHA-256 composite hash. 감사·표시용(식별·라우팅 미사용). "" -> None 정규화 |
-| machine_id | string \| null | 옵셔널. raw machine-id 표시 전용 |
+| composite_id | string \| null | 옵셔널. SHA-256 composite hash. 감사 및 표시용(식별/라우팅 미사용). "" -> None 정규화 |
+| machine_id | string \| null | 옵셔널. raw machine-id 감사 및 표시용 |
 
 호스트 정적 서술자(hostname·os_id 등)는 envelope 아니라 `inventory` 메시지가 싣는다(F절). metrics 는 정적 서술자 없이 `agent_id` 로 서버에 조인된다.
 

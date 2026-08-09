@@ -22,7 +22,7 @@ class SqlDiagnosticRepository:
     async def enqueue(self, job: DiagnosticJobCreate) -> str | None:
         # active partial UNIQUE = (scope, input_hash, job_type). 충돌 시 returning None.
         # index_where 명시 의무 — partial unique index 는 column 만으로 자동 매칭 안 되고
-        # WHERE 조건이 정확히 일치해야 ON CONFLICT 가 인덱스를 잡는다.
+
         stmt = (
             pg_insert(DiagnosticJob)
             .values(
@@ -98,7 +98,7 @@ class SqlDiagnosticRepository:
         row.started_at = func.now()
         row.progress_stage = "running"
         await self.session.flush()
-        await self.session.refresh(row)  # started_at func.now() 실제값 반영
+        await self.session.refresh(row)
         return _row_to_diagnostic_record(row)
 
     async def mark_failed(self, job_id: str, error_message: str) -> None:
@@ -133,7 +133,7 @@ class SqlDiagnosticRepository:
         job_type: str | None = None,
         limit: int = 200,
     ) -> list[DiagnosticJobRecord]:
-        # days=0 sentinel = 전체 (시간 필터 생략). retention 미적용 시 모든 row 반환 — limit=200 cap 으로 보호.
+
         stmt = select(DiagnosticJob)
         if days > 0:
             stmt = stmt.where(
@@ -144,8 +144,6 @@ class SqlDiagnosticRepository:
         if job_type:
             stmt = stmt.where(DiagnosticJob.job_type == job_type)
         if server_public_ids:
-            # 단수 키(1대) 또는 복수 키(N대) 중 하나라도 매칭하면 hit (environment scope 는 두 키 부재로 자연 제외).
-            # 복수 키는 JSONB ?| 로 array element 중 하나라도 일치하는지 검사.
             single_match = DiagnosticJob.input_params["server_public_id"].astext.in_(
                 server_public_ids,
             )
@@ -163,11 +161,6 @@ class SqlDiagnosticRepository:
 
 
 def _affected_rows(result: Result[Any]) -> int:
-    """UPDATE/DELETE 영향 행 수.
-
-    `session.execute` 는 정적으로 `Result` 를 돌려주지만 DML 은 런타임에 `rowcount` 를 가진
-    `CursorResult` 라 좁혀서 읽는다.
-    """
     return cast("CursorResult[Any]", result).rowcount or 0
 
 

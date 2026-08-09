@@ -16,7 +16,6 @@ from assessment_engine.web.routers.pages.list_page import (
 from assessment_engine.web.routers.pages.report_page import report_multi_router, report_single_router
 from assessment_engine.web.routers.pages.server_detail import server_detail_router
 
-# 묶음 prefix 없음 — 각 sub-router 자체 prefix. 리터럴(/servers·/environment/*)이 /servers/{id} UUID 보다 먼저 매칭.
 pages_router = APIRouter(tags=["pages"])
 pages_router.include_router(overview_router)
 pages_router.include_router(servers_list_router)

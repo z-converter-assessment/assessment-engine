@@ -1,11 +1,3 @@
-"""Assessment API 매퍼 property-based 감사 (hypothesis) — /api/assessment 계약 불변식.
-
-수천 가짓수의 합성 ReportRowRaw + per-mount 용량을 build_assessment_entry/envelope 에 먹여, 어떤 입력에도
-계약(assessment-api.md 4절)이 깨지지 않음을 검증한다: JSON 직렬화 가능·필수 키·사이징 never-worse(under->증설/
-over->감축)·recommended never-null·분류/신뢰도 enum·근본원인 축 정합. 도메인 커널 property(test_right_sizing_
-properties)가 rollup_host 를 덮고, 본 스위트는 그 위 API 표현 계층(dict 계약)을 덮는다.
-"""
-
 import json
 from typing import Any
 
@@ -28,7 +20,6 @@ from assessment_engine.web.view_models.assessment_api import AssessmentServer
 from tests.builders import report_row_raw
 from tests.hypothesis_scale import examples
 
-# TypedDict 는 인스턴스 메서드가 없어 어댑터를 거친다 — extra=forbid 검증은 그대로다.
 _SERVER_SCHEMA = TypeAdapter(AssessmentServer)
 
 _ACTIONS = {"increase", "decrease", "keep"}
@@ -48,7 +39,6 @@ _mem_bytes = st.sampled_from([512, 1024, 2048, 4096, 8192, 16384, 32768, 65536])
 
 @st.composite
 def _interfaces(draw: DrawFn) -> list[JsonObject]:
-    """net_interfaces — 물리/가상 혼합, ipv4 주소 유무. primary_ip·reproduction 경로 자극."""
     n = draw(st.integers(min_value=0, max_value=3))
     out: list[JsonObject] = []
     for i in range(n):
@@ -71,7 +61,6 @@ def _interfaces(draw: DrawFn) -> list[JsonObject]:
 
 @st.composite
 def _block_devices(draw: DrawFn) -> list[JsonObject]:
-    """block_devices — disk/partition, size_bytes 합이 disk_total_bytes(사이징 base). mountpoint 로 device_ref 조인."""
     n = draw(st.integers(min_value=0, max_value=3))
     return [
         {
@@ -117,7 +106,7 @@ def _report_row(draw: DrawFn) -> ReportRowRaw:
         cpu_percore_p95_max=draw(_opt(_pct)),
         procs_blocked_p95=draw(_opt(st.floats(0, 30, allow_nan=False))),
         procs_running_p95=draw(_opt(st.floats(0, 30, allow_nan=False))),
-        mem_swap_paging=draw(st.booleans()),
+        mem_swap_paging=draw(_opt(st.booleans())),
         oom_occurred=draw(st.booleans()),
         disk_await_p95_ms=draw(_opt(st.floats(0, 2000, allow_nan=False))),
         disk_iops_baseline=draw(_opt(st.integers(0, 10000))),
@@ -162,18 +151,12 @@ def _mounts(draw: DrawFn) -> list[MountCapacityRaw]:
 @settings(max_examples=examples(3000))
 @given(_report_row(), _mounts(), st.booleans(), st.booleans())
 def test_entry_contract_invariants(raw: ReportRowRaw, mounts: list[MountCapacityRaw], is_online: bool, ambiguous: bool):
-    """어떤 유효 입력에도 서버 항목 계약이 성립 (위반 = 확정 버그)."""
     entry = build_assessment_entry(raw, mounts, is_online, ambiguous)
 
-    # 1. 최상위 5블록 (decision-first 계약)
     assert set(entry) == {"identity", "reproduction", "sizing", "assessment", "diagnostics"}
-    # 2. 전체 JSON 직렬화 가능 — 타입 누수(datetime/set/IP객체)·비직렬 PII 노출 즉시 검출
     json.dumps(entry)
-    # 2b. 응답 스키마(계약 타입 미러) drift 가드 — 매퍼 dict 가 AssessmentServer(extra=forbid)에 검증.
-    #     신규/누락 키나 타입 불일치 = OpenAPI 스키마와 매퍼 어긋남 = 즉시 실패.
     _SERVER_SCHEMA.validate_python(entry)
 
-    # 3. identity passthrough
     ident = entry["identity"]
     assert ident["public_id"] == raw.public_id
     assert ident["hostname"] == raw.hostname
@@ -181,38 +164,35 @@ def test_entry_contract_invariants(raw: ReportRowRaw, mounts: list[MountCapacity
     assert ident["hostname_ambiguous"] is ambiguous
     assert ident["os_family"] == raw.os_family
 
-    # 4. sizing.axes never-worse + never-null recommended
     for a in entry["sizing"]["axes"]:
-        assert a["recommended"] is not None, a  # never-null 계약
-        assert a["current"] is not None, a  # current 미상이면 축 생략
+        assert a["recommended"] is not None, a
+        assert a["current"] is not None, a
         assert a["action"] in _ACTIONS, a
         assert a["estimate_quality"] in _QUALITY, a
         cur, rec, act = a["current"], a["recommended"], a["action"]
         if act == "increase":
-            assert rec >= cur, a  # 부족을 더 부족하게 만들지 않음
+            assert rec >= cur, a
         elif act == "decrease":
-            assert rec <= cur, a  # 과다 감축은 현재 이하
-        else:  # keep
+            assert rec <= cur, a
+        else:
             assert rec == cur, a
         if a["axis"] in ("cpu", "memory"):
             assert isinstance(rec, int), a
             assert rec > 0, a
             assert a["unit"] in ("vcpus", "mib"), a
-        else:  # disk
+        else:
             assert a["axis"] == "disk", a
             assert a["unit"] == "gib", a
             assert a.get("mountpoint") is not None, a
 
-    # 5. assessment enum + data_quality 불변식
     asmt = entry["assessment"]
     assert asmt["classification"] in right_sizing.RECOMMENDATION_LABEL_KO, asmt
     assert asmt["confidence"] in ("low", "medium", "high"), asmt
     dq = asmt["data_quality"]
     assert dq["sufficient"] is (asmt["confidence"] == "high")
     if asmt["confidence"] != "high":
-        assert dq["notes"], asmt  # high 아니면 근거 노트 최소 1
+        assert dq["notes"], asmt
 
-    # 6. diagnostics 축 정합
     diag = entry["diagnostics"]
     assert diag["root_cause"] in _ROOT_CAUSE_AXES, diag["root_cause"]
     res_axes = [r["axis"] for r in diag["resources"]]
@@ -223,7 +203,6 @@ def test_entry_contract_invariants(raw: ReportRowRaw, mounts: list[MountCapacity
 @settings(max_examples=examples(1500))
 @given(_report_row(), _mounts(), st.booleans())
 def test_entry_deterministic(raw: ReportRowRaw, mounts: list[MountCapacityRaw], is_online: bool):
-    """동일 입력 -> byte-identical 출력 (순수 함수)."""
     e1 = build_assessment_entry(raw, mounts, is_online, False)
     e2 = build_assessment_entry(raw, mounts, is_online, False)
     assert json.dumps(e1, sort_keys=True) == json.dumps(e2, sort_keys=True)
@@ -232,7 +211,6 @@ def test_entry_deterministic(raw: ReportRowRaw, mounts: list[MountCapacityRaw], 
 @settings(max_examples=examples(1000))
 @given(st.lists(st.tuples(_report_row(), _mounts(), st.booleans()), max_size=5))
 def test_envelope_contract(rows: list[tuple[ReportRowRaw, list[MountCapacityRaw], bool]]):
-    """envelope(4.1) — count==len(servers), contract_version, warnings 3키, JSON 직렬."""
     servers = [build_assessment_entry(raw, mounts, online, False) for raw, mounts, online in rows]
     result = {
         "servers": servers,
@@ -257,7 +235,6 @@ def test_envelope_contract(rows: list[tuple[ReportRowRaw, list[MountCapacityRaw]
 
 
 def test_reproduction_reshapes_os_boot_mounts():
-    """_reproduction os/boot/mounts 값 reshape — 채워진 boot dict.get 픽업 + nonblock_mounts 컴프리헨션."""
     raw = ReportRowRaw(
         server_id=1,
         public_id="00000000-0000-0000-0000-000000000001",
@@ -306,7 +283,6 @@ def test_reproduction_reshapes_os_boot_mounts():
 
 
 def test_reproduction_boot_and_mounts_null_fallback():
-    """raw.boot=None / nonblock_mounts=None 폴백 — boot or {} / nonblock_mounts or []."""
     raw = ReportRowRaw(
         server_id=2,
         public_id="00000000-0000-0000-0000-000000000002",
@@ -333,19 +309,11 @@ def test_reproduction_boot_and_mounts_null_fallback():
     assert repro["mounts"] == []
 
 
-# --- 키 생략 (계약 문서 "필드 존재 대 값" 절) --------------------------------
-
 _DISK_ONLY_KEYS = {"mountpoint", "device_ref", "used_pct", "runway_days", "note"}
 _COMMON_AXIS_KEYS = {"axis", "unit", "current", "recommended", "action", "estimate_quality"}
 
 
 def test_sizing_axes_key_sets_differ_by_axis():
-    """`sizing.axes` 는 축 종류마다 키 집합이 다르다 — disk 전용 5키는 cpu/memory 에 아예 없다.
-
-    계약 문서가 오래 "모든 키 항상 존재, 생략 아님" 이라고 말해 왔는데 이 축만 사실이 아니었다. 문서를
-    현황으로 고쳤으므로 그 현황을 여기서 고정한다 — 반대 방향(문서대로 키를 채우는 변경)이 들어오면
-    소비자 파싱이 바뀌므로 계약 개정 절차를 거쳐야 한다.
-    """
     raw = report_row_raw(cpu_p95_pct=95.0, cpu_cores=2, mem_p95_pct=95.0, mem_total_bytes=4 * 1024**3)
     mounts = [MountCapacityRaw("/", 100 * 1024**3, 92.0, 30.0, None, 40.0, 200 * 1024**3)]
 
@@ -372,10 +340,6 @@ def test_right_sizing_action_target_key_is_omitted_when_absent(
     sizing_target: int | None,
     expected_target_key: str | None,
 ):
-    """`actions[]` 의 목표 수치 키는 자원 종류와 목표 유무에 따라 생략된다 (null 이 아니라 부재).
-
-    사이징 축이 아닌 자원(network·disk_io)은 목표 키 자체가 없다 — 크기로 푸는 조치가 아니기 때문이다.
-    """
     action = _action(kind, right_sizing.ResourceAssessment(kind, "under", sizing_target=sizing_target), "increase")
 
     target_keys = set(action) - {"resource", "op", "target_display"}

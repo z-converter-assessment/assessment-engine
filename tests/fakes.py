@@ -1,15 +1,3 @@
-"""테스트 대역 — 실제 구현 대신 Protocol 을 만족하는 최소 객체.
-
-`AsyncMock` 은 어떤 속성 접근도 통과시켜 pyright strict 에서 0 errors 를 내므로 계약 검사가 되지 않는다.
-여기 대역은 Protocol 을 실제로 만족하고, 모듈 끝의 정적 단언이 그것을 컴파일 시점에 강제한다.
-
-`InMemoryQueryRepository` 는 메서드 이름을 키로 하는 seed 를 받아 그대로 돌려준다. seed 에 없는
-메서드는 반환 타입에 맞는 빈 값을 준다 — 화면이 "데이터 없음" 경로를 타는 상태다.
-
-`InMemoryCollectRepository` 는 반대로 호출을 기록한다. consumer 가 검사하는 것은 반환값보다
-"무엇을 몇 번 썼는가" 라서 기록이 곧 단언 대상이다.
-"""
-
 import asyncio
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Any, Self, cast
@@ -62,8 +50,6 @@ if TYPE_CHECKING:
 
 
 class InMemoryQueryRepository:
-    """`QueryRepository` protocol 대역. seed 키는 메서드 이름 그대로다."""
-
     def __init__(self, seed: dict[str, Any] | None = None) -> None:
         self._seed: dict[str, Any] = seed or {}
 
@@ -286,11 +272,6 @@ class InMemoryQueryRepository:
         return self._value("get_report_uptime_stats", {})
 
     async def resolve_server_id(self, public_id: str) -> int | None:
-        """유일하게 인자를 보는 메서드 — 미존재 식별자의 404 분기가 여기서 갈린다.
-
-        나머지는 인자와 무관하게 seed 를 돌려준다. 이 하나만 예외인 이유는 "없는 서버" 경로가
-        화면 계약의 일부라 대역이 항상 찾아주면 그 분기를 영영 못 캡처하기 때문이다.
-        """
         mapping: dict[str, int] = self._seed.get("resolve_server_ids", {})
         return mapping.get(public_id)
 
@@ -299,8 +280,6 @@ class InMemoryQueryRepository:
 
 
 class FakeRedis:
-    """`cache/redis.py` 의 `safe_*` helper 가 부르는 표면만 갖는 대역."""
-
     def __init__(self, store: dict[str, str] | None = None) -> None:
         self.store: dict[str, str] = store or {}
 
@@ -332,8 +311,6 @@ class FakeRedis:
 
 
 class FakePipeline:
-    """Redis 트랜잭션 파이프라인 대역."""
-
     def __init__(self, redis: FakeRedis) -> None:
         self._redis = redis
         self._queued: list[tuple[str, str]] = []
@@ -362,12 +339,6 @@ class FakePipeline:
 
 
 class InMemoryCollectRepository:
-    """`CollectRepository` protocol 대역. 호출을 `calls` 에 순서대로 남긴다.
-
-    `known_agents` 에 있는 agent_id 는 등록된 서버로, 없으면 `ensure_server_id` 가 auto-register
-    경로를 탄다. `complete_task_ok=False` 는 매칭 실패(운영자가 지운 task)를 재현한다.
-    """
-
     def __init__(
         self,
         *,
@@ -420,8 +391,8 @@ class InMemoryCollectRepository:
         self._record("expire_overdue_tasks", server_ids)
         return 0
 
-    async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
-        self._record("find_pending_deadline_servers", server_ids)
+    async def find_pending_task_server_ids(self, server_ids: list[int], task_type: str) -> list[int]:
+        self._record("find_pending_task_server_ids", (server_ids, task_type))
         return []
 
     async def expire_all_overdue_tasks(self) -> int:
@@ -434,8 +405,6 @@ class InMemoryCollectRepository:
 
 
 class FakeSession:
-    """`async with session_factory() as session` 한 사이클 — consumer 가 쓰는 것은 commit 뿐이다."""
-
     def __init__(self) -> None:
         self.commits = 0
 
@@ -444,8 +413,6 @@ class FakeSession:
 
 
 class FakeSessionFactory:
-    """`_db_retry` 가 여는 세션 컨텍스트. 만들어진 세션을 `sessions` 에 모은다."""
-
     def __init__(self) -> None:
         self.sessions: list[FakeSession] = []
 
@@ -460,12 +427,6 @@ class FakeSessionFactory:
 
 
 class FakeMessage:
-    """`AbstractIncomingMessage` 대역 — 핸들러가 만지는 5 표면만 갖는다.
-
-    `process()` 는 실제와 같이 async 컨텍스트다. 컨텍스트 밖에서 await 하면 ack/nack 이 둘 다
-    안 되는 것이 #F11 의 금지 항목이라, 진입·이탈 여부를 기록해 그 위반을 테스트가 볼 수 있게 한다.
-    """
-
     def __init__(self, body: bytes, *, routing_key: str = "server.metrics", delivery_tag: int = 1) -> None:
         self.body = body
         self.routing_key = routing_key
@@ -490,8 +451,6 @@ class FakeMessage:
 
 
 class FakeQueue:
-    """`queue.cancel(tag)` 만 갖는 대역 — `_drain` 이 배달을 끊는 표면이다."""
-
     def __init__(self, *, error: BaseException | None = None, hang: bool = False) -> None:
         self.error = error
         self.hang = hang
@@ -505,17 +464,11 @@ class FakeQueue:
             await asyncio.Event().wait()
 
 
-# 대역이 protocol 을 실제로 만족하는지 컴파일 시점에 못박는다 — 메서드가 늘거나 시그니처가 바뀌면 여기서 깨진다.
 _query_repo_conformance: QueryRepository = InMemoryQueryRepository()
 _collect_repo_conformance: CollectRepository = InMemoryCollectRepository()
 
 
 class InMemoryDiagnosticService:
-    """`DiagnosticService` 대역 — 라우터가 부르는 표면만 갖는다.
-
-    발행 경로(`enqueue_report`)는 캡처 대상이 아니므로 조회 표면만 채운다.
-    """
-
     async def list_reports(self, *args: Any, **kwargs: Any) -> tuple[list[Any], int]:
         return ([], 0)
 

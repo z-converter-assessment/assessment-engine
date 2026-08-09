@@ -22,7 +22,7 @@ def _secrets_dir() -> str | None:
 # 동작해야 해서 env 와 secrets_dir 을 둘 다 연다. 채널 강제는 본 repo 밖 — 결과만 검증한다.
 _SECRETS_DIR = _secrets_dir()
 
-# 미설정·빈값은 필드 min_length 가 먼저 잡는다. dev 카탈로그 값("assessment")은 허용 — 뻔한 값만 막는다.
+
 _WEAK_VALUES = frozenset({"password", "admin", "root", "changeme"})
 
 
@@ -58,30 +58,26 @@ class WebSettings(BaseSettings):
     # 정적 자원 캐시 무효화 분기에만 쓴다 (web lifespan) — 비밀번호 검증은 이 값을 보지 않는다.
     app_env: Literal["dev", "staging", "prod"] = "dev"
 
-    # text=colorized·grep 친화, json=외부 log aggregator indexing.
     log_format: Literal["text", "json"] = "text"
-    # loguru 기본값은 DEBUG 라 명시하지 않으면 루프 내부 로그가 그대로 나간다.
+
     log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
 
     postgres_host: str = "postgres"
     postgres_db: str = "assessment"
     postgres_user: str = Field(default="assessment", min_length=1)
     # 기본값을 두지 않는다 — 미설정이 조용히 통과하면 그것을 거르는 검사가 또 필요해진다. 값은 env·secret
-    # 파일에서 오지만 pyright 는 dataclass_transform 시그니처만 보고 인자 누락으로 읽어, 인스턴스화 지점마다
-    # reportCallIssue 억제 주석이 붙는다 (여기에 그 지시자 형태를 그대로 적으면 이 줄의 실제 억제가 된다).
+
     postgres_password: SecretStr = Field(min_length=1)
     postgres_port: int = 5432
     web_port: int = 8000
-    # uvicorn auto-reload — dev override 전용, prod 는 켜지 않는다.
+
     web_reload: bool = False
 
     redis_host: str = "redis"
     redis_port: int = 6379
 
-    # 운영 환경은 false 유지 — 로그 폭증에 더해 접속 문자열·파라미터가 그대로 찍힌다.
     sqlalchemy_echo: bool = False
 
-    # TTL 환경변수의 단위는 초다.
     redis_ttl_idempotent: int = 86400
     redis_ttl_online: int = 300
     redis_ttl_last_agent_start: int = 86400
@@ -102,30 +98,28 @@ class WebSettings(BaseSettings):
     agent_restart_alert_threshold: int = 3
 
     # install 모달 기본값 — POST body 누락 시 fallback. 오발행 방어는 런타임(resolver 503 차단)과 agent host
-    # whitelist 라 기동 시점에 거부하지 않는다.
+
     zdm_default_ip: str = ""
     zdm_default_user: str = "admin@zconverter.com"
 
-    # task.install download 필드에 실려 agent 가 fetch — sha256·size_bytes 는 publish 직전 ETag 기반 동적 산출.
     zdm_package_path: str = "/download/ZConverter_CloudSource_Setup_Linux.tar.gz"
     zdm_package_script: str = "zconverter_install_source/install.sh"
     # Windows install (install.type=direct_exec). single binary 라 script 없음.
     zdm_package_path_windows: str = "/download/ZConverter_CloudSource_Setup_Windows.exe"
     zdm_meta_connect_timeout_sec: float = 5.0
     zdm_meta_total_timeout_sec: float = 120.0
-    redis_key_zdm_package_sha256: str = "cache:zdm_package:sha256:{}:{}"  # {host}:{etag}
-    redis_ttl_zdm_package_sha256: int = 6 * 60 * 60  # 6h
+    redis_key_zdm_package_sha256: str = "cache:zdm_package:sha256:{}:{}"
+    redis_ttl_zdm_package_sha256: int = 6 * 60 * 60
     install_timeout_sec: int = 600  # install.sh wall-clock timeout (원격 host worker 강제 종료)
 
-    # 이 값 하나가 engine 측 task deadline_at 과 broker agent.tasks.{agent_id} 큐 x-message-ttl 을 동시에 정한다
     # (오프라인 호스트 store-and-forward 유예 = 이 창). 픽업 후 스크립트 실행 예산인 install_timeout_sec 과 별개.
-    # 3600 은 기존 큐 TTL 과 같은 값이라 큐 재선언이 PRECONDITION_FAILED 로 깨지지 않는다.
+
     install_task_deadline_sec: int = 3600
 
     @property
     def database_url(self) -> str:
         # `openssl rand -base64` 로 만든 secret 은 `/`·`+`·`=` 를 포함할 수 있고, 그대로 삽입하면 netloc
-        # 구분자(`:`·`@`)와 충돌해 URL 파싱이 깨진다. safe="" 라야 이 문자들도 인코딩 대상에 든다.
+
         user = quote(self.postgres_user, safe="")
         password = quote(self.postgres_password.get_secret_value(), safe="")
         return f"postgresql+asyncpg://{user}:{password}@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
@@ -136,7 +130,7 @@ class WebSettings(BaseSettings):
 
     @model_validator(mode="after")
     def _validate_web_secrets(self) -> Self:
-        # 환경으로 강도를 가르지 않는다 — dev 카탈로그도 뻔한 값을 쓰지 않으므로 같은 기준이 통한다.
+
         _reject_env_shadowing_secret("postgres_password")
         if self.postgres_password.get_secret_value() in _WEAK_VALUES:
             raise ValueError(
@@ -155,7 +149,6 @@ class WorkerSettings(WebSettings):
     상속해 워커 노드에 broker 자격증명을 요구하지 않는다.
     """
 
-    # stale_seconds: 이 시간을 넘겨 running 에 남은 job 은 크래시로 간주해 회수한다(생성이 그 안에 끝난다는 가정).
     # shutdown_timeout: graceful 시 진행 중 1건을 여기까지 기다리고, 초과분은 running 잔류라 다음 기동이 회수한다.
     report_worker_poll_interval_sec: float = 2.0
     report_worker_stale_seconds: int = 600
@@ -169,27 +162,24 @@ class WorkerSettings(WebSettings):
 class ConsumerSettings(WebSettings):
     rabbitmq_host: str = "rabbitmq"
     rabbitmq_port: int = 5672
-    rabbitmq_vhost: str = "assessment"  # 에이전트 전용 vhost (앞 슬래시 없는 이름)
+    rabbitmq_vhost: str = "assessment"
     rabbitmq_user: str = Field(default="assessment", min_length=1)
-    # USER 는 식별자라 default 를 두지만 PASSWORD 는 두지 않는다 — 값을 주지 않으면 기동이 멈춘다.
+
     rabbitmq_password: SecretStr = Field(min_length=1)
     rabbitmq_exchange: str = "assessment"
     rabbitmq_routing_key_inventory: str = "server.inventory"
     rabbitmq_routing_key_metrics: str = "server.metrics"
     rabbitmq_routing_key_error: str = "server.error"
 
-    # collector exchange 와 분리한 원격 작업 토폴로지 — 인증·DLX 정책을 따로 건다.
     rabbitmq_task_exchange: str = "assessment.tasks"
     rabbitmq_task_queue_prefix: str = "agent.tasks"
     rabbitmq_task_install_key_prefix: str = "task.install"
     rabbitmq_routing_key_task_result: str = "task.result"
     rabbitmq_queue_worker_result: str = "worker.result"
 
-    # 매칭 키 -> 성공으로 취급할 추가 exit code. 키 규약·판정 조건·기본값 근거는
     # docs/reference/contracts/env.md TASK_INSTALL_SUCCESS_EXIT_CODES 단일 진실.
     # Windows 는 빌드번호별 키를 두면 누락에 취약해(예 2008R2=7601) family 한 키로 둔다. 설치 성공은 해당 호스트
-    # services 의 ZConCloudAgent(RUNNING) 등장으로 확인했다. EL9 에서 rhel9 는 미해당이라 빼고, centos-stream8 은
-    # centos8 과 os_id 가 구분되지 않아 보류한다.
+
     task_install_success_exit_codes: dict[str, list[int]] = {
         "windows": [2],
         "rocky:9": [3],
@@ -201,19 +191,16 @@ class ConsumerSettings(WebSettings):
     @property
     def broker_url(self) -> str:
         # secret 에 `/`·`+`·`=` 가 있으면 yarl(aio-pika 내부 파서)이 netloc 을 못 갈라 "port can't be converted
-        # to integer" 로 기동이 깨진다(운영 실사고). vhost 의 "/" -> "%2F" 는 AMQP 표준 인코딩.
+
         user = quote(self.rabbitmq_user, safe="")
         password = quote(self.rabbitmq_password.get_secret_value(), safe="")
         encoded_vhost = self.rabbitmq_vhost.replace("/", "%2F")
         return f"amqp://{user}:{password}@{self.rabbitmq_host}:{self.rabbitmq_port}/{encoded_vhost}"
 
-    # agent 와 합의된 형식이라 발행 측·소비 측이 같은 규칙으로 합성해야 한다 — 두 메서드가 그 단일 진실.
     def agent_task_queue(self, agent_id: str) -> str:
-        """task.install 발행 대상 호스트별 큐 이름."""
         return f"{self.rabbitmq_task_queue_prefix}.{agent_id}"
 
     def task_install_routing_key(self, agent_id: str) -> str:
-        """task.install 호스트별 routing key."""
         return f"{self.rabbitmq_task_install_key_prefix}.{agent_id}"
 
     @model_validator(mode="after")

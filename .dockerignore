@@ -1,12 +1,9 @@
-# Dockerfile 이 복사하는 것은 pyproject.toml·uv.lock·src/ 셋뿐이다.
-# 전부 제외한 뒤 그 셋만 되돌린다 — 새 파일이 루트에 생겨도 컨텍스트에 자동으로 섞이지 않는다.
 *
 
 !pyproject.toml
 !uv.lock
 !src/
 
-# src/ 안에서도 런타임 생성물은 뺀다.
 src/**/__pycache__/
 src/**/*.pyc
 src/**/*.pyo

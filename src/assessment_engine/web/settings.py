@@ -10,16 +10,16 @@ import 이 아니라 첫 호출에서 인스턴스화한다. 모듈 로드만으
 multi-node 분리 시 web 노드만 본 module 을 쓴다 — ConsumerSettings 는 만들지 않는다.
 """
 
-from functools import lru_cache
+from functools import cache
 
 from assessment_engine.config import DiagnosticSettings, WebSettings
 
 
-@lru_cache(maxsize=1)
+@cache
 def get_web_settings() -> WebSettings:
     return WebSettings()  # pyright: ignore[reportCallIssue]
 
 
-@lru_cache(maxsize=1)
+@cache
 def get_diagnostic_settings() -> DiagnosticSettings:
     return DiagnosticSettings()  # pyright: ignore[reportCallIssue]
