@@ -257,6 +257,8 @@ def _cap_row(
     runway: int | None,
     mount: str | None,
     used_pct: float | None = 90.0,
+    inode_runway: int | None = None,
+    inode_mount: str | None = None,
 ) -> ReportRowItem:
     return ReportRowItem(
         server_id=1,
@@ -283,6 +285,8 @@ def _cap_row(
         worst_mount_used_pct=used_pct,
         disk_capacity_driving_mount=mount,
         disk_capacity_runway_days=runway,
+        disk_inode_driving_mount=inode_mount,
+        disk_inode_runway_days=inode_runway,
     )
 
 
@@ -313,6 +317,15 @@ def test_extract_capacity_imminent_filters_and_sorts():
 def test_extract_capacity_imminent_boundary_at_threshold_excluded():
     rows = [_cap_row("u-1", "h1", runway=right_sizing.DISK_RUNWAY_DAYS, mount="/data")]
     assert erm._extract_capacity_imminent(rows) == []
+
+
+def test_extract_capacity_imminent_uses_inode_driving_mount():
+    rows = [_cap_row("u-1", "host-1", runway=100, mount="/data", inode_runway=5, inode_mount="/var")]
+    out = erm._extract_capacity_imminent(rows)
+    assert len(out) == 1
+    assert out[0].worst_mount == "/var"
+    assert out[0].constraint_label == "inode"
+    assert out[0].days_until_full == 5
 
 
 def test_extract_capacity_imminent_empty():

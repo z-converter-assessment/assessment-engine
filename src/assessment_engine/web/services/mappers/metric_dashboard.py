@@ -22,9 +22,6 @@ from assessment_engine.domain.right_sizing import (
     PROCS_BLOCKED_DSTATE_SATURATION,
     PROCS_RUNNING_PER_CORE_SATURATION,
     WIN_PAGES_INPUT_SATURATION,
-    cpu_saturation_index,
-    disk_io_saturation_index,
-    mem_pressure_active,
 )
 from assessment_engine.web.services.device_filters import (
     is_data_volume,
@@ -214,18 +211,17 @@ def build_saturation_signals(
     win = os_family == "windows"
     psi_ok = _psi_supported(kernel_version)
 
-    rq_idx = cpu_saturation_index(run_queue_total, cores, os_family)
     rq_threshold = CPU_RUN_QUEUE_PER_CORE_SATURATION if win else PROCS_RUNNING_PER_CORE_SATURATION
     rq_percore = (run_queue_total / cores) if (run_queue_total is not None and cores) else None
     cpu = [
         SaturationSignal(
             key="cpu_run_queue",
             label="실행 큐",
-            state="measured" if rq_idx is not None else "no_data",
+            state="measured" if rq_percore is not None else "no_data",
             value=round(rq_percore, 2) if rq_percore is not None else None,
             threshold=rq_threshold,
             unit="per_core",
-            saturated=(rq_idx >= 1.0) if rq_idx is not None else None,
+            saturated=(rq_percore >= rq_threshold) if rq_percore is not None else None,
             detail=("Windows Processor Queue Length" if win else "Linux procs_running")
             + f"/코어, 임계 {rq_threshold:g}",
         )
@@ -272,7 +268,11 @@ def build_saturation_signals(
         )
 
     paging = sat.paging_major_rate
-    paging_sat = mem_pressure_active(paging, os_family) if paging is not None else None
+    paging_sat = (
+        paging >= WIN_PAGES_INPUT_SATURATION
+        if os_family == "windows" and paging is not None
+        else (paging > 0 if paging is not None else None)
+    )
     mem = [
         SaturationSignal(
             key="mem_paging",
@@ -290,7 +290,6 @@ def build_saturation_signals(
     ]
 
     # Windows 는 await 를 미발행해 큐 깊이로 폴백한다.
-    di_idx = disk_io_saturation_index(sat.await_ms, sat.pending_ops, os_family)
     if sat.await_ms is not None:
         disk = [
             SaturationSignal(
@@ -300,7 +299,7 @@ def build_saturation_signals(
                 value=round(sat.await_ms, 1),
                 threshold=float(DISKIO_AWAIT_MS),
                 unit="ms",
-                saturated=(di_idx >= 1.0) if di_idx is not None else None,
+                saturated=sat.await_ms >= DISKIO_AWAIT_MS,
                 detail=f"IO 응답 지연 await, 임계 {DISKIO_AWAIT_MS:g}ms",
             )
         ]
@@ -313,7 +312,7 @@ def build_saturation_signals(
                 value=round(sat.pending_ops, 2),
                 threshold=float(DISK_QUEUE_PER_DISK_SATURATION),
                 unit="ops",
-                saturated=(di_idx >= 1.0) if di_idx is not None else None,
+                saturated=sat.pending_ops >= DISK_QUEUE_PER_DISK_SATURATION,
                 detail=f"Windows 큐 깊이(await 폴백), 임계 {DISK_QUEUE_PER_DISK_SATURATION:g}",
             )
         ]

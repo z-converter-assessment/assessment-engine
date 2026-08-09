@@ -284,19 +284,28 @@ def _extract_attention_hosts(
 def _extract_capacity_imminent(rows: list[ReportRowItem]) -> list[CapacityImminentItem]:
     out: list[CapacityImminentItem] = []
     for r in rows:
-        if r.disk_capacity_runway_days is None:
+        candidate: tuple[int, str | None, str, float | None] | None = None
+        if r.disk_capacity_runway_days is not None and r.disk_capacity_runway_days < right_sizing.DISK_RUNWAY_DAYS:
+            candidate = (r.disk_capacity_runway_days, r.disk_capacity_driving_mount, "용량", r.worst_mount_used_pct)
+        if (
+            r.disk_inode_runway_days is not None
+            and r.disk_inode_runway_days < right_sizing.DISK_RUNWAY_DAYS
+            and (candidate is None or r.disk_inode_runway_days < candidate[0])
+        ):
+            candidate = (r.disk_inode_runway_days, r.disk_inode_driving_mount, "inode", None)
+        if candidate is None:
             continue
-        if r.disk_capacity_runway_days >= right_sizing.DISK_RUNWAY_DAYS:
-            continue
-        if not r.disk_capacity_driving_mount:
+        runway, mount, constraint_label, used_pct = candidate
+        if mount is None:
             continue
         out.append(
             CapacityImminentItem(
                 public_id=r.public_id,
                 hostname=r.hostname,
-                worst_mount=r.disk_capacity_driving_mount,
-                days_until_full=r.disk_capacity_runway_days,
-                used_pct=r.worst_mount_used_pct,
+                worst_mount=mount,
+                days_until_full=runway,
+                constraint_label=constraint_label,
+                used_pct=used_pct,
             )
         )
     out.sort(key=lambda h: (h.days_until_full, h.hostname))

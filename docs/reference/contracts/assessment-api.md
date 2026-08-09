@@ -262,7 +262,7 @@ action과 estimate_quality 유효 조합:
 ```
 
 - `classification`은 호스트 종합 판정이다. 정렬/표시 편의용이며, 실제 프로비저닝 결정은 sizing.axes를 소비한다.
-- `insufficient_data`는 사이징 2축(cpu·memory)이 둘 다 미측정일 때다 - disk/disk_io/network가 측정돼 있어도 두 축이 없으면 판정 불가로 본다. 단 디스크 용량이 소진 임박(filling)이면 under_provisioned가 우선한다. cpu·memory 중 한쪽만 측정된 부분 결손은 insufficient가 아니다 - 측정된 축으로 classification을 완결하고, 미측정 사이징 축은 sizing.axes에서 `estimate_quality: "uncertain"`으로 표기한다. 특정 자원의 미측정 여부는 해당 sizing 축의 estimate_quality와 diagnostics.resources[].status로 확인한다.
+- `insufficient_data`는 사이징 2축(cpu·memory)이 둘 다 미측정일 때다 - disk/disk_io/network가 측정돼 있어도 두 축이 없으면 판정 불가로 본다. 단 디스크 용량이 소진 임박(filling)이면 under_provisioned가 우선한다. cpu·memory 중 한쪽만 측정된 부분 결손은 insufficient_data가 아니다 - 측정된 축으로 classification을 완결하고, 미측정 사이징 축은 sizing.axes에서 `estimate_quality: "uncertain"`으로 표기한다. 특정 자원의 미측정 여부는 해당 sizing 축의 estimate_quality와 diagnostics.resources[].status로 확인한다.
 - `data_quality.sufficient`는 `confidence == "high"`일 때만 `true`다(medium/low면 `false`). `notes` 불변식: `confidence`가 `high`가 아니면 notes에 최소 하나의 하향 사유가 담긴다.
 - 크기로 안 풀리는 신호는 sizing에 반영되지 않는다. `classification`이 `under_provisioned`인데 sizing.axes 전 축이 `keep`이면 원인은 디스크 용량 신호이며 diagnostics의 disk status(`filling`)로 확인한다 - inode 소진인 경우 해당 disk 축의 `note`에도 사유가 실린다. 디스크 I/O 병목과 네트워크 혼잡은 classification을 under로 만들지 않고 `advisory.disk_io_tier_hint` / `advisory.network_congested`로만 노출되므로, 완전한 프로비저닝은 classification과 무관하게 advisory를 확인한다.
 
@@ -289,7 +289,7 @@ action과 estimate_quality 유효 조합:
 ```
 
 - `resources[].status`는 축별로 의미가 달라 허용값도 축별 부분집합이다:
-  - `cpu`, `memory`: under | optimal | over | insufficient | unmeasured
+  - `cpu`, `memory`: under | optimal | over | unmeasured
   - `disk`(용량): filling | capacity_ok | unmeasured
   - `disk_io`: io_bound | io_ok | unmeasured
   - `network`: congested | quality_ok | unmeasured

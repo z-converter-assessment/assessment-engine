@@ -2,17 +2,7 @@
  * 환경 성능 추이 페이지 차트 로직 — 전체 환경(모든 서버) 차트.
  *
  * 서버 상세 성능 추이(metrics.js) 기반의 환경판 — CPU·메모리·디스크·네트워크만 신호 카탈로그가 다르다(아래).
- * server_id 없음 — 환경 전체 집계 (capacity-weighted: cpu·mem·fs 이용률(%) / 판정 crossing 서버 수(count,
- * "윈도우 정규화 보정") — cpu 실행 큐·mem 페이징 압박·disk I/O 포화·net 이상 서버 수, 각 os별 임계로 판정한
- * 서버 수를 단일선 카운트로 집계(강도 지수 아님 — 도메인 지식 없이 바로 읽히는 표현으로 통일, "가장 나쁜 곳
- * 1개"보다 확산 범위가 드러남). CPU 분류·CPU/메모리/디스크 PSI 는 Windows 미발행/부분발행이라 환경 혼합
- * 단위에서 제외, 서버 상세엔 유지. 디스크 IOPS·처리량·네트워크 PPS(합산 절대값)도 제외 — 이기종 장치를 그냥
- * 더한 숫자는 비교 기준선이 없어 해석 불가(높다/낮다 판단 근거 없음, CPU%·await ms 와 달리 척도·임계가 없는
- * 숫자). 네트워크 I/O(rx/tx bytes/s)는 링크 속도 대비 이용률(%) 정규화를 검토했으나 link_speed_bps 결측이
- * fleet 상당수라 raw 활동량(합산, floating y축)으로 유지 — TCP 재전송율·패킷 드롭율은 net.congested_hosts
- * (판정 crossing 서버 수)로 통합, 두 % 라인이 시각적으로 거의 겹쳐 구분 안 되던 문제도 해결.
- * fetch: GET /api/servers/environment/metrics-chart (agg 미지원 — capacity-weighted/합산 단일).
- * 외부 의존: ChartUtils (base.html), Chart.js (페이지 로드). 수집 기준은 SSR(#last-metric-ts) 고정.
+ * 환경 전체의 이용률, 임계 신호, 네트워크 활동량을 표시한다.
  */
 import { AUTO_BUCKET, BUCKET_LABEL, BUCKET_MS, fmtKbChart, safeArray, bindToggle, renderChipLegend, buildAvgMaxDatasets, buildAvgMaxLegend } from "@/chart-utils";
 import * as ChartUtils from "@/chart-utils";
@@ -21,9 +11,6 @@ import * as ChartUtils from "@/chart-utils";
 
 // 선택 N대 한정(있으면) — 차트 fetch 에 ids 전달. 없으면 전체 환경 (data-selection-ids 미설정/빈 문자열).
 const SELECTION_IDS = document.body.dataset.selectionIds || '';
-// 판정 crossing 서버 수 차트(cpu.saturation_hosts·mem.paging_pressure_hosts) Y축 고정 상한 — 전체 서버 수
-// (SSR, get_fleet_status 동일 산식). suggestedMax(floor)가 아니라 max(hard) — 자동 확장 없이 "이론상 최대치"
-// 기준으로 항상 동일 스케일 유지, 구간·새로고침 바뀌어도 축이 안 흔들려 시각적 비교가 가능.
 const TOTAL_HOSTS = Number(document.body.dataset.totalHosts) || 1;
 
 let globalRange = '15m';
@@ -177,10 +164,6 @@ async function loadCpuChart(range, anchor) {
   updateMaxLabel('cpu-max', computePeriodMax(safeAvg), v => v.toFixed(1)+'%', null);
 }
 
-// 실행 큐 포화 서버 수 — right_sizing.cpu_saturation_index 와 동일 임계 판정을 SQL 로 이식(backend
-// cpu.saturation_hosts, NULL dimension 단일선). Linux procs_running(임계1.0)·Windows Processor Queue
-// Length(임계2.0) — 판정 crossing 서버 수(count). 메모리 압박 서버 수와 일관된 표현(강도 지수보다 "몇 대"가
-// 도메인 지식 없이 바로 읽힘) — "윈도우 정규화 보정".
 /**
  * @param {string} range
  * @param {Date | null} anchor
@@ -189,7 +172,7 @@ async function loadCpuSaturationChart(range, anchor) {
   const seq = ++seqs.cpuSaturation;
   const bMs = BUCKET_MS[AUTO_BUCKET[range]];
   const grid = makeBucketGrid(range, anchor);
-  const rows = await fetchChart('cpu.saturation_hosts', range, anchor);
+  const rows = await fetchChart('cpu.high_utilization_hosts', range, anchor);
   if (seq !== seqs.cpuSaturation) return;
   const safe = _safe(rows);
   const canvas = /** @type {HTMLElement} */ (document.getElementById('cpusat-canvas'));
@@ -209,7 +192,7 @@ async function loadCpuSaturationChart(range, anchor) {
   chartInstances['cpusat-canvas'] = new Chart(canvas, /** @type {any} */ ({
     type: 'line',
     data: { labels, datasets: [{
-      label: '실행 큐 포화 서버 수', data,
+      label: 'CPU 고사용률 서버 수', data,
       borderColor: /** @type {any} */ (ChartUtils).themeColor(),
       backgroundColor: /** @type {any} */ (ChartUtils).themeColor(), yAxisID: 'yA',
       borderWidth: 2, pointRadius: 0, pointHoverRadius: 3, tension: 0.3, fill: false, spanGaps: false, stepped: 'before',
@@ -219,7 +202,7 @@ async function loadCpuSaturationChart(range, anchor) {
       interaction: { mode:'index', intersect:false },
       plugins: {
         legend: { display: false },
-        tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` 포화: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(0)+'대' : '—'}` } },
+        tooltip: { callbacks: { label: (/** @type {any} */ ctx) => ` 고사용률: ${ctx.parsed.y != null ? ctx.parsed.y.toFixed(0)+'대' : '—'}` } },
       },
       scales: {
         x:  { ticks:{ maxTicksLimit:10, font:{size:11}, color:'#94a3b8' }, grid:{ color:'#f1f5f9' } },
@@ -301,7 +284,7 @@ async function loadMemChart(range, anchor) {
   updateMaxLabel('mem-max', computePeriodMax(safeAvg), v => v.toFixed(1)+'%', null);
 }
 
-// 메모리 압박 서버 수 — right_sizing.mem_pressure_active(mem_saturated dual-gate 의 실제 페이징 판정
+// 메모리 압박 서버 수 — is_memory_saturated의 실제 페이징 판정
 // 신호원) 동일 원자료·임계(backend mem.paging_pressure_hosts, NULL dimension 단일선). Linux(refault, 임계
 // "> 0")·Windows(Pages Input/sec, 임계 20/s) 판정 crossing 서버 수 — 정규화 지수 아닌 count(분모 왜곡 없음).
 // mem.psi(판정 비관여 참고치, Windows 미발행) 대체 — 실제 분류에 쓰는 신호라 정합성 높음, "윈도우 정규화 보정".

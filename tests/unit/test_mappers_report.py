@@ -85,7 +85,7 @@ def _raw(
     cpu_sufficiency: float | None = None,
     mem_sufficiency: float | None = None,
     procs_blocked_p95: float | None = None,
-    mem_swap_paging: bool = False,
+    mem_swap_paging: bool | None = False,
     disk_await_p95_ms: float | None = None,
     disk_capacity_runway_days: float | None = None,
     disk_inode_runway_days: float | None = None,
@@ -693,7 +693,7 @@ def test_capacity_warning_item_fields():
 def test_capacity_warning_item_active_causes(
     cpu_p95: float | None,
     mem_p95: float | None,
-    mem_swap_paging: bool,
+    mem_swap_paging: bool | None,
     expected_causes: list[str],
 ):
     raw = _raw(cpu_p95=cpu_p95, mem_p95=mem_p95, mem_swap_paging=mem_swap_paging)
@@ -763,6 +763,17 @@ def test_period_assessment_unmeasured_when_counter_absent():
     pa = build_period_assessment(stats)
     cpu, mem, disk = pa.resources[0], pa.resources[1], pa.resources[2]
     assert not any(r.measured for r in cpu.sat_rows + mem.sat_rows + disk.sat_rows)
+
+
+def test_period_assessment_defers_network_rate_threshold_under_low_traffic():
+    stats = build_resource_stats(
+        _raw(net_rx=right_sizing.NET_MIN_TRAFFIC_KBPS - 1, net_retrans_pct=2.0), disk_baseline=None
+    )
+    pa = build_period_assessment(stats)
+    network = pa.resources[3]
+    assert network.verdict_label == "정상"
+    assert network.sat_rows[0].measured is True
+    assert network.sat_rows[0].over is False
 
 
 @pytest.mark.parametrize(
@@ -923,20 +934,20 @@ def _rs(**kw: Any) -> right_sizing.ResourceStats:
     return dataclasses.replace(base, **kw)
 
 
-def _host(status: right_sizing.HostStatus) -> right_sizing.HostAssessment:
-    return right_sizing.HostAssessment(resources={}, host_status=status)
+def _host(recommendation: right_sizing.Recommendation) -> right_sizing.HostAssessment:
+    return right_sizing.HostAssessment(resources={}, recommendation=recommendation)
 
 
 @pytest.mark.parametrize(
-    ("status", "expected"),
+    ("recommendation", "expected"),
     [
-        ("over", "축소 검토"),
+        ("over_provisioned", "관찰 지속"),
         ("optimal", "적정 — 유지"),
-        ("insufficient", "표본 부족 — 관측 지속"),
+        ("insufficient_data", "표본 부족 — 관측 지속"),
     ],
 )
-def test_recommendation_action_fixed_phrases(status: right_sizing.HostStatus, expected: str):
-    assert _build_recommendation_action(_host(status), _rs()) == expected
+def test_recommendation_action_fixed_phrases(recommendation: right_sizing.Recommendation, expected: str):
+    assert _build_recommendation_action(_host(recommendation), _rs()) == expected
 
 
 def test_recommendation_action_idle_strong_vs_weak():
@@ -1010,11 +1021,16 @@ def test_build_resource_stats_mem_total_mb_none_when_kb_none():
     assert build_resource_stats(_raw(mem_total_kb=None), disk_baseline=None).mem_total_mb is None
 
 
-def test_build_resource_stats_util_trend_rising_from_slopes():
+def test_build_resource_stats_utilization_trends_from_slopes():
     r1 = build_resource_stats(_raw(cpu_trend_slope=-0.1, mem_trend_slope=0.5, history_hours=40.0), disk_baseline=None)
-    assert r1.util_trend_rising is True
+    assert r1.cpu_utilization_trend_rising is False
+    assert r1.memory_utilization_trend_rising is True
     r2 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=-1.0, history_hours=40.0), disk_baseline=None)
-    assert r2.util_trend_rising is False
+    assert r2.cpu_utilization_trend_rising is False
+    assert r2.memory_utilization_trend_rising is False
     r3 = build_resource_stats(_raw(cpu_trend_slope=0.05, mem_trend_slope=0.5, history_hours=10.0), disk_baseline=None)
-    assert r3.util_trend_rising is None
-    assert build_resource_stats(_raw(history_hours=40.0), disk_baseline=None).util_trend_rising is None
+    assert r3.cpu_utilization_trend_rising is None
+    assert r3.memory_utilization_trend_rising is None
+    r4 = build_resource_stats(_raw(history_hours=40.0), disk_baseline=None)
+    assert r4.cpu_utilization_trend_rising is None
+    assert r4.memory_utilization_trend_rising is None

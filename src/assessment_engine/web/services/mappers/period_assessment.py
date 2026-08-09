@@ -100,9 +100,9 @@ def _confidence_rows(stats: right_sizing.ResourceStats) -> list[PeriodSignalRow]
         PeriodSignalRow(
             label="표본 충분성",
             value=(f"{suff * 100:.0f}%" if suff is not None else "N/A"),
-            threshold=f"최소 {rec.DOWNSIZE_MIN_SUFFICIENCY * 100:g}%",
+            threshold=f"최소 {rec.DOWNSIZE_MIN_SAMPLE_COVERAGE * 100:g}%",
             measured=suff is not None,
-            over=suff is not None and suff < rec.DOWNSIZE_MIN_SUFFICIENCY,
+            over=suff is not None and suff < rec.DOWNSIZE_MIN_SAMPLE_COVERAGE,
         ),
     ]
 
@@ -134,8 +134,8 @@ def _cpu_extra_groups(stats: right_sizing.ResourceStats) -> list[PeriodExtraGrou
             "버스트 비율(p95/median)",
             burst,
             "x",
-            rec.BURST_RATIO_MAX,
-            over=burst is not None and burst > rec.BURST_RATIO_MAX,
+            rec.CPU_P95_TO_MEDIAN_BURST_RATIO_MAX,
+            over=burst is not None and burst > rec.CPU_P95_TO_MEDIAN_BURST_RATIO_MAX,
         ),
         _extra_row(
             "Steal 편향 p95",
@@ -238,12 +238,12 @@ def build_period_assessment(
         thr = raw if raw.startswith("발생") else "임계 " + raw.removeprefix(">= ").removeprefix("> ")
         return PeriodSignalRow(label=label, value=d.value, threshold=thr, over=d.crossed, measured=d.measured)
 
-    def _net(label: str, val: float | None, thr: float, unit: str) -> PeriodSignalRow:
+    def _net(label: str, val: float | None, thr: float, unit: str, over: bool) -> PeriodSignalRow:
         return PeriodSignalRow(
             label=label,
             value=(f"{val:.2f}{unit}" if val is not None else "N/A"),
             threshold=f"임계 {thr:g}{unit}",
-            over=val is not None and val >= thr,
+            over=over,
             measured=val is not None,
         )
 
@@ -265,14 +265,16 @@ def build_period_assessment(
     cpu_s = [_s(sat_labels[0], axes[0])]
     mem_s = [_s(sat_labels[1], axes[1])]
     disk_s = [_s(sat_labels[2], axes[2])]
+    host = rec.rollup_host(stats)
+    net_triggers = host.resources["network"].triggers
     net_s = [
-        _net("재전송", stats.net_retrans_pct, rec.NET_RETRANS_PCT, "%"),
-        _net("드롭", stats.net_drop_pct, rec.NET_DROP_PCT, "%"),
+        _net("재전송", stats.net_retrans_pct, rec.NET_RETRANS_PCT, "%", "net_retrans" in net_triggers),
+        _net("드롭", stats.net_drop_pct, rec.NET_DROP_PCT, "%", "net_drop" in net_triggers),
         PeriodSignalRow(
             label="conntrack",
             value=(f"{stats.conntrack_ratio:.2f}" if stats.conntrack_ratio is not None else "N/A"),
             threshold=f"임계 {rec.CONNTRACK_SATURATION_RATIO:g}",
-            over=stats.conntrack_ratio is not None and stats.conntrack_ratio >= rec.CONNTRACK_SATURATION_RATIO,
+            over="net_conntrack" in net_triggers,
             measured=stats.conntrack_ratio is not None,
         ),
     ]
@@ -280,8 +282,7 @@ def build_period_assessment(
     def _over(rows: list[PeriodSignalRow]) -> int:
         return sum(1 for r in rows if r.over)
 
-    host = rec.rollup_host(stats)
-    seg_key = rec.host_status_to_recommendation(host.host_status)
+    seg_key = host.recommendation
     cls_label = rec.RECOMMENDATION_LABEL_KO[seg_key]
     cls_color = next(c for k, c, _ in _DONUT_SEGMENT_DEFS if k == seg_key)
 

@@ -6,7 +6,7 @@
  * 페이지도 동시 갱신 의무 — 개별 탭에만 추가하고 여기 누락하면 "모아보기"라는 페이지 존재 의미가 깨짐).
  * CPU 는 사용률+실행 큐(코어당) 2축만 — CPU 분류(Nice 포함)·CPU PSI 는 제외(cpu.js 와 동일 사유: 강도 지수
  * 보다 "코어당 실행 큐"가 os-aware 임계로 이미 판정 신호). 메모리는 사용률+구성+압박 여부(이진) 3축 — PSI
- * 대신 mem.paging_pressure(right_sizing.mem_pressure_active 와 동일 판정)를 0/1 스텝으로. 스토리지는
+ * 대신 mem.paging_pressure(동일 OS별 페이징 판정)를 0/1 스텝으로. 스토리지는
  * 처리량(Read/Write kbps)+용량 추이(전체+마운트별 %) 2축 — IOPS·await·PSI 제외. 네트워크는 I/O+이상 여부
  * (이진, net.congested — right_sizing.assess_network 의 network_congested 와 동일 판정) 2축 — PPS·
  * TCP 재전송율·패킷 드롭율은 이상 여부로 흡수.
@@ -231,7 +231,7 @@ function renderDimLineChart(canvasId, emptyId, legendId, rows, range, anchor, me
   renderChipLegend(document.getElementById(legendId), chart);
 }
 
-// 이진(0/1) 스텝 차트 — 메모리 압박 여부·네트워크 이상 여부 공용. cpu.saturation_hosts 류(환경 스코프,
+// 이진(0/1) 스텝 차트 — 메모리 압박 여부·네트워크 이상 여부 공용. 환경 서버 수 차트와 달리,
 // count) 와 동일 시각 모델을 서버 1대 단일 시계열로 적용(memory.js/network.js 와 동일 패턴).
 /** @param {string} metricType @param {string} canvasId @param {string} emptyId @param {'memPaging'|'netCongested'} seqKey
  *  @param {string} label @param {string} hiText @param {string} loText @param {string} range @param {Date|null} anchor */
@@ -351,7 +351,7 @@ async function loadMemCompChart(range, anchor) {
   renderMultiDimChart('memcomp-canvas', 'memcomp-empty', 'memcomp-legend', rows, range, anchor, MEMCOMP_META);
 }
 
-// 메모리 압박 여부 추이 (이진 0/1) — right_sizing.mem_pressure_active 와 동일 판정을 SQL 이식한
+// 메모리 압박 여부 추이 (이진 0/1) — OS별 페이징 판정을 SQL로 이식한
 // backend mem.paging_pressure(서버 상세 단일 시계열, 환경 mem.paging_pressure_hosts 와 동일 원자료·임계).
 /** @param {string} range @param {Date|null} anchor */
 async function loadMemPagingChart(range, anchor) {

@@ -1,17 +1,10 @@
 from typing import TYPE_CHECKING, Any
 
 from assessment_engine.domain.right_sizing import (
-    CONNTRACK_SATURATION_RATIO,
-    CPU_RUN_QUEUE_PER_CORE_SATURATION,
     DISK_HEADROOM_TARGET_PCT,
-    DISK_QUEUE_PER_DISK_SATURATION,
     DISK_RUNWAY_DAYS,
     DISK_STATIC_GUARD_PCT,
     DISKIO_AWAIT_MS,
-    NET_DROP_PCT,
-    NET_MIN_TRAFFIC_KBPS,
-    NET_RETRANS_PCT,
-    PROCS_RUNNING_PER_CORE_SATURATION,
     WIN_PAGES_INPUT_SATURATION,
     ConfidenceNote,
     HostAssessment,
@@ -21,14 +14,10 @@ from assessment_engine.domain.right_sizing import (
     ResourceStats,
     ResourceStatus,
     assess_mount_capacity,
-    cpu_saturated,
-    cpu_saturation_index,
-    disk_io_saturated,
-    disk_io_saturation_index,
-    host_saturation_unmeasured,
-    mem_pressure_active,
-    mem_saturated,
-    net_signal_active,
+    has_unmeasured_saturation,
+    is_cpu_saturated,
+    is_disk_io_saturated,
+    is_memory_saturated,
     root_cause_display,
 )
 
@@ -63,82 +52,34 @@ def _win(**overrides: Any) -> ResourceStats:
 
 
 def test_mem_saturated_linux_uses_page_out_not_static_swap():
-    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=False)) is False
-    assert mem_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=True)) is True
+    assert is_memory_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=False)) is False
+    assert is_memory_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=True)) is True
+    assert is_memory_saturated(_stats(mem_p95_pct=95.0, os_family="linux", mem_swap_paging=None)) is None
 
 
 def test_mem_saturated_windows_excludes_pagefile_uses_hardfault_rate():
-    assert mem_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=WIN_PAGES_INPUT_SATURATION)) is True
-    assert mem_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=10.0)) is False
-    assert mem_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=None)) is None
+    assert is_memory_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=WIN_PAGES_INPUT_SATURATION)) is True
+    assert is_memory_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=10.0)) is False
+    assert is_memory_saturated(_win(mem_p95_pct=95.0, mem_pages_input_rate_p95=None)) is None
 
 
 def test_cpu_saturated_os_aware():
-    assert cpu_saturated(_stats(procs_running_p95=4.0, cpu_cores=4, cpu_p95_pct=85.0)) is True
-    assert cpu_saturated(_stats(procs_running_p95=4.0, cpu_cores=4, cpu_p95_pct=10.0)) is False
-    assert cpu_saturated(_stats(procs_running_p95=1.0, cpu_cores=4, cpu_p95_pct=85.0)) is False
-    assert cpu_saturated(_stats(procs_running_p95=4.0, cpu_cores=4, cpu_p95_pct=None)) is True
-    assert cpu_saturated(_stats(procs_running_p95=None)) is None
-    assert cpu_saturated(_win(cpu_run_queue_p95=8.0, cpu_cores=4, cpu_p95_pct=85.0)) is True
-    assert cpu_saturated(_win(cpu_run_queue_p95=4.0, cpu_cores=4, cpu_p95_pct=85.0)) is False
-    assert cpu_saturated(_win(cpu_run_queue_p95=None)) is None
-    assert cpu_saturated(_stats(cpu_cores=None, procs_running_p95=100.0)) is None
+    assert is_cpu_saturated(_stats(procs_running_p95=4.0, cpu_cores=4, cpu_p95_pct=85.0)) is True
+    assert is_cpu_saturated(_stats(procs_running_p95=4.0, cpu_cores=4, cpu_p95_pct=10.0)) is False
+    assert is_cpu_saturated(_stats(procs_running_p95=1.0, cpu_cores=4, cpu_p95_pct=85.0)) is False
+    assert is_cpu_saturated(_stats(procs_running_p95=4.0, cpu_cores=4, cpu_p95_pct=None)) is True
+    assert is_cpu_saturated(_stats(procs_running_p95=None)) is None
+    assert is_cpu_saturated(_win(cpu_run_queue_p95=8.0, cpu_cores=4, cpu_p95_pct=85.0)) is True
+    assert is_cpu_saturated(_win(cpu_run_queue_p95=4.0, cpu_cores=4, cpu_p95_pct=85.0)) is False
+    assert is_cpu_saturated(_win(cpu_run_queue_p95=None)) is None
+    assert is_cpu_saturated(_stats(cpu_cores=None, procs_running_p95=100.0)) is None
 
 
 def test_disk_io_saturated_os_aware():
-    assert disk_io_saturated(_stats(disk_await_p95_ms=DISKIO_AWAIT_MS + 1)) is True
-    assert disk_io_saturated(_stats(disk_await_p95_ms=None)) is None
-    assert disk_io_saturated(_win(disk_await_p95_ms=DISKIO_AWAIT_MS + 1)) is True
-    assert disk_io_saturated(_win(disk_queue_p95=DISK_QUEUE_PER_DISK_SATURATION)) is True
-    assert disk_io_saturated(_win(disk_queue_p95=1.0)) is False
-    assert disk_io_saturated(_win(disk_queue_p95=None)) is None
-
-
-def test_cpu_saturation_index_os_aware():
-    assert cpu_saturation_index(4.0, 4, "linux") == (4.0 / 4) / PROCS_RUNNING_PER_CORE_SATURATION
-    assert cpu_saturation_index(4.0, 4, "linux") == 1.0
-    assert cpu_saturation_index(2.0, 4, None) == 0.5
-    assert cpu_saturation_index(4.0, 4, "windows") == (4.0 / 4) / CPU_RUN_QUEUE_PER_CORE_SATURATION
-    assert cpu_saturation_index(4.0, 4, "windows") == 0.5
-    assert cpu_saturation_index(8.0, 4, "windows") == 1.0
-    assert cpu_saturation_index(None, 4, "linux") is None
-    assert cpu_saturation_index(4.0, 0, "linux") is None
-    assert cpu_saturation_index(4.0, None, "linux") is None
-
-
-def test_disk_io_saturation_index_await_priority_queue_fallback():
-    assert disk_io_saturation_index(DISKIO_AWAIT_MS, None, "linux") == 1.0
-    assert disk_io_saturation_index(40.0, None, "linux") == 40.0 / DISKIO_AWAIT_MS
-    assert disk_io_saturation_index(40.0, 100.0, "windows") == 40.0 / DISKIO_AWAIT_MS
-    assert disk_io_saturation_index(None, DISK_QUEUE_PER_DISK_SATURATION, "windows") == 1.0
-    assert disk_io_saturation_index(None, 4.0, "windows") == 4.0 / DISK_QUEUE_PER_DISK_SATURATION
-    assert disk_io_saturation_index(None, 4.0, "linux") is None
-    assert disk_io_saturation_index(None, None, "windows") is None
-
-
-def test_net_signal_active_low_traffic_gate():
-    hi = NET_MIN_TRAFFIC_KBPS + 1.0
-    lo = NET_MIN_TRAFFIC_KBPS - 1.0
-    over_retrans = NET_RETRANS_PCT + 1.0
-    over_drop = NET_DROP_PCT + 0.5
-    over_ct = CONNTRACK_SATURATION_RATIO + 0.05
-    assert net_signal_active(over_retrans, None, None, hi) is True
-    assert net_signal_active(None, over_drop, None, hi) is True
-    assert net_signal_active(over_retrans, over_drop, None, lo) is False
-    assert net_signal_active(None, None, over_ct, lo) is True
-    assert net_signal_active(over_retrans, None, None, None) is True
-    assert net_signal_active(0.1, 0.1, 0.1, hi) is False
-
-
-def test_mem_pressure_active_os_aware():
-    assert mem_pressure_active(None, "linux") is False
-    assert mem_pressure_active(None, "windows") is False
-    assert mem_pressure_active(0.1, "linux") is True
-    assert mem_pressure_active(0.0, "linux") is False
-    assert mem_pressure_active(0.1, None) is True
-    assert mem_pressure_active(WIN_PAGES_INPUT_SATURATION, "windows") is True
-    assert mem_pressure_active(10.0, "windows") is False
-    assert mem_pressure_active(0.1, "windows") is False
+    assert is_disk_io_saturated(_stats(disk_await_p95_ms=DISKIO_AWAIT_MS + 1)) is True
+    assert is_disk_io_saturated(_stats(disk_await_p95_ms=DISKIO_AWAIT_MS)) is False
+    assert is_disk_io_saturated(_stats(disk_await_p95_ms=None)) is None
+    assert is_disk_io_saturated(_win(disk_await_p95_ms=DISKIO_AWAIT_MS + 1)) is True
 
 
 _ALL_KINDS: tuple[ResourceKind, ...] = ("cpu", "memory", "disk_capacity", "disk_io", "network")
@@ -160,7 +101,7 @@ def test_host_saturation_unmeasured_limited_to_saturation_axes():
             "network": _ra("network", "quality_ok"),
         }
         res[gap_kind] = _ra(gap_kind, res[gap_kind].status, coverage_gap=True)
-        assert host_saturation_unmeasured(HostAssessment(resources=res)) is True
+        assert has_unmeasured_saturation(HostAssessment(resources=res)) is True
 
     res_non_sat: _Resources = {
         "cpu": _ra("cpu", "optimal"),
@@ -169,10 +110,10 @@ def test_host_saturation_unmeasured_limited_to_saturation_axes():
         "disk_io": _ra("disk_io", "io_ok"),
         "network": _ra("network", "unmeasured", coverage_gap=True),
     }
-    assert host_saturation_unmeasured(HostAssessment(resources=res_non_sat)) is False
+    assert has_unmeasured_saturation(HostAssessment(resources=res_non_sat)) is False
 
     res_clean: _Resources = {k: _ra(k, "optimal") for k in _ALL_KINDS}
-    assert host_saturation_unmeasured(HostAssessment(resources=res_clean)) is False
+    assert has_unmeasured_saturation(HostAssessment(resources=res_clean)) is False
 
 
 def test_root_cause_display_no_under_is_empty():
@@ -254,6 +195,15 @@ def test_assess_mount_capacity_inode_filling_keeps_with_note():
     assert ms.action == "keep"
     assert ms.estimate_quality == "exact"
     assert ms.recommended_gib == ms.current_gib == 100
+    assert "inode" in ms.note
+
+
+def test_assess_mount_capacity_byte_and_inode_filling_preserves_inode_note():
+    ms = assess_mount_capacity(100 * _GIB, 200 * _GIB, DISK_RUNWAY_DAYS - 1, None, DISK_RUNWAY_DAYS - 1, None)
+    assert ms is not None
+    assert ms.action == "increase"
+    assert ms.estimate_quality == "exact"
+    assert ms.recommended_gib == 200
     assert "inode" in ms.note
 
 

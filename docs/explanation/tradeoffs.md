@@ -424,12 +424,12 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 - assessment 가 고빈도 자동 폴링이 되면 -> (filter, window, end-bucket) 키의 짧은 TTL 캐시 도입(대시보드 패턴 준용).
 - 외부 노출이 필요해지면 -> 앞단 인증 게이트웨이(계약 10절 명시) + 이 엔드포인트의 인프라 노출 집중도를 감안한 인가 스코프.
 
-## T20. 실시간 스냅샷 포화 축 — 윈도우 분류 경로와의 미세 원자료·경계 불일치
+## T20. 실시간 신호와 기간 평가의 판정 단위 차이
 
 무엇을
-- 포화 판정에는 두 경로가 있다: (A) 평가 윈도우 분류·환경·보고서 = `right_sizing` 도메인의 os-aware verdict helper(`cpu_saturated`·`mem_saturated`·`disk_io_saturated`, dual-gate) 경유(#E3). (B) 실시간 현황·서버 상세 순간 스냅샷 = sibling index/active helper(`cpu_saturation_index`·`mem_pressure_active`·`disk_io_saturation_index`·`net_signal_active`, 목적상 single-gate) 경유. 두 경로가 같은 임계 상수를 공유하나, 두 축에서 미세하게 어긋나 같은 서버가 화면 간 다른 포화 판정을 낼 수 있다.
-- 네트워크(실무 심각도 중): 서버 상세 실시간 네트워크 축(`metric_dashboard.build_saturation_signals`)이 단일 진실 `net_signal_active` 를 경유하지 않고 ratio 비교를 직접 조립한다. 두 이탈 — (1) 저트래픽 게이트 부재: `net_signal_active`/`assess_network` 는 트래픽 < `NET_MIN_TRAFFIC_KBPS`(10 kB/s)면 retrans/drop 을 억제하나, 실시간 net 축은 무조건 임계 비교(`SaturationRaw` 에 net traffic 필드가 없어 구조적으로 게이트 불가). (2) 경계 연산자: 실시간은 `>=`, `net_signal_active` 는 strict `>`. -> 유휴 저트래픽 서버의 retrans 1.5% 나 정확히 1.0%/0.5% 경계값이 서버 상세엔 "혼잡", 환경/보고서엔 "정상".
-- 디스크 await(실무 심각도 하): `disk_io_saturated` 는 `await_p95 > DISKIO_AWAIT_MS`(strict `>`)로 보고, `disk_io_saturation_index` 소비 게이트는 `>= 1.0`(실질 `await >= 20`)으로 본다. 두 helper 는 신호 선택(await 우선, Windows 미측정 시 큐 깊이 폴백)만 같고 경계 연산자가 다르다 — await 이 정확히 20.000ms 인 지점에서만 갈린다(measure-zero).
+- 기간 평가와 보고서는 `is_cpu_saturated`·`is_memory_saturated`·`is_disk_io_saturated`의 OS별 dual-gate 판정을 쓴다. 실시간 현황은 CPU 실행 큐와 디스크 I/O를 원자료와 해당 임계값으로 보여 주고, 메모리·네트워크만 순간 신호 crossing을 표시한다. 같은 서버도 기간 평가와 순간 신호가 다를 수 있다.
+- 네트워크(실무 심각도 중): 서버 상세 실시간 네트워크 축(`metric_dashboard.build_saturation_signals`)은 `SaturationRaw`에 트래픽이 없어 재전송과 드롭을 저트래픽 게이트 없이 직접 비교한다. 환경과 보고서의 `assess_network`는 트래픽 < `NET_MIN_TRAFFIC_KBPS`(10 kB/s)에서 재전송과 드롭을 억제한다. 정확히 1.0%와 0.5% 경계값도 서버 상세은 `>=`, 환경과 보고서는 strict `>`라 결과가 다를 수 있다.
+- 디스크 await는 기간 평가에서 `await_p95 > DISKIO_AWAIT_MS`, 실시간 현황에서 `await >= DISKIO_AWAIT_MS`로 강조한다. 정확히 20ms인 경계에서만 결과가 다르다. Windows에서 await가 없으면 실시간 현황은 디스크 큐를 별도 폴백 신호로 표시한다.
 
 왜 이대로 두나
 - 두 경로는 목적이 다르다. 윈도우 분류는 dual-gate(신호 AND 이용률)로 오탐을 억제한 결론이고, 실시간은 순간의 단일 신호 crossing 을 그대로 보여주는 스냅샷이다. single-gate 는 위반이 아니라 실시간의 의도된 정의고, #E3 의 취지인 "임계 재계산·직접 해석 금지" 는 두 경로 모두 충족한다 — 같은 도메인 상수를 재사용하고 소비처에서 임계를 다시 선언하지 않는다.
@@ -443,8 +443,8 @@ pid 부재 구간 보완 — 호스트 워크로드 union:
 - 실시간 순간 스냅샷과 윈도우 통계 분류는 애초에 다른 축이고, 불일치가 저트래픽과 경계 measure-zero 라는 희소 지점에만 나타난다. 근본 정합은 원자료 스키마 확장을 요구해 비용 대비 즉시 이득이 작다.
 
 언제 다시 봐야 하는가
-- 화면 간 네트워크 판정 불일치가 실제 운영 혼선을 부르면 -> `SaturationRaw` 에 net traffic 필드 추가 후 실시간 net 축을 `net_signal_active` 경유로 교체(저트래픽 억제 + strict `>` 통일).
-- disk await 경계를 정합하려면 -> index 소비 게이트를 `> 1.0` 으로 좁히거나 `disk_io_saturated` 를 `>=` 로 통일.
+- 화면 간 네트워크 판정 불일치가 실제 운영 혼선을 부르면 -> `SaturationRaw`에 net traffic 필드 추가 후 저트래픽 억제와 strict `>` 경계를 실시간 축에도 적용.
+- disk await 경계를 정합하려면 -> 실시간 강조를 `>`로 좁히거나 `is_disk_io_saturated`를 `>=`로 통일.
 
 ## T21. 계약 예시가 에이전트 실제 발행과 일치하는지 확인할 채널 없음
 
@@ -513,7 +513,7 @@ Request/Correlation ID 를 심지 않는다. HTTP 진입점이 `X-Request-ID` �
 ## T24. 유휴 판정 디스크 활동 축 — 보고서 경로에만 주입한다
 
 무엇을
-- `build_resource_stats(raw, *, disk_baseline)` 의 `disk_baseline` 은 유휴 판정 활동 축(`right_sizing` 의 `IDLE_DISK_IOPS` 비교)이다. 이 값을 raw 에 실제로 채우는 코드는 보고서 prefetch(`query/report.py::_assemble_report_raws`) 하나뿐이다. 나머지 호출 경로는 `None` 을 명시적으로 넘기거나, raw 필드를 그대로 읽되 그 경로에서는 그 필드가 채워지지 않아 결과가 `None` 이다.
+- `build_resource_stats(raw, *, disk_baseline)` 의 `disk_baseline` 은 유휴 판정 활동 신호(`right_sizing` 의 `IDLE_DISK_BASELINE_IOPS` 비교)이다. 이 값을 raw 에 실제로 채우는 코드는 보고서 prefetch(`query/report.py::_assemble_report_raws`) 하나뿐이다. 나머지 호출 경로는 `None` 을 명시적으로 넘기거나, raw 필드를 그대로 읽되 그 경로에서는 그 필드가 채워지지 않아 결과가 `None` 이다.
 - 결과적으로 같은 호스트가 보고서에서는 디스크 활동을 근거로 `idle` 로 갈릴 수 있고, 서버 목록·환경 개요에서는 그 축이 미관측이라 `over_provisioned` 에 머무를 수 있다.
 
 왜 이대로 두나

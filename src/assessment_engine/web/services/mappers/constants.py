@@ -26,6 +26,7 @@ _CAUSE_LABEL_BY_TRIGGER: dict[str, str] = {
     "mem_util": "메모리 이용률",
     "mem_saturation": "메모리 포화",
     "disk_capacity": "디스크 용량",
+    "disk_inode": "inode 소진",
     "disk_io": "디스크 I/O",
 }
 

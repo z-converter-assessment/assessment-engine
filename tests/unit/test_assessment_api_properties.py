@@ -106,7 +106,7 @@ def _report_row(draw: DrawFn) -> ReportRowRaw:
         cpu_percore_p95_max=draw(_opt(_pct)),
         procs_blocked_p95=draw(_opt(st.floats(0, 30, allow_nan=False))),
         procs_running_p95=draw(_opt(st.floats(0, 30, allow_nan=False))),
-        mem_swap_paging=draw(st.booleans()),
+        mem_swap_paging=draw(_opt(st.booleans())),
         oom_occurred=draw(st.booleans()),
         disk_await_p95_ms=draw(_opt(st.floats(0, 2000, allow_nan=False))),
         disk_iops_baseline=draw(_opt(st.integers(0, 10000))),

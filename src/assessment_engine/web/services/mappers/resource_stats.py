@@ -58,8 +58,13 @@ def build_resource_stats(raw: ReportRowRaw, *, disk_baseline: int | None) -> rig
         conntrack_ratio=raw.conntrack_ratio,
         history_hours=raw.history_hours,
         cpu_burst_ratio=raw.cpu_burst_ratio,
-        util_trend_rising=(
-            right_sizing.util_trend_rising_from_slopes(raw.cpu_trend_slope, raw.mem_trend_slope)
+        cpu_utilization_trend_rising=(
+            right_sizing.is_utilization_trend_rising(raw.cpu_trend_slope)
+            if raw.history_hours is not None and raw.history_hours >= right_sizing.CONFIDENCE_MIN_HOURS
+            else None
+        ),
+        memory_utilization_trend_rising=(
+            right_sizing.is_utilization_trend_rising(raw.mem_trend_slope)
             if raw.history_hours is not None and raw.history_hours >= right_sizing.CONFIDENCE_MIN_HOURS
             else None
         ),

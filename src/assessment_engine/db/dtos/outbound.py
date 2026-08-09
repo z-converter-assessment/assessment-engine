@@ -440,13 +440,14 @@ class ReportRowRaw:
     cpu_burst_ratio: float | None = None
     procs_blocked_p95: float | None = None
     procs_running_p95: float | None = None  # R-state 실행 큐 p95 (Linux CPU 포화)
-    mem_swap_paging: bool = False  # paging_major(refault) rate sustained (Linux 메모리 포화 dual-gate 입력)
+    mem_swap_paging: bool | None = None  # paging_major(refault) rate sustained (Linux 메모리 포화 dual-gate 입력)
     oom_occurred: bool = False
     history_hours: float | None = None
     disk_await_p95_ms: float | None = None
     disk_capacity_runway_days: float | None = None
     disk_capacity_driving_mount: str | None = None
     disk_inode_runway_days: float | None = None
+    disk_inode_driving_mount: str | None = None
     disk_inode_used_pct: float | None = None
     disk_capacity_target_gb: float | None = None
     disk_capacity_proj_30d_pct: float | None = None

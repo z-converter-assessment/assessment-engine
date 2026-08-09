@@ -159,16 +159,14 @@ class AttentionHostItem:
 
 @dataclass
 class CapacityImminentItem:
-    """디스크 capacity 임박 호스트 — 구동 마운트 runway 가 `DISK_RUNWAY_DAYS` 미만.
-
-    구동 마운트 = 가장 빨리 소진되는 마운트 (배지 분류와 동일 신호).
-    """
+    """바이트 또는 inode 소진이 임박한 마운트."""
 
     public_id: str
     hostname: str
     worst_mount: str
     days_until_full: int
-    used_pct: float | None
+    constraint_label: str = ""
+    used_pct: float | None = None
 
 
 @dataclass

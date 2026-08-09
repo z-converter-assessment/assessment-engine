@@ -56,15 +56,15 @@ def assemble_overview(
     cpu_sat = mem_sat = disk_sat = net_cong = 0
     for raw in raws_period:
         stats = build_resource_stats(raw, disk_baseline=raw.disk_iops_baseline)
-        rec = right_sizing.classify_host(stats)
+        rec = right_sizing.rollup_host(stats).recommendation
         risk_counts[rec] = risk_counts.get(rec, 0) + 1
         if rec == "under_provisioned":
             under_hosts.append(to_capacity_warning_item(raw))
-        if right_sizing.cpu_saturated(stats):
+        if right_sizing.is_cpu_saturated(stats):
             cpu_sat += 1
-        if right_sizing.mem_saturated(stats):
+        if right_sizing.is_memory_saturated(stats):
             mem_sat += 1
-        if right_sizing.disk_io_saturated(stats):
+        if right_sizing.is_disk_io_saturated(stats):
             disk_sat += 1
         if right_sizing.assess_network(stats).status == "congested":
             net_cong += 1
@@ -284,6 +284,27 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
             mem = m.memory
 
             net_rate = sum((n.rx_kbps or 0) + (n.tx_kbps or 0) for n in m.net_io) if m.net_io else None
+            cpu_queue_value = sat.run_queue / d.cpu_cores if sat.run_queue is not None and d.cpu_cores else None
+            cpu_queue_threshold = (
+                right_sizing.CPU_RUN_QUEUE_PER_CORE_SATURATION
+                if d.os_family == "windows"
+                else right_sizing.PROCS_RUNNING_PER_CORE_SATURATION
+            )
+            if sat.await_ms is not None:
+                disk_signal_value = sat.await_ms
+                disk_signal_threshold = right_sizing.DISKIO_AWAIT_MS
+                disk_signal_kind = "await"
+                disk_signal_crossed = sat.await_ms >= disk_signal_threshold
+            elif d.os_family == "windows" and sat.pending_ops is not None:
+                disk_signal_value = sat.pending_ops
+                disk_signal_threshold = right_sizing.DISK_QUEUE_PER_DISK_SATURATION
+                disk_signal_kind = "queue_fallback"
+                disk_signal_crossed = sat.pending_ops >= disk_signal_threshold
+            else:
+                disk_signal_value = None
+                disk_signal_threshold = None
+                disk_signal_kind = None
+                disk_signal_crossed = False
             snapshots.append(
                 {
                     "hostname": d.hostname,
@@ -291,14 +312,33 @@ class EnvironmentQueryMixin(_BaseQueryServiceMixin):
                     "os_family": d.os_family,
                     "cpu_pct": m.cpu.usage_pct if m.cpu else None,
                     "mem_pct": mem.usage_pct if mem else None,
-                    "cpu_sat_index": right_sizing.cpu_saturation_index(sat.run_queue, d.cpu_cores, d.os_family),
-                    "disk_sat_index": right_sizing.disk_io_saturation_index(sat.await_ms, sat.pending_ops, d.os_family),
+                    "cpu_queue_value": cpu_queue_value,
+                    "cpu_queue_threshold": cpu_queue_threshold,
+                    "cpu_queue_crossed": cpu_queue_value is not None and cpu_queue_value >= cpu_queue_threshold,
+                    "disk_signal_value": disk_signal_value,
+                    "disk_signal_threshold": disk_signal_threshold,
+                    "disk_signal_kind": disk_signal_kind,
+                    "disk_signal_crossed": disk_signal_crossed,
                     "disk_util_pct": sat.disk_io_util_pct,
                     "paging_rate": sat.paging_major_rate,
                     "net_kbps": net_rate,
-                    "mem_pressure": right_sizing.mem_pressure_active(sat.paging_major_rate, d.os_family),
-                    "net_congested": right_sizing.net_signal_active(
-                        sat.retrans_pct, sat.drop_pct, sat.conntrack_ratio, net_rate
+                    "mem_pressure": (
+                        sat.paging_major_rate >= right_sizing.WIN_PAGES_INPUT_SATURATION
+                        if d.os_family == "windows" and sat.paging_major_rate is not None
+                        else (sat.paging_major_rate or 0) > 0
+                    ),
+                    "net_congested": (
+                        (
+                            sat.conntrack_ratio is not None
+                            and sat.conntrack_ratio >= right_sizing.CONNTRACK_SATURATION_RATIO
+                        )
+                        or (
+                            (net_rate is None or net_rate >= right_sizing.NET_MIN_TRAFFIC_KBPS)
+                            and (
+                                (sat.retrans_pct is not None and sat.retrans_pct > right_sizing.NET_RETRANS_PCT)
+                                or (sat.drop_pct is not None and sat.drop_pct > right_sizing.NET_DROP_PCT)
+                            )
+                        )
                     ),
                     "cpu_cores": d.cpu_cores,
                     "mem_used_bytes": mem.used_bytes if mem else None,

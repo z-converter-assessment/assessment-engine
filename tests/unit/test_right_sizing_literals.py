@@ -6,22 +6,27 @@ from assessment_engine.domain import right_sizing
 from assessment_engine.web.services.mappers.constants import _DONUT_SEGMENT_DEFS, BADGE_CLASS
 
 EXHAUSTIVE_MAPS: list[tuple[str, dict[Any, Any], Any]] = [
-    ("_HOST_STATUS_TO_REC", right_sizing._HOST_STATUS_TO_REC, right_sizing.HostStatus),
     ("RECOMMENDATION_LABEL_KO", right_sizing.RECOMMENDATION_LABEL_KO, right_sizing.Recommendation),
     ("CLASSIFICATION_ORDER", right_sizing.CLASSIFICATION_ORDER, right_sizing.Recommendation),
     ("RECOMMENDATION_ACTION_KO", right_sizing.RECOMMENDATION_ACTION_KO, right_sizing.Recommendation),
     ("BADGE_CLASS", BADGE_CLASS, right_sizing.Recommendation),
     ("TRIGGER_LABEL_KO", right_sizing.TRIGGER_LABEL_KO, right_sizing.TriggerKind),
     ("RESOURCE_KIND_LABEL_KO", right_sizing.RESOURCE_KIND_LABEL_KO, right_sizing.ResourceKind),
-    ("_UNDER_ACTION_BASE", right_sizing._UNDER_ACTION_BASE, right_sizing.ResourceKind),
-    ("STATUS_LABEL_KO", right_sizing.STATUS_LABEL_KO, right_sizing.ResourceStatus),
-    ("HOST_STATUS_LABEL_KO", right_sizing.HOST_STATUS_LABEL_KO, right_sizing.HostStatus),
+    ("RESOURCE_STATUS_LABEL_KO", right_sizing.RESOURCE_STATUS_LABEL_KO, right_sizing.ResourceStatus),
 ]
 
 
 @pytest.mark.parametrize(("name", "mapping", "alias"), EXHAUSTIVE_MAPS, ids=[m[0] for m in EXHAUSTIVE_MAPS])
 def test_mapping_covers_literal_catalog(name: str, mapping: dict[Any, Any], alias: Any):
     assert set(mapping) == set(get_args(alias.__value__)), name
+
+
+def test_resource_action_base_has_actionable_resources_only():
+    assert set(right_sizing._RESOURCE_ACTION_BASE) == {"cpu", "memory", "disk_capacity", "disk_io"}
+
+
+def test_sizing_target_label_has_numeric_target_resources_only():
+    assert set(right_sizing._SIZING_TARGET_LABEL) == {"cpu", "memory", "disk_capacity"}
 
 
 def test_trigger_literals_match_what_the_domain_emits():

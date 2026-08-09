@@ -187,7 +187,7 @@ class TaskService:
         async with self.session_factory() as session:
             repo = self.collect_repo_factory(session)
             expired = await repo.expire_overdue_tasks(server_ids)
-            busy_ids = await repo.find_pending_deadline_servers(server_ids)
+            busy_ids = await repo.find_pending_task_server_ids(server_ids, _TASK_TYPE_INSTALL)
             await session.commit()
         if expired:
             logger.info("expired overdue tasks count={}", expired)

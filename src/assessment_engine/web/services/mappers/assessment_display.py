@@ -1,6 +1,6 @@
 """right_sizing 판정 -> 표시·계약 원자 (P2).
 
-포화 축과 신뢰도 노트 둘 다 판정 자체는 도메인 helper(`cpu_saturated`·`ConfidenceNote` 등)가 내고,
+포화 축과 신뢰도 노트 둘 다 판정 자체는 도메인 helper(`is_cpu_saturated`·`ConfidenceNote` 등)가 내고,
 여기서는 그 결과를 화면·API 가 소비할 형태로만 바꾼다 — 임계 재계산 없음 (#E3).
 
 두 표기 경로가 있다. 화면 카드는 형식화 문자열(`SaturationAxisDisplay`), 계약 API 는 raw numeric
@@ -79,10 +79,10 @@ def saturation_axis_displays(stats: right_sizing.ResourceStats) -> list[Saturati
         SaturationAxisDisplay(
             "메모리 포화",
             "swap page-out",
-            "L 발생" if stats.mem_swap_paging else "L 없음",
+            "L 발생" if stats.mem_swap_paging else ("L 없음" if stats.mem_swap_paging is False else "N/A"),
             "발생 시",
-            True,
-            crossed=stats.mem_swap_paging,
+            stats.mem_swap_paging is not None,
+            crossed=stats.mem_swap_paging is True,
         ),
         SaturationAxisDisplay(
             "디스크 I/O 포화",
@@ -97,22 +97,26 @@ def saturation_axis_displays(stats: right_sizing.ResourceStats) -> list[Saturati
 
 def build_host_confidence_notes(host: right_sizing.HostAssessment) -> list[str]:
     notes: list[str] = []
-    if right_sizing.host_saturation_unmeasured(host):
+    if right_sizing.has_unmeasured_saturation(host):
         notes.append("포화 수치 미관측")
-    if any(r.confidence.low_precision for r in host.resources.values()):
-        notes.append("표본 부족")
-    if host.sample_sufficiency is not None and host.sample_sufficiency < right_sizing.DOWNSIZE_MIN_SUFFICIENCY:
+    if any(r.confidence.insufficient_history for r in host.resources.values()):
+        notes.append("관측 이력 부족")
+    if any(r.confidence.high_utilization_variability for r in host.resources.values()):
+        notes.append("이용률 변동성 큼")
+    if host.sample_sufficiency is not None and host.sample_sufficiency < right_sizing.DOWNSIZE_MIN_SAMPLE_COVERAGE:
         notes.append("창 대비 관측 부족")
     return notes
 
 
 def resource_confidence_notes(c: right_sizing.ConfidenceNote) -> list[str]:
     notes: list[str] = []
-    if c.low_precision:
-        notes.append("표본 부족")
+    if c.insufficient_history:
+        notes.append("관측 이력 부족")
+    if c.high_utilization_variability:
+        notes.append("이용률 변동성 큼")
     if c.coverage_gap:
         notes.append("포화 수치 미관측")
-    if c.nonstationary:
+    if c.rising_utilization_trend:
         notes.append("상승 추세")
     return notes
 
@@ -136,10 +140,10 @@ def saturation_block(kind: str, stats: right_sizing.ResourceStats) -> JsonObject
     win = stats.os_family == "windows"
     if kind == "cpu":
         rq = stats.cpu_run_queue_p95 if win else stats.procs_running_p95
-        val = right_sizing.cpu_saturation_index(rq, stats.cpu_cores, stats.os_family)
+        val = rq / stats.cpu_cores if rq is not None and stats.cpu_cores else None
         thr = right_sizing.CPU_RUN_QUEUE_PER_CORE_SATURATION if win else right_sizing.PROCS_RUNNING_PER_CORE_SATURATION
         sig = "Processor Queue Length/core" if win else "run queue (procs_running)/core"
-        return _saturation_dict(sig, val, thr, "per_core", right_sizing.cpu_saturated(stats))
+        return _saturation_dict(sig, val, thr, "per_core", right_sizing.is_cpu_saturated(stats))
     if kind == "memory":
         if win:
             return _saturation_dict(
@@ -147,10 +151,10 @@ def saturation_block(kind: str, stats: right_sizing.ResourceStats) -> JsonObject
                 stats.mem_pages_input_rate_p95,
                 right_sizing.WIN_PAGES_INPUT_SATURATION,
                 "per_sec",
-                right_sizing.mem_saturated(stats),
+                right_sizing.is_memory_saturated(stats),
             )
         # Linux swap page-out 은 발생 이벤트(수치 없음) — 판정은 saturated 로.
-        sat = right_sizing.mem_saturated(stats)
+        sat = right_sizing.is_memory_saturated(stats)
         return {
             "signal": "swap page-out",
             "value": None,
@@ -166,15 +170,7 @@ def saturation_block(kind: str, stats: right_sizing.ResourceStats) -> JsonObject
             stats.disk_await_p95_ms,
             right_sizing.DISKIO_AWAIT_MS,
             "ms",
-            right_sizing.disk_io_saturated(stats),
-        )
-    if stats.disk_queue_p95 is not None:
-        return _saturation_dict(
-            "Avg Disk Queue Length",
-            stats.disk_queue_p95,
-            right_sizing.DISK_QUEUE_PER_DISK_SATURATION,
-            "queue",
-            right_sizing.disk_io_saturated(stats),
+            right_sizing.is_disk_io_saturated(stats),
         )
     return {
         "signal": "await",
@@ -182,5 +178,5 @@ def saturation_block(kind: str, stats: right_sizing.ResourceStats) -> JsonObject
         "threshold": right_sizing.DISKIO_AWAIT_MS,
         "unit": "ms",
         "measured": False,
-        "saturated": right_sizing.disk_io_saturated(stats),
+        "saturated": right_sizing.is_disk_io_saturated(stats),
     }

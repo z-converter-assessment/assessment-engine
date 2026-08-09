@@ -14,8 +14,8 @@
 | `record_metrics(server_id, data) -> MetricInsertResult` | host 집계 + 자식 6개 = 시계열 7테이블 INSERT. 테이블별 행 수 반환 |
 | `create_task(data) -> str` | tasks INSERT. public_id(UUID) 반환 |
 | `complete_task(data) -> bool` | task.result handler — status / completed_at / failure_reason / exit_code / signal_no / task_policy / duration_ms / stdout_tail / stderr_tail UPDATE |
-| `expire_overdue_tasks(server_ids) -> int` | deadline 경과 pending(install) 을 failure(timeout) 로 전이 — 발행 직전 호출 |
-| `find_pending_deadline_servers(server_ids) -> list[int]` | deadline 안 지난 활성 pending 보유 server_id — 발행 all-or-nothing 사전 검증 |
+| `expire_overdue_tasks(server_ids) -> int` | deadline 경과 pending task를 failure(timeout)로 전이. 발행 직전 호출 |
+| `find_pending_task_server_ids(server_ids, task_type) -> list[int]` | 같은 task type의 pending task 보유 server_id. 발행 전 중복 확인 |
 | `expire_all_overdue_tasks() -> int` | server_ids 무필터 전역 timeout 전이 — worker reaper 루프 (F11) |
 
 ### 구현 디테일
@@ -75,7 +75,7 @@
 | 정체율 (PSI, Linux 전용) | `cpu.psi` · `mem.psi` · `disk.psi` | sum(delta(stall_time_s))/sum(delta(wall_time))*100 (server_pressure scope=some, resource cpu/memory/io 매핑, GREATEST reset 흡수). 단일선, Linux 4.20+ 만 행 존재 -> 미지원 OS 빈 결과 |
 | 교차 테이블 rate | `net.retrans_percent` · `net.drop_percent` | retrans%=sum(delta(tcp_retrans))/sum(delta(tx_packets))*100 (server_metrics + server_net_io collected_at 조인), drop%=sum(delta(rx_dropped)+delta(tx_dropped))/sum(delta(rx)+tx_packets)*100 (분모가 rx+tx 라 retrans% 와 다름). GREATEST 로 reset 흡수, 분류 net_retrans·net_drop 과 동일 산식 |
 | 포화 이진 (서버 상세) | `cpu.saturation` · `disk.saturation` · `net.congested` · `mem.paging_pressure` | 버킷 안에서 임계를 한 번이라도 넘었는지(`bool_or`)를 1.0/0.0 스텝으로. 임계는 `right_sizing` os-aware 상수를 bind — SQL 이 문턱을 새로 정의하지 않는다. 원 rate 를 그리면 OS 간 척도가 달라 비교가 안 되므로 판정 결과를 선으로 낸다 |
-| 판정 crossing 호스트 수 (환경) | `cpu.saturation_hosts` · `mem.paging_pressure_hosts` · `disk.saturation_hosts` · `net.congested_hosts` | 위 이진 판정의 환경판 — 버킷 안 server 별 `bool_or(crossed)` 후 넘은 서버 수 count |
+| 임계 서버 수 (환경) | `cpu.high_utilization_hosts` · `mem.paging_pressure_hosts` · `disk.saturation_hosts` · `net.congested_hosts` | 버킷 안 server 별 `bool_or(crossed)` 후 조건을 넘은 서버 수. CPU는 `CPU_UNDER_PCT`, 나머지는 각 신호 임계값 |
 | gauge (Linux 전용) | `cpu.blocked` | D-state 블록 gauge 평균 — 실행 큐와 달리 코어 정규화 없이 원자값. dimension=os_family |
 
 집계 필터 단일 진실(`db/repositories/query/types.py`): `_DATA_VOLUME_SQL_FILTER`(가상 fstype 제외 + `/boot%` 마운트 제외, raw 테이블용) · cagg 조회는 `fstype_any` 를 보는 `_DATA_VOLUME_CAGG_FILTER` · `_PHYS_DISK_SQL_FILTER`/`_PHYS_IFACE_SQL_FILTER`(fail-closed EXISTS 서브쿼리, 위 표) — 모두 agent kind/type 태그의 SQL 투영, `device_filters` 와 동기화. 모든 그룹 partition pruning(#C5) 하한 술어 의무 — delta 를 내는 그룹은 한 버킷 앞선 `collected_at >= :window_start`, gauge·판정 그룹은 `collected_at >= :start`.

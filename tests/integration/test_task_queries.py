@@ -318,7 +318,7 @@ async def test_expire_overdue_tasks_ignores_fresh_deadline(collect_repo: SqlColl
     assert status == "pending"
 
 
-async def test_find_pending_deadline_servers_only_pending_with_deadline(
+async def test_find_pending_task_server_ids_filters_type_and_status(
     collect_repo: SqlCollectRepository,
 ) -> None:
     s1 = await _setup_server(collect_repo, agent_id=_AGENT_A, hostname="test-task-host-A")
@@ -327,21 +327,22 @@ async def test_find_pending_deadline_servers_only_pending_with_deadline(
     future = datetime.now(UTC) + timedelta(hours=1)
 
     await collect_repo.create_task(
-        TaskCreate(target_server_id=s1, target_agent_id=_AGENT_A, task_type="t1", params=None, deadline_at=future)
+        TaskCreate(target_server_id=s1, target_agent_id=_AGENT_A, task_type="t-target", params=None, deadline_at=future)
     )
     await collect_repo.create_task(
-        TaskCreate(target_server_id=s2, target_agent_id=_AGENT_B, task_type="t2", params=None)
+        TaskCreate(target_server_id=s2, target_agent_id=_AGENT_B, task_type="t-other", params=None)
     )
     p3 = await collect_repo.create_task(
-        TaskCreate(target_server_id=s3, target_agent_id=_AGENT_C, task_type="t3", params=None, deadline_at=future)
+        TaskCreate(target_server_id=s3, target_agent_id=_AGENT_C, task_type="t-target", params=None, deadline_at=future)
     )
     await collect_repo.complete_task(make_task_result_update(public_id=p3, status="success", exit_code=0))
 
-    result = await collect_repo.find_pending_deadline_servers([s1, s2, s3])
+    result = await collect_repo.find_pending_task_server_ids([s1, s2, s3], "t-target")
     assert result == [s1]
+    assert await collect_repo.find_pending_task_server_ids([s1, s2, s3], "t-other") == [s2]
 
 
-async def test_find_pending_deadline_servers_distinct(collect_repo: SqlCollectRepository) -> None:
+async def test_find_pending_task_server_ids_ignores_other_type(collect_repo: SqlCollectRepository) -> None:
     sid = await _setup_server(collect_repo)
     future = datetime.now(UTC) + timedelta(hours=1)
     await collect_repo.create_task(
@@ -351,9 +352,9 @@ async def test_find_pending_deadline_servers_distinct(collect_repo: SqlCollectRe
         TaskCreate(target_server_id=sid, target_agent_id=_AGENT_A, task_type="t-b", params=None, deadline_at=future)
     )
 
-    result = await collect_repo.find_pending_deadline_servers([sid])
+    result = await collect_repo.find_pending_task_server_ids([sid], "t-a")
     assert result == [sid]
 
 
-async def test_find_pending_deadline_servers_empty_input(collect_repo: SqlCollectRepository) -> None:
-    assert await collect_repo.find_pending_deadline_servers([]) == []
+async def test_find_pending_task_server_ids_empty_input(collect_repo: SqlCollectRepository) -> None:
+    assert await collect_repo.find_pending_task_server_ids([], "t-a") == []

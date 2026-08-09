@@ -20,7 +20,7 @@
 
 - 대리키 패턴: 내부 참조는 정수 PK, 비즈니스 식별자는 unique 제약
 - `server_inventory` 호스트 식별 = `agent_id` 단독 UNIQUE (`uq_server_inventory_agent_id`) — upsert 키
-- `composite_id`·`machine_id` (둘 다 nullable) — clone collision 진단용 감사 컬럼, 식별·라우팅 미사용. wire 값 정의는 `docs/reference/contracts/agent-data.md`
+- `composite_id`와 `machine_id` (둘 다 nullable) — 현재 inventory와 변경 이력에 보존하는 감사 컬럼, 식별/라우팅 미사용. wire 값 정의는 `docs/reference/contracts/agent-data.md`
 - `server_inventory.public_id` `UUID DEFAULT gen_random_uuid()` — URL 식별자
 - 시계열 테이블 복합 PK `(id, collected_at)` — TimescaleDB 파티션 키 포함
 
@@ -62,7 +62,7 @@ CREATE UNIQUE INDEX uq_tasks_pending_per_server_type
 
 ## server_inventory_history — 변경 trigger
 
-`upsert_server` 에서 직전 `server_inventory` 행과 비교해 비교 대상 컬럼 중 하나라도 다르면 한 행 INSERT (앱 레벨 trigger). 비교 제외: `collected_at`·`last_seen_at`·`agent_id`·`composite_id`·`machine_id`·`hostname`·`service_categories`(services 파생). `boot_time` 만 단순 부등호가 아니라 위 지터 허용치를 흡수하는 `boot_time_changed` 로 비교한다. 가장 빈번한 trigger 필드: `boot_time`(시스템 재부팅) / `agent_started_at`(에이전트 재시작) / `services` / `listen_ports`.
+`upsert_server` 에서 직전 `server_inventory` 행과 비교해 비교 대상 컬럼 중 하나라도 다르면 한 행 INSERT (앱 레벨 trigger). history snapshot은 `composite_id`와 `machine_id`를 포함한다. 비교 제외: `collected_at`/`last_seen_at`/`agent_id`/`hostname`/`service_categories`(services 파생). `boot_time` 만 단순 부등호가 아니라 위 지터 허용치를 흡수하는 `boot_time_changed` 로 비교한다. 가장 빈번한 trigger 필드: `boot_time`(시스템 재부팅) / `agent_started_at`(에이전트 재시작) / `services` / `listen_ports`.
 
 `ON CONFLICT DO NOTHING(server_id, collected_at)` — broker 재전송·동시 워커 race 시 중복 INSERT 흡수.
 

@@ -46,13 +46,9 @@ type MetricType = Literal[
     "net.congested",
 ]
 
-# 활동 합산(net bytes), 판정 crossing 호스트 수(`*_hosts`). 이기종 장치의 절대치(IOPS·kbps·PPS)와 Windows
-# 미발행 신호(PSI)는 그래서 빠진다 — 전자는 비교 기준선이 없고, 후자는 Linux 값이 "환경 전체"로 읽힌다.
-
-
 type EnvironmentMetricType = Literal[
     "cpu.usage_percent",
-    "cpu.saturation_hosts",
+    "cpu.high_utilization_hosts",
     "mem.usage_percent",
     "mem.paging_pressure_hosts",
     "fs.usage_percent",

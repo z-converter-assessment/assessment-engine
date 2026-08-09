@@ -354,17 +354,29 @@ def build_environment_realtime(
     def _os_cell(
         value: float | None, os_family: str | None, fmt: Callable[[float], str], exceeded: bool = False
     ) -> RealtimeLoadCell:
-        """페이징 전용 — 값 앞에 L/W 접두를 붙인다.
-
-        무정규화 raw rate 라 OS 무관 해석이 안 된다 — Linux refault(>0 압박) vs Windows Pages Input/sec
-        (>=20 압박) 은 같은 숫자가 다른 의미다. 실행 큐는 지수 정규화라 접두가 필요 없다.
-        fmt 는 소수점 2자리 고정 — Linux 임계가 "> 0" 이라 정수 반올림하면 0.03/s 실측이 "0" 으로 묻힌다.
-        exceeded 는 호출자가 mem_pressure_active 결과로 넘긴다 — 여기서 재계산하면 신호 도넛과 갈린다.
-        """
         if value is None:
             return RealtimeLoadCell(value=None, display="—")
         color = _NET_CONGESTED_COLOR if exceeded else ""
         return RealtimeLoadCell(value=value, display=f"{_os_tag(os_family)} {fmt(value)}", color=color)
+
+    def _cpu_queue_cell(snapshot: JsonObject) -> RealtimeLoadCell:
+        value = snapshot.get("cpu_queue_value")
+        threshold = snapshot.get("cpu_queue_threshold")
+        if value is None or threshold is None:
+            return RealtimeLoadCell(value=None, display="—")
+        display = f"{_os_tag(snapshot.get('os_family'))} {value:.2f} / {threshold:g}"
+        color = _NET_CONGESTED_COLOR if snapshot.get("cpu_queue_crossed") else ""
+        return RealtimeLoadCell(value=value, display=display, color=color)
+
+    def _disk_signal_cell(snapshot: JsonObject) -> RealtimeLoadCell:
+        value = snapshot.get("disk_signal_value")
+        threshold = snapshot.get("disk_signal_threshold")
+        kind = snapshot.get("disk_signal_kind")
+        if value is None or threshold is None or kind is None:
+            return RealtimeLoadCell(value=None, display="—")
+        display = f"{value:.1f}ms / {threshold:g}ms" if kind == "await" else f"W queue {value:.2f} / {threshold:g}"
+        color = _NET_CONGESTED_COLOR if snapshot.get("disk_signal_crossed") else ""
+        return RealtimeLoadCell(value=value, display=display, color=color)
 
     load_rows = sorted(
         (
@@ -373,9 +385,7 @@ def build_environment_realtime(
                 public_id=s["public_id"],
                 cpu=_cell(s.get("cpu_pct"), lambda v: f"{v:.1f}%"),
                 mem=_cell(s.get("mem_pct"), lambda v: f"{v:.1f}%"),
-                run_queue=_cell(
-                    s.get("cpu_sat_index"), lambda v: f"{v:.2f}x", exceeded=(s.get("cpu_sat_index") or 0) >= 1.0
-                ),
+                run_queue=_cpu_queue_cell(s),
                 paging=_os_cell(
                     s.get("paging_rate"),
                     s.get("os_family"),
@@ -383,9 +393,7 @@ def build_environment_realtime(
                     exceeded=bool(s.get("mem_pressure")),
                 ),
                 disk_util=_cell(s.get("disk_util_pct"), lambda v: f"{v:.0f}%"),
-                disk_io=_cell(
-                    s.get("disk_sat_index"), lambda v: f"{v:.2f}x", exceeded=(s.get("disk_sat_index") or 0) >= 1.0
-                ),
+                disk_io=_disk_signal_cell(s),
                 network=_net_status_cell(bool(s.get("net_congested"))),
             )
             for s in snapshots
@@ -394,14 +402,12 @@ def build_environment_realtime(
     )
 
     sample = len(snapshots)
-    cpu_sat_count = sum(1 for s in snapshots if (s.get("cpu_sat_index") or 0) >= 1.0)
-    disk_sat_count = sum(1 for s in snapshots if (s.get("disk_sat_index") or 0) >= 1.0)
+    disk_signal_count = sum(1 for s in snapshots if s.get("disk_signal_crossed"))
     mem_pressure_count = sum(1 for s in snapshots if s.get("mem_pressure"))
     net_congested_count = sum(1 for s in snapshots if s.get("net_congested"))
     saturation_donuts = [
-        _build_saturation_donut("실행 큐 임계", cpu_sat_count, sample),
         _build_saturation_donut("페이징", mem_pressure_count, sample),
-        _build_saturation_donut("디스크 응답지연 임계", disk_sat_count, sample),
+        _build_saturation_donut("디스크 I/O 조사 신호", disk_signal_count, sample),
         _build_saturation_donut("네트워크 혼잡", net_congested_count, sample),
     ]
     return EnvironmentRealtime(
@@ -420,7 +426,7 @@ def to_capacity_warning_item(raw: ReportRowRaw):
 
     stats = build_resource_stats(raw, disk_baseline=None)
     host = right_sizing.rollup_host(stats)
-    classification = right_sizing.host_status_to_recommendation(host.host_status)
+    classification = host.recommendation
     hit = {t for r in host.resources.values() for t in r.triggers}
     swap_active = "mem_saturation" in hit
 
@@ -433,18 +439,17 @@ def to_capacity_warning_item(raw: ReportRowRaw):
     # 디스크 I/O 는 classification 무관 항상 노출 — root_cause_label 은 under 인과 기여 시에만 채워져
 
     disk_io_res = host.resources["disk_io"]
-    disk_io_status_value = right_sizing.STATUS_LABEL_KO.get(disk_io_res.status, disk_io_res.status)
+    disk_io_status_value = right_sizing.RESOURCE_STATUS_LABEL_KO.get(disk_io_res.status, disk_io_res.status)
     disk_io_status_color = _NET_CONGESTED_COLOR if disk_io_res.status == "io_bound" else ""
     spec_display = spec_display_line(raw.cpu_cores, raw.mem_total_bytes, raw.block_devices)
     util_vals = [v for v in (raw.cpu_p95_pct, raw.mem_p95_pct, raw.worst_mount_used_pct) if v is not None]
     peak_util = max(util_vals) if util_vals else 0.0
 
     if classification == "under_provisioned":
-        action = right_sizing.under_prescription(host)
         severity_score = (10000.0 if swap_active else 0.0) + len(active_causes) * 100.0 + peak_util
     else:
-        action = right_sizing.recommend_action(classification, stats)
         severity_score = 100.0 - peak_util
+    action = right_sizing.host_recommendation_action(host, stats)
     return CapacityWarningItem(
         public_id=raw.public_id,
         hostname=raw.hostname,

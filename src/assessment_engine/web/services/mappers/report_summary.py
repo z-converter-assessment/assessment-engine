@@ -36,25 +36,31 @@ def build_report_summary_bullets(
 
     bullets: list[str] = []
 
-    # 디스크 I/O 포화 — OS별 정규화(Linux iowait / Windows disk_queue) 판정. 고객 의사결정 직결 신호.
     if raws:
         disk_sat_raws = [
             r
             for r in raws
-            if right_sizing.disk_io_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
+            if right_sizing.is_disk_io_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
         ]
         if disk_sat_raws:
             phrase = _top_phrase([r.hostname for r in disk_sat_raws])
             bullets.append(f"디스크 I/O 포화 {len(disk_sat_raws)}대 ({phrase}) — 디스크 병목.")
 
     if raws:
-        mount_hosts = [
-            f"{r.hostname}({r.disk_capacity_driving_mount or '?'} {int(r.disk_capacity_runway_days)}일)"
-            for r in raws
-            if right_sizing.assess_disk_capacity(build_resource_stats(r, disk_baseline=r.disk_iops_baseline)).status
-            == "filling"
-            and r.disk_capacity_runway_days is not None
-        ]
+        mount_hosts: list[str] = []
+        for r in raws:
+            capacity = right_sizing.assess_disk_capacity(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
+            if capacity.status != "filling":
+                continue
+            candidate: tuple[float, str | None, str] | None = None
+            if r.disk_capacity_runway_days is not None:
+                candidate = (r.disk_capacity_runway_days, r.disk_capacity_driving_mount, "용량")
+            if r.disk_inode_runway_days is not None and (candidate is None or r.disk_inode_runway_days < candidate[0]):
+                candidate = (r.disk_inode_runway_days, r.disk_inode_driving_mount, "inode")
+            if candidate is None:
+                continue
+            runway, mount, axis = candidate
+            mount_hosts.append(f"{r.hostname}({mount or '?'} {axis} {int(runway)}일)")
         if mount_hosts:
             bullets.append(f"디스크 채움 임박 {len(mount_hosts)}대 ({_top_phrase(mount_hosts)}).")
 
@@ -79,7 +85,7 @@ def build_report_summary_bullets(
             sat_hosts = [
                 r.hostname
                 for r in raws
-                if right_sizing.cpu_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
+                if right_sizing.is_cpu_saturated(build_resource_stats(r, disk_baseline=r.disk_iops_baseline))
             ]
             if sat_hosts:
                 bullets.append(
@@ -92,7 +98,7 @@ def build_report_summary_bullets(
             if r.cpu_variance_ratio is not None
             and r.cpu_variance_ratio >= _VARIANCE_BURST_RATIO
             and r.cpu_peak_pct is not None
-            and r.cpu_peak_pct > right_sizing.BURST_PEAK_FLOOR_CPU_PCT
+            and r.cpu_peak_pct > right_sizing.CPU_BURST_PEAK_FLOOR_PCT
         ]
         if var_hosts:
             bullets.append(

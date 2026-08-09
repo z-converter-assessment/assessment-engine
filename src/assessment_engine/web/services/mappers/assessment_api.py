@@ -174,10 +174,10 @@ def _axis_size(current: float, ra: right_sizing.ResourceAssessment, stats: right
             return ra.sizing_floor, "increase", "floor"
         return current, "keep", "uncertain"
     if status == "over":
-        if right_sizing.downsize_prescribable(ra, stats) and ra.sizing_target is not None:
+        if right_sizing.can_prescribe_downsize(ra, stats) and ra.sizing_target is not None:
             return ra.sizing_target, "decrease", "exact"
         return current, "keep", "exact"
-    if status in ("unmeasured", "insufficient"):
+    if status == "unmeasured":
         return current, "keep", "uncertain"
     return current, "keep", "exact"
 
@@ -246,7 +246,7 @@ def _sizing(
 
 
 def _assessment(host: right_sizing.HostAssessment) -> Assessment:
-    rec = right_sizing.host_status_to_recommendation(host.host_status)
+    rec = host.recommendation
     notes = build_host_confidence_notes(host)
     if rec == "insufficient_data":
         confidence = "low"

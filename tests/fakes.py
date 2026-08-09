@@ -391,8 +391,8 @@ class InMemoryCollectRepository:
         self._record("expire_overdue_tasks", server_ids)
         return 0
 
-    async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
-        self._record("find_pending_deadline_servers", server_ids)
+    async def find_pending_task_server_ids(self, server_ids: list[int], task_type: str) -> list[int]:
+        self._record("find_pending_task_server_ids", (server_ids, task_type))
         return []
 
     async def expire_all_overdue_tasks(self) -> int:

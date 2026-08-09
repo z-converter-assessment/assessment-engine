@@ -309,7 +309,7 @@ def to_server_list_item(
     rec_label, seg_key = "", ""
     if raw_period is not None:
         host = right_sizing.rollup_host(build_resource_stats(raw_period, disk_baseline=None))
-        rec = right_sizing.host_status_to_recommendation(host.host_status)
+        rec = host.recommendation
         seg_key = rec
         rec_label = right_sizing.RECOMMENDATION_LABEL_KO[seg_key]
 

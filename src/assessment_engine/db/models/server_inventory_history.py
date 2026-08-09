@@ -9,11 +9,7 @@ from assessment_engine.json_types import JsonObject
 
 
 class ServerInventoryHistory(Base):
-    """server_inventory append-only 변경 이력.
-
-    upsert_server에서 직전 행과 다를 때만 INSERT (앱 레벨 trigger). server_inventory 컬럼을
-    미러링 + 자기 식별자(id, server_id, collected_at)·멱등성 UNIQUE 추가.
-    """
+    """서버 inventory의 변경 이력."""
 
     __tablename__ = "server_inventory_history"
     __table_args__ = (UniqueConstraint("server_id", "collected_at", name="uq_server_inv_history_sid_ts"),)
@@ -22,6 +18,8 @@ class ServerInventoryHistory(Base):
     collected_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), primary_key=True, nullable=False)
     server_id: Mapped[int] = mapped_column(Integer, ForeignKey("server_inventory.id"), nullable=False)
 
+    composite_id: Mapped[str | None] = mapped_column(String(64))
+    machine_id: Mapped[str | None] = mapped_column(String(64))
     hostname: Mapped[str] = mapped_column(String(255), nullable=False)
     agent_version: Mapped[str | None] = mapped_column(String(32))
 

@@ -128,7 +128,7 @@ outbound 는 표시 파생이 하나도 없는 raw dataclass 다.
 |------|------|------|
 | 임계 상수 | 파일 상단 | 각 수치에 출처가 붙어 있다 (Kleinrock · AWS · Azure · Microsoft) |
 | 자원별 판정 | `assess_cpu` ~ `assess_network` | 자원 하나를 USE 로 보는 법 |
-| 호스트 종합 | `rollup_host` · `_host_status` · 처방 | 자원 5개를 인과로 묶는 법 |
+| 호스트 종합 | `rollup_host` · `_recommendation` · 처방 | 자원 5개를 인과로 묶는 법 |
 
 읽으면서 확인할 것 — dual-gate 가 무엇을 막는가. 왜 이용률만으로도, 포화 신호만으로도 부족한가.
 

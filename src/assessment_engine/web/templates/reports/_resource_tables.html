@@ -13,8 +13,8 @@
 
 {% macro action_targets_table(hosts, self_back) %}
 {% if hosts %}
-{# 판별 결과만(수치 임계 축·범례 제거): 호스트·사양·분류·권고·네트워크 상태·디스크 I/O 상태·신뢰도. 네트워크·
-   디스크 I/O 는 host_status 미구동 orthogonal flag 라 동형 대칭 처리(둘 다 전용 필드, 분류 무관 항상 노출). #}
+{# 판별 결과만(수치 임계 축·범례 제거): 호스트·사양·분류·권고·네트워크 상태·디스크 I/O 상태·신뢰도. 네트워크와
+   디스크 I/O는 분류와 무관한 전용 필드로 항상 노출한다. #}
 <div class="table-scroll">
 <table class="detail-table sortable-table" style="width:100%;">
   <thead>

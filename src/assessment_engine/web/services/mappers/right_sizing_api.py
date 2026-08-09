@@ -24,21 +24,6 @@ if TYPE_CHECKING:
     from assessment_engine.json_types import JsonObject
     from assessment_engine.web.view_models.right_sizing_api import RsAction, RsNetSignal, RsRecommendation
 
-# ResourceStatus(도메인 enum) -> 외부 노출 한국어 라벨. 자원 적정성 화면과 통일 어휘.
-_STATUS_LABEL_KO: dict[str, str] = {
-    "under": "부족",
-    "optimal": "적정",
-    "over": "여유",
-    "insufficient": "표본 부족",
-    "filling": "소진 임박",
-    "capacity_ok": "적정",
-    "io_bound": "병목",
-    "io_ok": "적정",
-    "congested": "혼잡",
-    "quality_ok": "정상",
-    "unmeasured": "미관측",
-}
-
 
 def _evidence_labels(triggers: list[right_sizing.TriggerKind]) -> list[str]:
     return [_CAUSE_LABEL_BY_TRIGGER.get(t) or right_sizing.TRIGGER_LABEL_KO.get(t, t) for t in triggers]
@@ -51,10 +36,9 @@ def _sizeable_recommendation(kind: right_sizing.ResourceKind, ra: right_sizing.R
     return None
 
 
-def _net_signal(value: float | None, threshold: float, *, inclusive: bool = False) -> RsNetSignal:
+def _net_signal(value: float | None, threshold: float, exceeded: bool | None) -> RsNetSignal:
     if value is None:
         return {"value": None, "threshold": threshold, "exceeded": None, "measured": False}
-    exceeded = value >= threshold if inclusive else value > threshold
     return {"value": round(value, 3), "threshold": threshold, "exceeded": exceeded, "measured": True}
 
 
@@ -64,7 +48,7 @@ def _cpu_resource(
     ra = host.resources["cpu"]
     return {
         "status": ra.status,
-        "status_label": _STATUS_LABEL_KO.get(ra.status, ra.status),
+        "status_label": right_sizing.RESOURCE_STATUS_LABEL_KO[ra.status],
         "utilization_p95_pct": round(raw.cpu_p95_pct, 1) if raw.cpu_p95_pct is not None else None,
         "saturation": saturation_block("cpu", stats),
         "evidence": _evidence_labels(ra.triggers),
@@ -82,7 +66,7 @@ def _memory_resource(
     ra = host.resources["memory"]
     return {
         "status": ra.status,
-        "status_label": _STATUS_LABEL_KO.get(ra.status, ra.status),
+        "status_label": right_sizing.RESOURCE_STATUS_LABEL_KO[ra.status],
         "utilization_p95_pct": round(raw.mem_p95_pct, 1) if raw.mem_p95_pct is not None else None,
         "saturation": saturation_block("memory", stats),
         "evidence": _evidence_labels(ra.triggers),
@@ -99,19 +83,19 @@ def _disk_resource(
 ) -> JsonObject:
     cap = host.resources["disk_capacity"]
     io = host.resources["disk_io"]
+    inode_driven = "disk_inode" in cap.triggers and "disk_capacity" not in cap.triggers
+    driving_mount = raw.disk_inode_driving_mount if inode_driven else raw.disk_capacity_driving_mount
+    runway_days = raw.disk_inode_runway_days if inode_driven else raw.disk_capacity_runway_days
+    driving_used_pct = None if inode_driven else raw.disk_capacity_driving_used_pct
     _dbytes = disk_total_bytes(raw.block_devices or [])
     _dgb = bytes_to_gb(_dbytes) if _dbytes else None
     return {
         "capacity": {
             "status": cap.status,
-            "status_label": _STATUS_LABEL_KO.get(cap.status, cap.status),
-            "worst_mount": raw.disk_capacity_driving_mount,
-            "worst_mount_used_pct": (
-                round(raw.disk_capacity_driving_used_pct, 1) if raw.disk_capacity_driving_used_pct is not None else None
-            ),
-            "days_until_full": (
-                int(raw.disk_capacity_runway_days) if raw.disk_capacity_runway_days is not None else None
-            ),
+            "status_label": right_sizing.RESOURCE_STATUS_LABEL_KO[cap.status],
+            "worst_mount": driving_mount,
+            "worst_mount_used_pct": (round(driving_used_pct, 1) if driving_used_pct is not None else None),
+            "days_until_full": (int(runway_days) if runway_days is not None else None),
             "evidence": _evidence_labels(cap.triggers),
             "confidence_notes": resource_confidence_notes(cap.confidence),
             "current_gb": int(_dgb) if _dgb is not None else None,
@@ -121,7 +105,7 @@ def _disk_resource(
         },
         "io": {
             "status": io.status,
-            "status_label": _STATUS_LABEL_KO.get(io.status, io.status),
+            "status_label": right_sizing.RESOURCE_STATUS_LABEL_KO[io.status],
             "saturation": saturation_block("disk_io", stats),
             "evidence": _evidence_labels(io.triggers),
             "confidence_notes": resource_confidence_notes(io.confidence),
@@ -157,7 +141,6 @@ def _recommendation(
     host: right_sizing.HostAssessment, stats: right_sizing.ResourceStats, rec: right_sizing.Recommendation
 ) -> RsRecommendation:
 
-    # 대칭) — 분류와 무관하게 orthogonal 노출해야 해서 여기서 별도 append.
     io_advisory = (
         [_action("disk_io", host.resources["disk_io"], "tier_up")]
         if host.resources["disk_io"].status == "io_bound"
@@ -174,22 +157,18 @@ def _recommendation(
         }
     if rec == "over_provisioned":
         actions = [
-            _action(k, host.resources[k], "decrease")
-            for k in ("cpu", "memory")
-            if host.resources[k].status == "over"
-            and right_sizing.downsize_prescribable(host.resources[k], stats)
-            and host.resources[k].sizing_target is not None
+            _action(k, host.resources[k], "decrease") for k in right_sizing.prescribable_downsize_kinds(host, stats)
         ]
 
         return {
-            "summary": right_sizing.recommend_action(rec, stats),
-            "kind": "downsize",
+            "summary": right_sizing.host_recommendation_action(host, stats),
+            "kind": "downsize" if actions else "observe",
             "actions": actions + io_advisory,
             "suppressed": [],
         }
     _kind = {"idle": "decommission", "insufficient_data": "insufficient", "optimal": "maintain"}.get(rec, "maintain")
     return {
-        "summary": right_sizing.recommend_action(rec, stats),
+        "summary": right_sizing.host_recommendation_action(host, stats),
         "kind": _kind,
         "actions": io_advisory,
         "suppressed": [],
@@ -200,8 +179,10 @@ def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambigu
     # 계약 API 는 net baseline 만 주입받는다 — disk 활동 축은 미관측(보고서 경로 전용).
     stats = build_resource_stats(raw, disk_baseline=None)
     host = right_sizing.rollup_host(stats)
-    rec = right_sizing.host_status_to_recommendation(host.host_status)
+    rec = host.recommendation
     net = host.resources["network"]
+    net_triggers = net.triggers
+    traffic_sufficient = right_sizing.has_sufficient_network_traffic(stats)
     return {
         "hostname": raw.hostname,
         "hostname_ambiguous": hostname_ambiguous,
@@ -221,13 +202,23 @@ def build_right_sizing_entry(raw: ReportRowRaw, is_online: bool, hostname_ambigu
         },
         "network": {
             "status": net.status,
-            "status_label": _STATUS_LABEL_KO.get(net.status, net.status),
+            "status_label": right_sizing.RESOURCE_STATUS_LABEL_KO[net.status],
             "congested": host.network_congested,
             "signals": {
-                "retransmit_pct": _net_signal(raw.net_retrans_pct, right_sizing.NET_RETRANS_PCT),
-                "drop_pct": _net_signal(raw.net_drop_pct, right_sizing.NET_DROP_PCT),
+                "retransmit_pct": _net_signal(
+                    raw.net_retrans_pct,
+                    right_sizing.NET_RETRANS_PCT,
+                    "net_retrans" in net_triggers if traffic_sufficient else None,
+                ),
+                "drop_pct": _net_signal(
+                    raw.net_drop_pct,
+                    right_sizing.NET_DROP_PCT,
+                    "net_drop" in net_triggers if traffic_sufficient else None,
+                ),
                 "conntrack_ratio": _net_signal(
-                    raw.conntrack_ratio, right_sizing.CONNTRACK_SATURATION_RATIO, inclusive=True
+                    raw.conntrack_ratio,
+                    right_sizing.CONNTRACK_SATURATION_RATIO,
+                    "net_conntrack" in net_triggers,
                 ),
             },
             "detail": net.detail or None,

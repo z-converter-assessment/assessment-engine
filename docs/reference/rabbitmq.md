@@ -51,7 +51,7 @@ vhost: `assessment` (무슬래시) 단일 사용. broker 한 대를 다른 도�
 
 `worker.result` 정책 근거:
 - 24h TTL: 운영자가 install 결과를 하루 안에 확인. 누적 적재 방지.
-- 100K 상한: 머신당 install pending 최대 1건(`tasks` 부분 UNIQUE) + 결과 메시지 약 4KB라 1만 머신 X 1 buffer로 충분.
+- 100K 상한: 머신당 `zconverter_install` pending 최대 1건(`tasks` 부분 UNIQUE) + 결과 메시지 약 4KB라 1만 머신 X 1 buffer로 충분.
 
 `agent.tasks.<agent_id>` 정책 근거:
 - 머신별 전용 큐 — `task.install.<agent_id>` routing key 로 정확히 해당 머신만 배달.

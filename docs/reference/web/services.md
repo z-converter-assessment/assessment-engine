@@ -132,7 +132,7 @@ IP 는 필터하지 않는다. `ip_internal`/`ip_external` 이 인터페이스 �
 
 | 영역 | service 메서드 | repo SQL | 시간 축 | 분류 |
 |------|----------------|----------|---------|------|
-| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `get_environment_utilization(WINDOW_DAYS, end)` + `get_report_aggregate(WINDOW_DAYS)` + `get_fleet_error_summary` + Redis online mget | 창 USE Method + 창 평균 활용률 (capacity-weighted) | `assemble_overview`: `build_resource_stats` -> `classify_host`(프로비저닝 도넛) + `cpu/mem/disk_io_saturated`·`assess_network`(포화 4도넛) + `to_capacity_warning_item`(under_provisioned 상세, os-aware triggers) |
+| environment_overview | `get_dashboard_overview()` | `list_server_ids` + `get_servers` + `get_environment_utilization(WINDOW_DAYS, end)` + `get_report_aggregate(WINDOW_DAYS)` + `get_fleet_error_summary` + Redis online mget | 창 USE Method + 창 평균 활용률 (capacity-weighted) | `assemble_overview`: `build_resource_stats` -> `rollup_host().recommendation`(프로비저닝 도넛) + `is_cpu_saturated`·`is_memory_saturated`·`is_disk_io_saturated`·`assess_network`(포화 4도넛) + `to_capacity_warning_item`(under_provisioned 상세, os-aware triggers) |
 | get_attention_signals (보고서 교차참조) | `get_attention_signals` | gap `get_metric_gap_warnings` + os_eol `get_report_aggregate` raws `resolve_os_eol` + agent `get_agent_restart_counts_recent` | 신호별 상이 | gap "한때 살아있다 끊김" / os_eol 무상 보안 패치가 끊긴 OS(Linux distro + Windows build) / agent restart_count >= `agent_restart_alert_threshold`(WebSettings) |
 
 운영신호 카탈로그(`AttentionSignals`)는 위 3개 — public `get_attention_signals` 가 내부 `_assemble_attention` 으로 조립, 보고서 `attention_for_host` 로 소비. 중복 회피 분리 소유: capacity(under_provisioned)는 environment_overview, days_until_full 은 보고서 스토리지 컬럼.
@@ -155,7 +155,7 @@ IP 는 필터하지 않는다. `ip_internal`/`ip_external` 이 인터페이스 �
 
 서버 상세 성능 추이(`metrics.js`)·자원별 상세 탭(`cpu.js`/`memory.js`/`storage.js`/`network.js`)·환경 성능 추이 세 스코프가 신호 카탈로그(CPU 사용률+실행 큐, 메모리 사용률+구성+압박 여부, 스토리지 처리량+용량, 네트워크 I/O+이상 여부)와 레이아웃(`.perf-grid`/`.perf-item`, 화면 2열·인쇄도 2열 portrait 1페이지, `static-assets.md` "차트 컨트롤" 절)을 공유한다. 어느 축을 넣고 뺐는지와 그 근거는 `docs/explanation/products/dashboard.md` 가 갖는다.
 
-세 스코프의 표현 단위만 다르다 — 환경은 판정 crossing "서버 수"(count, `cpu.saturation_hosts`/`mem.paging_pressure_hosts`/`disk.saturation_hosts`/`net.congested_hosts`)이고, 서버 상세는 단일 시계열이라 실행 큐가 연속값(`cpu.run_queue`), 메모리 압박·네트워크 이상이 이진 0/1(`mem.paging_pressure`/`net.congested`)이다. 원자료·임계·판정 로직(`right_sizing.mem_pressure_active`/`assess_network`)은 동일하다. 스토리지는 양 스코프 모두 사용률(`fs.usage_percent`, capacity-weighted)로 표시하고, y축만 환경이 100% 고정·서버 상세가 마운트별 밴드 차이를 흡수하려 하단 0% 만 고정한다. 페이지 하단은 `_reference_link.html` 푸터.
+세 스코프의 표현 단위만 다르다. 환경은 CPU 고사용률과 나머지 신호의 서버 수(count, `cpu.high_utilization_hosts`/`mem.paging_pressure_hosts`/`disk.saturation_hosts`/`net.congested_hosts`)를 표시한다. 서버 상세는 단일 시계열이라 실행 큐가 연속값(`cpu.run_queue`), 메모리 압박과 네트워크 이상이 이진 0/1(`mem.paging_pressure`/`net.congested`)이다. 스토리지는 양 스코프 모두 사용률(`fs.usage_percent`, capacity-weighted)로 표시하고, y축만 환경이 100% 고정·서버 상세가 마운트별 밴드 차이를 흡수하려 하단 0%만 고정한다. 페이지 하단은 `_reference_link.html` 푸터.
 
 ### 실시간 현황 (live) — `/environment/realtime`
 

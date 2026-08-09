@@ -229,6 +229,7 @@ async def main() -> None:
                     arguments=args,
                 )
                 await queue.bind(source_exchanges[b.exchange_name], routing_key=b.routing_key)
+                # 각 일반 queue에 대해, 콜백 등록
                 consumers.append((queue, await queue.consume(_track_inflight(b.handler, inflight))))
                 logger.info(
                     "consuming exchange={} queue={} routing_key={} ttl_ms={} max_len={}",

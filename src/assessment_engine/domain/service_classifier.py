@@ -1,8 +1,6 @@
-"""서비스 카테고리 분류·포트 매핑 — `SERVICE_CATALOG` 단일 카탈로그.
+"""서비스 카테고리 분류 규칙과 포트 매핑.
 
-consumer(ingest 사전계산)와 web(표시·필터)이 같은 카탈로그를 쓰므로 web 역의존이 0 이라야 한다.
-서비스 추가는 카탈로그 1곳만 고친다 — 분류·포트·드롭다운·뱃지 CSS 가 전부 여기서 파생한다.
-다중 신호 우선순위·카테고리 경계 규약은 docs/reference/web/services.md.
+서비스 이름 키워드를 먼저 적용하고, 일치하지 않으면 서비스에 귀속된 수신 포트로 판정한다.
 """
 
 from dataclasses import dataclass
@@ -14,7 +12,7 @@ if TYPE_CHECKING:
 
 @dataclass
 class MatchedPort:
-    """서비스 유닛에 매핑된 listen 포트 1개."""
+    """서비스에 연결된 수신 포트."""
 
     proto: str
     port: int
@@ -22,16 +20,10 @@ class MatchedPort:
 
 @dataclass(frozen=True)
 class CategoryDef:
-    """서비스 카테고리 1개의 분류 규약.
-
-    name_keywords 는 unit 이름과 프로세스 comm 양쪽에 적용한다 (Linux unit·Windows SCM 이름·exe basename 통합).
-    Windows SCM 이름은 정규화 없이 들어와(MSSQLSERVER / MSSQL$INSTANCE / W3SVC) 변형이 커서, SCM 이름과 exe
-    basename 을 함께 등록해 흡수한다.
-    port_names 는 comm 이 없는(비루트 agent) 구간의 폴백 — 키는 normalized 서비스명(소문자·`.service` 제거)이라
-    형태가 다른 키는 조회에 걸리지 않는다.
-    """
+    """서비스 카테고리 분류 규칙."""
 
     key: str
+    # 문자열 0개 이상 어노테이션
     name_keywords: tuple[str, ...]
     port_names: dict[str, tuple[int, ...]]
     badge_class: str
@@ -53,7 +45,7 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "lighttpd",
             "traefik",
             "haproxy",
-            "w3svc",  # IIS (Windows SCM 서비스명)
+            "w3svc",
             "iis",
             "openresty",
             "tomcat",
@@ -73,8 +65,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "tomcat": (8080,),
         },
         badge_class="badge-cat-web",
-        label_ko="웹 / 애플리케이션",
-        desc_ko="Nginx·Apache·HAProxy·Caddy·IIS·Tomcat 등 웹 서버·리버스 프록시·애플리케이션 서버(WAS)",
+        label_ko="웹 계층",
+        desc_ko="Nginx, Apache, HAProxy, Caddy, IIS, Tomcat 등 웹 서버, 리버스 프록시, 애플리케이션 서버",
     ),
     CategoryDef(
         key="db",
@@ -88,8 +80,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "mongodb",
             "cassandra",
             "influxdb",
-            "sqlservr",  # SQL Server exe basename (Windows)
-            "mssql",  # SQL Server SCM 서비스명 (MSSQLSERVER / MSSQL$INSTANCE)
+            "sqlservr",
+            "mssql",
             "oracle",
             "elasticsearch",
             "opensearch",
@@ -115,7 +107,10 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
         },
         badge_class="badge-cat-db",
         label_ko="데이터베이스",
-        desc_ko="PostgreSQL·MySQL/MariaDB·MongoDB·SQL Server·Oracle·Elasticsearch 등 관계형·NoSQL·검색 데이터 저장소",
+        desc_ko=(
+            "PostgreSQL, MySQL/MariaDB, MongoDB, SQL Server, Oracle, Elasticsearch 등 관계형 데이터베이스, "
+            "NoSQL, 검색 엔진"
+        ),
     ),
     CategoryDef(
         key="cache",
@@ -137,8 +132,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "dragonfly": (6379,),
         },
         badge_class="badge-cat-cache",
-        label_ko="캐시 / 인메모리",
-        desc_ko="Redis·Memcached·Valkey·Varnish 등 인메모리 캐시·콘텐츠 가속",
+        label_ko="캐시",
+        desc_ko="Redis, Memcached, Valkey, Varnish 등 캐시와 콘텐츠 가속 서비스",
     ),
     CategoryDef(
         key="mq",
@@ -164,8 +159,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "emqx": (1883,),
         },
         badge_class="badge-cat-mq",
-        label_ko="메시지 큐",
-        desc_ko="RabbitMQ·Kafka·NATS·ActiveMQ·MQTT(Mosquitto/EMQX) 등 메시지 브로커",
+        label_ko="메시지 브로커",
+        desc_ko="RabbitMQ, Kafka, NATS, ActiveMQ, Mosquitto, EMQX 등 메시지 브로커",
     ),
     CategoryDef(
         key="container",
@@ -180,8 +175,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
         ),
         port_names={},
         badge_class="badge-cat-container",
-        label_ko="컨테이너 런타임",
-        desc_ko="Docker·containerd·Kubernetes(kubelet/k3s)·Podman 등 컨테이너 런타임 스택 (호스트당 1로 집계)",
+        label_ko="컨테이너 플랫폼",
+        desc_ko="Docker, containerd, Kubernetes 노드 구성요소, Podman 등 컨테이너 플랫폼",
         single_instance=True,
     ),
     CategoryDef(
@@ -212,8 +207,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "netdata": (19999,),
         },
         badge_class="badge-cat-monitor",
-        label_ko="모니터링 / 관측",
-        desc_ko="Prometheus·Grafana·Zabbix·node_exporter·Telegraf·Loki 등 메트릭·로그 수집 에이전트",
+        label_ko="모니터링 및 관측성",
+        desc_ko="Prometheus, Grafana, Zabbix, Loki, Telegraf 등 모니터링, 메트릭, 로그 수집 구성요소",
     ),
     CategoryDef(
         key="remote",
@@ -222,7 +217,7 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "ssh",
             "openssh",
             "rdp",
-            "termservice",  # RDP SCM 서비스명 (Windows Terminal Services)
+            "termservice",
             "umrdpservice",
             "winrm",
             "wsmprovhost",
@@ -244,8 +239,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "telnetd": (23,),
         },
         badge_class="badge-cat-remote",
-        label_ko="원격 접속 / 관리",
-        desc_ko="SSH·RDP·WinRM·VNC 등 원격 접속·관리 서비스 (관리 표면 — 대부분 호스트에 존재)",
+        label_ko="원격 접속 및 관리",
+        desc_ko="SSH, RDP, WinRM, VNC 등 원격 접속 및 관리 서비스",
     ),
     CategoryDef(
         key="file",
@@ -280,8 +275,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "tgtd": (3260,),
         },
         badge_class="badge-cat-file",
-        label_ko="파일 / 스토리지 공유",
-        desc_ko="NFS·SMB(Samba)·FTP·iSCSI·MinIO 등 파일 공유·네트워크 스토리지",
+        label_ko="파일 및 스토리지 서비스",
+        desc_ko="NFS, SMB, FTP, iSCSI, MinIO, Ceph 등 파일 전송과 네트워크 스토리지 서비스",
     ),
     CategoryDef(
         key="mail",
@@ -344,8 +339,8 @@ SERVICE_CATALOG: tuple[CategoryDef, ...] = (
             "snmpd": (161, 162),
         },
         badge_class="badge-cat-infra",
-        label_ko="네트워크 인프라",
-        desc_ko="DNS(BIND·dnsmasq)·DHCP·NTP·LDAP·SNMP·프록시 등 네트워크 기반 서비스",
+        label_ko="네트워크 및 기반 서비스",
+        desc_ko="DNS, DHCP, NTP, LDAP, SNMP, 프록시 등 네트워크 및 기반 서비스",
     ),
 )
 
@@ -419,6 +414,7 @@ def _attributed_ports(unit: str, listen_ports: list[JsonObject], pid: int | None
 
 
 def classify_service(unit: str, listen_ports: list[JsonObject] | None = None, pid: int | None = None) -> str:
+    """서비스 unit의 카테고리를 반환한다."""
     name = unit.lower().removesuffix(".service")
     cat = _match_keyword(name)
     if cat is not None:
@@ -439,6 +435,7 @@ def classify_service(unit: str, listen_ports: list[JsonObject] | None = None, pi
 
 
 def matched_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = None) -> list[MatchedPort]:
+    """서비스 unit에 귀속된 수신 포트를 반환한다."""
     seen: set[tuple[str, int]] = set()
     result: list[MatchedPort] = []
     cat: str | None = None
@@ -461,6 +458,7 @@ def matched_ports(unit: str, listen_ports: list[JsonObject], pid: int | None = N
 
 
 def detect_listen_categories(listen_ports: list[JsonObject]) -> dict[str, list[MatchedPort]]:
+    """수신 포트별 서비스 카테고리를 반환한다."""
     out: dict[str, list[MatchedPort]] = {}
     seen: set[tuple[str, int]] = set()
     for p in sorted(listen_ports or [], key=lambda x: (x.get("port", 0), x.get("proto", ""))):
@@ -518,6 +516,7 @@ def is_baseline_socket(p: JsonObject) -> bool:
 
 
 def compute_service_categories(services: list[JsonObject] | None, listen_ports: list[JsonObject] | None) -> list[str]:
+    """서비스와 수신 포트의 카테고리를 반환한다."""
     non_baseline_ports = [p for p in (listen_ports or []) if not is_baseline_socket(p)]
     cats: set[str] = set()
     for s in services or []:

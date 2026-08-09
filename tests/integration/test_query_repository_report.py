@@ -513,7 +513,7 @@ async def test_report_aggregate_adr0052_signals_absent_are_none(
     assert r.disk_await_p95_ms is None
     assert r.disk_inode_runway_days is None
     assert r.net_retrans_pct is None
-    assert r.mem_swap_paging is False
+    assert r.mem_swap_paging is None
 
 
 async def test_report_aggregate_percore_p95_max_reflects_busy_core(

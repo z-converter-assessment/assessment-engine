@@ -9,7 +9,7 @@ from assessment_engine.domain import right_sizing
 from assessment_engine.domain.right_sizing import ResourceStats
 from tests.hypothesis_scale import examples
 
-_HOST_STATUS = {"under", "idle", "over", "optimal", "insufficient"}
+_RECOMMENDATION = {"under_provisioned", "idle", "over_provisioned", "optimal", "insufficient_data"}
 _RES_KINDS = {"cpu", "memory", "disk_capacity", "disk_io", "network"}
 
 
@@ -33,13 +33,12 @@ def stats_strategy(draw: DrawFn) -> ResourceStats:
         net_avg_kbytes_per_s=draw(_opt(st.floats(0, 1_000_000, allow_nan=False))),
         os_family=draw(st.sampled_from(["linux", "windows", None])),
         sample_sufficiency=draw(_opt(st.floats(0, 1.2, allow_nan=False))),
-        disk_queue_p95=draw(_opt(st.floats(0, 50, allow_nan=False))),
         cpu_run_queue_p95=draw(_opt(st.floats(0, 30, allow_nan=False))),
         mem_pages_input_rate_p95=draw(_opt(st.floats(0, 2000, allow_nan=False))),
         cpu_percore_p95_max=draw(_opt(_pct)),
         procs_blocked_p95=draw(_opt(st.floats(0, 30, allow_nan=False))),
         procs_running_p95=draw(_opt(st.floats(0, 30, allow_nan=False))),
-        mem_swap_paging=draw(st.booleans()),
+        mem_swap_paging=draw(_opt(st.booleans())),
         oom_occurred=draw(st.booleans()),
         mem_total_mb=draw(_opt(_mb)),
         mem_near_peak_pct=draw(_opt(_pct)),
@@ -54,7 +53,8 @@ def stats_strategy(draw: DrawFn) -> ResourceStats:
         conntrack_ratio=draw(_opt(st.floats(0, 1.5, allow_nan=False))),
         history_hours=draw(_opt(st.floats(0, 1000, allow_nan=False))),
         cpu_burst_ratio=draw(_opt(st.floats(0, 10, allow_nan=False))),
-        util_trend_rising=draw(_opt(st.booleans())),
+        cpu_utilization_trend_rising=draw(_opt(st.booleans())),
+        memory_utilization_trend_rising=draw(_opt(st.booleans())),
         cpu_steal_p95_pct=draw(_opt(_pct)),
     )
 
@@ -65,7 +65,7 @@ def test_structural_invariants(stats: ResourceStats):
     host = right_sizing.rollup_host(stats)
 
     assert set(host.resources) == _RES_KINDS
-    assert host.host_status in _HOST_STATUS
+    assert host.recommendation in _RECOMMENDATION
     for a in host.resources.values():
         if a.sizing_target is not None:
             assert isinstance(a.sizing_target, int), (a.kind, a.sizing_target)
@@ -73,14 +73,14 @@ def test_structural_invariants(stats: ResourceStats):
         if a.sizing_floor is not None:
             assert isinstance(a.sizing_floor, int), (a.kind, a.sizing_floor)
             assert a.sizing_floor > 0, (a.kind, a.sizing_floor)
-    assert right_sizing.classify_host(stats) == right_sizing.host_status_to_recommendation(host.host_status)
+    assert right_sizing.rollup_host(stats).recommendation == host.recommendation
 
 
 @settings(max_examples=examples(2000))
 @given(stats_strategy())
 def test_determinism(stats: ResourceStats):
     h1, h2 = right_sizing.rollup_host(stats), right_sizing.rollup_host(stats)
-    assert h1.host_status == h2.host_status
+    assert h1.recommendation == h2.recommendation
     assert {k: v.status for k, v in h1.resources.items()} == {k: v.status for k, v in h2.resources.items()}
     assert {k: v.sizing_target for k, v in h1.resources.items()} == {
         k: v.sizing_target for k, v in h2.resources.items()

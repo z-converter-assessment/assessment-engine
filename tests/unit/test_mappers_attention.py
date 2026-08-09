@@ -43,8 +43,13 @@ def _two_snaps() -> list[JsonObject]:
             mem_total_bytes=2e9,
             fs_used_gb=30.0,
             fs_total_gb=100.0,
-            cpu_sat_index=1.5,
-            disk_sat_index=0.5,
+            cpu_queue_value=1.5,
+            cpu_queue_threshold=1.0,
+            cpu_queue_crossed=True,
+            disk_signal_value=10.0,
+            disk_signal_threshold=20.0,
+            disk_signal_kind="await",
+            disk_signal_crossed=False,
             disk_util_pct=40.0,
             mem_pressure=True,
         ),
@@ -59,8 +64,13 @@ def _two_snaps() -> list[JsonObject]:
             mem_total_bytes=4e9,
             fs_used_gb=90.0,
             fs_total_gb=100.0,
-            cpu_sat_index=0.2,
-            disk_sat_index=2.0,
+            cpu_queue_value=0.2,
+            cpu_queue_threshold=1.0,
+            cpu_queue_crossed=False,
+            disk_signal_value=40.0,
+            disk_signal_threshold=20.0,
+            disk_signal_kind="await",
+            disk_signal_crossed=True,
             disk_util_pct=80.0,
             mem_pressure=False,
         ),
@@ -95,13 +105,9 @@ def test_realtime_online_offline_sample_size():
 def test_realtime_saturation_counts():
     r = build_environment_realtime(total=5, online=2, snapshots=_two_snaps(), last_collected_at=_NOW)
     labels = {d.label: (d.count, d.total) for d in r.saturation_donuts}
-    assert labels["실행 큐 임계"] == (1, 2)
     assert labels["페이징"] == (1, 2)
-    assert labels["디스크 응답지연 임계"] == (1, 2)
+    assert labels["디스크 I/O 조사 신호"] == (1, 2)
     assert labels["네트워크 혼잡"] == (0, 2)
-    rq_donut = next(d for d in r.saturation_donuts if d.label == "실행 큐 임계")
-    assert rq_donut.dash_length == (1 / 2) * _UTIL_DONUT_CIRC
-    assert rq_donut.color == _UTIL_COLOR_GAUGE
 
 
 def test_realtime_network_congestion_donut_counts_flagged_hosts():
@@ -124,24 +130,24 @@ def test_realtime_load_rows_hostname_sorted_with_all_axes():
     assert h2.mem.value == 75.0
     assert h2.mem.display == "75.0%"
     assert h2.run_queue.value == 0.2
-    assert h2.run_queue.display == "0.20x"
+    assert h2.run_queue.display == "L 0.20 / 1"
     assert h2.disk_util.value == 80.0
     assert h2.disk_util.display == "80%"
 
 
 def test_realtime_load_rows_paging_os_tagged_run_queue_not():
     snaps = [
-        _snap("lin", "pl", os_family="linux", cpu_sat_index=0.8, paging_rate=3.0),
-        _snap("win", "pw", os_family="windows", cpu_sat_index=1.1, paging_rate=25.0),
-        _snap("none", "pn", cpu_sat_index=0.5, paging_rate=1.0),
+        _snap("lin", "pl", os_family="linux", cpu_queue_value=0.8, cpu_queue_threshold=1.0, paging_rate=3.0),
+        _snap("win", "pw", os_family="windows", cpu_queue_value=1.1, cpu_queue_threshold=2.0, paging_rate=25.0),
+        _snap("none", "pn", cpu_queue_value=0.5, cpu_queue_threshold=1.0, paging_rate=1.0),
     ]
     r = build_environment_realtime(total=3, online=3, snapshots=snaps, last_collected_at=_NOW)
     rows = {row.hostname: row for row in r.load_rows}
-    assert rows["lin"].run_queue.display == "0.80x"
+    assert rows["lin"].run_queue.display == "L 0.80 / 1"
     assert rows["lin"].paging.display == "L 3.00/s"
-    assert rows["win"].run_queue.display == "1.10x"
+    assert rows["win"].run_queue.display == "W 1.10 / 2"
     assert rows["win"].paging.display == "W 25.00/s"
-    assert rows["none"].run_queue.display == "0.50x"
+    assert rows["none"].run_queue.display == "L 0.50 / 1"
     assert rows["none"].paging.display == "L 1.00/s"
     assert rows["win"].run_queue.value == 1.1
 

@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import TypeAdapter
 
+from assessment_engine.domain import right_sizing
 from assessment_engine.web.services.mappers.right_sizing_api import build_right_sizing_entry
 from assessment_engine.web.view_models.right_sizing_api import RightSizingServer
 from tests.builders import report_row_raw
@@ -29,8 +30,12 @@ def _raw(
     cpu_cores: int | None = 2,
     mem_total_bytes: int | None = 2 * 1024**3,
     procs_running_p95: float | None = None,
-    mem_swap_paging: bool = False,
+    mem_swap_paging: bool | None = False,
     disk_await_p95_ms: float | None = None,
+    cpu_sufficiency: float | None = None,
+    mem_sufficiency: float | None = None,
+    net_rx_kbps: float | None = None,
+    net_tx_kbps: float | None = None,
     net_retrans_pct: float | None = None,
     net_drop_pct: float | None = None,
 ) -> ReportRowRaw:
@@ -49,6 +54,10 @@ def _raw(
         procs_running_p95=procs_running_p95,
         mem_swap_paging=mem_swap_paging,
         disk_await_p95_ms=disk_await_p95_ms,
+        cpu_sufficiency=cpu_sufficiency,
+        mem_sufficiency=mem_sufficiency,
+        net_rx_kbps=net_rx_kbps,
+        net_tx_kbps=net_tx_kbps,
         net_retrans_pct=net_retrans_pct,
         net_drop_pct=net_drop_pct,
         block_devices=None,
@@ -147,7 +156,14 @@ def test_optimal_maintain_no_actions():
 
 def test_network_signals_numeric_and_congested():
     e = build_right_sizing_entry(
-        _raw(os_family="linux", cpu_p95=50.0, cpu_cores=4, net_retrans_pct=2.0, net_drop_pct=0.0),
+        _raw(
+            os_family="linux",
+            cpu_p95=50.0,
+            cpu_cores=4,
+            net_rx_kbps=right_sizing.NET_MIN_TRAFFIC_KBPS,
+            net_retrans_pct=2.0,
+            net_drop_pct=0.0,
+        ),
         is_online=True,
     )
     net = e["network"]
@@ -158,6 +174,37 @@ def test_network_signals_numeric_and_congested():
     assert rt["threshold"] == 1.0
     assert rt["exceeded"] is True
     assert net["signals"]["drop_pct"]["exceeded"] is False
+
+
+def test_network_rate_signal_is_deferred_when_traffic_is_low():
+    e = build_right_sizing_entry(
+        _raw(net_rx_kbps=right_sizing.NET_MIN_TRAFFIC_KBPS - 1, net_retrans_pct=2.0), is_online=True
+    )
+    net = e["network"]
+    assert net["status"] == "quality_ok"
+    assert net["signals"]["retransmit_pct"]["measured"] is True
+    assert net["signals"]["retransmit_pct"]["exceeded"] is None
+
+
+def test_downsize_recommendation_observes_when_sample_coverage_is_low():
+    e = build_right_sizing_entry(
+        _raw(
+            os_family="linux",
+            cpu_p95=10.0,
+            mem_p95=70.0,
+            cpu_cores=8,
+            procs_running_p95=0.5,
+            net_rx_kbps=500.0,
+            cpu_sufficiency=0.4,
+            mem_sufficiency=0.4,
+        ),
+        is_online=True,
+    )
+    rec = e["recommendation"]
+    assert e["classification"] == "over_provisioned"
+    assert rec["summary"] == "관찰 지속"
+    assert rec["kind"] == "observe"
+    assert rec["actions"] == []
 
 
 def test_hostname_ambiguous_flag_passthrough():

@@ -71,7 +71,7 @@
 - 워크로드 컬럼 — 시그니처 워크로드 카테고리(`SIGNATURE_CATEGORIES`) 칩(known_services, 카테고리명). 환경 개요 주요 워크로드와 동일 필터(baseline·관리 제외, 목록 노이즈 회피). 미분류는 "—"
 - CPU · 메모리 · 디스크 컬럼 — 정적 배정 사양(`spec_display`, 실측 이용률 아님)
 - OS 지원 컬럼 — 5상태. 지원 중(무채) / 보안 패치만(amber, 기능 업데이트 종료) / 미상(보라, 카탈로그 미수록·미매칭) / 무상 종료(빨강, 유상 연장만) / 지원 종료(빨강, 패치 없음)
-- 자원 적정성 컬럼 — `classify_host` 배지(`under_provisioned`/`over_provisioned`/`idle`/`optimal`/`insufficient_data`), under_provisioned 만 빨강 강조
+- 자원 적정성 컬럼 — `rollup_host().recommendation` 배지(`under_provisioned`/`over_provisioned`/`idle`/`optimal`/`insufficient_data`), under_provisioned 만 빨강 강조
 - 운영 이벤트 컬럼 — 수집 전체 기간 에러 이벤트(OOM kill·MCE·메모리 손상·네트워크/디스크 에러) 발생 유무만(문제 있음/이상 없음), 발생 시점·건수는 서버 상세에서 확인
 - ZDM Install 컬럼 — 최근 install task badge(success/failure/pending) + 클릭 시 modal 로 stdout/stderr/failure_reason 디버깅. modal 본문은 server fragment endpoint (`GET /api/tasks/{id}/detail`) HTML 반환 (P3 정공)
 - 기본 표시 20행 후 "전체보기"(CLIP 초과 행 노출)/"접기" 토글 — 필터 비활성 상태에서만 적용
@@ -120,7 +120,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 최신 스냅샷 기준 현재 자원 현황 — 30초 주기로 본문 fragment 를 fetch 해 통째로 swap 하고 갱신 시각을 함께 표시한다 (P3 정공 — 1회 fetch 아니라 polling). 클릭 위임(정렬·더보기)은 swap 으로 안 바뀌는 마운트 요소에 걸어 매 swap 후에도 유지한다.
 
 - "현재 자원 현황" 카드 — 이용률 도넛 2(CPU·메모리, 환경 평균 도넛과 동일 컴포넌트·단색 게이지, 단 창 평균 통계 아닌 현재 스냅샷. 디스크 용량(fill%)은 느린 누적 축이라 실시간 신호에서 제외, 디스크 I/O 이용률은 장치 종류별 신뢰도 편차라(SSD/NVMe 병렬 처리, right-sizing-thresholds.md "Disk IO" 절 Gregg 근거) 환경 평균 도넛으로 안 묶고 아래 부하 표 칼럼 전용) + 신호 도넛 4(실행 큐 임계·페이징·디스크 응답지연 임계·네트워크 혼잡 — 순간 단일신호 임계 초과 호스트 수/표본. 개요·보고서의 평가 윈도우 dual-gate 포화와 다른 정의, 신호명 라벨이지 판정어 아님)
-- "서버별 실시간 부하" 카드 — CPU·메모리 이용률/실행 큐/페이징/디스크 이용률/디스크 응답지연/네트워크 7축을 호스트당 1행으로(top-N 절단 없음), 서버 목록·자원 부족 표와 동일 sortable-table 관례(칼럼 클릭 정렬 + 20개 초과 시 더보기/접기). 디스크 이용률(Utilization, 도넛 없이 표 전용)·응답지연(Saturation)은 USE Method상 별개 축 — 이용률 낮은 호스트는 응답지연이 표본 부족("—")이어도 정상, 판정 없이 raw 값만. 페이징은 소수점 2자리 표시(Linux 임계가 "> 0"이라 정수 반올림하면 신호 도넛 카운트와 표 값이 안 맞아 보임). 네트워크 칼럼은 처리량이 아닌 혼잡 판정(net_signal_active — 재전송·드롭·conntrack, 네트워크 혼잡 도넛과 동일 신호)만 정상/혼잡으로 표시 — 처리량은 판정 대상이 아니라 칼럼에서 제외. 특정 축 부하 순 랭킹이 필요하면 그 칼럼을 클릭
+- "서버별 실시간 부하" 카드 — CPU·메모리 이용률/실행 큐/페이징/디스크 이용률/디스크 응답지연/네트워크 7축을 호스트당 1행으로(top-N 절단 없음), 서버 목록·자원 부족 표와 동일 sortable-table 관례(칼럼 클릭 정렬 + 20개 초과 시 더보기/접기). 디스크 이용률(Utilization, 도넛 없이 표 전용)·응답지연(Saturation)은 USE Method상 별개 축 — 이용률 낮은 호스트는 응답지연이 표본 부족("—")이어도 정상, 판정 없이 raw 값만. 페이징은 소수점 2자리 표시(Linux 임계가 "> 0"이라 정수 반올림하면 신호 도넛 카운트와 표 값이 안 맞아 보임). 네트워크 칼럼은 처리량이 아닌 재전송·드롭·conntrack 혼잡 판정만 정상/혼잡으로 표시한다. 처리량은 판정 대상이 아니라 칼럼에서 제외한다. 특정 축 부하 순 랭킹이 필요하면 그 칼럼을 클릭
 
 답: "지금 이 순간 환경 부하는 어떤가?"
 
@@ -156,7 +156,7 @@ L3 subnet 공동소속 추론 그래프 — 인터랙티브 Cytoscape.js (vendor
 - 실시간 현황 페이지만 창 무관 — 최신 순간 스냅샷
 
 자원 적정성 평가 분류 막대 (환경 자원 평가 페이지):
-- 5분류(under/over/idle/optimal/insufficient_data) 카운트 막대 — `classify_host` 규칙 분류 -> `build_risk_donut_segments`
+- 5분류(under_provisioned/over_provisioned/idle/optimal/insufficient_data) 카운트 막대 — `rollup_host().recommendation` -> `build_risk_donut_segments`
 - 분류명은 한국어(RECOMMENDATION_LABEL_KO) 단일 진실 — 영어 enum 노출 금지, 보고서·화면 통일
 - 막대 색은 게이지 테마 단색 통일 (라벨이 의미 전달) — `UTIL_GAUGE_COLOR`
 - 임계 색 단일 진실 — 동일 의미는 동일 hex (활용률·자원 적정성·capacity trigger 일관, AGENTS.md #E8)

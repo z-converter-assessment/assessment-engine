@@ -68,6 +68,8 @@ class ReportRowItem:
 
     disk_capacity_driving_mount: str | None = None
     disk_capacity_runway_days: int | None = None
+    disk_inode_driving_mount: str | None = None
+    disk_inode_runway_days: int | None = None
 
     uptime_days: int | None = None
 
@@ -100,7 +102,7 @@ class ReportRowItem:
     net_status_label: str = ""
     net_congested: bool = False
 
-    mem_swap_paging: bool = False
+    mem_swap_paging: bool | None = None
 
     # 해당 OS 의 perflib 미발행 축만 미관측 — Windows 도 run queue/paging/await 를 실측하고
 

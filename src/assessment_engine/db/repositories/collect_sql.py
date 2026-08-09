@@ -1,3 +1,5 @@
+"""PostgreSQL로 수집 데이터와 task 상태를 저장하는 CollectRepository 구현."""
+
 from typing import TYPE_CHECKING, Any, cast
 
 from sqlalchemy import CursorResult, Row, Table, UniqueConstraint, func, select, update
@@ -36,11 +38,7 @@ if TYPE_CHECKING:
 
 
 def _natural_key(model: type) -> list[str]:
-    """모델이 선언한 시계열 자연키 — 멱등성 2단 방어가 이 제약에 기대므로 다른 UNIQUE 위반은 삼키지 않는다.
-
-    `Table.constraints` 는 set 이라 UNIQUE 가 둘 이상이면 어느 쪽이 잡힐지 프로세스마다 달라진다.
-    자연키를 하나로 특정할 수 없는 모델은 침묵 대신 거부한다.
-    """
+    """시계열 모델의 중복 메시지 판단용 UNIQUE 제약 column 이름을 반환한다."""
     table = cast("Table", model.__table__)  # pyright: ignore[reportUnknownMemberType]
     uniques = [c for c in table.constraints if isinstance(c, UniqueConstraint)]
     if len(uniques) != 1:
@@ -55,6 +53,8 @@ _NATURAL_KEYS: dict[type, list[str]] = {
 
 
 class SqlCollectRepository:
+    """AsyncSession으로 CollectRepository 계약을 구현한다."""
+
     def __init__(self, session: AsyncSession):
         self.session = session
 
@@ -62,8 +62,9 @@ class SqlCollectRepository:
         result = await self.session.execute(select(ServerInventory.id).where(ServerInventory.agent_id == agent_id))
         return result.scalar_one_or_none()
 
-    # agent_id 는 UNIQUE 키라 비교가 무의미하고, composite_id·machine_id 는 감사용(history 미추적)이라 제외.
     _INVENTORY_COMPARE_COLS = (
+        ServerInventory.composite_id,
+        ServerInventory.machine_id,
         ServerInventory.agent_version,
         ServerInventory.os_family,
         ServerInventory.os_id,
@@ -162,7 +163,9 @@ class SqlCollectRepository:
     @staticmethod
     def _inventory_changed(prev: Row[Any], new: ServerInventoryCreate) -> bool:
         return (
-            prev.agent_version != new.agent_version
+            prev.composite_id != new.composite_id
+            or prev.machine_id != new.machine_id
+            or prev.agent_version != new.agent_version
             or prev.os_family != new.os_family
             or prev.os_id != new.os_id
             or prev.os_version != new.os_version
@@ -192,12 +195,14 @@ class SqlCollectRepository:
         )
 
     async def _append_inventory_history(self, server_id: int, data: ServerInventoryCreate) -> None:
-        """DO NOTHING — broker 재전송·워커 race 로 같은 (server_id, collected_at) 이 또 와도 no-op."""
+        """변경된 inventory snapshot을 저장한다."""
         stmt = (
             pg_insert(ServerInventoryHistory)
             .values(
                 server_id=server_id,
                 collected_at=data.collected_at,
+                composite_id=data.composite_id,
+                machine_id=data.machine_id,
                 hostname=data.hostname,
                 agent_version=data.agent_version,
                 os_family=data.os_family,
@@ -244,6 +249,7 @@ class SqlCollectRepository:
         if new_id is not None:
             return new_id, True
 
+        # 동시성
         server_id = await self.find_server_id(agent_id)
         if server_id is None:
             raise RuntimeError(f"failed to ensure server_id for agent_id={agent_id} (race not resolved)")
@@ -294,7 +300,6 @@ class SqlCollectRepository:
         return result.rowcount or 0
 
     async def expire_all_overdue_tasks(self) -> int:
-
         stmt = (
             update(Task)
             .where(
@@ -307,18 +312,14 @@ class SqlCollectRepository:
         result = cast("CursorResult[Any]", await self.session.execute(stmt))
         return result.rowcount or 0
 
-    async def find_pending_deadline_servers(self, server_ids: list[int]) -> list[int]:
+    async def find_pending_task_server_ids(self, server_ids: list[int], task_type: str) -> list[int]:
         if not server_ids:
             return []
 
-        stmt = (
-            select(Task.target_server_id)
-            .where(
-                Task.target_server_id.in_(server_ids),
-                Task.status == "pending",
-                Task.deadline_at.is_not(None),
-            )
-            .distinct()
+        stmt = select(Task.target_server_id).where(
+            Task.target_server_id.in_(server_ids),
+            Task.task_type == task_type,
+            Task.status == "pending",
         )
         result = await self.session.execute(stmt)
         return [row[0] for row in result.all()]
@@ -347,7 +348,7 @@ class SqlCollectRepository:
         server_id: int,
         data: ServerMetricCreate,
     ) -> MetricInsertResult:
-        # 중복 메시지는 전부 자연키 UNIQUE 가 흡수한다 (#D2 2단 방어).
+        # 모든 시계열 INSERT는 자연키 충돌 시 기존 레코드를 유지한다.
 
         return MetricInsertResult(
             metrics=await self._insert_scalar_metrics(server_id, data),
@@ -356,7 +357,7 @@ class SqlCollectRepository:
             filesystem=await self._insert_child(ServerFilesystem, server_id, data, data.filesystems),
             cpu_core=await self._insert_child(ServerCpuCore, server_id, data, data.cpu_per_core),
             pressure=await self._insert_child(ServerPressure, server_id, data, data.pressure),
-            # Postgres 는 UNIQUE 에서 NULL 을 서로 다르게 보므로 member None 을 '' 로 정규화한다.
+            # PostgreSQL UNIQUE는 NULL을 서로 다르게 취급하므로 자연키 member의 None은 빈 문자열로 저장한다.
             disk_error=await self._insert_child(
                 ServerDiskError,
                 server_id,
@@ -372,12 +373,15 @@ class SqlCollectRepository:
         server_id: int,
         data: ServerMetricCreate,
         entries: Sequence[CpuCoreEntry | DiskIoEntry | NetIoEntry | FilesystemEntry | PressureEntry | DiskErrorEntry],
+        # None을 빈문자열로 처리
         row_hook: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> int:
         if not entries:
             return 0
         rows: list[dict[str, Any]] = [
-            {"server_id": server_id, "collected_at": data.collected_at, **vars(e)} for e in entries
+            # dataclass object - mapping - mapping unpacking
+            {"server_id": server_id, "collected_at": data.collected_at, **vars(e)}
+            for e in entries
         ]
         if row_hook is not None:
             rows = [row_hook(row) for row in rows]

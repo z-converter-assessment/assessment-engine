@@ -162,23 +162,32 @@ def _trend_cpu_run_queue(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
     return sql, params
 
 
-def _trend_cpu_saturation_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
-    bi, server_ids = ctx.bi, ctx.server_ids
+def _trend_cpu_high_utilization_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
+    bi, bucket_td, start = ctx.bi, ctx.bucket_td, ctx.start
+    server_ids = ctx.server_ids
     params: JsonObject = {"start": ctx.start, "end": ctx.end}
-
-    sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
-    params["procs_running_threshold"] = right_sizing.PROCS_RUNNING_PER_CORE_SATURATION
-    params["cpu_run_queue_threshold"] = right_sizing.CPU_RUN_QUEUE_PER_CORE_SATURATION
+    sid = "AND server_id = ANY(:server_ids)" if server_ids else ""
+    num = _CPU_NUMERATOR["cpu.usage_percent"]
+    params["window_start"] = start - bucket_td
+    params["cpu_under_pct"] = right_sizing.CPU_UNDER_PCT
     sql = text(f"""
-        WITH flags AS (
-            SELECT sm.collected_at, sm.server_id,
-                (sm.cpu_run_queue::float / si.cpu_cores)
-                / CASE WHEN si.os_family = 'windows' THEN (:cpu_run_queue_threshold)::float
-                       ELSE (:procs_running_threshold)::float END >= 1.0 AS crossed
-            FROM {ServerMetrics.__tablename__} sm
-            JOIN {ServerInventory.__tablename__} si ON si.id = sm.server_id
-            WHERE sm.collected_at >= :start AND sm.collected_at <= :end {sid_sm}
-              AND sm.cpu_run_queue IS NOT NULL AND si.cpu_cores > 0
+        WITH raw AS (
+            SELECT collected_at, server_id,
+                {num} AS num_s, {_CPU_TOTAL_EXPR} AS total_s
+            FROM {ServerMetrics.__tablename__}
+            WHERE collected_at >= :window_start AND collected_at <= :end {sid}
+        ),
+        deltas AS (
+            SELECT collected_at, server_id,
+                num_s - LAG(num_s) OVER w AS d_num,
+                total_s - LAG(total_s) OVER w AS d_total
+            FROM raw WINDOW w AS (PARTITION BY server_id ORDER BY collected_at)
+        ),
+        flags AS (
+            SELECT collected_at, server_id,
+                d_num * 100.0 / d_total >= :cpu_under_pct AS crossed
+            FROM deltas
+            WHERE collected_at >= :start AND d_total > 0 AND d_num >= 0
         ),
         per_bucket AS (
             SELECT time_bucket(interval '{bi}', collected_at) AS ts, server_id, bool_or(crossed) AS ever
@@ -193,7 +202,6 @@ def _trend_cpu_saturation_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]
 def _trend_cpu_saturation(ctx: _TrendCtx) -> tuple[TextClause, JsonObject]:
     bi, server_ids = ctx.bi, ctx.server_ids
     params: JsonObject = {"start": ctx.start, "end": ctx.end}
-    # 서버 상세 이진 0/1 — cpu.saturation_hosts 와 같은 원자료·임계를 1대로 축소(right_sizing.cpu_saturated 동일).
     sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
     params["procs_running_threshold"] = right_sizing.PROCS_RUNNING_PER_CORE_SATURATION
     params["cpu_run_queue_threshold"] = right_sizing.CPU_RUN_QUEUE_PER_CORE_SATURATION
@@ -707,7 +715,7 @@ def _trend_mem_paging_pressure_hosts(ctx: _TrendCtx) -> tuple[TextClause, JsonOb
     bi, bucket_td, start = ctx.bi, ctx.bucket_td, ctx.start
     server_ids = ctx.server_ids
     params: JsonObject = {"start": ctx.start, "end": ctx.end}
-    # mem.paging_pressure 와 같은 원자료·os-aware 컬럼·임계(right_sizing.mem_pressure_active)를 서버별로 적용해
+    # mem.paging_pressure와 같은 원자료와 OS별 임계값을 서버별로 적용해
 
     sid_sm = "AND sm.server_id = ANY(:server_ids)" if server_ids else ""
     params["window_start"] = start - bucket_td
@@ -894,7 +902,7 @@ _TREND_PAIRS: list[tuple[MetricType | EnvironmentMetricType, _TrendBuilder]] = [
     *((k, _trend_cpu_utilization) for k in _CPU_NUMERATOR),
     *((k, _trend_env_scalar_weighted) for k in _ENV_SCALAR_WEIGHTED),
     ("cpu.run_queue", _trend_cpu_run_queue),
-    ("cpu.saturation_hosts", _trend_cpu_saturation_hosts),
+    ("cpu.high_utilization_hosts", _trend_cpu_high_utilization_hosts),
     ("cpu.saturation", _trend_cpu_saturation),
     ("cpu.blocked", _trend_cpu_blocked),
     ("disk.io_saturation", _trend_disk_io_saturation),
@@ -1144,7 +1152,7 @@ class SqlMetricQueryRepository(_BaseQueryMixin):
                 -- pending_ops(await 폴백, Windows 전용)도 동일 신뢰 조건 요구 — io_time 카운터가 깨진 device 는
                 -- io_time 만 못 믿는 게 아니라 그 device 자체를 못 믿는다(보수적 원칙). 게이트 없이 max(pending_ops)
                 -- 그대로 쓰면 phantom busy/overflow device 의 다른 카운터(대기열 깊이)까지 진짜인 척 새어나가
-                -- disk_io_saturation_index 폴백을 오염시킨다.
+                -- Windows 큐 폴백도 같은 신뢰 조건을 적용한다.
                 SELECT server_id,
                     max(CASE WHEN ops_delta > 0 AND t_delta >= 0 AND wall > 0
                                   AND iot_delta / wall >= :diskio_util_min AND iot_delta <= wall

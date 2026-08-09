@@ -106,11 +106,7 @@ def sort_rows_for_report(items: list[ReportRowItem]) -> list[ReportRowItem]:
 
 
 def _build_recommendation_action(host: right_sizing.HostAssessment, stats: right_sizing.ResourceStats) -> str:
-
-    rec = right_sizing.host_status_to_recommendation(host.host_status)
-    if rec == "under_provisioned":
-        return right_sizing.under_prescription(host)
-    return right_sizing.recommend_action(rec, stats)
+    return right_sizing.host_recommendation_action(host, stats)
 
 
 def _build_diagnosis(
@@ -140,20 +136,20 @@ def _build_diagnosis(
         cpu_variance is not None
         and cpu_variance >= _VARIANCE_BURST_RATIO
         and raw.cpu_peak_pct is not None
-        and raw.cpu_peak_pct > right_sizing.BURST_PEAK_FLOOR_CPU_PCT
+        and raw.cpu_peak_pct > right_sizing.CPU_BURST_PEAK_FLOOR_PCT
     )
     mem_burst = (
         mem_variance is not None
         and mem_variance >= _VARIANCE_BURST_RATIO
         and raw.mem_peak_pct is not None
-        and raw.mem_peak_pct > right_sizing.BURST_PEAK_FLOOR_MEM_PCT
+        and raw.mem_peak_pct > right_sizing.MEM_BURST_PEAK_FLOOR_PCT
     )
     if cpu_burst or mem_burst:
         return "부하 변동 큼"
 
-    if host.host_status == "idle":
+    if host.recommendation == "idle":
         return "거의 미사용"
-    if host.host_status == "over":
+    if host.recommendation == "over_provisioned":
         return "여유 있음"
     return "정상"
 
@@ -232,9 +228,8 @@ def to_report_row_item(
     workload_categories = list(workload_category_counter(raw.services, raw.listen_ports).keys())
     signature_workload_categories = [c for c in workload_categories if c in SIGNATURE_CATEGORIES]
     workload_services = workload_services_by_category(raw.services, raw.listen_ports)
-    rec = right_sizing.host_status_to_recommendation(host.host_status)
-    # 포화 축 미관측 (Windows perflib 미발행·구세대 viostor 등) — confidence 단서.
-    is_partial = right_sizing.host_saturation_unmeasured(host)
+    rec = host.recommendation
+    is_partial = right_sizing.has_unmeasured_saturation(host)
     risk_level, risk_label, risk_badge_class = _RISK_FROM_RECOMMENDATION[rec]
     uptime_days: int | None = None
     if raw.boot_time is not None:
@@ -304,6 +299,8 @@ def to_report_row_item(
         disk_capacity_runway_days=(
             int(raw.disk_capacity_runway_days) if raw.disk_capacity_runway_days is not None else None
         ),
+        disk_inode_driving_mount=raw.disk_inode_driving_mount,
+        disk_inode_runway_days=int(raw.disk_inode_runway_days) if raw.disk_inode_runway_days is not None else None,
         uptime_days=uptime_days,
         reboot_count=raw.reboot_count,
         agent_restart_count=raw.agent_restart_count,

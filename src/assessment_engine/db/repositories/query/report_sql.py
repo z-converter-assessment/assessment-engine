@@ -87,7 +87,7 @@ class SqlReportQueryRepository(_BaseQueryMixin):
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY steal_pct)     AS cpu_steal_p95,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY procs_blocked) AS procs_blocked_p95,
                     percentile_cont(0.95) WITHIN GROUP (ORDER BY procs_running) AS procs_running_p95,
-                    bool_or(COALESCE(paging_major_delta, 0) > 0) AS swap_paging,  -- Linux paging_major(refault) 발생
+                    bool_or(paging_major_delta > 0) AS swap_paging,  -- Linux paging_major(refault) 발생
                     bool_or(COALESCE(oom_delta, 0) > 0) AS oom_occurred,
                     SUM(retrans_delta) AS retrans_total,
                     MAX(conntrack_ratio) AS conntrack_ratio,
@@ -126,6 +126,7 @@ class SqlReportQueryRepository(_BaseQueryMixin):
                     max(total_bytes_max)            AS total_bytes,
                     first(inode_free_first, bucket) AS in_first,
                     last(inode_free_last, bucket)   AS in_last,
+                    max(inode_pct_max)              AS inode_used_pct,
                     EXTRACT(EPOCH FROM (max(bucket) - min(bucket))) / 86400.0 AS span_days
                 FROM server_filesystem_5m
                 WHERE server_id = ANY(:sids) AND bucket <= :end AND {_DATA_VOLUME_CAGG_FILTER}
@@ -147,6 +148,7 @@ class SqlReportQueryRepository(_BaseQueryMixin):
                             THEN CEIL((total_bytes - av_last) / (:headroom_pct / 100.0) / 1e9)
                     END AS target_gb,
                     CASE WHEN total_bytes > 0 THEN (1 - av_last::float / total_bytes) * 100 END AS used_pct,
+                    inode_used_pct,
                     CASE WHEN (av_first - av_last) > 0 AND span_days >= :rate_min_span AND total_bytes > 0
                          THEN (1 - (av_last - :near_horizon * ((av_first - av_last) / span_days)) / total_bytes::float) * 100
                     END AS proj_30d_pct
@@ -154,7 +156,9 @@ class SqlReportQueryRepository(_BaseQueryMixin):
             ),
             mount_runway AS (
                 SELECT r.server_id, r.disk_runway_days, r.inode_runway_days,
-                       t.mountpoint AS driving_mount, t.target_gb, t.proj_30d_pct, t.used_pct
+                       byte_mount.mountpoint AS driving_mount,
+                       inode_mount.mountpoint AS inode_driving_mount,
+                       byte_mount.target_gb, byte_mount.proj_30d_pct, byte_mount.used_pct
                 FROM (
                     SELECT server_id, MIN(disk_runway_days) AS disk_runway_days, MIN(inode_runway_days) AS inode_runway_days
                     FROM mount_calc GROUP BY server_id
@@ -163,7 +167,12 @@ class SqlReportQueryRepository(_BaseQueryMixin):
                     SELECT DISTINCT ON (server_id) server_id, mountpoint, target_gb, proj_30d_pct, used_pct
                     FROM mount_calc WHERE disk_runway_days IS NOT NULL OR used_pct >= :static_pct
                     ORDER BY server_id, disk_runway_days ASC NULLS LAST, used_pct DESC NULLS LAST
-                ) t ON t.server_id = r.server_id
+                ) byte_mount ON byte_mount.server_id = r.server_id
+                LEFT JOIN (
+                    SELECT DISTINCT ON (server_id) server_id, mountpoint
+                    FROM mount_calc WHERE inode_runway_days IS NOT NULL OR inode_used_pct >= :static_pct
+                    ORDER BY server_id, inode_runway_days ASC NULLS LAST, inode_used_pct DESC NULLS LAST
+                ) inode_mount ON inode_mount.server_id = r.server_id
             ),
             disk_dev AS (
                 -- server_disk_io_5m 단일 스캔(B1) — await·iops baseline 공용 per-device 델타. 물리필터 1회 평가.
@@ -192,7 +201,7 @@ class SqlReportQueryRepository(_BaseQueryMixin):
                 FROM disk_await GROUP BY server_id
             ),
             disk_io_base AS (
-                -- 서버 iops baseline = sum(delta(ops)) / sum(dt). 유휴 판정 활동 축(idle 게이트, _host_status) 입력.
+                -- 서버 iops baseline = sum(delta(ops)) / sum(dt). 유휴 판정 활동 축 입력.
                 SELECT server_id, CASE WHEN SUM(dt) > 0 THEN SUM(ops) / SUM(dt) END AS iops_baseline FROM (
                     SELECT server_id, bucket, SUM(d_ops) AS ops, MAX(td_ops) AS dt
                     FROM disk_dev GROUP BY server_id, bucket
@@ -238,7 +247,7 @@ class SqlReportQueryRepository(_BaseQueryMixin):
                 rs.cpu_steal_p95,
                 CASE WHEN cs.cpu_median > 0 THEN cs.cpu_p95 / cs.cpu_median END AS cpu_burst_ratio,
                 rs.procs_blocked_p95, rs.procs_running_p95,
-                COALESCE(rs.swap_paging, false) AS swap_paging,
+                rs.swap_paging,
                 COALESCE(rs.oom_occurred, false) AS oom_occurred,
                 cs.total_buckets * 5.0 / 60.0 AS history_hours,
                 da.await_p95 AS disk_await_p95_ms,
@@ -248,6 +257,7 @@ class SqlReportQueryRepository(_BaseQueryMixin):
                 mr.disk_runway_days  AS disk_capacity_runway_days,
                 mr.inode_runway_days AS disk_inode_runway_days,
                 mr.driving_mount     AS disk_capacity_driving_mount,
+                mr.inode_driving_mount AS disk_inode_driving_mount,
                 mr.target_gb         AS disk_capacity_target_gb,
                 mr.proj_30d_pct      AS disk_capacity_proj_30d_pct,
                 mr.used_pct          AS disk_capacity_driving_used_pct,
@@ -332,7 +342,7 @@ class SqlReportQueryRepository(_BaseQueryMixin):
                 cpu_burst_ratio=r.cpu_burst_ratio,
                 procs_blocked_p95=r.procs_blocked_p95,
                 procs_running_p95=r.procs_running_p95,
-                mem_swap_paging=bool(r.swap_paging),
+                mem_swap_paging=r.swap_paging,
                 oom_occurred=bool(r.oom_occurred),
                 history_hours=r.history_hours,
                 disk_await_p95_ms=r.disk_await_p95_ms,
@@ -343,6 +353,7 @@ class SqlReportQueryRepository(_BaseQueryMixin):
                 disk_capacity_proj_30d_pct=r.disk_capacity_proj_30d_pct,
                 disk_capacity_driving_used_pct=r.disk_capacity_driving_used_pct,
                 disk_inode_runway_days=r.disk_inode_runway_days,
+                disk_inode_driving_mount=r.disk_inode_driving_mount,
                 disk_inode_used_pct=r.disk_inode_used_pct,
                 net_drop_pct=r.net_drop_pct,
                 net_retrans_pct=r.net_retrans_pct,
