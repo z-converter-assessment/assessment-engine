@@ -1,0 +1,827 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ZConverter Assessment</title>
+  <link rel="stylesheet" href="styles.css">
+  <script src="deck.js" defer></script>
+</head>
+<body>
+  <main class="viewport" aria-label="ZConverter Assessment 발표자료">
+    <div class="deck" id="deck">
+      <section class="slide cover active" data-section="main" data-number="1" aria-labelledby="slide-1-title">
+        <div class="cover-copy">
+          <p class="eyebrow">기업 연계 프로젝트 결과 발표</p>
+          <h1 id="slide-1-title">ZConverter Assessment</h1>
+          <p class="cover-subtitle">고객 내부망 서버의 규칙 기반 평가 시스템 구축</p>
+        </div>
+        <div class="cover-meta">
+          <span>2팀</span>
+          <span>2026. 08</span>
+        </div>
+        <div class="cover-orbit" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </section>
+
+      <section class="slide chapter-divider" data-section="main" data-number="2" aria-labelledby="slide-2-title">
+        <div class="chapter-index"><span>SECTION</span><strong>01</strong></div>
+        <div class="chapter-copy">
+          <p class="eyebrow">Context and product</p>
+          <h2 id="slide-2-title">배경과 프로젝트 정의</h2>
+          <p>클라우드 이전과 재해복구에 필요한 현재 환경 정보의 공백에서 출발해, 프로젝트의 목표와 제품의 역할을 정의한다.</p>
+          <div class="chapter-keywords"><span>현재 환경</span><span>의사결정 정보</span><span>프로젝트 목표</span><span>제품 역할</span></div>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>2/32</span></footer>
+      </section>
+
+      <section class="slide" data-section="main" data-number="3" aria-labelledby="slide-3-title">
+        <header class="slide-header">
+          <p class="eyebrow">Background</p>
+          <h2 id="slide-3-title">기업 연계 과제의 출발점</h2>
+          <p class="lead">클라우드 이전과 재해복구 사양을 정하려면 현재 환경을 먼저 정확히 알아야 한다.</p>
+        </header>
+        <div class="bridge-scene">
+          <div class="scene-panel source-panel">
+            <p class="scene-label">고객 내부망</p>
+            <div class="server-stack" aria-label="여러 고객 서버">
+              <span>Server A</span><span>Server B</span><span>Server C</span>
+            </div>
+            <p class="scene-caption">서로 다른 OS와 자원 구성</p>
+          </div>
+          <div class="scene-arrow flow-arrow-icon" aria-hidden="true"></div>
+          <div class="environment-panel">
+            <p class="scene-label">현재 환경 파악</p>
+            <div class="environment-signals">
+              <span>자원 구성</span>
+              <span>실제 사용량</span>
+              <span>실행 서비스</span>
+            </div>
+            <p class="scene-caption">의사결정에 쓸 수 있는 현재 상태</p>
+          </div>
+          <div class="scene-arrow flow-arrow-icon" aria-hidden="true"></div>
+          <div class="scene-panel decision-panel">
+            <p class="scene-label">클라우드 이전 / 재해복구</p>
+            <div class="decision-target">
+              <span>Target VM</span>
+              <small>CPU, Memory, Storage</small>
+            </div>
+            <p class="scene-caption">안전하고 낭비 없는 사양 결정</p>
+          </div>
+        </div>
+        <p class="takeaway">서버 정보와 실사용량을 함께 파악해 클라우드 이전과 재해복구 사양의 근거를 만든다.</p>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>3/32</span></footer>
+      </section>
+
+      <section class="slide" data-section="main" data-number="4" aria-labelledby="slide-4-title">
+        <header class="slide-header">
+          <p class="eyebrow">Problem</p>
+          <h2 id="slide-4-title">의사결정 정보의 공백</h2>
+          <p class="lead">현재 환경을 파악하지 않으면 실제 부하와 변화 방향을 판단할 수 없다.</p>
+        </header>
+        <p class="problem-stage-label">현재 환경에서 먼저 파악할 정보</p>
+        <div class="gap-grid">
+          <article class="gap-card">
+            <span class="card-index">01</span>
+            <h3>자원 구성</h3>
+            <p>OS, CPU, 메모리, 스토리지와 네트워크의 현재 구성</p>
+          </article>
+          <article class="gap-card">
+            <span class="card-index">02</span>
+            <h3>실제 사용량</h3>
+            <p>평균과 피크 사용량, 자원별 병목</p>
+          </article>
+          <article class="gap-card">
+            <span class="card-index">03</span>
+            <h3>변화 추세</h3>
+            <p>용량 소진, 상승 추세, 반복 포화</p>
+          </article>
+        </div>
+        <div class="problem-bridge">
+          <span>이 정보가 없으면 대상 VM 사양 판단이 왜곡된다.</span>
+          <i class="down-arrow-icon" aria-hidden="true"></i>
+        </div>
+        <p class="problem-stage-label result-stage-label">발생하는 판단 왜곡</p>
+        <div class="consequence-row">
+          <article class="consequence danger">
+            <p class="consequence-kicker">과소 할당</p>
+            <h3>성능 저하와 중단 위험</h3>
+          </article>
+          <article class="consequence waste">
+            <p class="consequence-kicker">과다 할당</p>
+            <h3>사용하지 않는 자원의 지속 비용</h3>
+          </article>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>4/32</span></footer>
+      </section>
+
+      <section class="slide goal-slide" data-section="main" data-number="5" aria-labelledby="slide-5-title">
+        <header class="slide-header">
+          <p class="eyebrow">Goal</p>
+          <h2 id="slide-5-title">프로젝트의 목표</h2>
+          <p class="lead">수집한 현재 환경을 원하는 범위와 수신자에 맞는 평가 결과로 제공한다.</p>
+        </header>
+        <div class="goal-layout">
+          <div class="goal-zone source-goal-zone">
+            <p class="goal-label">현재 환경</p>
+            <div class="goal-facts"><span>자원 구성</span><span>실제 사용량</span><span>변화 추세</span></div>
+            <p>수집한 사실</p>
+          </div>
+          <i class="flow-arrow-icon goal-arrow" aria-hidden="true"></i>
+          <div class="goal-core">
+            <p class="goal-label">제공 범위</p>
+            <div class="goal-scopes"><span>환경 전체</span><span>선택한 서버 묶음</span><span>개별 서버</span></div>
+            <p>원하는 단위의 대상 현황</p>
+          </div>
+          <i class="flow-arrow-icon goal-arrow" aria-hidden="true"></i>
+          <div class="goal-zone outcome-goal-zone">
+            <p class="goal-label">수신자</p>
+            <div class="goal-outcomes"><span>고객<br><small>결론과 조치</small></span><span>엔지니어<br><small>근거와 세부</small></span></div>
+            <p>필요한 깊이의 결과</p>
+          </div>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>5/32</span></footer>
+      </section>
+
+      <section class="slide" data-section="main" data-number="6" aria-labelledby="slide-6-title">
+        <header class="slide-header">
+          <p class="eyebrow">Product</p>
+          <h2 id="slide-6-title">ZConverter Assessment</h2>
+          <p class="lead">모니터링 Agent가 전달한 현재 환경 정보를 수집 백엔드 서버가 평가하고 결과로 제공한다.</p>
+        </header>
+        <div class="product-flow">
+          <article class="product-stage incoming-stage">
+            <span class="stage-number">01</span>
+            <p class="stage-label">현재 환경 정보 전달</p>
+            <h3>모니터링 Agent</h3>
+            <p>고객 내부망 서버의 인벤토리와 metrics</p>
+          </article>
+          <i class="flow-arrow-icon product-arrow" aria-hidden="true"></i>
+          <article class="product-stage assessment-stage">
+            <span class="stage-number">02</span>
+            <p class="stage-label">규칙 기반 평가</p>
+            <h3>수집 백엔드 서버</h3>
+            <p>자원 적정성 분류와 운영 신호 평가</p>
+          </article>
+          <i class="flow-arrow-icon product-arrow" aria-hidden="true"></i>
+          <article class="product-stage delivery-stage">
+            <span class="stage-number">03</span>
+            <p class="stage-label">결과 전달</p>
+            <h3>Web Dashboard / Report / API</h3>
+            <p>JSON Export를 포함한 결과 전달</p>
+          </article>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>6/32</span></footer>
+      </section>
+
+      <section class="slide" data-section="main" data-number="7" aria-labelledby="slide-7-title">
+        <header class="slide-header">
+          <p class="eyebrow">Assessment architecture</p>
+          <h2 id="slide-7-title">Assessment 아키텍처</h2>
+          <p class="lead">Agent fleet의 Monitoring Agent가 AMQP 메시지를 발행하고 Assessment Engine이 수집, 저장, 평가와 결과 제공을 처리한다.</p>
+        </header>
+        <div class="customer-network-boundary">
+          <p class="network-boundary-label">Customer internal network</p>
+          <div class="architecture-actual">
+            <section class="agent-fleet">
+              <p class="agent-fleet-label">Agent fleet</p>
+              <div class="agent-server-list">
+                <article><span>Server A</span><strong>Monitoring Agent</strong><i class="flow-arrow-icon" aria-hidden="true"></i></article>
+                <article><span>Server B</span><strong>Monitoring Agent</strong><i class="flow-arrow-icon" aria-hidden="true"></i></article>
+                <article><span>Server N</span><strong>Monitoring Agent</strong><i class="flow-arrow-icon" aria-hidden="true"></i></article>
+              </div>
+              <p>inventory / metrics</p>
+            </section>
+            <div class="architecture-link"><span>AMQP</span><i class="flow-arrow-icon" aria-hidden="true"></i></div>
+            <section class="engine-host">
+              <p class="engine-host-label">Engine host / container stack</p>
+              <div class="engine-boundary">
+                <p class="engine-boundary-label">Assessment Engine</p>
+                <div class="engine-layout">
+                  <section class="engine-lane ingestion-lane">
+                    <p>Message ingestion</p>
+                    <div class="engine-lane-components">
+                      <article class="broker-component"><span>Agent message ingress</span><h3>RabbitMQ</h3><small>AMQP endpoint</small></article>
+                      <i class="flow-arrow-icon" aria-hidden="true"></i>
+                      <article class="consumer-component"><span>Ingestion</span><h3>Consumer</h3><small>validate / persist</small></article>
+                      <i class="flow-arrow-icon" aria-hidden="true"></i>
+                      <article class="database-component"><span>Time series</span><h3>TimescaleDB</h3><small>PostgreSQL</small></article>
+                    </div>
+                  </section>
+                  <section class="engine-lane application-lane">
+                    <p>Result delivery and background</p>
+                    <div class="engine-lane-components">
+                      <article class="api-component"><span>Application</span><h3>FastAPI</h3><small>Web / REST API</small></article>
+                      <article class="worker-component"><span>Background jobs</span><h3>Worker</h3><small>reports / task timeout</small></article>
+                      <article class="cache-component"><span>Auxiliary state</span><h3>Redis</h3><small>fail-open support</small></article>
+                    </div>
+                    <p class="read-flow">TimescaleDB <i class="flow-arrow-icon" aria-hidden="true"></i> FastAPI <i class="flow-arrow-icon" aria-hidden="true"></i> Web / REST API</p>
+                  </section>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>7/32</span></footer>
+      </section>
+
+      <section class="slide" data-section="main" data-number="8" aria-labelledby="slide-8-title">
+        <header class="slide-header">
+          <p class="eyebrow">Product capabilities</p>
+          <h2 id="slide-8-title">Assessment 기능</h2>
+          <p class="lead">현재 환경 정보 수집과 자원 적정성 평가가 중심이고, 결과 활용을 위한 파생 기능을 함께 제공한다.</p>
+        </header>
+        <div class="capability-layout">
+          <section class="capability-group primary-capabilities">
+            <header><p>Primary capabilities</p><h3>주 기능</h3></header>
+            <div class="primary-flow">
+              <article><span>01</span><h4>현재 환경 정보 수집</h4><p>인벤토리와 실사용량을 지속 수집</p></article>
+              <i class="flow-arrow-icon" aria-hidden="true"></i>
+              <article><span>02</span><h4>시계열 저장</h4><p>피크와 변화 추세를 누적</p></article>
+              <i class="flow-arrow-icon" aria-hidden="true"></i>
+              <article><span>03</span><h4>자원 적정성 평가</h4><p>공통 규칙, 권고, 운영 신호</p></article>
+            </div>
+          </section>
+          <section class="capability-group derived-capabilities">
+            <header><p>Derived capabilities</p><h3>파생 기능</h3></header>
+            <div class="derived-grid">
+              <article><h4>현황 탐색과 서비스 분류</h4><p>Web Dashboard / Service catalog</p></article>
+              <article><h4>결과 공유</h4><p>Customer / Engineer Report</p></article>
+              <article><h4>외부 연계</h4><p>Assessment API / JSON Export</p></article>
+              <article><h4>전환 작업 지원</h4><p>ZDM 설치 작업과 결과 추적</p></article>
+            </div>
+          </section>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>8/32</span></footer>
+      </section>
+
+      <section class="slide chapter-divider" data-section="main" data-number="9" aria-labelledby="slide-9-title">
+        <div class="chapter-index"><span>SECTION</span><strong>02</strong></div>
+        <div class="chapter-copy">
+          <p class="eyebrow">Site conditions and validation</p>
+          <h2 id="slide-9-title">현장 조건과 검증</h2>
+          <p>불확실한 고객 내부망 조건을 시험 가능한 환경으로 구성하고, 배포부터 데이터 저장까지의 수집 경로를 확인한다.</p>
+          <div class="chapter-keywords"><span>현장 조건</span><span>OpenStack</span><span>환경 재현</span><span>수집 경로 검증</span></div>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>9/32</span></footer>
+      </section>
+
+      <section class="slide validation-slide" data-section="main" data-number="10" aria-labelledby="slide-10-title">
+        <header class="slide-header compact-header">
+          <p class="eyebrow">Site discovery</p>
+          <h2 id="slide-10-title">현장 조건</h2>
+          <p class="lead">현장에 수집 장비를 반입하기 전, 확정된 요구와 알 수 없는 인프라 및 접근 조건을 함께 확인해야 한다.</p>
+        </header>
+        <div class="assumption-groups">
+          <section class="assumption-group required-group"><header><span>REQUIRED</span><h3>확정된 조건</h3></header><div class="required-cards"><article><h4>OS coverage</h4><p>CentOS/RHEL 6부터 현대 Linux, Windows Server 2003 SP1부터 현대 버전</p></article><article><h4>Native Agent</h4><p>OS별 C 기반 단일 바이너리를 서버에서 실행</p></article></div></section>
+          <section class="assumption-group unknown-group"><header><span>UNKNOWN</span><h3>현장 확인 사항</h3></header><div class="unknown-cards"><article><h4>내부망 인프라</h4><p>물리 환경, public cloud, OpenStack private cloud 등 플랫폼이 미확정</p></article><article><h4>접근 가능 여부</h4><p>인터넷 연결과 SSH 접근 가능 여부가 현장마다 다름</p></article></div></section>
+        </div>
+        <p class="assumption-outcome">이 조건에서 SSH, Ansible, offline injection 배포 경로와 현장 수집 장비까지의 전달 경로를 검증한다.</p>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>10/32</span></footer>
+      </section>
+
+      <section class="slide validation-slide" data-section="main" data-number="11" aria-labelledby="slide-11-title">
+        <header class="slide-header compact-header">
+          <p class="eyebrow">Validation setup</p>
+          <h2 id="slide-11-title">검증 환경 구성</h2>
+          <p class="lead">현장 조건에 대응할 가용 자원인 OpenStack private cloud로 혼합 OS 서버 fleet과 단일 Engine VM을 구성했다.</p>
+        </header>
+        <div class="validation-setup-flow"><span>현장 조건</span><i class="flow-arrow-icon" aria-hidden="true"></i><strong>가용 자원: OpenStack private cloud</strong><i class="flow-arrow-icon" aria-hidden="true"></i><span>검증 환경 구성</span></div>
+        <div class="validation-topology environment-topology">
+          <div class="fleet-zone"><p class="topology-label">Agent fleet</p><p class="agent-binary-label">C Native Agent binary installed on each Agent VM</p><article class="fleet-network linux-network"><span>Linux fleet</span><strong>58 VM</strong><small>fleet-net-1..6 / 6 subnet</small></article><article class="fleet-network windows-network"><span>Windows fleet</span><strong>11 VM</strong><small>fleet-net-win / 1 subnet</small></article></div>
+          <div class="topology-arrow"><span>69 VM</span><i class="flow-arrow-icon" aria-hidden="true"></i></div>
+          <article class="router-node"><span>OpenStack Neutron</span><h3>assessment-router</h3><p>Virtual network routing</p></article>
+          <div class="topology-arrow"><span>AMQP</span><i class="flow-arrow-icon" aria-hidden="true"></i></div>
+          <div class="engine-zone"><p class="topology-label">Validation endpoint: Docker Compose on Engine VM</p><div class="engine-pipeline"><span>RabbitMQ</span><i class="flow-arrow-icon" aria-hidden="true"></i><span>Consumer</span><i class="flow-arrow-icon" aria-hidden="true"></i><span>TimescaleDB</span></div><p>Agent fleet에서 단일 Engine VM까지의 메시지 경로</p></div>
+        </div>
+        <div class="openstack-management-layer"><div class="openstack-layer-label"><strong>OpenStack private cloud</strong><span>Platform for all components above</span></div><div class="openstack-component-row"><article><small>Management UI</small><strong>Horizon</strong></article><i class="flow-arrow-icon" aria-hidden="true"></i><article><small>Management API</small><strong>API client</strong></article><i class="flow-arrow-icon" aria-hidden="true"></i><article><small>Compute control</small><strong>Nova</strong></article><i class="flow-arrow-icon" aria-hidden="true"></i><article><small>Network control</small><strong>Neutron</strong></article><i class="flow-arrow-icon" aria-hidden="true"></i><article><small>Infrastructure</small><strong>Compute hypervisors</strong></article></div></div>
+        <div class="validation-evidence"><article><span>Agent deployment</span><strong>SSH 직접 배포 / Ansible 확장 / Offline injection</strong></article><article><span>Engine stack</span><strong>반입과 기동이 간단한 Docker Compose 구성</strong></article></div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>11/32</span></footer>
+      </section>
+
+      <section class="slide access-path-slide" data-section="main" data-number="12" aria-labelledby="slide-12-title">
+        <header class="slide-header compact-header"><p class="eyebrow">Validation access</p><h2 id="slide-12-title">검증 환경 접근 경로</h2><p class="lead">주어진 Windows jump host RDP 권한을 출발점으로, VPN 기반 원격 개발과 내부 Horizon 브라우저 접근 경로를 구성했다.</p></header>
+        <section class="access-given-condition"><span>Provided condition</span><strong>RDP access permission</strong><i class="flow-arrow-icon" aria-hidden="true"></i><div class="partner-cloud-access"><span>Partner cloud infrastructure</span><div><strong>Windows jump host</strong><i class="flow-arrow-icon" aria-hidden="true"></i><strong>Horizon browser</strong></div></div><i class="flow-arrow-icon" aria-hidden="true"></i><div class="initial-control-setup"><span>Initial setup once: VPN SSH / subnet router</span><div><strong>Horizon browser</strong><i class="flow-arrow-icon" aria-hidden="true"></i><small>Create</small><i class="flow-arrow-icon" aria-hidden="true"></i><strong>Linux control VM</strong></div></div></section>
+        <div class="access-path-diagram"><article class="remote-workstation"><span>Remote workflow</span><h3>원격 개발</h3><p>검증과 API 호출</p></article><i class="flow-arrow-icon access-major-arrow" aria-hidden="true"></i><div class="vpn-hub"><span>VPN</span><h3>VPN</h3><p>SSH / subnet routing</p></div><i class="flow-arrow-icon access-major-arrow" aria-hidden="true"></i><section class="access-branches"><article class="linux-route"><span>Development workflow</span><div class="remote-dev-route"><strong>SSH</strong><i class="flow-arrow-icon" aria-hidden="true"></i><strong>VS Code Remote</strong><i class="flow-arrow-icon" aria-hidden="true"></i><strong>OpenStack API</strong></div><p>원격 개발과 여러 VM의 자동 생성 및 관리</p></article><article class="jump-route"><span>Horizon browser workflow</span><div><strong>Subnet routing</strong><i class="flow-arrow-icon" aria-hidden="true"></i><strong>Browser</strong><i class="flow-arrow-icon" aria-hidden="true"></i><strong>Horizon</strong></div><p>Linux control VM을 경유한 화면 기반 제어</p></article></section><i class="flow-arrow-icon access-major-arrow" aria-hidden="true"></i><article class="openstack-vm-fleet"><span>Common control target</span><h3>OpenStack VM fleet</h3><div class="vm-fleet-icons vm-fleet-grid" aria-label="OpenStack API와 Horizon으로 제어하는 여러 가상 머신"><b>AGT</b><b>AGT</b><b>AGT</b><b>AGT</b><b>AGT</b><b>AGT</b><em>ENG</em></div><div class="vm-fleet-roles"><span>Agent fleet VM x N</span><span>Engine VM x 1</span></div><p>API와 Horizon 모두<br>여러 VM 생성 및 관리</p></article></div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>12/32</span></footer>
+      </section>
+
+      <section class="slide horizon-evidence-slide" data-section="main" data-number="13" aria-labelledby="slide-13-title">
+        <header class="slide-header compact-header"><p class="eyebrow">Validation evidence</p><h2 id="slide-13-title">OpenStack Horizon과 검증 fleet</h2><p class="lead">OpenStack Horizon의 인스턴스 목록에서 혼합 OS 서버와 Windows Server 세대별 검증 대상을 확인했다.</p></header>
+        <div class="horizon-evidence-layout"><article><header><span>Mixed OS fleet</span><h3>Linux, Windows, Engine VM</h3></header><figure class="screen-frame"><img src="assets/screenshots/horizon-mixed-fleet.png" alt="비식별 처리한 OpenStack Horizon 혼합 OS 인스턴스 목록"><figcaption>혼합 OS와 Engine VM이 포함된 검증 fleet</figcaption></figure></article><article><header><span>Windows coverage</span><h3>Windows Server 세대별 대상</h3></header><figure class="screen-frame"><img src="assets/screenshots/horizon-windows-fleet.png" alt="비식별 처리한 OpenStack Horizon Windows 인스턴스 목록"><figcaption>구형부터 현대 버전까지의 Windows Server 대상</figcaption></figure></article></div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>13/32</span></footer>
+      </section>
+
+      <section class="slide reproducibility-slide" data-section="main" data-number="14" aria-labelledby="slide-14-title">
+        <header class="slide-header"><p class="eyebrow">Reproducible validation</p><h2 id="slide-14-title">검증 환경 재현</h2><p class="lead">Terraform과 OpenStack API로 검증 환경을 만들고, Agent 준비 방식은 대상 조건에 맞춰 선택했다.</p></header>
+        <section class="reproduction-primary-flow"><article class="terraform-primary"><span>Infrastructure definition</span><h3>Terraform</h3><p>OpenStack 자원과 준비 스크립트 선언</p></article><i class="flow-arrow-icon" aria-hidden="true"></i><article class="openstack-primary"><span>Infrastructure provisioning</span><h3>OpenStack API</h3><p>선언한 검증 자원을 생성</p></article><i class="flow-arrow-icon" aria-hidden="true"></i><article class="environment-primary"><span>Validation environment</span><h3>검증 환경</h3><div><b>Agent fleet VM</b><b>Network</b><b>Engine VM</b></div></article></section>
+        <section class="agent-preparation-choice"><p>Agent 설치와 초기 준비</p><div><article class="choice-cloud-init"><span>Linux path</span><h3>cloud-init</h3><p>Linux Agent fleet 준비 자동화</p></article><strong>OR</strong><article class="choice-offline"><span>Offline path</span><h3>Offline injection</h3><p>rescue volume attach / Windows registry hive</p></article></div></section>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>14/32</span></footer>
+      </section>
+
+      <section class="slide pipeline-validation-slide" data-section="main" data-number="15" aria-labelledby="slide-15-title">
+        <header class="slide-header compact-header"><p class="eyebrow">Deployment and collection validation</p><h2 id="slide-15-title">Agent-Engine 배포 및 수집 경로 검증</h2><p class="lead">혼합 OS 환경에서 Agent와 Engine을 배포하고, 서비스 기동부터 데이터 저장까지 이어지는 구간을 확인했다.</p></header>
+        <section class="validation-deployment-inputs" aria-label="검증에 사용한 Agent와 Engine 배포 방법">
+          <article class="validation-agent-deployment"><span>AGENT DEPLOYMENT</span><h3>Agent fleet</h3><div><b>SSH</b><b>Ansible</b><b>Offline injection</b></div><p>Linux와 Windows에서 Agent service 기동</p></article>
+          <article class="validation-engine-deployment"><span>ENGINE DEPLOYMENT</span><h3>Single Engine VM</h3><div><b>Docker Compose</b></div><p>Web, Consumer, Worker와 데이터 서비스 기동</p></article>
+        </section>
+        <section class="validated-collection-path" aria-label="검증한 Agent에서 Engine 저장까지의 수집 경로"><p>VALIDATED COLLECTION PATH</p><div><article><span>01</span><h3>Agent service</h3><small>inventory / metrics</small></article><i class="flow-arrow-icon" aria-hidden="true"></i><article><span>02</span><h3>RabbitMQ</h3><small>AMQP message</small></article><i class="flow-arrow-icon" aria-hidden="true"></i><article><span>03</span><h3>Consumer</h3><small>validate / persist</small></article><i class="flow-arrow-icon" aria-hidden="true"></i><article><span>04</span><h3>TimescaleDB</h3><small>inventory / time series</small></article><i class="flow-arrow-icon" aria-hidden="true"></i><article class="validated-result"><span>05</span><h3>Engine 등록</h3><small>서버와 측정값 저장</small></article></div></section>
+        <section class="validation-scope-strip"><article><span>CONFIRMED</span><p>배포, 서비스 기동, 메시지 발행, Consumer 처리, DB 저장</p></article><article><span>OUT OF SCOPE</span><p>판정 정확도, 장기 운영 안정성, 고객 운영 배포 전체</p></article></section>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>15/32</span></footer>
+      </section>
+
+      <section class="slide chapter-divider" data-section="main" data-number="16" aria-labelledby="slide-16-title">
+        <div class="chapter-index"><span>SECTION</span><strong>03</strong></div>
+        <div class="chapter-copy">
+          <p class="eyebrow">Agent and Engine</p>
+          <h2 id="slide-16-title">Agent와 Engine</h2>
+          <p>OS별 관측값이 공통 메시지로 바뀌고, Engine의 컴포넌트가 수집, 저장, 평가와 결과 전달을 나누어 처리한다.</p>
+          <div class="chapter-keywords"><span>Native Agent</span><span>메시지 계약</span><span>컴포넌트 구조</span><span>비동기 처리</span></div>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>16/32</span></footer>
+      </section>
+
+      <section class="slide" data-section="main" data-number="17" aria-labelledby="slide-17-title">
+        <header class="slide-header"><p class="eyebrow">Monitoring Agent</p><h2 id="slide-17-title">Agent 동작</h2><p class="lead">Agent는 OS가 제공하는 원시 정보를 직접 읽어 같은 메시지 구조로 정규화하고 RabbitMQ에 발행한다.</p></header>
+        <section class="agent-collection-flow"><section class="agent-os-sources"><article class="linux-source"><span>Linux native sources</span><h3>/proc /sys /etc</h3><p>커널과 시스템 파일을 직접 파싱하고, 서비스 정보는 OS 제공 명령으로 보완.</p><small>Build: musl static binary</small></article><article class="windows-source"><span>Windows native sources</span><h3>Registry / API</h3><p>Windows API, IOCTL, 성능 계측값과 registry 데이터를 질의.</p><small>Build: single i686 / runtime generation split</small></article></section><i class="flow-arrow-icon agent-major-arrow" aria-hidden="true"></i><article class="agent-normalization"><span>Normalize</span><h3>raw 관측값 정규화</h3><div class="normalization-note"><p>Engine 스키마 계약을 따름</p><p>OS별 raw 단위<i class="flow-arrow-icon" aria-hidden="true"></i>공통 단위</p><p>rate, utilization, 평가는 Engine 책임</p></div></article><i class="flow-arrow-icon agent-major-arrow" aria-hidden="true"></i><article class="agent-rabbitmq"><span>Publish</span><h3>RabbitMQ</h3><p>JSON envelope과 datapoint array를 AMQP 메시지로 발행.</p></article></section>
+        <section class="agent-message-structure"><p>발행 데이터 구조</p><div><article><span>Inventory</span><h3>현재 구성</h3><p>OS, CPU, storage, network, services</p></article><article><span>Metrics</span><h3>raw 측정값</h3><p>CPU, memory, disk, network의 counter와 gauge</p></article><article><span>Envelope</span><h3>메시지 식별</h3><p>agent_id, collected_at, schema_version</p></article></div></section>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>17/32</span></footer>
+      </section>
+
+      <section class="slide engine-component-slide" data-section="main" data-number="18" aria-labelledby="slide-18-title">
+        <header class="slide-header"><p class="eyebrow">Assessment Engine</p><h2 id="slide-18-title">Engine 컴포넌트 구조</h2><p class="lead">수집, 평가, 비동기 작업, 보조 상태의 책임을 분리하고 RabbitMQ와 DB를 중심으로 연결한다.</p></header>
+        <section class="engine-component-map" aria-label="Assessment Engine 컴포넌트 관계 다이어그램">
+          <svg viewBox="0 0 1140 430" preserveAspectRatio="none" aria-hidden="true"><path class="component-flow" d="M140 190 H200"/><path class="component-flow" d="M340 190 H400"/><path class="component-flow" d="M540 190 H600"/><path class="component-flow" d="M740 190 H800"/><path class="component-flow" d="M940 190 H1000"/><path class="component-flow" d="M270 135 V70 H870 V135"/><path class="component-flow" d="M670 245 V280"/><path class="component-flow" d="M870 245 V280"/></svg>
+          <article class="component-box component-agent"><span>AGENT FLEET</span><h3>Monitoring Agent</h3><p>OS 정보 수집과 task 실행</p></article>
+          <section class="component-boundary"><p>Assessment Engine</p><article class="component-box component-rabbit"><span>MESSAGE BROKER</span><h3>RabbitMQ</h3><p>메시지 전달과 routing</p></article><article class="component-box component-consumer"><span>CONSUME</span><h3>Consumer</h3><p>수신 검증과 저장</p></article><article class="component-box component-db"><span>STORE</span><h3>TimescaleDB</h3><p>데이터 영속</p></article><article class="component-box component-api"><span>ASSESS AND DELIVER</span><h3>FastAPI</h3><p>평가와 결과 제공</p></article><article class="component-box component-worker"><span>BACKGROUND</span><h3>Worker</h3><p>보고서와 task 마감</p></article><article class="component-box component-redis"><span>AUXILIARY STATE</span><h3>Redis</h3><p>cache, online, 중복 차단</p></article></section>
+          <article class="component-box component-user"><span>RESULT</span><h3>사용자와 연계 도구</h3><p>화면, 보고서, API</p></article>
+        </section>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>18/32</span></footer>
+      </section>
+
+      <section class="slide collection-sequence-slide" data-section="main" data-number="19" aria-labelledby="slide-19-title">
+        <header class="slide-header"><p class="eyebrow">Collection sequence</p><h2 id="slide-19-title">수집 메시지 처리 시퀀스</h2><p class="lead">Monitoring Agent가 발행한 현재 환경 정보는 Broker와 Consumer를 거쳐 DB에 저장되고, 정상 처리 뒤 ACK 된다.</p></header>
+        <section class="collection-sequence-diagram" aria-label="Monitoring Agent의 수집 메시지가 RabbitMQ와 Consumer를 거쳐 TimescaleDB에 저장되는 시퀀스">
+          <div class="sequence-engine-boundary" aria-hidden="true"><span>Assessment Engine</span></div>
+          <div class="sequence-participants">
+            <article class="sequence-participant sequence-agent"><span>OUTSIDE ENGINE</span><h3>Monitoring Agent</h3><p>inventory / raw metrics</p></article>
+            <article class="sequence-participant sequence-rabbit"><span>MESSAGE BROKER</span><h3>RabbitMQ</h3><p>durable queue</p></article>
+            <article class="sequence-participant sequence-consumer"><span>CONSUME</span><h3>Consumer</h3><p>validate / persist</p></article>
+            <article class="sequence-participant sequence-db"><span>STORE</span><h3>TimescaleDB</h3><p>inventory / time series</p></article>
+          </div>
+          <div class="sequence-body">
+            <i class="sequence-lifeline lifeline-agent" aria-hidden="true"></i><i class="sequence-lifeline lifeline-rabbit" aria-hidden="true"></i><i class="sequence-lifeline lifeline-consumer" aria-hidden="true"></i><i class="sequence-lifeline lifeline-db" aria-hidden="true"></i>
+            <p class="sequence-message message-publish"><span><b>01</b>server.inventory / server.metrics 발행</span></p>
+            <p class="sequence-message message-delivery"><span><b>02</b>queue delivery</span></p>
+            <p class="sequence-local-check"><b>03</b>schema 검증과 중복 처리 확인</p>
+            <p class="sequence-message message-persist"><span><b>04</b>upsert / time-series insert</span></p>
+            <p class="sequence-message message-ack message-return"><span><b>05</b>정상 처리 ACK</span></p>
+            <p class="sequence-exception">형식 오류 또는 재시도 한도 초과</p>
+            <p class="sequence-dlq"><b>DLQ</b><span>예외 메시지 분리</span></p>
+          </div>
+        </section>
+        <section class="sequence-properties" aria-label="수집 시퀀스의 핵심 성질"><article><span>MESSAGE BOUNDARY</span><p>Agent와 DB를 직접 묶지 않고 Broker를 경계로 둔다.</p></article><article><span>COMMIT THEN ACK</span><p>정상 메시지는 DB 저장이 끝난 뒤 처리 완료를 알린다.</p></article><article><span>EXCEPTION ISOLATION</span><p>형식 오류와 처리 불가 메시지는 DLQ로 분리한다.</p></article></section>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>19/32</span></footer>
+      </section>
+
+      <section class="slide engine-architecture-slide" data-section="main" data-number="20" aria-labelledby="slide-20-title">
+        <header class="slide-header"><p class="eyebrow">Engine architecture</p><h2 id="slide-20-title">Engine 아키텍처의 특징</h2><p class="lead">처리 경로와 데이터 수명에 따라 컴포넌트의 책임과 장애 범위를 나눴다.</p></header>
+        <section class="architecture-feature-grid">
+          <article class="architecture-feature messaging-feature"><span>01 MESSAGE-DRIVEN INTAKE</span><div class="feature-diagram"><b>Agent fleet</b><i class="flow-arrow-icon" aria-hidden="true"></i><b>RabbitMQ</b><i class="flow-arrow-icon" aria-hidden="true"></i><b>Consumer</b></div><h3>Broker로 수집 경로 분리</h3><p>Agent 발행과 DB 저장을 직접 묶지 않고 durable queue를 사이에 둔다.</p><small>Consumer 재시작과 발행 및 저장 속도의 차이를 Broker가 흡수</small></article>
+          <article class="architecture-feature execution-feature"><span>02 DB-BACKED BACKGROUND JOBS</span><div class="feature-diagram split-diagram"><b>FastAPI<small>Job 등록</small></b><i class="flow-arrow-icon" aria-hidden="true"></i><b>TimescaleDB<small>Job 상태</small></b><i class="flow-arrow-icon" aria-hidden="true"></i><b>Worker<small>대기 작업 실행</small></b></div><h3>요청과 긴 작업의 수명 분리</h3><p>FastAPI는 Job을 등록하고 Worker는 대기 중인 작업을 가져와 별도 프로세스에서 처리한다.</p><small>HTTP 응답과 보고서 생성 및 task 마감의 실행 시간을 분리</small></article>
+          <article class="architecture-feature data-feature"><span>03 DURABLE AND AUXILIARY STATE</span><div class="feature-diagram data-diagram"><b><strong>TimescaleDB</strong><small>영속 데이터</small></b><span class="data-role-divider" aria-hidden="true"></span><b><strong>Redis</strong><small>보조 상태</small></b></div><h3>영속 데이터와 보조 상태 분리</h3><p>DB는 inventory, 시계열, task와 report를 보존하고 Redis는 cache, online TTL과 중복 차단을 맡는다.</p><small>Redis 장애 시 DB 조회와 UNIQUE 제약으로 핵심 처리를 계속</small></article>
+        </section>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>20/32</span></footer>
+      </section>
+
+      <section class="slide chapter-divider" data-section="main" data-number="21" aria-labelledby="slide-21-title">
+        <div class="chapter-index"><span>SECTION</span><strong>04</strong></div>
+        <div class="chapter-copy">
+          <p class="eyebrow">Core implementation</p>
+          <h2 id="slide-21-title">핵심 기능 구현</h2>
+          <p>수집한 현황을 환경과 서버 단위로 제공하고,<br>규칙 기반 평가와 보고서 발행 및 ZDM 설치로 연결한다.</p>
+          <div class="chapter-keywords"><span>환경 및 서버 현황</span><span>자원 적정성 평가</span><span>보고서 발행</span><span>ZDM 설치</span></div>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>21/32</span></footer>
+      </section>
+
+      <section class="slide inventory-metrics-slide" data-section="main" data-number="22" aria-labelledby="slide-22-title">
+        <header class="slide-header compact-header"><p class="eyebrow">Inventory and metrics</p><h2 id="slide-22-title">환경과 서버 현황 조회</h2><p class="lead">같은 인벤토리와 메트릭을 환경 전체의 집계와 개별 서버의 상세 정보로 제공한다.</p></header>
+        <div class="scope-observation-layout">
+          <article class="scope-observation-card environment-scope-card">
+            <header><span>ENVIRONMENT SCOPE</span><h3>환경 전체</h3><p>수집 대상의 규모, 구성과 자원 상태를 한 화면에서 파악한다.</p></header>
+            <figure><img src="assets/screenshots/environment-overview.png" alt="서버와 자원 합계, OS 지원, 워크로드와 자원 현황을 보여 주는 환경 개요 화면"></figure>
+            <div class="scope-data-tags"><span>서버와 자원 합계</span><span>OS와 워크로드 분포</span><span>실시간 및 기간 메트릭</span></div>
+          </article>
+          <article class="scope-observation-card server-scope-card">
+            <header><span>SERVER SCOPE</span><h3>개별 서버</h3><p>한 서버의 구성, 실행 항목과 자원 상태를 상세하게 확인한다.</p></header>
+            <figure class="server-scope-screens"><img src="assets/screenshots/server-overview.png" alt="시스템, 스토리지, 네트워크와 식별 정보를 보여 주는 서버 상세 화면"><img src="assets/screenshots/server-metrics.png" alt="실시간 자원 메트릭과 스토리지 및 네트워크 활동을 보여 주는 서버 상세 화면"></figure>
+            <div class="scope-data-tags"><span>시스템과 식별 정보</span><span>스토리지와 네트워크</span><span>서비스와 포트</span><span>실시간 및 기간 메트릭</span></div>
+          </article>
+        </div>
+        <p class="scope-observation-note"><strong>환경 집계 -> 대상 선별 -> 서버 상세</strong><span>같은 수집 데이터를 조사 범위에 맞춰 단계적으로 확인한다.</span></p>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>22/32</span></footer>
+      </section>
+
+      <section class="slide sizing-method-slide" data-section="main" data-number="23" aria-labelledby="slide-23-title">
+        <header class="slide-header compact-header"><p class="eyebrow">Assessment rules</p><h2 id="slide-23-title">자원 적정성 평가</h2><p class="lead">5개 자원의 이용률, 포화, 오류 신호를 관측하고 신호 성격에 따라 사이징과 상태 진단으로 나눈다.</p></header>
+        <div class="sizing-evaluation-main">
+          <section class="use-evaluation-matrix" aria-label="5개 자원과 USE 3개 평가 축의 15개 관측 영역">
+            <header><div><span>USE METHOD</span><h3>5개 자원 x 3개 평가 축</h3></div><strong>15개 관측 영역</strong></header>
+            <div class="use-matrix-grid">
+              <span class="matrix-corner">RESOURCE</span><b class="matrix-axis utilization-axis">이용률</b><b class="matrix-axis saturation-axis">포화</b><b class="matrix-axis errors-axis">오류 신호</b>
+              <strong>CPU</strong><span class="utilization-cell">사용률 p95</span><span class="saturation-cell">실행 큐</span><span class="errors-cell">Machine Check</span>
+              <strong>Memory</strong><span class="utilization-cell">사용률 p95</span><span class="saturation-cell">하드 폴트</span><span class="errors-cell">OOM / EDAC</span>
+              <strong>Disk capacity</strong><span class="utilization-cell">사용량 / inode</span><span class="saturation-cell">소진까지 남은 기간</span><span class="errors-cell">파일시스템 오류</span>
+              <strong>Disk I/O</strong><span class="utilization-cell">IOPS 기준선</span><span class="saturation-cell">await p95</span><span class="errors-cell">device 오류</span>
+              <strong>Network</strong><span class="utilization-cell">throughput</span><span class="saturation-cell">drop / conntrack</span><span class="errors-cell">재전송 / NIC 오류</span>
+            </div>
+          </section>
+          <i class="flow-arrow-icon sizing-result-arrow" aria-hidden="true"></i>
+          <section class="sizing-result-example">
+            <header><span>OUTPUT</span><h3>신호별 결과와 서버 종합</h3></header>
+            <div class="sizing-decision-stack">
+              <article><span>01</span><div><h4>사이징 판정</h4><p>CPU, Memory, Disk capacity</p></div></article>
+              <article><span>02</span><div><h4>성능 및 품질 상태</h4><p>Disk I/O, Network</p></div></article>
+              <article><span>03</span><div><h4>오류 진단</h4><p>5개 자원의 health signal</p></div></article>
+            </div>
+            <p class="sizing-host-rollup"><strong>HOST ROLLUP</strong><span>사이징 판정 -> 자원 부족, 과다 할당, 유휴, 적정, 표본 부족</span></p>
+          </section>
+        </div>
+        <section class="sizing-principles" aria-label="자원 적정성 평가의 주요 전제">
+          <article><span>01</span><h3>기간 대표값</h3><p>기본 14일, p95와 자원별 대표 통계 사용</p></article>
+          <article><span>02</span><h3>OS별 신호 해석</h3><p>Linux와 Windows 신호원을 공통 평가 축으로 변환</p></article>
+          <article><span>03</span><h3>오탐 방지 조건</h3><p>이중 조건과 저활동 필터로 순간 노이즈 제외</p></article>
+          <article><span>04</span><h3>미측정과 신뢰도</h3><p>없는 값을 추정하지 않고 관측 한계를 표시</p></article>
+          <article><span>05</span><h3>안전 우선 처방</h3><p>충분한 이력과 안정 추세에서만 구체 감축</p></article>
+        </section>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>23/32</span></footer>
+      </section>
+
+      <section class="slide sizing-web-slide" data-section="main" data-number="24" aria-labelledby="slide-24-title">
+        <header class="slide-header compact-header"><p class="eyebrow">Assessment result</p><h2 id="slide-24-title">환경 자원 평가 화면</h2><p class="lead">평가 기간과 기준 시각을 선택하고 환경 분포부터 서버별 판정, 권고와 신뢰도까지 확인한다.</p></header>
+        <figure class="assessment-web-example">
+          <div><img src="../capture-20260726/스크린샷 2026-07-26 오후 3.23.40.png" alt="자원 적정성 분포와 서버별 분류, 권고, 상태 및 신뢰도를 보여 주는 환경 자원 평가 웹페이지"></div>
+          <figcaption>검증 환경에서 수집한 70개 서버를 14일 기준으로 평가한 화면</figcaption>
+        </figure>
+        <section class="assessment-web-guide" aria-label="환경 자원 평가 화면에서 확인하는 정보"><article><span>01</span><p>환경 전체 분포</p></article><article><span>02</span><p>서버별 분류와 권고</p></article><article><span>03</span><p>성능, 품질과 신뢰도</p></article></section>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>24/32</span></footer>
+      </section>
+
+      <section class="slide report-async-slide" data-section="main" data-number="25" aria-labelledby="slide-25-title">
+        <header class="slide-header compact-header"><p class="eyebrow">Asynchronous report</p><h2 id="slide-25-title">보고서 스냅샷 생성</h2><p class="lead">여러 서버의 집계와 보고서 조립을 HTTP 요청에서 분리하고, 생성 과정과 발행 결과를 DB에 보존한다.</p></header>
+        <div class="report-async-layout">
+          <section class="report-async-reasons" aria-label="보고서 생성 구조로 확보한 특성">
+            <header><span>REPORT STRUCTURE</span><h3>보고서 생성 구조로 확보한 것</h3></header>
+            <article><span>01</span><div><h4>비동기 처리</h4><p>환경 전체와 선택한 여러 서버의 집계가 끝날 때까지 HTTP 연결을 유지하지 않는다.</p></div></article>
+            <article><span>02</span><div><h4>DB job 상태</h4><p>생성 진행과 실패를 pending, running, succeeded, failed 상태로 기록하고 조회한다.</p></div></article>
+            <article><span>03</span><div><h4>정적 스냅샷</h4><p>새 데이터가 수집돼도 이미 발행한 보고서는 같은 범위와 기준 시각의 값을 유지한다.</p></div></article>
+          </section>
+          <section class="report-job-panel" aria-label="비동기 보고서 작업의 구현 흐름">
+            <header><span>IMPLEMENTATION</span><h3>DB job과 Worker로 구현</h3></header>
+            <div class="report-job-flow">
+              <article><span>01 REQUEST</span><h4>발행 요청</h4><p>범위, 기준 시각과 보고서 유형을 검증한다.</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+              <article><span>02 ENQUEUE</span><h4>Pending 등록</h4><p>FastAPI가 job을 저장하고 식별자를 즉시 반환한다.</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+              <article><span>03 BUILD</span><h4>보고서 생성</h4><p>Worker가 대기 중인 job을 가져와 평가 ViewModel과 결과 JSON을 만든다.</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+              <article><span>04 READ</span><h4>완료 결과 조회</h4><p>브라우저가 상태를 polling하고 저장된 결과를 렌더링한다.</p></article>
+            </div>
+            <div class="report-state-line"><span>pending</span><i class="flow-arrow-icon" aria-hidden="true"></i><span>running</span><i class="flow-arrow-icon" aria-hidden="true"></i><strong>succeeded</strong><b>or</b><em>failed</em></div>
+          </section>
+        </div>
+        <div class="report-snapshot-rules"><article><strong>중복 생성 방지</strong><p>같은 범위, 입력과 보고서 유형의 진행 중 job은 기존 작업에 합류한다.</p></article><article><strong>정적 결과 보존</strong><p>succeeded job은 결과 JSON을 다시 계산하지 않고 그대로 렌더링한다.</p></article></div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>25/32</span></footer>
+      </section>
+
+      <section class="slide report-variants-slide" data-section="main" data-number="26" aria-labelledby="slide-26-title">
+        <header class="slide-header compact-header"><p class="eyebrow">Report variants</p><h2 id="slide-26-title">보고서 유형과 용도</h2><p class="lead">같은 평가 결과를 범위와 독자에 따라 환경 또는 개별 서버, 고객용 또는 엔지니어용으로 구성한다.</p></header>
+        <div class="report-variant-matrix">
+          <div class="report-axis-corner"><span>범위</span><i></i><span>독자</span></div>
+          <header class="report-customer-heading"><span>Customer</span><strong>고객용</strong><small>결론과 조치 중심</small></header>
+          <header class="report-engineer-heading"><span>Engineer</span><strong>엔지니어용</strong><small>공통 평가 결과 + 상세 근거</small></header>
+          <div class="report-row-heading"><span>Environment</span><strong>환경 보고서</strong></div>
+          <article class="report-variant-card customer-card"><figure><img src="assets/screenshots/report-customer-environment.png" alt="고객용 환경 보고서의 환경 요약과 자원 적정성 분포"></figure><p>환경 현황, 분류 분포와 조치 대상을 회의와 보고에 맞게 요약</p></article>
+          <article class="report-variant-card engineer-card"><figure><img src="assets/screenshots/report-engineer-environment.png" alt="엔지니어용 환경 보고서의 환경 부하 추이와 자원 적정성 근거"></figure><p>환경 요약과 평가 결론에 부하 추이, 네트워크 토폴로지와 서버별 판정 근거 추가</p></article>
+          <div class="report-row-heading"><span>Server</span><strong>개별 보고서</strong></div>
+          <article class="report-variant-card customer-card"><figure><img src="assets/screenshots/report-customer-server.png" alt="고객용 개별 서버 보고서의 인벤토리와 평가 결론"></figure><p>선택 서버의 구성, 주요 지표와 평가 결론을 간결하게 전달</p></article>
+          <article class="report-variant-card engineer-card"><figure><img src="assets/screenshots/report-engineer-server.png" alt="엔지니어용 개별 서버 보고서의 자원별 통계와 진단 근거"></figure><p>인벤토리와 평가 결론에 자원별 통계, 포화 및 오류 신호와 시스템 상세 추가</p></article>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>26/32</span></footer>
+      </section>
+
+      <section class="slide install-task-slide" data-section="main" data-number="27" aria-labelledby="slide-27-title">
+        <header class="slide-header compact-header"><p class="eyebrow">Controlled install task</p><h2 id="slide-27-title">ZDM 설치 작업과 결과 회신</h2><p class="lead">서버 목록에서 대상을 선택해 설치를 발행하면 Engine과 Agent가 서버별 실행 결과를 저장한다.</p></header>
+        <figure class="install-action-evidence">
+          <img src="assets/screenshots/install-batch-selection.png" alt="서버 선택 체크박스와 Install 버튼이 있는 서버 목록 화면">
+          <span class="install-action-highlight select-highlight"><em><b>1</b>서버 선택</em></span>
+          <span class="install-action-highlight button-highlight"><em><b>2</b>Install</em></span>
+        </figure>
+        <div class="install-protocol-flow">
+          <article><span>ENGINE</span><h3>작업 발행</h3><p>대상 서버, ZDM 주소와 계정을 검증하고 pending task를 저장한다.</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+          <article><span>RABBITMQ</span><h3>서버별 전달</h3><p>task.install.&lt;agent_id&gt;로 지정 Agent의 queue에 작업을 전달한다.</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+          <article class="install-protocol-agent"><span>AGENT</span><h3>검증 및 설치</h3><p>허용 host, 파일 크기와 checksum을 확인한 뒤 OS별 ZDM 패키지를 실행한다.</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+          <article><span>ENGINE</span><h3>결과 저장</h3><p>Consumer가 task.result를 받아 성공 또는 실패, 종료 정보와 로그 tail을 저장한다.</p></article>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>27/32</span></footer>
+      </section>
+
+      <section class="slide install-status-slide" data-section="main" data-number="28" aria-labelledby="slide-28-title">
+        <header class="slide-header compact-header"><p class="eyebrow">Install status</p><h2 id="slide-28-title">ZDM 설치 상태 확인</h2><p class="lead">서버 목록에서 설치 상태를 확인하고, 상세 화면에서 실행 결과와 실패 원인을 추적한다.</p></header>
+        <div class="install-status-layout">
+          <article class="install-status-evidence">
+            <header><span>LIST BADGE</span><h3>서버별 상태</h3><p>목록 배지가 polling으로 종결 상태까지 갱신된다.</p></header>
+            <figure><img src="assets/screenshots/install-status-list.png" alt="서버 목록의 ZDM Install 성공 상태 배지"></figure>
+          </article>
+          <article class="install-result-evidence">
+            <header><span>RESULT DETAIL</span><h3>작업 결과 모달</h3><p>배지를 선택해 종료 정보, 실패 사유와 로그 tail을 확인한다.</p></header>
+            <figure><img src="assets/screenshots/install-result.png" alt="ZDM Install 성공 배지를 선택해 연 작업 결과 모달"></figure>
+          </article>
+        </div>
+        <div class="install-status-legend" aria-label="ZDM 설치 상태 정의">
+          <article><span class="install-state-badge state-pending">진행 중</span><p>Agent 결과 대기</p></article>
+          <article><span class="install-state-badge state-success">성공</span><p>설치 완료 확인</p></article>
+          <article><span class="install-state-badge state-failure">실패</span><p>실행 실패 또는 timeout</p></article>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>28/32</span></footer>
+      </section>
+
+      <section class="slide chapter-divider" data-section="main" data-number="29" aria-labelledby="slide-29-title">
+        <div class="chapter-index"><span>SECTION</span><strong>05</strong></div>
+        <div class="chapter-copy">
+          <p class="eyebrow">Use cases and outcomes</p>
+          <h2 id="slide-29-title">유즈케이스와 결과</h2>
+          <p>두 가지 업무 흐름과 프로젝트 결과를 확인한다.</p>
+          <div class="chapter-keywords"><span>환경 진단</span><span>이전 및 재해복구</span><span>프로젝트 결과</span></div>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>29/32</span></footer>
+      </section>
+
+      <section class="slide screenshot-slide" data-section="main" data-number="30" aria-labelledby="slide-30-title">
+        <header class="slide-header compact-header">
+          <p class="eyebrow">Use case 1</p>
+          <h2 id="slide-30-title">환경 진단과 조치 우선순위</h2>
+          <p class="lead">환경 전체에서 조치 후보를 정하고 필요한 서버의 근거를 확인한다.</p>
+        </header>
+        <div class="usecase-layout">
+          <div class="journey-list">
+            <div><span>1</span><p><strong>분포 확인</strong><small>과다 할당, 유휴, 부족, 정상</small></p></div>
+            <div><span>2</span><p><strong>대상 선별</strong><small>조치가 필요한 서버의 우선순위</small></p></div>
+            <div><span>3</span><p><strong>상세 확인</strong><small>CPU, 메모리, 스토리지의 원인</small></p></div>
+            <div><span>4</span><p><strong>조치 결정</strong><small>증설, 축소, 통합, 관찰</small></p></div>
+          </div>
+          <figure class="screen-frame">
+            <img src="assets/screenshots/environment-assessment.png" alt="서버별 자원 적정성과 권고를 보여 주는 환경 평가 화면">
+            <figcaption>시험대 화면의 서버별 평가 표</figcaption>
+          </figure>
+        </div>
+          <p class="takeaway left-align">수십 대의 상세 화면을 먼저 열지 않고 환경 수준에서 조치 순서를 정한다.</p>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>30/32</span></footer>
+      </section>
+
+      <section class="slide" data-section="main" data-number="31" aria-labelledby="slide-31-title">
+        <header class="slide-header">
+          <p class="eyebrow">Use case 2</p>
+          <h2 id="slide-31-title">클라우드 이전 및 재해복구 설계</h2>
+          <p class="lead">규칙 기반 분류와 실사용량을 대상 VM 사양과 구성안 작성에 필요한 입력으로 제공한다.</p>
+        </header>
+        <div class="migration-flow">
+          <article class="migration-source">
+            <p class="node-label">원천 환경</p>
+            <h3>현재 서버의 사실</h3>
+            <ul class="plain-list">
+              <li>OS와 부팅 정보</li>
+              <li>CPU, 메모리, 스토리지</li>
+              <li>네트워크와 서비스</li>
+              <li>실사용량과 규칙 기반 분류</li>
+            </ul>
+          </article>
+          <div class="contract-node">
+            <div class="contract-ring">JSON</div>
+            <h3>Assessment API<br>JSON Export</h3>
+            <p>사람이 아닌 도구도 같은 결과를 소비</p>
+          </div>
+          <article class="migration-target">
+            <p class="node-label">대상 설계</p>
+            <h3>VM 사양과 구성안</h3>
+            <ul class="plain-list">
+              <li>재현에 필요한 식별 정보</li>
+              <li>조정된 자원 목표</li>
+              <li>진단과 제한 조건</li>
+              <li>IaC 또는 클라우드 이전 도구의 입력</li>
+            </ul>
+          </article>
+        </div>
+        <div class="scope-note">
+          <span>Engine 책임</span>
+          <p>대상 설계 근거 제공</p>
+          <i></i>
+          <span>외부 도구 책임</span>
+          <p>VM 생성과 실제 클라우드 이전 실행</p>
+        </div>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>31/32</span></footer>
+      </section>
+
+      <section class="slide project-outcomes-slide" data-section="main" data-number="32" aria-labelledby="slide-32-title">
+        <header class="slide-header center-header">
+          <p class="eyebrow">Project outcomes</p>
+          <h2 id="slide-32-title">ZConverter Assessment 시스템이 만드는 결과</h2>
+          <p class="lead">하나의 현재 환경 정보를 운영, 마이그레이션과 자동화 도구의 공통 근거와 입력으로 제공한다.</p>
+        </header>
+        <section class="outcome-source"><span>ONE SOURCE</span><h3>현재 환경 정보</h3><p>인벤토리, raw metrics, 규칙 기반 평가</p></section>
+        <div class="outcome-grid">
+          <article>
+            <span>01</span>
+            <small>운영</small>
+            <h3>운영 판단</h3>
+            <p>Dashboard와 Report의<br>조치 후보와 우선순위</p>
+          </article>
+          <article>
+            <span>02</span>
+            <small>마이그레이션</small>
+            <h3>설계 근거</h3>
+            <p>VM 사양과 재해복구<br>구성안의 판단 근거</p>
+          </article>
+          <article>
+            <span>03</span>
+            <small>자동화 도구</small>
+            <h3>연계 입력</h3>
+            <p>Assessment API,<br>JSON Export</p>
+          </article>
+        </div>
+        <p class="outcome-statement">운영 담당자, 마이그레이션 설계자와 자동화 도구가 같은 현재 환경 정보를 각자의 업무에 사용한다.</p>
+        <footer class="slide-footer"><span>ZConverter Assessment</span><span>32/32</span></footer>
+      </section>
+
+      <section class="slide chapter-divider" data-section="appendix" data-number="0" aria-labelledby="slide-appendix-title">
+        <div class="chapter-index"><span>APPENDIX</span><strong>A</strong></div>
+        <div class="chapter-copy">
+          <p class="eyebrow">Technical details</p>
+          <h2 id="slide-appendix-title">기술 부록</h2>
+          <p>본문의 업무 흐름을 뒷받침하는 Agent, 메시지 계약, 평가 기준, 비동기 작업과 배포 경계를 질문에 맞춰 확인한다.</p>
+          <div class="chapter-keywords"><span>Agent</span><span>Data contract</span><span>Right-sizing</span><span>Operations</span></div>
+        </div>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>Appendix</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="1" aria-labelledby="slide-a1-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 01</p><h2 id="slide-a1-title">Agent 수집과 OS 지원 범위</h2><p class="lead">OS별 단일 바이너리와 현장 접근 조건에 맞는 배포 경로</p></header>
+        <div class="appendix-columns">
+          <article class="appendix-card">
+            <h3>산출 바이너리 2종</h3>
+            <dl class="key-values"><div><dt>Linux</dt><dd>x86_64 musl static</dd></div><div><dt>Windows</dt><dd>single i686, 런타임 세대 분기</dd></div></dl>
+            <p class="card-note">인벤토리와 누적 카운터를 수집하고 계산은 Engine에 맡긴다.</p>
+          </article>
+          <article class="appendix-card path-detail-card">
+            <h3>현장 배포 경로</h3>
+            <ol class="number-list">
+              <li><span>SSH</span> 바이너리와 설정 전송, 서비스 등록</li>
+              <li><span>Ansible</span> 같은 SSH 절차의 다중 서버 자동화</li>
+              <li><span>Offline</span> rescue 또는 볼륨 마운트 후 파일과 서비스 정보 주입</li>
+            </ol>
+          </article>
+        </div>
+        <p class="appendix-note">Agent와 Engine은 준비된 VM에 배치한다. VM provisioning은 별도 환경 구성 책임이다.</p>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A1/A11</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="2" aria-labelledby="slide-a2-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 02</p><h2 id="slide-a2-title">메시지 흐름과 데이터 계약</h2><p class="lead">수집 메시지와 원격 작업이 분리된 양방향 계약</p></header>
+        <div class="message-lanes">
+          <article><span class="lane-direction">Agent &rarr; Engine</span><h3>수집과 결과</h3><div class="message-chips"><span>server.inventory</span><span>server.metrics</span><span>server.error</span><span>task.result</span></div></article>
+          <article><span class="lane-direction">Engine &rarr; Agent</span><h3>설치 작업</h3><div class="message-chips"><span>task.install.{agent_id}</span></div></article>
+        </div>
+        <div class="contract-rules">
+          <p><span>버전</span> envelope의 schema_version, major 일치</p>
+          <p><span>식별</span> 최초 생성 후 보존하는 agent_id</p>
+          <p><span>확장</span> 새 필드는 수용하고 미사용 필드는 명시적으로 제외</p>
+          <p><span>실패</span> 메시지 결함은 DLQ, 외부 일시 장애는 제한 재시도</p>
+        </div>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A2/A11</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="3" aria-labelledby="slide-a3-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 03</p><h2 id="slide-a3-title">데이터 저장과 중복 방지</h2><p class="lead">시계열 저장과 메시지 재전송을 함께 고려한 2단 방어</p></header>
+        <div class="idempotency-flow">
+          <article><span>1단</span><h3>Redis SET NX</h3><p>같은 message_id의 반복 처리를 먼저 차단한다.</p><small>Redis 장애 시 fail-open</small></article>
+          <i class="flow-arrow-icon" aria-hidden="true"></i>
+          <article><span>2단</span><h3>DB UNIQUE</h3><p>7개 시계열 테이블의 자연키 충돌을 저장 단계에서 흡수한다.</p><small>최종 중복 방어</small></article>
+        </div>
+        <div class="storage-strip"><span>server_inventory</span><span>inventory_history</span><span>7 metric hypertables</span><span>tasks</span><span>diagnostic_jobs</span></div>
+        <p class="appendix-note">TimescaleDB 조회는 시간 범위를 필수로 사용하고, 누적 카운터 집계는 counter_agg를 사용한다.</p>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A3/A11</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="4" aria-labelledby="slide-a4-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 04</p><h2 id="slide-a4-title">5개 자원 평가 영역</h2><p class="lead">자원마다 이용률, 포화, 오류 신호를 조합하는 USE 기반 판정</p></header>
+        <div class="resource-matrix">
+          <div class="matrix-head"><span>영역</span><span>이용률</span><span>포화</span><span>오류 / 제약</span></div>
+          <div><strong>CPU</strong><span>사용률 p95</span><span>실행 큐</span><span>steal, burst</span></div>
+          <div><strong>메모리</strong><span>사용률 p95</span><span>swap, fault</span><span>추세</span></div>
+          <div><strong>디스크 용량</strong><span>파일시스템 사용률</span><span>소진 예상</span><span>확장 가능성</span></div>
+          <div><strong>디스크 I/O</strong><span>IOPS 기준선</span><span>await p95</span><span>저활동 제외</span></div>
+          <div><strong>네트워크</strong><span>트래픽</span><span>conntrack</span><span>재전송, drop</span></div>
+        </div>
+        <div class="assessment-output"><span>자원별 상태</span><i class="flow-arrow-icon" aria-hidden="true"></i><span>근본 원인</span><i class="flow-arrow-icon" aria-hidden="true"></i><span>호스트 권고</span></div>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A4/A11</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="5" aria-labelledby="slide-a5-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 05</p><h2 id="slide-a5-title">판정 신뢰도 단서와 보수적 다운사이즈</h2><p class="lead">낮은 사용률만으로 축소 사양을 즉시 확정하지 않는 안전 게이트</p></header>
+        <div class="confidence-layout">
+          <div class="confidence-base">
+            <p class="section-label">기본 신뢰도를 낮추는 4개 단서</p>
+            <div class="confidence-chips"><span>이력 부족</span><span>높은 변동성</span><span>관측 공백</span><span>측정 편향</span></div>
+          </div>
+          <div class="trend-gate">
+            <p class="section-label">미래 방향을 제한하는 별도 단서</p>
+            <span class="trend-line" aria-hidden="true"></span>
+            <h3>이용률 상승 추세</h3>
+            <p>CPU와 메모리의 자기 자원 평가에만 반영</p>
+          </div>
+        </div>
+        <div class="downsize-gate"><span>저사용 분류</span><i>+</i><span>신뢰도 높음</span><i>+</i><span>상승 추세 없음</span><i>+</i><span>관측 비율 충분</span><b><i class="flow-arrow-icon" aria-hidden="true"></i>구체 축소 사양</b></div>
+        <p class="appendix-note">조건이 부족하면 과다 할당 표시는 유지하되 권고는 관찰 지속으로 제한한다.</p>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A5/A11</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="6" aria-labelledby="slide-a6-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 06</p><h2 id="slide-a6-title">보고서 작업의 동시성 제어</h2><p class="lead">DB 상태 전이와 active UNIQUE로 중복 발행과 다중 서버 처리를 제어</p></header>
+        <div class="job-flow">
+          <article><span>01</span><h3>입력 해시</h3><p>범위, 기준 시각과 유형을 하나의 hash로 고정</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+          <article><span>02</span><h3>활성 작업</h3><p>pending/running 충돌은 기존 job에 합류</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+          <article><span>03</span><h3>Worker claim</h3><p>pending 1건을 running으로 원자 전이</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+          <article><span>04</span><h3>정적 결과</h3><p>succeeded result JSON을 그대로 렌더링</p></article>
+        </div>
+        <div class="report-types"><article><h3>환경 또는 서버 1대</h3><p>1개 job이 1개 정적 스냅샷을 생성</p></article><article><h3>선택 서버 N대</h3><p>parent job과 N개 child snapshot이 모두 성공해야 완료</p></article></div>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A6/A11</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="7" aria-labelledby="slide-a7-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 07</p><h2 id="slide-a7-title">Assessment API와 JSON Export</h2><p class="lead">같은 평가 결과를 연결형 API와 파일형 산출물로 제공</p></header>
+        <div class="api-compare">
+          <article><span class="api-type">HTTP</span><h3>Assessment API</h3><p>클라우드 이전 또는 재해복구 도구가 최신 평가를 직접 조회한다.</p><code>GET /api/assessment</code></article>
+          <article><span class="api-type">FILE</span><h3>JSON Export</h3><p>Engine에 직접 접속하지 않는 도구에 같은 계약을 파일로 전달한다.</p><code>POST /api/exports/inventory</code></article>
+        </div>
+        <p class="contract-content-label">공통 계약 필드</p>
+        <div class="contract-content"><span>identity</span><span>reproduction</span><span>sizing axes</span><span>assessment</span><span>diagnostics</span></div>
+        <p class="appendix-note">보고서는 사람이 읽고, API와 Export는 자동화 도구가 소비한다. 계산 규칙은 동일하다.</p>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A7/A11</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="8" aria-labelledby="slide-a8-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 08</p><h2 id="slide-a8-title">ZDM 설치 작업</h2><p class="lead">허용된 패키지를 검증한 뒤 실행하고 결과를 실행 이력으로 남기는 제한된 원격 작업</p></header>
+        <div class="secure-install-flow">
+          <article><span>1</span><h3>대상과 인자 검증</h3><p>등록 서버와 허용 범위 확인</p></article>
+          <article><span>2</span><h3>패키지 해석</h3><p>허용 host와 sha256 확보</p></article>
+          <article><span>3</span><h3>Agent 실행</h3><p>다운로드, 검증, 설치</p></article>
+          <article><span>4</span><h3>결과 판정</h3><p>success 또는 failure, timeout 사유</p></article>
+        </div>
+        <div class="state-machine"><span>pending</span><i class="flow-arrow-icon" aria-hidden="true"></i><span>success</span><b>or</b><span>failure</span><b>failure 사유 기록</b></div>
+        <p class="appendix-note">임의 명령 실행이 아니라 ZDM 설치 계약만 지원한다.</p>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A8/A11</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="9" aria-labelledby="slide-a9-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 09</p><h2 id="slide-a9-title">릴리스 및 배포 절차</h2><p class="lead">구현된 품질 게이트와 단일 VM 배포 경로</p></header>
+        <div class="release-lane">
+          <article><span>Code</span><p>Python 3.14, FastAPI</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+          <article><span>CI</span><p>ruff, pyright, pytest, 타입 계약</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+          <article><span>Image</span><p>GHCR, cosign, SBOM, provenance</p></article><i class="flow-arrow-icon" aria-hidden="true"></i>
+          <article><span>Deploy</span><p>VM pull, migrate, health, rollback</p></article>
+        </div>
+        <div class="compose-services"><span>web</span><span>consumer</span><span>worker</span><span>migrate</span><span>postgres</span><span>rabbitmq</span><span>redis</span></div>
+        <p class="appendix-note">릴리스와 배포 절차가 구현돼 있다. 69대 시험은 Engine 운영 배포 검증이 아니라 Agent 수집 경로 검증이다.</p>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A9/A11</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="10" aria-labelledby="slide-a10-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 10</p><h2 id="slide-a10-title">OpenStack 69대 시험대</h2><p class="lead">현장에서 만날 수 있는 OS와 접근 제약을 재현한 Agent 검증 환경</p></header>
+        <div class="testbed-layout">
+          <div class="os-counts"><article><span>58</span><h3>Linux</h3><p>systemd, SysV, 구형 배포판, BIOS/UEFI</p></article><article><span>11</span><h3>Windows</h3><p>Server 2003부터 현대 세대 이미지</p></article></div>
+          <div class="testbed-paths"><p><span>Standard</span> cloud-init 또는 SSH 배포</p><p><span>Rescue</span> 키와 서비스의 offline 주입</p><p><span>Windows</span> 부팅 볼륨과 registry hive 주입</p><p><span>Verify</span> inventory와 metrics의 Engine 등록 확인</p></div>
+        </div>
+        <p class="appendix-note">검증 범위는 Agent 배포와 수집 경로다. 전체 진단 정확도와 장기 운영 안정성은 별도 검증 대상이다.</p>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A10/A11</span></footer>
+      </section>
+
+      <section class="slide appendix" data-section="appendix" data-number="11" aria-labelledby="slide-a11-title">
+        <header class="slide-header"><p class="eyebrow">Appendix 11</p><h2 id="slide-a11-title">현재 적용 범위와 한계</h2><p class="lead">현재 구현의 책임과 클라우드 이전 및 재해복구 솔루션의 경계</p></header>
+        <div class="limits-grid">
+          <article><span>Deployment</span><h3>단일 VM</h3><p>HA와 zero-downtime 구성은 미도입</p></article>
+          <article><span>Security</span><h3>내장 인증 없음</h3><p>TLS와 접근 통제는 배포 인프라 책임</p></article>
+          <article><span>Network</span><h3>추론형 토폴로지</h3><p>공동 subnet 기반이며 실제 도달성 검증 아님</p></article>
+          <article><span>Report</span><h3>브라우저 인쇄 PDF</h3><p>별도 PDF 생성 엔진 미도입</p></article>
+          <article><span>Provisioning</span><h3>대상 VM 생성 제외</h3><p>API와 Export가 설계 근거 제공</p></article>
+          <article><span>Validation</span><h3>수집 경로 중심</h3><p>69대 검증은 전체 제품 E2E 검증 아님</p></article>
+        </div>
+        <footer class="slide-footer"><span>Technical Appendix</span><span>A11/A11</span></footer>
+      </section>
+    </div>
+  </main>
+  <nav class="deck-controls" aria-label="슬라이드 이동">
+    <button type="button" data-action="prev" aria-label="이전 슬라이드">Prev</button>
+    <span id="deck-position">1 / 23</span>
+    <button type="button" data-action="next" aria-label="다음 슬라이드">Next</button>
+  </nav>
+</body>
+</html>

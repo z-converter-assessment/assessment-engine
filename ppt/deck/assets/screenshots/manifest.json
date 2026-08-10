@@ -1,0 +1,118 @@
+{
+  "environment-assessment": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.23.40.png",
+    "route": "/environment/assessment",
+    "captured_at": "2026-07-26T15:23:40+09:00",
+    "crop": { "x": 1210, "y": 1050, "width": 1640, "height": 900 },
+    "redactions": [],
+    "notes": "총 70 수치와 전역 header를 제외하고 서버별 평가 표만 사용한다."
+  },
+  "environment-overview": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.23.21.png",
+    "route": "/",
+    "captured_at": "2026-07-26T15:23:21+09:00",
+    "crop": { "x": 900, "y": 470, "width": 2000, "height": 950 },
+    "redactions": [],
+    "notes": "환경 전체의 서버와 자원 합계, OS 지원, 워크로드 및 자원 현황을 함께 보여 준다."
+  },
+  "server-overview": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.25.48.png",
+    "route": "/servers/{public_id}",
+    "captured_at": "2026-07-26T15:25:48+09:00",
+    "crop": { "x": 900, "y": 550, "width": 2000, "height": 480 },
+    "redactions": [],
+    "notes": "개별 서버의 시스템, 스토리지, 네트워크와 식별 정보를 보여 준다."
+  },
+  "server-metrics": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.25.53.png",
+    "route": "/servers/{public_id}",
+    "captured_at": "2026-07-26T15:25:53+09:00",
+    "crop": { "x": 900, "y": 400, "width": 2000, "height": 480 },
+    "redactions": [],
+    "notes": "개별 서버의 실시간 자원 메트릭과 스토리지 및 네트워크 활동을 보여 준다."
+  },
+  "customer-report": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.25.23.png",
+    "route": "/reports/servers?view=customer",
+    "captured_at": "2026-07-26T15:25:23+09:00",
+    "crop": { "x": 860, "y": 450, "width": 2020, "height": 1480 },
+    "redactions": [],
+    "notes": "브라우저 frame, 전역 header, 총 70 수치를 제외한 고객 제출용 보고서 본문을 사용한다."
+  },
+  "report-customer-environment": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.25.23.png",
+    "route": "/reports/servers?view=customer",
+    "captured_at": "2026-07-26T15:25:23+09:00",
+    "crop": { "x": 850, "y": 520, "width": 1760, "height": 550 },
+    "redactions": [],
+    "notes": "고객용 환경 보고서의 제목, 요약과 환경 현황 시작부를 확대한다."
+  },
+  "report-engineer-environment": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.24.56.png",
+    "route": "/reports/servers?view=engineer",
+    "captured_at": "2026-07-26T15:24:56+09:00",
+    "crop": { "x": 850, "y": 600, "width": 1760, "height": 550 },
+    "redactions": [],
+    "notes": "엔지니어용 환경 보고서의 환경 부하 추이, 네트워크 토폴로지와 자원 적정성을 확대한다."
+  },
+  "report-customer-server": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.25.09.png",
+    "route": "/servers/{public_id}/report?view=customer",
+    "captured_at": "2026-07-26T15:25:09+09:00",
+    "crop": { "x": 850, "y": 650, "width": 1760, "height": 550 },
+    "redactions": [],
+    "notes": "고객용 개별 보고서의 서버 인벤토리, 서비스 요약과 평가 결론을 확대한다."
+  },
+  "report-engineer-server": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.24.34.png",
+    "route": "/servers/{public_id}/report?view=engineer",
+    "captured_at": "2026-07-26T15:24:34+09:00",
+    "crop": { "x": 850, "y": 450, "width": 1760, "height": 550 },
+    "redactions": [],
+    "notes": "엔지니어용 개별 보고서의 CPU와 메모리 정량 통계 및 포화 근거를 확대한다."
+  },
+  "install-result": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.27.21.png",
+    "route": "/servers/{public_id}",
+    "captured_at": "2026-07-26T15:27:21+09:00",
+    "crop": { "x": 1080, "y": 620, "width": 1180, "height": 650 },
+    "redactions": [
+      { "x": 68, "y": 22, "width": 960, "height": 112, "text": "ZConverter 설치 작업 결과" },
+      { "x": 320, "y": 428, "width": 760, "height": 41, "text": "내부 ZDM 주소" },
+      { "x": 320, "y": 472, "width": 760, "height": 41, "text": "운영 담당자" }
+    ],
+    "notes": "작업 ID, hostname, 내부 IP, 이메일을 픽셀 단계에서 제거한다. stdout과 stderr는 crop에서 제외한다."
+  },
+  "install-status-list": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.23.33.png",
+    "route": "/servers",
+    "captured_at": "2026-07-26T15:23:33+09:00",
+    "crop": { "x": 2410, "y": 650, "width": 500, "height": 430 },
+    "redactions": [],
+    "notes": "서버 목록의 ZDM Install 칼럼과 성공 배지를 확대한다."
+  },
+  "install-batch-selection": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.23.33.png",
+    "route": "/servers",
+    "captured_at": "2026-07-26T15:23:33+09:00",
+    "crop": { "x": 930, "y": 550, "width": 2000, "height": 520 },
+    "redactions": [],
+    "notes": "서버 목록의 선택 체크박스, 일괄 작업 버튼과 ZDM Install 칼럼을 함께 보여 준다."
+  },
+  "horizon-mixed-fleet": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 2.28.29.png",
+    "route": "/project/instances/",
+    "captured_at": "2026-07-26T14:28:29+09:00",
+    "crop": { "x": 0, "y": 300, "width": 3420, "height": 1900 },
+    "redactions": [],
+    "notes": "Horizon 상단 메뉴, 사이드바, 혼합 OS와 Engine VM이 있는 인스턴스 표 전체를 사용한다."
+  },
+  "horizon-windows-fleet": {
+    "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 2.30.06.png",
+    "route": "/project/instances/",
+    "captured_at": "2026-07-26T14:30:06+09:00",
+    "crop": { "x": 0, "y": 300, "width": 3420, "height": 1900 },
+    "redactions": [],
+    "notes": "Horizon 상단 메뉴, 사이드바, Windows Server 세대별 인스턴스 표 전체를 사용한다."
+  }
+}
