@@ -11,25 +11,25 @@
     "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.23.21.png",
     "route": "/",
     "captured_at": "2026-07-26T15:23:21+09:00",
-    "crop": { "x": 900, "y": 470, "width": 2000, "height": 950 },
+    "crop": { "x": 900, "y": 565, "width": 2000, "height": 845 },
     "redactions": [],
-    "notes": "환경 전체의 서버와 자원 합계, OS 지원, 워크로드 및 자원 현황을 함께 보여 준다."
+    "notes": "환경 요약과 워크로드 및 자원 적정성 카드의 완결된 경계를 함께 보여 준다."
   },
   "server-overview": {
     "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.25.48.png",
     "route": "/servers/{public_id}",
     "captured_at": "2026-07-26T15:25:48+09:00",
-    "crop": { "x": 900, "y": 550, "width": 2000, "height": 480 },
+    "crop": { "x": 900, "y": 635, "width": 2000, "height": 325 },
     "redactions": [],
-    "notes": "개별 서버의 시스템, 스토리지, 네트워크와 식별 정보를 보여 준다."
+    "notes": "개별 서버의 시스템 사양과 스토리지 정보 블록을 완결된 경계로 보여 준다."
   },
   "server-metrics": {
     "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.25.53.png",
     "route": "/servers/{public_id}",
     "captured_at": "2026-07-26T15:25:53+09:00",
-    "crop": { "x": 900, "y": 400, "width": 2000, "height": 480 },
+    "crop": { "x": 900, "y": 465, "width": 2000, "height": 535 },
     "redactions": [],
-    "notes": "개별 서버의 실시간 자원 메트릭과 스토리지 및 네트워크 활동을 보여 준다."
+    "notes": "개별 서버의 실시간 자원 메트릭과 스토리지 및 네트워크 활동 카드 전체를 보여 준다."
   },
   "customer-report": {
     "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.25.23.png",
@@ -43,33 +43,33 @@
     "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.25.23.png",
     "route": "/reports/servers?view=customer",
     "captured_at": "2026-07-26T15:25:23+09:00",
-    "crop": { "x": 850, "y": 520, "width": 1760, "height": 550 },
+    "crop": { "x": 900, "y": 500, "width": 2050, "height": 545 },
     "redactions": [],
-    "notes": "고객용 환경 보고서의 제목, 요약과 환경 현황 시작부를 확대한다."
+    "notes": "고객용 환경 보고서의 제목과 요약 카드 전체를 확대한다."
   },
   "report-engineer-environment": {
     "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.24.56.png",
     "route": "/reports/servers?view=engineer",
     "captured_at": "2026-07-26T15:24:56+09:00",
-    "crop": { "x": 850, "y": 600, "width": 1760, "height": 550 },
+    "crop": { "x": 900, "y": 800, "width": 2050, "height": 690 },
     "redactions": [],
-    "notes": "엔지니어용 환경 보고서의 환경 부하 추이, 네트워크 토폴로지와 자원 적정성을 확대한다."
+    "notes": "엔지니어용 환경 보고서의 환경 부하 추이와 네트워크 토폴로지 카드 전체를 확대한다."
   },
   "report-customer-server": {
     "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.25.09.png",
     "route": "/servers/{public_id}/report?view=customer",
     "captured_at": "2026-07-26T15:25:09+09:00",
-    "crop": { "x": 850, "y": 650, "width": 1760, "height": 550 },
+    "crop": { "x": 900, "y": 650, "width": 2050, "height": 670 },
     "redactions": [],
-    "notes": "고객용 개별 보고서의 서버 인벤토리, 서비스 요약과 평가 결론을 확대한다."
+    "notes": "고객용 개별 보고서의 서버 인벤토리와 서비스 요약 카드 전체를 확대한다."
   },
   "report-engineer-server": {
     "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.24.34.png",
     "route": "/servers/{public_id}/report?view=engineer",
     "captured_at": "2026-07-26T15:24:34+09:00",
-    "crop": { "x": 850, "y": 450, "width": 1760, "height": 550 },
+    "crop": { "x": 900, "y": 1335, "width": 2050, "height": 400 },
     "redactions": [],
-    "notes": "엔지니어용 개별 보고서의 CPU와 메모리 정량 통계 및 포화 근거를 확대한다."
+    "notes": "엔지니어용 개별 보고서의 CPU 정량 통계와 포화 근거 카드 전체를 확대한다."
   },
   "install-result": {
     "source": "../../../capture-20260726/스크린샷 2026-07-26 오후 3.27.21.png",

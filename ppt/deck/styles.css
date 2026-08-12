@@ -2591,16 +2591,16 @@ h3 {
 
 .inventory-metrics-slide .slide-header { margin-bottom: 18px; }
 .scope-observation-layout { display: grid; grid-template-columns: repeat(2, 1fr); gap: 22px; }
-.scope-observation-card { height: 414px; overflow: hidden; border: 1px solid var(--line); border-top: 6px solid var(--teal); border-radius: 11px; background: #fff; box-shadow: 0 10px 24px rgb(14 40 65 / 8%); }
+.scope-observation-card { height: 414px; overflow: hidden; border: 1px solid var(--line); border-top: 6px solid var(--teal); border-radius: 11px; background: #fff; }
 .scope-observation-card.server-scope-card { border-top-color: var(--orange); }
 .scope-observation-card > header { height: 88px; padding: 13px 17px 11px; }
 .scope-observation-card > header span { color: var(--teal); font-size: 8px; font-weight: 800; letter-spacing: 0.1em; }
 .scope-observation-card.server-scope-card > header span { color: var(--orange); }
 .scope-observation-card > header h3 { margin: 4px 0 3px; font-size: 18px; }
 .scope-observation-card > header p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.4; }
-.scope-observation-card figure { height: 254px; margin: 0; overflow: hidden; border-block: 1px solid var(--line); background: #e8eef3; }
-.scope-observation-card figure img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center top; }
-.scope-observation-card .server-scope-screens { display: grid; grid-template-rows: repeat(2, 1fr); gap: 2px; background: #cbd6df; }
+.scope-observation-card figure { height: 254px; margin: 0; overflow: hidden; border-block: 1px solid var(--line); background: #eef2f5; }
+.scope-observation-card figure img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; }
+.scope-observation-card .server-scope-screens { display: grid; grid-template-rows: 100px 152px; gap: 2px; background: #cbd6df; }
 .scope-observation-card .server-scope-screens img { min-height: 0; }
 .scope-data-tags { display: flex; min-height: 66px; align-items: center; flex-wrap: wrap; gap: 6px; padding: 9px 13px; }
 .scope-data-tags span { padding: 5px 8px; border-radius: 999px; background: var(--soft-blue); color: var(--navy); font-size: 9px; font-weight: 700; }
@@ -2906,7 +2906,7 @@ h3 {
 .report-variant-card.customer-card { border-color: #c6dee7; }
 .report-variant-card.engineer-card { border-color: #f0c9b2; }
 .report-variant-card figure { margin: 0; overflow: hidden; border-bottom: 1px solid var(--line); background: #e9eef4; }
-.report-variant-card img { display: block; width: 100%; height: 100%; object-fit: cover; }
+.report-variant-card img { display: block; width: 100%; height: 100%; object-fit: contain; object-position: center; }
 .report-variant-card p { display: flex; align-items: center; margin: 0; padding: 7px 12px; color: var(--ink); font-size: 9px; line-height: 1.35; word-break: keep-all; }
 
 .validation-topology {
@@ -4055,6 +4055,11 @@ h3 {
     overflow: visible;
     transform: none !important;
     box-shadow: none;
+  }
+
+  .slide * {
+    box-shadow: none !important;
+    filter: none !important;
   }
 
   .slide,
