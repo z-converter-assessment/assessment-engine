@@ -114,11 +114,11 @@ vhost·권한·토폴로지 등 broker 자체 운영은 `docs/reference/rabbitmq
 렌더된 페이지를 PNG 로 찍고 브라우저 콘솔 에러를 함께 걷는다. 표시 계층이 실제 브라우저에서 어떻게 그려지는지는 띄워 봐야 알고, 화면이 멀쩡해 보여도 차트 로더가 조용히 죽은 경우를 이 콘솔 수집이 잡는다.
 
 ```bash
-pnpm exec playwright install --with-deps chromium   # 최초 1회
+pnpm exec playwright install chromium               # 최초 1회
 make screenshot OUT=shots SERVER=<public_id>        # 표준 페이지 세트 캡처
 ```
 
-브라우저 설치가 별도인 이유는 실물이 150MB 안팎이라 npm 패키지에 담기지 않기 때문이다 — `make setup` 이 받는 것은 playwright 패키지까지다. `--with-deps` 는 실행에 필요한 시스템 라이브러리를 apt 로 받으므로 sudo 를 묻는다.
+브라우저 설치가 별도인 이유는 실물이 150MB 안팎이라 npm 패키지에 담기지 않기 때문이다 — `make setup` 이 받는 것은 playwright 패키지까지다. Chromium 기동이 시스템 라이브러리 누락으로 실패할 때만 `pnpm exec playwright install --with-deps chromium` 을 실행한다. 이 명령은 apt 로 라이브러리를 설치하므로 sudo 를 묻는다.
 
 | 옵션 | 기본값 | 뜻 |
 |------|--------|-----|
